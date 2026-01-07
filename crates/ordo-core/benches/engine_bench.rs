@@ -301,11 +301,11 @@ fn bench_builtin_functions(c: &mut Criterion) {
     // String functions
     let string_val = Value::string("Hello, World!");
     group.bench_function("len_string", |b| {
-        b.iter(|| registry.call("len", black_box(&[string_val.clone()])))
+        b.iter(|| registry.call("len", black_box(std::slice::from_ref(&string_val))))
     });
 
     group.bench_function("upper", |b| {
-        b.iter(|| registry.call("upper", black_box(&[string_val.clone()])))
+        b.iter(|| registry.call("upper", black_box(std::slice::from_ref(&string_val))))
     });
 
     // Array functions
@@ -318,15 +318,15 @@ fn bench_builtin_functions(c: &mut Criterion) {
     ]);
 
     group.bench_function("len_array", |b| {
-        b.iter(|| registry.call("len", black_box(&[array_val.clone()])))
+        b.iter(|| registry.call("len", black_box(std::slice::from_ref(&array_val))))
     });
 
     group.bench_function("sum", |b| {
-        b.iter(|| registry.call("sum", black_box(&[array_val.clone()])))
+        b.iter(|| registry.call("sum", black_box(std::slice::from_ref(&array_val))))
     });
 
     group.bench_function("avg", |b| {
-        b.iter(|| registry.call("avg", black_box(&[array_val.clone()])))
+        b.iter(|| registry.call("avg", black_box(std::slice::from_ref(&array_val))))
     });
 
     // Math functions

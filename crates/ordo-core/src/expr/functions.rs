@@ -430,19 +430,25 @@ mod tests {
 
         let arr = Value::array(vec![Value::int(1), Value::int(2), Value::int(3)]);
 
-        assert_eq!(registry.call("sum", &[arr.clone()]).unwrap(), Value::int(6));
         assert_eq!(
-            registry.call("avg", &[arr.clone()]).unwrap(),
+            registry.call("sum", std::slice::from_ref(&arr)).unwrap(),
+            Value::int(6)
+        );
+        assert_eq!(
+            registry.call("avg", std::slice::from_ref(&arr)).unwrap(),
             Value::float(2.0)
         );
         assert_eq!(
-            registry.call("count", &[arr.clone()]).unwrap(),
+            registry.call("count", std::slice::from_ref(&arr)).unwrap(),
             Value::int(3)
         );
         assert_eq!(
-            registry.call("first", &[arr.clone()]).unwrap(),
+            registry.call("first", std::slice::from_ref(&arr)).unwrap(),
             Value::int(1)
         );
-        assert_eq!(registry.call("last", &[arr]).unwrap(), Value::int(3));
+        assert_eq!(
+            registry.call("last", std::slice::from_ref(&arr)).unwrap(),
+            Value::int(3)
+        );
     }
 }

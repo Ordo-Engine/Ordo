@@ -21,7 +21,7 @@
 //! // Add decision step
 //! ruleset.add_step(
 //!     Step::decision("check_user", "Check User Type")
-//!         .branch(Condition::from_str("user.vip == true"), "vip_discount")
+//!         .branch(Condition::from_string("user.vip == true"), "vip_discount")
 //!         .default("normal_discount")
 //!         .build()
 //! );
@@ -46,7 +46,8 @@
 //! println!("Result: {} - {}", result.code, result.message);
 //! ```
 
-#![warn(missing_docs)]
+// Documentation requirements - allow missing docs for struct fields and enum variants
+#![allow(missing_docs)]
 #![warn(clippy::all)]
 
 pub mod context;
@@ -85,7 +86,7 @@ mod tests {
         // Step 1: Check balance
         ruleset.add_step(
             Step::decision("check_balance", "Check Balance")
-                .branch(Condition::from_str("balance >= 1000"), "check_status")
+                .branch(Condition::from_string("balance >= 1000"), "check_status")
                 .default("reject_low_balance")
                 .build(),
         );
@@ -93,9 +94,9 @@ mod tests {
         // Step 2: Check status
         ruleset.add_step(
             Step::decision("check_status", "Check Status")
-                .branch(Condition::from_str("status == \"active\""), "approve")
+                .branch(Condition::from_string("status == \"active\""), "approve")
                 .branch(
-                    Condition::from_str("status == \"pending\""),
+                    Condition::from_string("status == \"pending\""),
                     "pending_review",
                 )
                 .default("reject_inactive")

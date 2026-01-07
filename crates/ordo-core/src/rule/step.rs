@@ -195,7 +195,7 @@ impl Condition {
     }
 
     /// Create an expression condition from string
-    pub fn from_str(s: impl Into<String>) -> Self {
+    pub fn from_string(s: impl Into<String>) -> Self {
         Self::ExpressionString(s.into())
     }
 }
@@ -336,8 +336,8 @@ mod tests {
     #[test]
     fn test_step_builder() {
         let step = Step::decision("check_age", "Check Age")
-            .branch(Condition::from_str("age >= 18"), "adult")
-            .branch(Condition::from_str("age >= 13"), "teen")
+            .branch(Condition::from_string("age >= 18"), "adult")
+            .branch(Condition::from_string("age >= 13"), "teen")
             .default("child")
             .build();
 

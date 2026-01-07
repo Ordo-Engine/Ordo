@@ -59,13 +59,11 @@ impl Context {
     /// - `$`: get from variables
     /// - `item.`: get from current iteration item
     pub fn get(&self, path: &str) -> Option<&Value> {
-        if path.starts_with('$') {
+        if let Some(var_name) = path.strip_prefix('$') {
             // Variable reference
-            let var_name = &path[1..];
             self.variables.get(var_name)
-        } else if path.starts_with("item.") {
+        } else if let Some(item_path) = path.strip_prefix("item.") {
             // Current iteration item field
-            let item_path = &path[5..];
             self.current_item.as_ref()?.get_path(item_path)
         } else if path == "item" {
             // Current iteration item itself
@@ -73,9 +71,8 @@ impl Context {
         } else if path == "_index" {
             // Special handling for index
             None // TODO: needs improvement
-        } else if path.starts_with("data.") {
+        } else if let Some(data_path) = path.strip_prefix("data.") {
             // Explicit data prefix
-            let data_path = &path[5..];
             self.data.get_path(data_path)
         } else {
             // Default: get from data

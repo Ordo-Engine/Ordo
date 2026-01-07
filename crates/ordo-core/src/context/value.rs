@@ -10,10 +10,11 @@ use std::collections::HashMap;
 use std::fmt;
 
 /// Dynamic value type
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(untagged)]
 pub enum Value {
     /// Null value
+    #[default]
     Null,
     /// Boolean value
     Bool(bool),
@@ -411,14 +412,6 @@ impl fmt::Display for Value {
     }
 }
 
-// ==================== Default implementation ====================
-
-impl Default for Value {
-    fn default() -> Self {
-        Self::Null
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,7 +421,7 @@ mod tests {
         assert!(Value::null().is_null());
         assert!(Value::bool(true).is_bool());
         assert!(Value::int(42).is_int());
-        assert!(Value::float(3.14).is_float());
+        assert!(Value::float(3.15).is_float());
         assert!(Value::string("hello").is_string());
         assert!(Value::array(vec![]).is_array());
         assert!(Value::object(HashMap::new()).is_object());

@@ -550,7 +550,7 @@ mod tests {
     #[test]
     fn test_parse_literals() {
         assert_eq!(ExprParser::parse("42").unwrap(), Expr::literal(42i64));
-        assert_eq!(ExprParser::parse("3.14").unwrap(), Expr::literal(3.14f64));
+        assert_eq!(ExprParser::parse("3.15").unwrap(), Expr::literal(3.15f64));
         assert_eq!(ExprParser::parse("true").unwrap(), Expr::literal(true));
         assert_eq!(
             ExprParser::parse("\"hello\"").unwrap(),

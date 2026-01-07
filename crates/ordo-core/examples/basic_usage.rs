@@ -12,11 +12,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ruleset.add_step(
         Step::decision("check_membership", "Check Membership Level")
             .branch(
-                Condition::from_str("membership == \"gold\""),
+                Condition::from_string("membership == \"gold\""),
                 "gold_discount",
             )
             .branch(
-                Condition::from_str("membership == \"silver\""),
+                Condition::from_string("membership == \"silver\""),
                 "silver_discount",
             )
             .default("check_amount")
@@ -26,7 +26,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Step 2: Check purchase amount (for non-members)
     ruleset.add_step(
         Step::decision("check_amount", "Check Purchase Amount")
-            .branch(Condition::from_str("amount >= 1000"), "bulk_discount")
+            .branch(Condition::from_string("amount >= 1000"), "bulk_discount")
             .default("no_discount")
             .build(),
     );
@@ -92,7 +92,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let executor = RuleExecutor::with_trace(TraceConfig::minimal());
 
     // Test cases
-    let test_cases = vec![
+    let test_cases = [
         r#"{"membership": "gold", "amount": 500}"#,
         r#"{"membership": "silver", "amount": 300}"#,
         r#"{"membership": "bronze", "amount": 1500}"#,

@@ -1,7 +1,8 @@
 //! Ordo engine benchmarks
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ordo_core::prelude::*;
+use std::hint::black_box;
 
 /// Create a simple rule set for benchmarking
 fn create_simple_ruleset() -> RuleSet {
@@ -9,7 +10,7 @@ fn create_simple_ruleset() -> RuleSet {
 
     ruleset.add_step(
         Step::decision("start", "Start")
-            .branch(Condition::from_str("value > 50"), "high")
+            .branch(Condition::from_string("value > 50"), "high")
             .default("low")
             .build(),
     );
@@ -36,8 +37,8 @@ fn create_complex_ruleset() -> RuleSet {
     // Step 1: Check amount
     ruleset.add_step(
         Step::decision("check_amount", "Check Amount")
-            .branch(Condition::from_str("amount >= 10000"), "vip_check")
-            .branch(Condition::from_str("amount >= 1000"), "premium_check")
+            .branch(Condition::from_string("amount >= 10000"), "vip_check")
+            .branch(Condition::from_string("amount >= 1000"), "premium_check")
             .default("standard_check")
             .build(),
     );
@@ -46,11 +47,11 @@ fn create_complex_ruleset() -> RuleSet {
     ruleset.add_step(
         Step::decision("vip_check", "VIP Check")
             .branch(
-                Condition::from_str("user.level == \"gold\""),
+                Condition::from_string("user.level == \"gold\""),
                 "gold_discount",
             )
             .branch(
-                Condition::from_str("user.level == \"silver\""),
+                Condition::from_string("user.level == \"silver\""),
                 "silver_discount",
             )
             .default("vip_discount")
@@ -60,9 +61,9 @@ fn create_complex_ruleset() -> RuleSet {
     // Step 2b: Premium check
     ruleset.add_step(
         Step::decision("premium_check", "Premium Check")
-            .branch(Condition::from_str("user.age >= 60"), "senior_discount")
+            .branch(Condition::from_string("user.age >= 60"), "senior_discount")
             .branch(
-                Condition::from_str("user.is_member == true"),
+                Condition::from_string("user.is_member == true"),
                 "member_discount",
             )
             .default("normal_price")
@@ -73,7 +74,7 @@ fn create_complex_ruleset() -> RuleSet {
     ruleset.add_step(
         Step::decision("standard_check", "Standard Check")
             .branch(
-                Condition::from_str("coupon_code != null"),
+                Condition::from_string("coupon_code != null"),
                 "coupon_discount",
             )
             .default("normal_price")

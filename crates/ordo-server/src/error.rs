@@ -47,6 +47,7 @@ impl ApiError {
         }
     }
 
+    #[allow(dead_code)]
     pub fn conflict(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::CONFLICT,

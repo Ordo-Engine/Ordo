@@ -201,7 +201,7 @@ impl Expr {
     }
 
     /// Create a logical NOT
-    pub fn not(operand: Expr) -> Self {
+    pub fn logical_not(operand: Expr) -> Self {
         Self::unary(UnaryOp::Not, operand)
     }
 

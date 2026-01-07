@@ -338,25 +338,25 @@ fn require_args(name: &str, args: &[Value], count: usize) -> Result<()> {
     }
 }
 
-fn require_string<'a>(name: &str, value: &'a Value) -> Result<&'a str> {
+fn require_string<'a>(_name: &str, value: &'a Value) -> Result<&'a str> {
     value
         .as_str()
         .ok_or_else(|| OrdoError::type_error("string", value.type_name()))
 }
 
-fn require_int(name: &str, value: &Value) -> Result<i64> {
+fn require_int(_name: &str, value: &Value) -> Result<i64> {
     value
         .as_int()
         .ok_or_else(|| OrdoError::type_error("int", value.type_name()))
 }
 
-fn require_float(name: &str, value: &Value) -> Result<f64> {
+fn require_float(_name: &str, value: &Value) -> Result<f64> {
     value
         .as_float()
         .ok_or_else(|| OrdoError::type_error("number", value.type_name()))
 }
 
-fn require_array<'a>(name: &str, value: &'a Value) -> Result<&'a Vec<Value>> {
+fn require_array<'a>(_name: &str, value: &'a Value) -> Result<&'a Vec<Value>> {
     value
         .as_array()
         .ok_or_else(|| OrdoError::type_error("array", value.type_name()))

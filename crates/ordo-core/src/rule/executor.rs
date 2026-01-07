@@ -332,8 +332,8 @@ mod tests {
 
         ruleset.add_step(
             Step::decision("check_age", "Check Age")
-                .branch(Condition::from_str("age >= 18"), "adult_discount")
-                .branch(Condition::from_str("age >= 13"), "teen_discount")
+                .branch(Condition::from_string("age >= 18"), "adult_discount")
+                .branch(Condition::from_string("age >= 13"), "teen_discount")
                 .default("child_discount")
                 .build(),
         );

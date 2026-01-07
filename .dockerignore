@@ -1,0 +1,30 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Benchmark
+benchmark/
+
+# Local config
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
+

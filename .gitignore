@@ -4,7 +4,7 @@
 *.pdb
 
 # Cargo
-Cargo.lock
+# Note: Cargo.lock is committed for reproducible builds
 
 # IDE
 .idea/

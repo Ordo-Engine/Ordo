@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package ordo.v1;
+
+option java_package = "com.ordo.proto.v1";
+option java_multiple_files = true;
+option go_package = "github.com/pama-lee/ordo/proto/v1";
+
+// =============================================================================
+// Ordo Rule Engine Service
+// =============================================================================
+// This service is for business application callers.
+// Rule management (Create/Update/Delete) is handled via HTTP Admin API only.
+
+service OrdoService {
+  // Execute a ruleset with given input
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  
+  // Get a ruleset by name (read-only)
+  rpc GetRuleSet(GetRuleSetRequest) returns (GetRuleSetResponse);
+  
+  // List all available rulesets (read-only)
+  rpc ListRuleSets(ListRuleSetsRequest) returns (ListRuleSetsResponse);
+  
+  // Evaluate an expression (debug endpoint)
+  rpc Eval(EvalRequest) returns (EvalResponse);
+  
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// =============================================================================
+// Execute Messages
+// =============================================================================
+
+message ExecuteRequest {
+  // Name of the ruleset to execute
+  string ruleset_name = 1;
+  
+  // Input data as JSON string
+  string input_json = 2;
+  
+  // Whether to include execution trace in response
+  bool include_trace = 3;
+}
+
+message ExecuteResponse {
+  // Execution result code (e.g., "APPROVED", "REJECTED")
+  string code = 1;
+  
+  // Human-readable result message
+  string message = 2;
+  
+  // Output data as JSON string
+  string output_json = 3;
+  
+  // Execution duration in microseconds
+  uint64 duration_us = 4;
+  
+  // Execution trace (if requested)
+  ExecutionTrace trace = 5;
+}
+
+message ExecutionTrace {
+  // Path of step IDs taken during execution
+  string path = 1;
+  
+  // Details of each step executed
+  repeated StepTrace steps = 2;
+}
+
+message StepTrace {
+  // Step ID
+  string step_id = 1;
+  
+  // Step name
+  string step_name = 2;
+  
+  // Step duration in microseconds
+  uint64 duration_us = 3;
+  
+  // Step result (for decision steps: "true"/"false", for terminal: "terminal")
+  string result = 4;
+}
+
+// =============================================================================
+// RuleSet Messages
+// =============================================================================
+
+message GetRuleSetRequest {
+  // Name of the ruleset
+  string name = 1;
+}
+
+message GetRuleSetResponse {
+  // RuleSet definition as JSON
+  string ruleset_json = 1;
+  
+  // Version of the ruleset
+  string version = 2;
+  
+  // Description
+  string description = 3;
+  
+  // Number of steps in the ruleset
+  uint32 step_count = 4;
+}
+
+message ListRuleSetsRequest {
+  // Optional: filter by prefix
+  string name_prefix = 1;
+  
+  // Maximum number of results (0 = no limit)
+  uint32 limit = 2;
+}
+
+message ListRuleSetsResponse {
+  // List of ruleset summaries
+  repeated RuleSetSummary rulesets = 1;
+  
+  // Total count
+  uint32 total_count = 2;
+}
+
+message RuleSetSummary {
+  // RuleSet name
+  string name = 1;
+  
+  // Version
+  string version = 2;
+  
+  // Description
+  string description = 3;
+  
+  // Number of steps
+  uint32 step_count = 4;
+}
+
+// =============================================================================
+// Eval Messages (Debug)
+// =============================================================================
+
+message EvalRequest {
+  // Expression to evaluate
+  string expression = 1;
+  
+  // Context data as JSON string
+  string context_json = 2;
+}
+
+message EvalResponse {
+  // Result value as JSON
+  string result_json = 1;
+  
+  // Parsed expression (for debugging)
+  string parsed_expression = 2;
+}
+
+// =============================================================================
+// Health Messages
+// =============================================================================
+
+message HealthRequest {
+  // Optional: specific service to check
+  string service = 1;
+}
+
+message HealthResponse {
+  // Service status
+  enum Status {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  
+  Status status = 1;
+  
+  // Server version
+  string version = 2;
+  
+  // Number of loaded rulesets
+  uint32 ruleset_count = 3;
+  
+  // Server uptime in seconds
+  uint64 uptime_seconds = 4;
+}
+

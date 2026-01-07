@@ -6,13 +6,20 @@ edition = "2021"
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
 ordo-core = { version = "0.1.0", path = "../ordo-core" }
+ordo-proto = { version = "0.1.0", path = "../ordo-proto" }
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["full"] }
+tokio-stream = { version = "0.1", features = ["net"] }
 tonic.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = ["trace", "cors"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"

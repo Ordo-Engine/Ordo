@@ -49,7 +49,11 @@ impl Step {
     }
 
     /// Create a terminal step
-    pub fn terminal(id: impl Into<String>, name: impl Into<String>, result: TerminalResult) -> Self {
+    pub fn terminal(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        result: TerminalResult,
+    ) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
@@ -60,11 +64,11 @@ impl Step {
     /// Get all steps referenced by this step
     pub fn referenced_steps(&self) -> Vec<String> {
         match &self.kind {
-            StepKind::Decision { branches, default_next } => {
-                let mut refs: Vec<String> = branches
-                    .iter()
-                    .map(|b| b.next_step.clone())
-                    .collect();
+            StepKind::Decision {
+                branches,
+                default_next,
+            } => {
+                let mut refs: Vec<String> = branches.iter().map(|b| b.next_step.clone()).collect();
                 if let Some(default) = default_next {
                     refs.push(default.clone());
                 }
@@ -237,10 +241,7 @@ impl Action {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ActionKind {
     /// Set a variable
-    SetVariable {
-        name: String,
-        value: Expr,
-    },
+    SetVariable { name: String, value: Expr },
 
     /// Log a message
     Log {
@@ -344,7 +345,10 @@ mod tests {
         assert_eq!(step.name, "Check Age");
 
         match step.kind {
-            StepKind::Decision { branches, default_next } => {
+            StepKind::Decision {
+                branches,
+                default_next,
+            } => {
                 assert_eq!(branches.len(), 2);
                 assert_eq!(default_next, Some("child".to_string()));
             }
@@ -363,4 +367,3 @@ mod tests {
         assert_eq!(result.output.len(), 1);
     }
 }
-

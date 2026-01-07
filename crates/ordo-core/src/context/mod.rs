@@ -4,8 +4,8 @@
 //! - Value type system (Value)
 //! - Context storage (Context)
 
-mod value;
 mod store;
+mod value;
 
-pub use value::Value;
 pub use store::Context;
+pub use value::Value;

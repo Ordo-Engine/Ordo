@@ -40,7 +40,10 @@ impl FunctionRegistry {
                 Value::String(s) => Ok(Value::int(s.len() as i64)),
                 Value::Array(a) => Ok(Value::int(a.len() as i64)),
                 Value::Object(o) => Ok(Value::int(o.len() as i64)),
-                v => Err(OrdoError::type_error("string, array, or object", v.type_name())),
+                v => Err(OrdoError::type_error(
+                    "string, array, or object",
+                    v.type_name(),
+                )),
             }
         });
 
@@ -261,7 +264,10 @@ impl FunctionRegistry {
                     .map(Value::int)
                     .map_err(|_| OrdoError::eval_error(format!("Cannot convert '{}' to int", s))),
                 Value::Bool(b) => Ok(Value::int(if *b { 1 } else { 0 })),
-                v => Err(OrdoError::type_error("int, float, string, or bool", v.type_name())),
+                v => Err(OrdoError::type_error(
+                    "int, float, string, or bool",
+                    v.type_name(),
+                )),
             }
         });
 
@@ -274,7 +280,10 @@ impl FunctionRegistry {
                     .parse::<f64>()
                     .map(Value::float)
                     .map_err(|_| OrdoError::eval_error(format!("Cannot convert '{}' to float", s))),
-                v => Err(OrdoError::type_error("int, float, or string", v.type_name())),
+                v => Err(OrdoError::type_error(
+                    "int, float, or string",
+                    v.type_name(),
+                )),
             }
         });
 
@@ -386,7 +395,9 @@ mod tests {
             Value::string("hello")
         );
         assert_eq!(
-            registry.call("trim", &[Value::string("  hello  ")]).unwrap(),
+            registry
+                .call("trim", &[Value::string("  hello  ")])
+                .unwrap(),
             Value::string("hello")
         );
     }
@@ -400,11 +411,15 @@ mod tests {
             Value::int(5)
         );
         assert_eq!(
-            registry.call("min", &[Value::int(3), Value::int(1), Value::int(2)]).unwrap(),
+            registry
+                .call("min", &[Value::int(3), Value::int(1), Value::int(2)])
+                .unwrap(),
             Value::int(1)
         );
         assert_eq!(
-            registry.call("max", &[Value::int(3), Value::int(1), Value::int(2)]).unwrap(),
+            registry
+                .call("max", &[Value::int(3), Value::int(1), Value::int(2)])
+                .unwrap(),
             Value::int(3)
         );
     }
@@ -415,10 +430,7 @@ mod tests {
 
         let arr = Value::array(vec![Value::int(1), Value::int(2), Value::int(3)]);
 
-        assert_eq!(
-            registry.call("sum", &[arr.clone()]).unwrap(),
-            Value::int(6)
-        );
+        assert_eq!(registry.call("sum", &[arr.clone()]).unwrap(), Value::int(6));
         assert_eq!(
             registry.call("avg", &[arr.clone()]).unwrap(),
             Value::float(2.0)
@@ -431,10 +443,6 @@ mod tests {
             registry.call("first", &[arr.clone()]).unwrap(),
             Value::int(1)
         );
-        assert_eq!(
-            registry.call("last", &[arr]).unwrap(),
-            Value::int(3)
-        );
+        assert_eq!(registry.call("last", &[arr]).unwrap(), Value::int(3));
     }
 }
-

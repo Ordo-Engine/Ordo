@@ -7,12 +7,11 @@
 //! - Built-in functions
 
 mod ast;
-mod parser;
 mod eval;
 mod functions;
+mod parser;
 
-pub use ast::{Expr, BinaryOp, UnaryOp};
-pub use parser::ExprParser;
+pub use ast::{BinaryOp, Expr, UnaryOp};
 pub use eval::Evaluator;
 pub use functions::FunctionRegistry;
-
+pub use parser::ExprParser;

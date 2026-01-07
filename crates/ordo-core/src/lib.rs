@@ -94,7 +94,10 @@ mod tests {
         ruleset.add_step(
             Step::decision("check_status", "Check Status")
                 .branch(Condition::from_str("status == \"active\""), "approve")
-                .branch(Condition::from_str("status == \"pending\""), "pending_review")
+                .branch(
+                    Condition::from_str("status == \"pending\""),
+                    "pending_review",
+                )
                 .default("reject_inactive")
                 .build(),
         );
@@ -140,7 +143,8 @@ mod tests {
 
         // Test case 1: Active user with sufficient balance
         let executor = RuleExecutor::new();
-        let input: Value = serde_json::from_str(r#"{"balance": 1500, "status": "active"}"#).unwrap();
+        let input: Value =
+            serde_json::from_str(r#"{"balance": 1500, "status": "active"}"#).unwrap();
         let result = executor.execute(&ruleset, input).unwrap();
         assert_eq!(result.code, "APPROVED");
 
@@ -151,7 +155,8 @@ mod tests {
         assert!(result.message.contains("balance"));
 
         // Test case 3: Pending user with sufficient balance
-        let input: Value = serde_json::from_str(r#"{"balance": 2000, "status": "pending"}"#).unwrap();
+        let input: Value =
+            serde_json::from_str(r#"{"balance": 2000, "status": "pending"}"#).unwrap();
         let result = executor.execute(&ruleset, input).unwrap();
         assert_eq!(result.code, "PENDING");
     }

@@ -43,19 +43,16 @@ impl Evaluator {
         match expr {
             Expr::Literal(v) => Ok(v.clone()),
 
-            Expr::Field(path) => {
-                ctx.get(path).cloned().ok_or_else(|| OrdoError::FieldNotFound {
+            Expr::Field(path) => ctx
+                .get(path)
+                .cloned()
+                .ok_or_else(|| OrdoError::FieldNotFound {
                     field: path.clone(),
-                })
-            }
+                }),
 
-            Expr::Binary { op, left, right } => {
-                self.eval_binary(*op, left, right, ctx)
-            }
+            Expr::Binary { op, left, right } => self.eval_binary(*op, left, right, ctx),
 
-            Expr::Unary { op, operand } => {
-                self.eval_unary(*op, operand, ctx)
-            }
+            Expr::Unary { op, operand } => self.eval_unary(*op, operand, ctx),
 
             Expr::Call { name, args } => {
                 let arg_values: Vec<Value> = args
@@ -65,7 +62,11 @@ impl Evaluator {
                 self.functions.call(name, &arg_values)
             }
 
-            Expr::Conditional { condition, then_branch, else_branch } => {
+            Expr::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond = self.eval(condition, ctx)?;
                 if cond.is_truthy() {
                     self.eval(then_branch, ctx)
@@ -91,9 +92,7 @@ impl Evaluator {
                 Ok(Value::object(map))
             }
 
-            Expr::Exists(path) => {
-                Ok(Value::bool(ctx.get(path).is_some()))
-            }
+            Expr::Exists(path) => Ok(Value::bool(ctx.get(path).is_some())),
 
             Expr::Coalesce(exprs) => {
                 for expr in exprs {
@@ -102,7 +101,7 @@ impl Evaluator {
                         Ok(v) if !v.is_null() => return Ok(v),
                         Ok(_) => continue, // null, try next
                         Err(OrdoError::FieldNotFound { .. }) => continue, // field not found, try next
-                        Err(e) => return Err(e), // other errors propagate
+                        Err(e) => return Err(e),                          // other errors propagate
                     }
                 }
                 Ok(Value::Null)
@@ -153,9 +152,9 @@ impl Evaluator {
 
             // Set operations
             BinaryOp::In => self.eval_in(&left_val, &right_val),
-            BinaryOp::NotIn => self.eval_in(&left_val, &right_val).map(|v| {
-                Value::bool(!v.as_bool().unwrap_or(false))
-            }),
+            BinaryOp::NotIn => self
+                .eval_in(&left_val, &right_val)
+                .map(|v| Value::bool(!v.as_bool().unwrap_or(false))),
             BinaryOp::Contains => self.eval_contains(&left_val, &right_val),
 
             // Already handled above
@@ -274,7 +273,12 @@ impl Evaluator {
 
     // ==================== Comparison operations ====================
 
-    fn eval_compare(&self, left: &Value, right: &Value, expected: std::cmp::Ordering) -> Result<Value> {
+    fn eval_compare(
+        &self,
+        left: &Value,
+        right: &Value,
+        expected: std::cmp::Ordering,
+    ) -> Result<Value> {
         match left.compare(right) {
             Some(ord) => Ok(Value::bool(ord == expected)),
             None => Err(OrdoError::eval_error(format!(
@@ -316,10 +320,15 @@ impl Evaluator {
                 if let Value::String(v) = value {
                     Ok(Value::bool(s.contains(v.as_str())))
                 } else {
-                    Err(OrdoError::eval_error("'in' with string requires string value"))
+                    Err(OrdoError::eval_error(
+                        "'in' with string requires string value",
+                    ))
                 }
             }
-            _ => Err(OrdoError::type_error("array or string", collection.type_name())),
+            _ => Err(OrdoError::type_error(
+                "array or string",
+                collection.type_name(),
+            )),
         }
     }
 
@@ -342,10 +351,7 @@ mod tests {
         let eval = Evaluator::new();
         let ctx = Context::default();
 
-        assert_eq!(
-            eval.eval(&Expr::literal(42), &ctx).unwrap(),
-            Value::int(42)
-        );
+        assert_eq!(eval.eval(&Expr::literal(42), &ctx).unwrap(), Value::int(42));
     }
 
     #[test]
@@ -390,10 +396,7 @@ mod tests {
 
         let expr = Expr::is_in(
             Expr::field("status"),
-            Expr::Array(vec![
-                Expr::literal("active"),
-                Expr::literal("pending"),
-            ]),
+            Expr::Array(vec![Expr::literal("active"), Expr::literal("pending")]),
         );
         assert_eq!(eval.eval(&expr, &ctx).unwrap(), Value::bool(true));
     }
@@ -427,10 +430,7 @@ mod tests {
         let eval = Evaluator::new();
         let ctx = make_ctx(r#"{"in_appid": "wx123"}"#);
 
-        let expr = Expr::coalesce(vec![
-            Expr::field("appid"),
-            Expr::field("in_appid"),
-        ]);
+        let expr = Expr::coalesce(vec![Expr::field("appid"), Expr::field("in_appid")]);
         assert_eq!(eval.eval(&expr, &ctx).unwrap(), Value::string("wx123"));
     }
 
@@ -449,4 +449,3 @@ mod tests {
         );
     }
 }
-

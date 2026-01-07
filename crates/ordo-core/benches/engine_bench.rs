@@ -1,6 +1,6 @@
 //! Ordo engine benchmarks
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ordo_core::prelude::*;
 
 /// Create a simple rule set for benchmarking
@@ -45,8 +45,14 @@ fn create_complex_ruleset() -> RuleSet {
     // Step 2a: VIP check
     ruleset.add_step(
         Step::decision("vip_check", "VIP Check")
-            .branch(Condition::from_str("user.level == \"gold\""), "gold_discount")
-            .branch(Condition::from_str("user.level == \"silver\""), "silver_discount")
+            .branch(
+                Condition::from_str("user.level == \"gold\""),
+                "gold_discount",
+            )
+            .branch(
+                Condition::from_str("user.level == \"silver\""),
+                "silver_discount",
+            )
             .default("vip_discount")
             .build(),
     );
@@ -55,7 +61,10 @@ fn create_complex_ruleset() -> RuleSet {
     ruleset.add_step(
         Step::decision("premium_check", "Premium Check")
             .branch(Condition::from_str("user.age >= 60"), "senior_discount")
-            .branch(Condition::from_str("user.is_member == true"), "member_discount")
+            .branch(
+                Condition::from_str("user.is_member == true"),
+                "member_discount",
+            )
             .default("normal_price")
             .build(),
     );
@@ -63,7 +72,10 @@ fn create_complex_ruleset() -> RuleSet {
     // Step 2c: Standard check
     ruleset.add_step(
         Step::decision("standard_check", "Standard Check")
-            .branch(Condition::from_str("coupon_code != null"), "coupon_discount")
+            .branch(
+                Condition::from_str("coupon_code != null"),
+                "coupon_discount",
+            )
             .default("normal_price")
             .build(),
     );
@@ -74,7 +86,10 @@ fn create_complex_ruleset() -> RuleSet {
         "Gold Discount",
         TerminalResult::new("GOLD")
             .with_output("discount", Expr::literal(0.25f64))
-            .with_output("final", Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.75f64))),
+            .with_output(
+                "final",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.75f64)),
+            ),
     ));
 
     ruleset.add_step(Step::terminal(
@@ -82,7 +97,10 @@ fn create_complex_ruleset() -> RuleSet {
         "Silver Discount",
         TerminalResult::new("SILVER")
             .with_output("discount", Expr::literal(0.20f64))
-            .with_output("final", Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.80f64))),
+            .with_output(
+                "final",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.80f64)),
+            ),
     ));
 
     ruleset.add_step(Step::terminal(
@@ -90,7 +108,10 @@ fn create_complex_ruleset() -> RuleSet {
         "VIP Discount",
         TerminalResult::new("VIP")
             .with_output("discount", Expr::literal(0.15f64))
-            .with_output("final", Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.85f64))),
+            .with_output(
+                "final",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.85f64)),
+            ),
     ));
 
     ruleset.add_step(Step::terminal(
@@ -98,7 +119,10 @@ fn create_complex_ruleset() -> RuleSet {
         "Senior Discount",
         TerminalResult::new("SENIOR")
             .with_output("discount", Expr::literal(0.10f64))
-            .with_output("final", Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.90f64))),
+            .with_output(
+                "final",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.90f64)),
+            ),
     ));
 
     ruleset.add_step(Step::terminal(
@@ -106,7 +130,10 @@ fn create_complex_ruleset() -> RuleSet {
         "Member Discount",
         TerminalResult::new("MEMBER")
             .with_output("discount", Expr::literal(0.05f64))
-            .with_output("final", Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.95f64))),
+            .with_output(
+                "final",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.95f64)),
+            ),
     ));
 
     ruleset.add_step(Step::terminal(
@@ -114,7 +141,10 @@ fn create_complex_ruleset() -> RuleSet {
         "Coupon Discount",
         TerminalResult::new("COUPON")
             .with_output("discount", Expr::literal(0.08f64))
-            .with_output("final", Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.92f64))),
+            .with_output(
+                "final",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.92f64)),
+            ),
     ));
 
     ruleset.add_step(Step::terminal(
@@ -132,9 +162,15 @@ fn bench_expression_parsing(c: &mut Criterion) {
     let expressions = vec![
         ("simple_compare", "age > 18"),
         ("logical_and", "age > 18 && status == \"active\""),
-        ("complex_condition", "amount >= 1000 && user.level in [\"gold\", \"silver\"] && !is_blocked"),
+        (
+            "complex_condition",
+            "amount >= 1000 && user.level in [\"gold\", \"silver\"] && !is_blocked",
+        ),
         ("function_call", "len(items) > 0 && sum(items) > 100"),
-        ("conditional", "if exists(discount) then price * discount else price"),
+        (
+            "conditional",
+            "if exists(discount) then price * discount else price",
+        ),
         ("coalesce", "coalesce(appid, in_appid, default_appid)"),
     ];
 
@@ -149,7 +185,8 @@ fn bench_expression_parsing(c: &mut Criterion) {
 
 fn bench_expression_evaluation(c: &mut Criterion) {
     let evaluator = Evaluator::new();
-    let ctx = Context::from_json(r#"{
+    let ctx = Context::from_json(
+        r#"{
         "age": 25,
         "status": "active",
         "amount": 5000,
@@ -159,15 +196,32 @@ fn bench_expression_evaluation(c: &mut Criterion) {
         "price": 100,
         "discount": 0.1,
         "appid": "wx123"
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
 
     let expressions = vec![
         ("simple_compare", ExprParser::parse("age > 18").unwrap()),
-        ("logical_and", ExprParser::parse("age > 18 && status == \"active\"").unwrap()),
-        ("field_access", ExprParser::parse("user.level == \"gold\"").unwrap()),
-        ("function_call", ExprParser::parse("len(items) > 0").unwrap()),
-        ("arithmetic", ExprParser::parse("price * (1 - discount)").unwrap()),
-        ("conditional", ExprParser::parse("if age > 18 then \"adult\" else \"minor\"").unwrap()),
+        (
+            "logical_and",
+            ExprParser::parse("age > 18 && status == \"active\"").unwrap(),
+        ),
+        (
+            "field_access",
+            ExprParser::parse("user.level == \"gold\"").unwrap(),
+        ),
+        (
+            "function_call",
+            ExprParser::parse("len(items) > 0").unwrap(),
+        ),
+        (
+            "arithmetic",
+            ExprParser::parse("price * (1 - discount)").unwrap(),
+        ),
+        (
+            "conditional",
+            ExprParser::parse("if age > 18 then \"adult\" else \"minor\"").unwrap(),
+        ),
     ];
 
     let mut group = c.benchmark_group("expression_evaluation");
@@ -185,11 +239,14 @@ fn bench_rule_execution(c: &mut Criterion) {
     let executor = RuleExecutor::new();
 
     let simple_input: Value = serde_json::from_str(r#"{"value": 75}"#).unwrap();
-    let complex_input: Value = serde_json::from_str(r#"{
+    let complex_input: Value = serde_json::from_str(
+        r#"{
         "amount": 15000,
         "user": {"level": "gold", "age": 35, "is_member": true},
         "coupon_code": null
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
 
     let mut group = c.benchmark_group("rule_execution");
 
@@ -201,7 +258,12 @@ fn bench_rule_execution(c: &mut Criterion) {
 
     // Complex ruleset (3+ steps)
     group.bench_function("complex_ruleset", |b| {
-        b.iter(|| executor.execute(black_box(&complex_ruleset), black_box(complex_input.clone())))
+        b.iter(|| {
+            executor.execute(
+                black_box(&complex_ruleset),
+                black_box(complex_input.clone()),
+            )
+        })
     });
 
     group.finish();
@@ -272,7 +334,12 @@ fn bench_builtin_functions(c: &mut Criterion) {
     });
 
     group.bench_function("min", |b| {
-        b.iter(|| registry.call("min", black_box(&[Value::int(10), Value::int(20), Value::int(5)])))
+        b.iter(|| {
+            registry.call(
+                "min",
+                black_box(&[Value::int(10), Value::int(20), Value::int(5)]),
+            )
+        })
     });
 
     group.finish();
@@ -288,4 +355,3 @@ criterion_group!(
 );
 
 criterion_main!(benches);
-

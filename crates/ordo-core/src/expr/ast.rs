@@ -9,23 +9,23 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
     // Arithmetic
-    Add,      // +
-    Sub,      // -
-    Mul,      // *
-    Div,      // /
-    Mod,      // %
+    Add, // +
+    Sub, // -
+    Mul, // *
+    Div, // /
+    Mod, // %
 
     // Comparison
-    Eq,       // ==
-    Ne,       // !=
-    Lt,       // <
-    Le,       // <=
-    Gt,       // >
-    Ge,       // >=
+    Eq, // ==
+    Ne, // !=
+    Lt, // <
+    Le, // <=
+    Gt, // >
+    Ge, // >=
 
     // Logical
-    And,      // &&
-    Or,       // ||
+    And, // &&
+    Or,  // ||
 
     // Set operations
     In,       // in
@@ -55,8 +55,8 @@ impl BinaryOp {
 /// Unary operators
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
-    Not,  // !
-    Neg,  // -
+    Not, // !
+    Neg, // -
 }
 
 /// Expression AST node
@@ -76,16 +76,10 @@ pub enum Expr {
     },
 
     /// Unary operation
-    Unary {
-        op: UnaryOp,
-        operand: Box<Expr>,
-    },
+    Unary { op: UnaryOp, operand: Box<Expr> },
 
     /// Function call
-    Call {
-        name: String,
-        args: Vec<Expr>,
-    },
+    Call { name: String, args: Vec<Expr> },
 
     /// Conditional expression (if-then-else)
     Conditional {
@@ -234,9 +228,25 @@ mod tests {
         );
 
         match expr {
-            Expr::Binary { op: BinaryOp::And, left, right } => {
-                assert!(matches!(*left, Expr::Binary { op: BinaryOp::Gt, .. }));
-                assert!(matches!(*right, Expr::Binary { op: BinaryOp::Eq, .. }));
+            Expr::Binary {
+                op: BinaryOp::And,
+                left,
+                right,
+            } => {
+                assert!(matches!(
+                    *left,
+                    Expr::Binary {
+                        op: BinaryOp::Gt,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    *right,
+                    Expr::Binary {
+                        op: BinaryOp::Eq,
+                        ..
+                    }
+                ));
             }
             _ => panic!("Expected Binary And"),
         }
@@ -251,7 +261,11 @@ mod tests {
         );
 
         match expr {
-            Expr::Conditional { condition, then_branch, else_branch } => {
+            Expr::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 assert!(matches!(*condition, Expr::Exists(_)));
                 assert!(matches!(*then_branch, Expr::Literal(Value::Float(_))));
                 assert!(matches!(*else_branch, Expr::Literal(Value::Float(_))));
@@ -260,4 +274,3 @@ mod tests {
         }
     }
 }
-

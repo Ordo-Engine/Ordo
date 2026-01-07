@@ -11,8 +11,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Step 1: Check membership level
     ruleset.add_step(
         Step::decision("check_membership", "Check Membership Level")
-            .branch(Condition::from_str("membership == \"gold\""), "gold_discount")
-            .branch(Condition::from_str("membership == \"silver\""), "silver_discount")
+            .branch(
+                Condition::from_str("membership == \"gold\""),
+                "gold_discount",
+            )
+            .branch(
+                Condition::from_str("membership == \"silver\""),
+                "silver_discount",
+            )
             .default("check_amount")
             .build(),
     );
@@ -32,11 +38,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         TerminalResult::new("GOLD_DISCOUNT")
             .with_message("20% discount for gold members")
             .with_output("discount_rate", Expr::literal(0.20f64))
-            .with_output("final_price", Expr::binary(
-                BinaryOp::Mul,
-                Expr::field("amount"),
-                Expr::literal(0.80f64),
-            )),
+            .with_output(
+                "final_price",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.80f64)),
+            ),
     ));
 
     // Terminal: Silver member discount
@@ -46,11 +51,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         TerminalResult::new("SILVER_DISCOUNT")
             .with_message("10% discount for silver members")
             .with_output("discount_rate", Expr::literal(0.10f64))
-            .with_output("final_price", Expr::binary(
-                BinaryOp::Mul,
-                Expr::field("amount"),
-                Expr::literal(0.90f64),
-            )),
+            .with_output(
+                "final_price",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.90f64)),
+            ),
     ));
 
     // Terminal: Bulk purchase discount
@@ -60,11 +64,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         TerminalResult::new("BULK_DISCOUNT")
             .with_message("5% discount for purchases over 1000")
             .with_output("discount_rate", Expr::literal(0.05f64))
-            .with_output("final_price", Expr::binary(
-                BinaryOp::Mul,
-                Expr::field("amount"),
-                Expr::literal(0.95f64),
-            )),
+            .with_output(
+                "final_price",
+                Expr::binary(BinaryOp::Mul, Expr::field("amount"), Expr::literal(0.95f64)),
+            ),
     ));
 
     // Terminal: No discount
@@ -121,4 +124,3 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

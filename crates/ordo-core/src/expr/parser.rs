@@ -29,8 +29,7 @@ impl ExprParser {
         if parser.pos < parser.input.len() {
             return Err(OrdoError::parse_error(format!(
                 "Unexpected character at position {}: '{}'",
-                parser.pos,
-                parser.input[parser.pos]
+                parser.pos, parser.input[parser.pos]
             )));
         }
         Ok(expr)
@@ -214,7 +213,11 @@ impl ExprParser {
         }
 
         // Keywords and identifiers
-        if self.peek().map(|c| c.is_alphabetic() || c == '_' || c == '$').unwrap_or(false) {
+        if self
+            .peek()
+            .map(|c| c.is_alphabetic() || c == '_' || c == '$')
+            .unwrap_or(false)
+        {
             return self.parse_identifier_or_keyword();
         }
 
@@ -285,7 +288,9 @@ impl ExprParser {
 
     /// Parse string value (returns the string content)
     fn parse_string_value(&mut self) -> Result<String> {
-        let quote = self.advance().ok_or_else(|| OrdoError::parse_error("Expected string"))?;
+        let quote = self
+            .advance()
+            .ok_or_else(|| OrdoError::parse_error("Expected string"))?;
         let mut s = String::new();
 
         while let Some(c) = self.peek() {
@@ -519,9 +524,7 @@ impl ExprParser {
         if self.input[self.pos..].starts_with(&chars) {
             // Check that keyword is not followed by alphanumeric
             let next_pos = self.pos + chars.len();
-            if next_pos >= self.input.len()
-                || !self.input[next_pos].is_alphanumeric()
-            {
+            if next_pos >= self.input.len() || !self.input[next_pos].is_alphanumeric() {
                 self.pos = next_pos;
                 return true;
             }
@@ -546,18 +549,9 @@ mod tests {
 
     #[test]
     fn test_parse_literals() {
-        assert_eq!(
-            ExprParser::parse("42").unwrap(),
-            Expr::literal(42i64)
-        );
-        assert_eq!(
-            ExprParser::parse("3.14").unwrap(),
-            Expr::literal(3.14f64)
-        );
-        assert_eq!(
-            ExprParser::parse("true").unwrap(),
-            Expr::literal(true)
-        );
+        assert_eq!(ExprParser::parse("42").unwrap(), Expr::literal(42i64));
+        assert_eq!(ExprParser::parse("3.14").unwrap(), Expr::literal(3.14f64));
+        assert_eq!(ExprParser::parse("true").unwrap(), Expr::literal(true));
         assert_eq!(
             ExprParser::parse("\"hello\"").unwrap(),
             Expr::literal("hello")
@@ -568,7 +562,11 @@ mod tests {
     fn test_parse_comparison() {
         let expr = ExprParser::parse("age > 18").unwrap();
         match expr {
-            Expr::Binary { op: BinaryOp::Gt, left, right } => {
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left,
+                right,
+            } => {
                 assert!(matches!(*left, Expr::Field(f) if f == "age"));
                 assert!(matches!(*right, Expr::Literal(Value::Int(18))));
             }
@@ -579,20 +577,36 @@ mod tests {
     #[test]
     fn test_parse_logical() {
         let expr = ExprParser::parse("age > 18 && status == \"active\"").unwrap();
-        assert!(matches!(expr, Expr::Binary { op: BinaryOp::And, .. }));
+        assert!(matches!(
+            expr,
+            Expr::Binary {
+                op: BinaryOp::And,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn test_parse_in() {
         let expr = ExprParser::parse("status in [\"active\", \"pending\"]").unwrap();
-        assert!(matches!(expr, Expr::Binary { op: BinaryOp::In, .. }));
+        assert!(matches!(
+            expr,
+            Expr::Binary {
+                op: BinaryOp::In,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn test_parse_function() {
         let expr = ExprParser::parse("len(items) > 0").unwrap();
         match expr {
-            Expr::Binary { op: BinaryOp::Gt, left, .. } => {
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left,
+                ..
+            } => {
                 assert!(matches!(*left, Expr::Call { name, .. } if name == "len"));
             }
             _ => panic!("Expected Binary Gt"),
@@ -622,4 +636,3 @@ mod tests {
         }
     }
 }
-

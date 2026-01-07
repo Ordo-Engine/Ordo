@@ -116,10 +116,7 @@ impl RuleSet {
 
         // Check entry step exists
         if !self.steps.contains_key(&self.config.entry_step) {
-            errors.push(format!(
-                "Entry step '{}' not found",
-                self.config.entry_step
-            ));
+            errors.push(format!("Entry step '{}' not found", self.config.entry_step));
         }
 
         // Check all referenced steps exist
@@ -165,12 +162,12 @@ impl RuleSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rule::step::{StepKind, Branch, Condition, TerminalResult};
+    use crate::rule::step::{Branch, Condition, StepKind, TerminalResult};
 
     #[test]
     fn test_ruleset_validation() {
         let mut ruleset = RuleSet::new("test", "start");
-        
+
         // Should fail: entry step doesn't exist
         assert!(ruleset.validate().is_err());
 
@@ -204,4 +201,3 @@ mod tests {
         assert!(ruleset.validate().is_ok());
     }
 }
-

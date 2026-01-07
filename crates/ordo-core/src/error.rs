@@ -7,11 +7,17 @@ use thiserror::Error;
 pub enum OrdoError {
     /// Rule parsing error
     #[error("Parse error: {message}")]
-    ParseError { message: String, location: Option<String> },
+    ParseError {
+        message: String,
+        location: Option<String>,
+    },
 
     /// Expression evaluation error
     #[error("Evaluation error: {message}")]
-    EvalError { message: String, expr: Option<String> },
+    EvalError {
+        message: String,
+        expr: Option<String>,
+    },
 
     /// Type mismatch error
     #[error("Type error: expected {expected}, got {actual}")]

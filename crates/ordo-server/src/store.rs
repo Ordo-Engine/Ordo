@@ -80,4 +80,3 @@ pub struct RuleSetInfo {
     pub description: String,
     pub step_count: usize,
 }
-

@@ -88,4 +88,3 @@ impl From<serde_json::Error> for ApiError {
         ApiError::bad_request(format!("JSON error: {}", err))
     }
 }
-

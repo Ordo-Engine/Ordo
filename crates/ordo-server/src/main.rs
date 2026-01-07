@@ -15,9 +15,9 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-mod store;
 mod api;
 mod error;
+mod store;
 
 use store::RuleStore;
 

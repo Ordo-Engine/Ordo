@@ -69,11 +69,12 @@ impl RuleExecutor {
             }
 
             // Get current step
-            let step = ruleset
-                .get_step(&current_step_id)
-                .ok_or_else(|| OrdoError::StepNotFound {
-                    step_id: current_step_id.clone(),
-                })?;
+            let step =
+                ruleset
+                    .get_step(&current_step_id)
+                    .ok_or_else(|| OrdoError::StepNotFound {
+                        step_id: current_step_id.clone(),
+                    })?;
 
             let step_start = Instant::now();
 
@@ -85,12 +86,8 @@ impl RuleExecutor {
             if let Some(ref mut trace) = trace {
                 let step_trace = match &step_result {
                     StepResult::Continue { next_step } => {
-                        let mut st = StepTrace::continued(
-                            &step.id,
-                            &step.name,
-                            step_duration,
-                            next_step,
-                        );
+                        let mut st =
+                            StepTrace::continued(&step.id, &step.name, step_duration, next_step);
                         if self.trace_config.capture_input {
                             st.input_snapshot = Some(ctx.data().clone());
                         }
@@ -141,10 +138,14 @@ impl RuleExecutor {
         field_missing: &FieldMissingBehavior,
     ) -> Result<StepResult> {
         match &step.kind {
-            StepKind::Decision { branches, default_next } => {
+            StepKind::Decision {
+                branches,
+                default_next,
+            } => {
                 // Evaluate branches in order
                 for branch in branches {
-                    let condition_result = self.evaluate_condition(&branch.condition, ctx, field_missing)?;
+                    let condition_result =
+                        self.evaluate_condition(&branch.condition, ctx, field_missing)?;
 
                     if condition_result {
                         // Execute branch actions
@@ -180,11 +181,9 @@ impl RuleExecutor {
                 })
             }
 
-            StepKind::Terminal { result } => {
-                Ok(StepResult::Terminal {
-                    result: result.clone(),
-                })
-            }
+            StepKind::Terminal { result } => Ok(StepResult::Terminal {
+                result: result.clone(),
+            }),
         }
     }
 
@@ -198,21 +197,23 @@ impl RuleExecutor {
         match condition {
             Condition::Always => Ok(true),
 
-            Condition::Expression(expr) => {
-                match self.evaluator.eval(expr, ctx) {
-                    Ok(value) => Ok(value.is_truthy()),
-                    Err(OrdoError::FieldNotFound { .. }) if *field_missing == FieldMissingBehavior::Lenient => {
-                        Ok(false)
-                    }
-                    Err(e) => Err(e),
+            Condition::Expression(expr) => match self.evaluator.eval(expr, ctx) {
+                Ok(value) => Ok(value.is_truthy()),
+                Err(OrdoError::FieldNotFound { .. })
+                    if *field_missing == FieldMissingBehavior::Lenient =>
+                {
+                    Ok(false)
                 }
-            }
+                Err(e) => Err(e),
+            },
 
             Condition::ExpressionString(s) => {
                 let expr = ExprParser::parse(s)?;
                 match self.evaluator.eval(&expr, ctx) {
                     Ok(value) => Ok(value.is_truthy()),
-                    Err(OrdoError::FieldNotFound { .. }) if *field_missing == FieldMissingBehavior::Lenient => {
+                    Err(OrdoError::FieldNotFound { .. })
+                        if *field_missing == FieldMissingBehavior::Lenient =>
+                    {
                         Ok(false)
                     }
                     Err(e) => Err(e),
@@ -310,10 +311,14 @@ impl ExecutionResult {
         map.insert("code".to_string(), Value::string(&self.code));
         map.insert("message".to_string(), Value::string(&self.message));
         map.insert("output".to_string(), self.output.clone());
-        map.insert("duration_us".to_string(), Value::int(self.duration_us as i64));
+        map.insert(
+            "duration_us".to_string(),
+            Value::int(self.duration_us as i64),
+        );
 
-        serde_json::to_string_pretty(&Value::object(map))
-            .map_err(|e| OrdoError::InternalError { message: e.to_string() })
+        serde_json::to_string_pretty(&Value::object(map)).map_err(|e| OrdoError::InternalError {
+            message: e.to_string(),
+        })
     }
 }
 
@@ -327,14 +332,8 @@ mod tests {
 
         ruleset.add_step(
             Step::decision("check_age", "Check Age")
-                .branch(
-                    Condition::from_str("age >= 18"),
-                    "adult_discount",
-                )
-                .branch(
-                    Condition::from_str("age >= 13"),
-                    "teen_discount",
-                )
+                .branch(Condition::from_str("age >= 18"), "adult_discount")
+                .branch(Condition::from_str("age >= 13"), "teen_discount")
                 .default("child_discount")
                 .build(),
         );
@@ -387,7 +386,10 @@ mod tests {
         let result = executor.execute(&ruleset, input).unwrap();
 
         assert_eq!(result.code, "TEEN");
-        assert_eq!(result.output.get_path("discount"), Some(&Value::float(0.15)));
+        assert_eq!(
+            result.output.get_path("discount"),
+            Some(&Value::float(0.15))
+        );
     }
 
     #[test]

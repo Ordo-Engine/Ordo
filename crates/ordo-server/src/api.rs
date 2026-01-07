@@ -103,7 +103,7 @@ pub async fn get_ruleset(
     let ruleset = store
         .get(&name)
         .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
-    
+
     // Clone to return
     Ok(Json((*ruleset).clone()))
 }
@@ -193,9 +193,7 @@ pub async fn execute_ruleset(
 }
 
 /// Evaluate an expression (debug endpoint)
-pub async fn eval_expression(
-    Json(request): Json<EvalRequest>,
-) -> ApiResult<Json<EvalResponse>> {
+pub async fn eval_expression(Json(request): Json<EvalRequest>) -> ApiResult<Json<EvalResponse>> {
     // Parse expression
     let expr = ExprParser::parse(&request.expression)?;
 

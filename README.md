@@ -139,8 +139,8 @@ See [benchmark/](benchmark/) for full reports with graphs.
 ### Installation
 
 ```bash
-git clone https://github.com/example/ordo.git
-cd ordo
+git clone https://github.com/Pama-Lee/Ordo.git
+cd Ordo
 
 # Build release version
 cargo build --release

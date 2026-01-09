@@ -134,14 +134,15 @@ impl OrdoService for OrdoGrpcService {
                 .collect()
         };
 
+        // Capture total count BEFORE applying limit (for pagination)
+        let total_count = filtered.len() as u32;
+
         // Apply limit if specified
         let limited: Vec<_> = if req.limit > 0 {
             filtered.into_iter().take(req.limit as usize).collect()
         } else {
             filtered
         };
-
-        let total_count = limited.len() as u32;
         let rulesets = limited
             .into_iter()
             .map(|r| RuleSetSummary {

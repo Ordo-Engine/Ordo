@@ -104,7 +104,7 @@ impl ExecutionTrace {
         Self {
             ruleset_name: ruleset_name.to_string(),
             trace_id: generate_trace_id(),
-            start_time: chrono::Utc::now().timestamp_millis(),
+            start_time: get_current_timestamp_millis(),
             steps: Vec::new(),
             total_duration_us: 0,
             result_code: String::new(),
@@ -223,7 +223,22 @@ impl StepTrace {
     }
 }
 
+/// Get current timestamp in milliseconds
+#[cfg(not(target_arch = "wasm32"))]
+fn get_current_timestamp_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Get current timestamp in milliseconds (WASM version - returns 0)
+#[cfg(target_arch = "wasm32")]
+fn get_current_timestamp_millis() -> i64 {
+    // In WASM, we can't access system time directly
+    // The JS wrapper will provide the actual timestamp
+    0
+}
+
 /// Generate a unique trace ID
+#[cfg(not(target_arch = "wasm32"))]
 fn generate_trace_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -235,6 +250,17 @@ fn generate_trace_id() -> String {
     let random: u32 = (nanos % 0xFFFFFFFF) as u32;
 
     format!("{:016x}{:08x}", nanos as u64, random)
+}
+
+/// Generate a unique trace ID (WASM version)
+#[cfg(target_arch = "wasm32")]
+fn generate_trace_id() -> String {
+    // In WASM, generate a simple random-ish ID
+    static mut COUNTER: u64 = 0;
+    unsafe {
+        COUNTER += 1;
+        format!("wasm-trace-{:016x}", COUNTER)
+    }
 }
 
 #[cfg(test)]

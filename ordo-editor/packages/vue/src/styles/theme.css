@@ -1,0 +1,189 @@
+/**
+ * Ordo Editor Theme Variables
+ * Professional IDE Style (Compact, High Density, Technical)
+ */
+
+:root,
+[data-ordo-theme="light"] {
+  /* IDE Colors - Neutral & Technical */
+  --ordo-gray-50: #fbfcfd;
+  --ordo-gray-100: #f0f1f4;
+  --ordo-gray-200: #e2e4e9;
+  --ordo-gray-300: #cdd0d6;
+  --ordo-gray-400: #9fa4ad;
+  --ordo-gray-500: #707682;
+  --ordo-gray-600: #555a64;
+  --ordo-gray-700: #3e424a;
+  --ordo-gray-800: #282b31;
+  --ordo-gray-900: #181a1f;
+
+  /* Accent Colors (Subdued, not neon) */
+  --ordo-accent: #0066b8; /* VS Code Blue */
+  --ordo-accent-hover: #005ba1;
+  --ordo-accent-bg: #e6f1fc;
+  --ordo-accent-alpha: rgba(0, 102, 184, 0.1);
+
+  /* Semantic Colors */
+  --ordo-success: #388a34; /* Green */
+  --ordo-warning: #b76e00; /* Orange/Amber */
+  --ordo-error: #e51400;   /* Red */
+
+  /* Node/Logic Colors (Code highlighting style) */
+  --ordo-keyword: #a030f0;  /* Purple for logic keywords */
+  --ordo-string: #a31515;   /* Red for strings */
+  --ordo-number: #098658;   /* Green for numbers */
+  --ordo-variable: #005cc5; /* Blue for variables */
+
+  /* Node Types (Stripe colors) */
+  --ordo-node-decision: #b76e00;
+  --ordo-node-action: #0066b8;
+  --ordo-node-terminal: #388a34;
+
+  /* Backgrounds */
+  --ordo-bg-app: #ffffff;
+  --ordo-bg-panel: #f3f3f3; /* Sidebar/Secondary */
+  --ordo-bg-editor: #ffffff;
+  --ordo-bg-item: #ffffff;
+  --ordo-bg-item-hover: #f0f0f0;
+  --ordo-bg-input: #ffffff;
+  --ordo-bg-selected: #e8e8e8;
+
+  /* Borders */
+  --ordo-border-color: #e1e4e8;
+  --ordo-border-light: #eff1f3;
+  --ordo-border-focus: #0066b8;
+
+  /* Text */
+  --ordo-text-primary: #24292e;
+  --ordo-text-secondary: #586069;
+  --ordo-text-tertiary: #6a737d;
+  --ordo-text-inverse: #ffffff;
+
+  /* Typography */
+  --ordo-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --ordo-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  
+  --ordo-font-size-xs: 11px;
+  --ordo-font-size-sm: 12px; /* Standard IDE size */
+  --ordo-font-size-md: 13px;
+  --ordo-font-size-lg: 14px;
+
+  /* Spacing (Compact 4px grid) */
+  --ordo-space-xs: 2px;
+  --ordo-space-sm: 4px;
+  --ordo-space-md: 8px;
+  --ordo-space-lg: 12px;
+  --ordo-space-xl: 16px;
+
+  /* Radius (Sharp/Minimal) */
+  --ordo-radius-sm: 2px;
+  --ordo-radius-md: 3px;
+  --ordo-radius-lg: 4px;
+
+  /* Other */
+  --ordo-focus-ring: 0 0 0 1px var(--ordo-border-focus);
+  --ordo-shadow-overlay: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+[data-ordo-theme="dark"] {
+  /* IDE Dark Mode (VS Code Style) */
+  --ordo-gray-50: #1e1e1e;
+  --ordo-gray-100: #252526;
+  --ordo-gray-200: #2d2d2d;
+  --ordo-gray-300: #333333;
+  --ordo-gray-400: #3e3e42;
+  --ordo-gray-500: #505050;
+  --ordo-gray-600: #858585;
+  --ordo-gray-700: #bbbbbb;
+  --ordo-gray-800: #cccccc;
+  --ordo-gray-900: #ffffff;
+
+  --ordo-accent: #3794ff;
+  --ordo-accent-hover: #1f8ad2;
+  --ordo-accent-bg: rgba(55, 148, 255, 0.15);
+  --ordo-accent-alpha: rgba(55, 148, 255, 0.2);
+
+  --ordo-success: #89d185;
+  --ordo-warning: #cca700;
+  --ordo-error: #f48771;
+
+  --ordo-keyword: #c586c0;
+  --ordo-string: #ce9178;
+  --ordo-number: #b5cea8;
+  --ordo-variable: #9cdcfe;
+
+  --ordo-node-decision: #cca700;
+  --ordo-node-action: #3794ff;
+  --ordo-node-terminal: #89d185;
+
+  --ordo-bg-app: #1e1e1e;
+  --ordo-bg-panel: #252526;
+  --ordo-bg-editor: #1e1e1e;
+  --ordo-bg-item: #2d2d2d;
+  --ordo-bg-item-hover: #2a2d2e;
+  --ordo-bg-input: #3c3c3c;
+  --ordo-bg-selected: #37373d;
+
+  --ordo-border-color: #454545;
+  --ordo-border-light: #2d2d2d;
+  --ordo-border-focus: #007fd4;
+
+  --ordo-text-primary: #cccccc;
+  --ordo-text-secondary: #858585;
+  --ordo-text-tertiary: #606060;
+  --ordo-text-inverse: #1e1e1e;
+  
+  --ordo-shadow-overlay: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+/* Base Styles */
+.ordo-editor {
+  font-family: var(--ordo-font-sans);
+  font-size: var(--ordo-font-size-sm);
+  color: var(--ordo-text-primary);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ordo-editor *, .ordo-editor *::before, .ordo-editor *::after {
+  box-sizing: border-box;
+}
+
+.ordo-editor input, .ordo-editor textarea, .ordo-editor select, .ordo-editor button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Common UI Components */
+.ordo-input-base {
+  background-color: var(--ordo-bg-input);
+  border: 1px solid var(--ordo-border-color);
+  color: var(--ordo-text-primary);
+  border-radius: var(--ordo-radius-sm);
+  padding: 4px 8px;
+  line-height: 1.4;
+  transition: border-color 0.1s;
+}
+
+.ordo-input-base:focus {
+  outline: none;
+  border-color: var(--ordo-border-focus);
+}
+
+.ordo-btn-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ordo-text-secondary);
+  border-radius: var(--ordo-radius-sm);
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ordo-btn-icon:hover {
+  background-color: var(--ordo-bg-item-hover);
+  color: var(--ordo-text-primary);
+}

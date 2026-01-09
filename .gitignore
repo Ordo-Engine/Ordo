@@ -41,3 +41,6 @@ ehthumbs.db
 # PSD source files
 *.psd
 
+# npm packages
+node_modules/
+.pnpm-store/

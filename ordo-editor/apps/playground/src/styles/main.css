@@ -1,0 +1,27 @@
+/**
+ * Playground global styles
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: var(--ordo-font-sans, 'Inter', -apple-system, BlinkMacSystemFont, sans-serif);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--ordo-bg-secondary, #f9fafb);
+  color: var(--ordo-text-primary, #1a1a1a);
+}
+
+#app {
+  min-height: 100vh;
+}
+

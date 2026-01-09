@@ -4,6 +4,7 @@ members = [
     "crates/ordo-core",
     "crates/ordo-proto", 
     "crates/ordo-server",
+    "crates/ordo-wasm",
 ]
 
 [workspace.package]

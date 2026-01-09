@@ -9,7 +9,36 @@ use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, ExprParser};
 use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
 use std::collections::HashMap;
+
+// Use web_time for WASM, std::time for native
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_time {
+    /// A simple instant implementation for WASM using performance.now()
+    #[derive(Clone, Copy)]
+    pub struct Instant(f64);
+    
+    impl Instant {
+        pub fn now() -> Self {
+            #[cfg(target_arch = "wasm32")]
+            {
+                // In WASM, we can't use std::time::Instant
+                // Return a dummy value - timing will be done in JS
+                Instant(0.0)
+            }
+        }
+        
+        pub fn elapsed(&self) -> std::time::Duration {
+            // Return zero duration in WASM - timing is handled by JS
+            std::time::Duration::from_micros(0)
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+use wasm_time::Instant;
 
 /// Rule executor
 pub struct RuleExecutor {

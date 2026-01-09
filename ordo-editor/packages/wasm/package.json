@@ -1,0 +1,30 @@
+{
+  "name": "@ordo/wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly bindings for Ordo Rule Engine",
+  "type": "module",
+  "main": "./dist/ordo_wasm.js",
+  "types": "./dist/ordo_wasm.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/ordo_wasm.js",
+      "types": "./dist/ordo_wasm.d.ts"
+    },
+    "./dist/*": "./dist/*"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "cd ../../crates/ordo-wasm && ./build.sh",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "ordo",
+    "rule-engine",
+    "wasm",
+    "webassembly"
+  ],
+  "license": "MIT"
+}
+

@@ -44,3 +44,7 @@ ehthumbs.db
 # npm packages
 node_modules/
 .pnpm-store/
+
+# dist
+dist/
+.pnpm-store/

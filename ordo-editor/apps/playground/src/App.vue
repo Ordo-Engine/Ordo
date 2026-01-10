@@ -1125,24 +1125,24 @@ watch(theme, (newTheme) => {
       <!-- Editor Content -->
       <div class="ide-editor-wrapper" v-if="activeFile">
         <div class="ide-editor-content">
-        <!-- Form Editor -->
-        <OrdoFormEditor
-          v-if="editorMode === 'form'"
-          v-model="ruleset"
-          :auto-validate="true"
-          :show-validation="true"
-          :locale="locale"
-          @change="handleChange"
-        />
-        
-        <!-- Flow Editor -->
-        <OrdoFlowEditor
-          v-else
-          v-model="ruleset"
-          :suggestions="suggestions"
+          <!-- Form Editor -->
+          <OrdoFormEditor
+            v-if="editorMode === 'form'"
+            v-model="ruleset"
+            :auto-validate="true"
+            :show-validation="true"
+            :locale="locale"
+            @change="handleChange"
+          />
+          
+          <!-- Flow Editor -->
+          <OrdoFlowEditor
+            v-else
+            v-model="ruleset"
+            :suggestions="suggestions"
             :locale="locale"
             :execution-trace="executionTrace"
-          @change="handleChange"
+            @change="handleChange"
           />
         </div>
         

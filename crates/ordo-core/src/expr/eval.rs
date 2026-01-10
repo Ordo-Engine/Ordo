@@ -180,7 +180,10 @@ impl Evaluator {
 
     fn eval_add(&self, left: &Value, right: &Value) -> Result<Value> {
         match (left, right) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::int(a + b)),
+            (Value::Int(a), Value::Int(b)) => a
+                .checked_add(*b)
+                .map(Value::int)
+                .ok_or_else(|| OrdoError::eval_error("Integer overflow in addition")),
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a + b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 + b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a + *b as f64)),
@@ -195,7 +198,10 @@ impl Evaluator {
 
     fn eval_sub(&self, left: &Value, right: &Value) -> Result<Value> {
         match (left, right) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::int(a - b)),
+            (Value::Int(a), Value::Int(b)) => a
+                .checked_sub(*b)
+                .map(Value::int)
+                .ok_or_else(|| OrdoError::eval_error("Integer overflow in subtraction")),
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a - b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a - *b as f64)),
@@ -209,7 +215,10 @@ impl Evaluator {
 
     fn eval_mul(&self, left: &Value, right: &Value) -> Result<Value> {
         match (left, right) {
-            (Value::Int(a), Value::Int(b)) => Ok(Value::int(a * b)),
+            (Value::Int(a), Value::Int(b)) => a
+                .checked_mul(*b)
+                .map(Value::int)
+                .ok_or_else(|| OrdoError::eval_error("Integer overflow in multiplication")),
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a * b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 * b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a * *b as f64)),

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Unix Domain Socket integration tests
 
 use std::time::Duration;

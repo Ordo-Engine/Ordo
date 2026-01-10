@@ -576,6 +576,7 @@ export function applyGroupBasedLayout(
       const depthHeight = depthHeights.get(depth)!;
       const layerWidth = depthWidths.get(depth)!;
     
+      
       // Center this depth layer vertically
       let nodeY = groupContentStartY + (maxDepthHeight - depthHeight) / 2;
       
@@ -586,6 +587,7 @@ export function applyGroupBasedLayout(
         // Center node horizontally within its depth layer
         const nodeX = depthStartX.get(depth)! + (layerWidth - layout.width) / 2;
       
+        
         layout.x = nodeX;
         layout.y = nodeY;
         layout.order = i;

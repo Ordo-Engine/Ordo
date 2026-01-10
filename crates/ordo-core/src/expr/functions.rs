@@ -108,7 +108,10 @@ impl FunctionRegistry {
         self.register("abs", |args| {
             require_args("abs", args, 1)?;
             match &args[0] {
-                Value::Int(n) => Ok(Value::int(n.abs())),
+                Value::Int(n) => n
+                    .checked_abs()
+                    .map(Value::int)
+                    .ok_or_else(|| OrdoError::eval_error("Integer overflow in abs()")),
                 Value::Float(n) => Ok(Value::float(n.abs())),
                 v => Err(OrdoError::type_error("number", v.type_name())),
             }

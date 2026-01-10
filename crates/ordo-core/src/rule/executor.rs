@@ -19,7 +19,7 @@ mod wasm_time {
     /// A simple instant implementation for WASM using performance.now()
     #[derive(Clone, Copy)]
     pub struct Instant(f64);
-    
+
     impl Instant {
         pub fn now() -> Self {
             #[cfg(target_arch = "wasm32")]
@@ -29,7 +29,7 @@ mod wasm_time {
                 Instant(0.0)
             }
         }
-        
+
         pub fn elapsed(&self) -> std::time::Duration {
             // Return zero duration in WASM - timing is handled by JS
             std::time::Duration::from_micros(0)

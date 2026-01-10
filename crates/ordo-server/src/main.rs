@@ -38,6 +38,7 @@ mod config;
 mod error;
 mod grpc;
 mod store;
+#[cfg(unix)]
 mod uds;
 
 use config::ServerConfig;
@@ -97,7 +98,8 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
-    // UDS Server
+    // UDS Server (Unix only)
+    #[cfg(unix)]
     if config.uds_enabled() {
         let uds_store = store.clone();
         let uds_path = config.uds_path.clone().unwrap();

@@ -203,11 +203,14 @@ extern "C" {
     fn now() -> f64;
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use super::*;
+    use wasm_bindgen_test::*;
 
-    #[test]
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
     fn test_execute_simple_ruleset() {
         let ruleset_json = r#"{
             "config": {

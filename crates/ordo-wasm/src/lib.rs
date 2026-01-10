@@ -69,7 +69,13 @@ pub fn execute_ruleset(
         .map_err(|e| JsValue::from_str(&format!("Failed to parse ruleset: {}", e)))?;
 
     // Debug: log parsed ruleset structure
-    web_sys::console::log_1(&format!("[WASM DEBUG] Parsed ruleset steps: {:?}", ruleset.steps.keys().collect::<Vec<_>>()).into());
+    web_sys::console::log_1(
+        &format!(
+            "[WASM DEBUG] Parsed ruleset steps: {:?}",
+            ruleset.steps.keys().collect::<Vec<_>>()
+        )
+        .into(),
+    );
     for (step_id, step) in &ruleset.steps {
         web_sys::console::log_1(&format!("[WASM DEBUG] Step {}: {:?}", step_id, step.kind).into());
     }
@@ -160,7 +166,10 @@ pub fn validate_ruleset(ruleset_json: &str) -> std::result::Result<String, JsVal
 /// # Returns
 /// JSON string containing the evaluation result and parsed expression
 #[wasm_bindgen]
-pub fn eval_expression(expression: &str, context_json: &str) -> std::result::Result<String, JsValue> {
+pub fn eval_expression(
+    expression: &str,
+    context_json: &str,
+) -> std::result::Result<String, JsValue> {
     // Parse context
     let context_value: Value = serde_json::from_str(context_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse context: {}", e)))?;
@@ -194,11 +203,14 @@ extern "C" {
     fn now() -> f64;
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use super::*;
+    use wasm_bindgen_test::*;
 
-    #[test]
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
     fn test_execute_simple_ruleset() {
         let ruleset_json = r#"{
             "config": {
@@ -232,4 +244,3 @@ mod tests {
         assert_eq!(result_obj.code, "SUCCESS");
     }
 }
-

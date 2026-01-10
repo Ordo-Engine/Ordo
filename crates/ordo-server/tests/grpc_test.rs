@@ -256,7 +256,7 @@ async fn test_grpc_eval_invalid_expression() {
 
 #[tokio::test]
 async fn test_grpc_concurrent_requests() {
-    let mut client = setup_grpc_server().await;
+    let client = setup_grpc_server().await;
 
     // Execute multiple requests concurrently
     let mut handles = vec![];

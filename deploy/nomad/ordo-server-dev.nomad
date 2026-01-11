@@ -14,14 +14,16 @@ job "ordo-server-dev" {
   group "ordo" {
     count = 1
     
-    # Network configuration with dynamic ports (suitable for development)
+    # Network configuration with static ports for easier access
     network {
-      # Dynamic port allocation - Nomad will assign available ports
+      # Use static ports for predictable access
       port "http" {
-        to = 8080
+        static = 8080
+        to     = 8080
       }
       port "grpc" {
-        to = 50051
+        static = 50051
+        to     = 50051
       }
     }
     
@@ -61,8 +63,7 @@ job "ordo-server-dev" {
       
       config {
         # Use GitHub Container Registry image
-        # For local development, you can also use: ordo-server:latest (locally built)
-        image = "ghcr.io/pama-lee/ordo-server:latest"
+        image = "ghcr.io/pama-lee/ordo:0.1.5-pre"
         ports = ["http", "grpc"]
       }
       

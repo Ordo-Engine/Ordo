@@ -26,6 +26,7 @@ nomad agent -dev
 |------|-------------|
 | `ordo-server.nomad` | Production job config (static ports 8080/50051) |
 | `ordo-server-dev.nomad` | Development job config (dynamic ports) |
+| `k6-load-test.nomad` | k6 load testing batch job |
 | `deploy.sh` | Deployment automation script |
 
 ## Quick Start
@@ -239,3 +240,97 @@ group "ordo" {
 ```
 
 Note: When scaling, use dynamic ports to avoid port conflicts, or deploy behind a load balancer.
+
+## Load Testing with k6
+
+The `k6-load-test.nomad` job provides a convenient way to run load tests against the Ordo server using [k6](https://k6.io/).
+
+### Basic Usage
+
+```bash
+# Run with default settings (health endpoint, 10 VUs, 30s)
+nomad job run deploy/nomad/k6-load-test.nomad
+
+# Check test progress
+nomad job status k6-load-test
+```
+
+### Custom Parameters
+
+The load test job supports various parameters via `-var` flags:
+
+```bash
+# Test the execute endpoint with 50 VUs for 1 minute
+nomad job run \
+  -var="target_endpoint=execute" \
+  -var="vus=50" \
+  -var="duration=1m" \
+  -var="ruleset_name=my-ruleset" \
+  deploy/nomad/k6-load-test.nomad
+
+# Test expression evaluation with custom input
+nomad job run \
+  -var="target_endpoint=eval" \
+  -var="vus=20" \
+  -var="duration=30s" \
+  -var='expression=x + y * 2' \
+  -var='context_json={"x": 10, "y": 20}' \
+  deploy/nomad/k6-load-test.nomad
+
+# High-load test with rate limiting
+nomad job run \
+  -var="target_endpoint=health" \
+  -var="vus=100" \
+  -var="duration=5m" \
+  -var="rps=1000" \
+  deploy/nomad/k6-load-test.nomad
+```
+
+### Available Endpoints
+
+| Endpoint | Description | Required Parameters |
+|----------|-------------|---------------------|
+| `health` | GET /health | - |
+| `list` | GET /api/v1/rulesets | - |
+| `get_ruleset` | GET /api/v1/rulesets/:name | `ruleset_name` |
+| `execute` | POST /api/v1/execute/:name | `ruleset_name`, `input_json` |
+| `eval` | POST /api/v1/eval | `expression`, `context_json` |
+
+### All Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `target_endpoint` | `health` | Endpoint to test |
+| `target_url` | (auto-discovery) | Base URL of Ordo server |
+| `vus` | `10` | Number of virtual users |
+| `duration` | `30s` | Test duration (e.g., 30s, 1m, 5m) |
+| `rps` | `0` | Target requests per second (0 = unlimited) |
+| `ruleset_name` | `demo` | RuleSet name for execute/get endpoints |
+| `expression` | `1 + 1` | Expression for eval endpoint |
+| `input_json` | `{"amount": 1000, "score": 75}` | Input JSON for execute |
+| `context_json` | `{"x": 10, "y": 20}` | Context JSON for eval |
+| `thresholds_p95` | `500` | P95 response time threshold (ms) |
+| `thresholds_p99` | `1000` | P99 response time threshold (ms) |
+| `thresholds_error_rate` | `0.01` | Max allowed error rate |
+
+### View Test Results
+
+```bash
+# Get allocation ID
+ALLOC_ID=$(nomad job status k6-load-test | grep -E "^[a-f0-9]+" | head -1 | awk '{print $1}')
+
+# View k6 output logs
+nomad alloc logs $ALLOC_ID load-test
+
+# View detailed results (JSON)
+nomad alloc logs $ALLOC_ID collect-results
+```
+
+### Parameterized Job Dispatch
+
+You can also dispatch the job with meta parameters:
+
+```bash
+# Dispatch with custom parameters
+nomad job dispatch -meta target_endpoint=execute -meta vus=30 k6-load-test
+```

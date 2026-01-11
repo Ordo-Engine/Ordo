@@ -17,7 +17,9 @@ export default defineConfig({
       fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
-      external: [],
+      // @ordo/wasm 是通过 Rust 编译的 WASM 包，需要单独构建
+      // 在运行时动态加载，所以标记为外部依赖
+      external: ['@ordo/wasm', /^@ordo\/wasm\/.*/],
     },
     sourcemap: true,
   },

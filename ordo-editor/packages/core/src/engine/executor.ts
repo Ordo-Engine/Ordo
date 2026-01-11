@@ -110,10 +110,9 @@ export class RuleExecutor {
       console.log('[WASM] Ruleset JSON:', rulesetJson);
       console.log('[WASM] Input JSON:', inputJson);
 
-      const resultJson = this.wasmModule.execute_ruleset(
-        rulesetJson,
-        inputJson,
-        includeTrace
+      // WASM functions may be async (when using the loader)
+      const resultJson = await Promise.resolve(
+        this.wasmModule.execute_ruleset(rulesetJson, inputJson, includeTrace)
       );
 
       console.log('[WASM] Result JSON:', resultJson);
@@ -222,7 +221,9 @@ export class RuleExecutor {
 
     try {
       const rulesetJson = JSON.stringify(ruleset);
-      const resultJson = this.wasmModule.validate_ruleset(rulesetJson);
+      const resultJson = await Promise.resolve(
+        this.wasmModule.validate_ruleset(rulesetJson)
+      );
       return JSON.parse(resultJson);
     } catch (error) {
       throw new Error(
@@ -291,7 +292,9 @@ export class RuleExecutor {
 
     try {
       const contextJson = JSON.stringify(context);
-      const resultJson = this.wasmModule.eval_expression(expression, contextJson);
+      const resultJson = await Promise.resolve(
+        this.wasmModule.eval_expression(expression, contextJson)
+      );
       return JSON.parse(resultJson);
     } catch (error) {
       throw new Error(

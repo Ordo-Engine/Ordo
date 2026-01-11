@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'ordo-editor/**'
+      - 'crates/ordo-wasm/**'
+      - 'crates/ordo-core/**'
       - '.github/workflows/deploy-playground.yml'
   workflow_dispatch:
 
@@ -28,6 +30,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ===== Rust & WASM Setup =====
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM module
+        working-directory: crates/ordo-wasm
+        run: |
+          wasm-pack build \
+            --target web \
+            --out-dir ../../ordo-editor/packages/wasm/dist \
+            --out-name ordo_wasm \
+            --release
+
+      # ===== Node.js & pnpm Setup =====
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:

@@ -3,17 +3,19 @@
   "version": "0.1.0",
   "description": "WebAssembly bindings for Ordo Rule Engine",
   "type": "module",
-  "main": "./stub.js",
-  "types": "./stub.d.ts",
+  "main": "./index.js",
+  "types": "./index.d.ts",
   "exports": {
     ".": {
-      "import": "./stub.js",
-      "types": "./stub.d.ts"
+      "import": "./index.js",
+      "types": "./index.d.ts"
     },
     "./dist/*": "./dist/*"
   },
   "files": [
     "dist",
+    "index.js",
+    "index.d.ts",
     "stub.js",
     "stub.d.ts"
   ],

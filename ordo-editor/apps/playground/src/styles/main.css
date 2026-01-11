@@ -25,3 +25,29 @@ body {
   min-height: 100vh;
 }
 
+/* ===== Driver.js Tour - Dark Theme ===== */
+.driver-popover {
+  background: #1e1e1e !important;
+  border: 1px solid #444 !important;
+  color: #fff !important;
+}
+
+.driver-popover-title {
+  color: #fff !important;
+}
+
+.driver-popover-description {
+  color: #bbb !important;
+}
+
+.driver-popover-progress-text {
+  color: #888 !important;
+}
+
+.driver-popover-arrow-side-left,
+.driver-popover-arrow-side-right,
+.driver-popover-arrow-side-top,
+.driver-popover-arrow-side-bottom {
+  border-color: #1e1e1e !important;
+}
+

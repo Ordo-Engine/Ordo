@@ -11,6 +11,16 @@ import {
   type Lang,
 } from '@ordo/editor-vue';
 import { Step, Condition, Expr, generateId } from '@ordo/editor-core';
+import WelcomeModal from './components/WelcomeModal.vue';
+import { useTour } from './composables/useTour';
+
+// Tour - with callback to switch to flow mode
+const { startTour, shouldShowTour, resetTour } = useTour({
+  onSwitchToFlow: () => {
+    editorMode.value = 'flow';
+  },
+});
+const showWelcome = ref(false);
 
 // Theme & Locale & Editor Mode
 const theme = ref<'light' | 'dark'>('dark');
@@ -169,12 +179,36 @@ function handleMouseUp() {
 onMounted(() => {
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
+  
+  // Show welcome modal for first-time visitors
+  if (shouldShowTour()) {
+    showWelcome.value = true;
+  }
 });
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleMouseMove);
   document.removeEventListener('mouseup', handleMouseUp);
 });
+
+// Tour handlers
+function handleStartTour() {
+  showWelcome.value = false;
+  // Wait for modal to close before starting tour
+  setTimeout(() => {
+    startTour();
+  }, 300);
+}
+
+function handleSkipTour() {
+  showWelcome.value = false;
+  localStorage.setItem('ordo-tour-completed', 'true');
+}
+
+function handleRestartTour() {
+  resetTour();
+  startTour();
+}
 
 // ============ Multi-file Management ============
 
@@ -945,6 +979,7 @@ watch(theme, (newTheme) => {
         :class="{ active: editorMode === 'form' }"
         @click="setEditorMode('form')"
         title="Form Editor"
+        data-tour="mode-form"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
@@ -960,6 +995,7 @@ watch(theme, (newTheme) => {
         :class="{ active: editorMode === 'flow' }"
         @click="setEditorMode('flow')"
         title="Flow Editor"
+        data-tour="mode-flow"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="5" r="3"/>
@@ -987,6 +1023,19 @@ watch(theme, (newTheme) => {
         </svg>
       </div>
       
+      <!-- Help / Tour -->
+      <div 
+        class="activity-icon" 
+        @click="handleRestartTour"
+        title="Start Tour"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      
       <div class="activity-icon" @click="toggleLocale" :title="locale === 'en' ? 'Switch to Chinese' : 'Switch to English'">
         <span style="font-size: 10px; font-weight: 700;">{{ locale === 'en' ? 'EN' : '中' }}</span>
       </div>
@@ -1001,6 +1050,7 @@ watch(theme, (newTheme) => {
       v-if="showLeftSidebar" 
       class="ide-sidebar left"
       :style="{ width: leftSidebarWidth + 'px' }"
+      data-tour="explorer"
     >
       <div class="sidebar-header">
         <span>EXPLORER</span>
@@ -1124,7 +1174,7 @@ watch(theme, (newTheme) => {
 
       <!-- Editor Content -->
       <div class="ide-editor-wrapper" v-if="activeFile">
-        <div class="ide-editor-content">
+        <div class="ide-editor-content" data-tour="editor">
           <!-- Form Editor -->
           <OrdoFormEditor
             v-if="editorMode === 'form'"
@@ -1171,7 +1221,7 @@ watch(theme, (newTheme) => {
           <OrdoIcon name="check" :size="12" /> Ready
         </div>
         <div class="spacer"></div>
-        <div v-if="activeFile" class="status-item clickable" :class="{ active: showExecutionPanel }" @click="toggleExecutionPanel" title="Toggle Execution Panel">
+        <div v-if="activeFile" class="status-item clickable" :class="{ active: showExecutionPanel }" @click="toggleExecutionPanel" title="Toggle Execution Panel" data-tour="console">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 4px;">
             <path d="M8 5v14l11-7z"/>
           </svg>
@@ -1198,6 +1248,7 @@ watch(theme, (newTheme) => {
       v-if="showRightSidebar" 
       class="ide-sidebar right"
       :style="{ width: rightSidebarWidth + 'px' }"
+      data-tour="json-output"
     >
       <!-- Resize handle -->
       <div class="resize-handle left" @mousedown="startResizeRight"></div>
@@ -1224,6 +1275,12 @@ watch(theme, (newTheme) => {
       </div>
     </aside>
 
+    <!-- Welcome Modal -->
+    <WelcomeModal 
+      v-if="showWelcome"
+      @start-tour="handleStartTour"
+      @skip="handleSkipTour"
+    />
   </div>
 </template>
 

@@ -5,6 +5,8 @@ import { resolve } from 'path';
 const packagesPath = resolve(__dirname, '../../packages');
 
 export default defineConfig({
+  // GitHub Pages 部署路径
+  base: process.env.GITHUB_PAGES === 'true' ? '/Ordo/' : '/',
   plugins: [vue()],
   resolve: {
     alias: {

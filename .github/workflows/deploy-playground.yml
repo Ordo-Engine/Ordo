@@ -1,0 +1,77 @@
+name: Deploy Playground to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ordo-editor/**'
+      - '.github/workflows/deploy-playground.yml'
+  workflow_dispatch:
+
+# 设置 GITHUB_TOKEN 的权限以允许部署到 GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 只允许一个并发部署，跳过正在运行和最新排队之间的运行
+# 但是，不要取消正在进行的运行，因为我们希望这些生产部署完成
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Playground
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: ordo-editor/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: ordo-editor
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        working-directory: ordo-editor
+        run: |
+          pnpm --filter @ordo/editor-core build
+          pnpm --filter @ordo/editor-vue build
+
+      - name: Build playground
+        working-directory: ordo-editor/apps/playground
+        run: pnpm build
+        env:
+          GITHUB_PAGES: 'true'
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ordo-editor/apps/playground/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -5,22 +5,25 @@
 <h1 align="center">Ordo</h1>
 
 <p align="center">
-  <strong>A high-performance rule engine built in Rust</strong>
+  <strong>A high-performance rule engine with visual editor</strong>
 </p>
 
 <p align="center">
   <a href="#features">Features</a> •
+  <a href="#visual-editor">Visual Editor</a> •
   <a href="#performance">Performance</a> •
   <a href="#quick-start">Quick Start</a> •
-  <a href="#api-reference">API</a> •
-  <a href="#benchmark">Benchmark</a> •
   <a href="#license">License</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/rust-1.83%2B-orange?logo=rust" alt="Rust Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
-  <img src="https://img.shields.io/badge/status-alpha-yellow" alt="Status" />
+  <a href="https://pama-lee.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
+</p>
+
+<p align="center">
+  <img src="images/main.png" alt="Ordo Visual Editor" width="100%" />
 </p>
 
 ---
@@ -29,59 +32,54 @@
 
 **Ordo** (Latin for "order") is an enterprise-grade rule engine designed for extreme performance and reliability. Built entirely in Rust, it evaluates business rules with **sub-microsecond latency** and supports **500,000+ executions per second**.
 
-```yaml
-# Example: User eligibility rule
-name: user_eligibility
-version: "1.0.0"
-steps:
-  - id: check_age
-    type: decision
-    condition: "age >= 18"
-    on_true: check_status
-    on_false: reject
-
-  - id: check_status
-    type: decision  
-    condition: "status == 'active' && balance >= 100"
-    on_true: approve
-    on_false: reject
-
-  - id: approve
-    type: terminal
-    output: { "eligible": true, "tier": "standard" }
-
-  - id: reject
-    type: terminal
-    output: { "eligible": false, "reason": "criteria_not_met" }
-```
+### ✨ Try it now: [Live Playground](https://pama-lee.github.io/Ordo/)
 
 ---
 
 ## Features
 
+### 🎨 Visual Rule Editor
+
+Design complex business rules with an intuitive drag-and-drop flow editor:
+
+<p align="center">
+  <img src="images/flow.png" alt="Flow Editor" width="100%" />
+</p>
+
+- **Flow View**: Visualize rule logic as connected decision trees
+- **Form View**: Edit conditions and actions with a structured form interface
+- **Real-time Execution**: Test rules instantly with WASM-powered execution
+- **Execution Trace**: Debug step-by-step with visual path highlighting
+
+<p align="center">
+  <img src="images/flow2.png" alt="Form Editor" width="100%" />
+</p>
+
 ### 🚀 Blazing Fast
+
 - **1.63 µs** average rule execution time
 - **600x faster** than the 1ms target
 - Zero-allocation hot path
 - Pre-compiled expression evaluation
 
 ### 🔧 Flexible Rule Definition
+
 - **Step Flow Model**: Linear decision steps with conditional jumps
 - **Rich Expressions**: Comparisons, logical operators, functions, conditionals
-- **Built-in Functions**: `len()`, `sum()`, `avg()`, `upper()`, `lower()`, `abs()`, `min()`, `max()`, and more
+- **Built-in Functions**: `len()`, `sum()`, `avg()`, `upper()`, `lower()`, `abs()`, `min()`, `max()`
 - **Field Coalescing**: `coalesce(field, fallback, default)` for missing field handling
 
 ### 🛡️ Production Ready
+
 - **Deterministic Execution**: Same input → Same path → Same result
 - **Execution Tracing**: Full visibility into every step for debugging
-- **Configurable Error Handling**: Fail-fast, ignore, or fallback strategies
 - **Hot Reload**: Update rules without service restart
 
 ### 🔌 Easy Integration
+
 - **HTTP REST API**: Simple JSON-based interface
-- **gRPC Support**: High-performance binary protocol (coming soon)
-- **Unix Domain Socket**: Ultra-low latency local communication (coming soon)
-- **Sidecar Deployment**: Independent upgrades without affecting host services
+- **WebAssembly**: Run rules directly in browser
+- **gRPC Support**: High-performance binary protocol
 
 ---
 
@@ -96,132 +94,32 @@ Benchmarked on Apple Silicon (M-series), single thread:
 | HTTP API throughput | **54,000 QPS** |
 | Projected multi-thread | **500,000+ QPS** |
 
-<details>
-<summary>📊 Detailed Benchmark Results</summary>
-
-### Expression Parsing
-| Expression | Time |
-|------------|------|
-| Simple (`age > 18`) | 1.05 µs |
-| Logical AND | 1.90 µs |
-| Complex condition | 3.30 µs |
-| Function call | 3.16 µs |
-
-### Expression Evaluation
-| Expression | Time |
-|------------|------|
-| Simple compare | 78.7 ns |
-| Field access | 150.1 ns |
-| Arithmetic | 153.3 ns |
-| Conditional | 104.4 ns |
-
-### Built-in Functions
-| Function | Time |
-|----------|------|
-| `abs()` | 19.9 ns |
-| `len()` (string) | 42.4 ns |
-| `sum()` (array) | 62.4 ns |
-| `upper()` | 74.2 ns |
-
-</details>
-
-See [benchmark/](benchmark/) for full reports with graphs.
+See [benchmark/](benchmark/) for detailed reports with graphs.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- Rust 1.83 or later
-- Cargo
-
-### Installation
+### Run the Server
 
 ```bash
 git clone https://github.com/Pama-Lee/Ordo.git
 cd Ordo
 
-# Build release version
+# Build and run
 cargo build --release
-
-# Run the server
 ./target/release/ordo-server
 ```
 
-### Basic Usage
+### Use the Visual Editor
 
-**1. Create a rule:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/rules \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "discount_check",
-    "version": "1.0.0",
-    "steps": [
-      {
-        "id": "check",
-        "type": "decision",
-        "condition": "total >= 100",
-        "on_true": "apply_discount",
-        "on_false": "no_discount"
-      },
-      {
-        "id": "apply_discount",
-        "type": "terminal",
-        "output": {"discount": 0.1}
-      },
-      {
-        "id": "no_discount",
-        "type": "terminal",
-        "output": {"discount": 0}
-      }
-    ]
-  }'
-```
-
-**2. Execute the rule:**
+Visit the [Live Playground](https://pama-lee.github.io/Ordo/) or run locally:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/execute/discount_check \
-  -H "Content-Type: application/json" \
-  -d '{"input": {"total": 150}}'
+cd ordo-editor
+pnpm install
+pnpm dev
 ```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "result": {
-    "discount": 0.1
-  },
-  "trace": {
-    "steps": [
-      {"id": "check", "result": true, "duration_ns": 245},
-      {"id": "apply_discount", "result": "terminal", "duration_ns": 52}
-    ],
-    "total_duration_ns": 1623
-  }
-}
-```
-
----
-
-## API Reference
-
-### Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `GET` | `/api/v1/rules` | List all rules |
-| `POST` | `/api/v1/rules` | Create a rule |
-| `GET` | `/api/v1/rules/:name` | Get rule by name |
-| `DELETE` | `/api/v1/rules/:name` | Delete a rule |
-| `POST` | `/api/v1/execute/:name` | Execute a rule |
-| `POST` | `/api/v1/eval` | Evaluate an expression |
 
 ### Expression Syntax
 
@@ -229,16 +127,10 @@ curl -X POST http://localhost:8080/api/v1/execute/discount_check \
 # Comparisons
 age >= 18
 status == "active"
-score != 0
 
 # Logical operators
 age >= 18 && status == "active"
 tier == "gold" || tier == "platinum"
-!is_blocked
-
-# Set membership
-status in ["active", "pending"]
-role not_in ["banned", "suspended"]
 
 # Field access
 user.profile.level
@@ -251,9 +143,6 @@ upper(name) == "ADMIN"
 
 # Conditionals
 if exists(discount) then price * (1 - discount) else price
-
-# Null coalescing
-coalesce(appid, in_appid, "default")
 ```
 
 ---
@@ -264,45 +153,17 @@ coalesce(appid, in_appid, "default")
 ordo/
 ├── crates/
 │   ├── ordo-core/       # Core rule engine library
-│   │   ├── src/
-│   │   │   ├── context/ # Execution context & values
-│   │   │   ├── expr/    # Expression parser & evaluator
-│   │   │   ├── rule/    # Rule model & executor
-│   │   │   └── trace/   # Execution tracing
-│   │   ├── benches/     # Performance benchmarks
-│   │   └── examples/    # Usage examples
-│   ├── ordo-server/     # HTTP API server
-│   └── ordo-proto/      # Protocol definitions (Protobuf)
-├── benchmark/           # Benchmark reports & graphs
-└── images/              # Project assets
-```
-
----
-
-## Benchmark
-
-Run benchmarks locally:
-
-```bash
-# Core engine benchmarks
-cargo bench --package ordo-core
-
-# View HTML report
-open target/criterion/report/index.html
-```
-
-Run HTTP load test:
-
-```bash
-# Start server
-./target/release/ordo-server &
-
-# Load test with hey
-hey -n 10000 -c 50 \
-  -m POST \
-  -H "Content-Type: application/json" \
-  -d '{"input": {"value": 75}}' \
-  http://localhost:8080/api/v1/execute/test_rule
+│   ├── ordo-server/     # HTTP/gRPC API server
+│   ├── ordo-wasm/       # WebAssembly bindings
+│   └── ordo-proto/      # Protocol definitions
+├── ordo-editor/         # Visual rule editor (Vue 3)
+│   ├── packages/
+│   │   ├── core/        # Framework-agnostic editor core
+│   │   ├── vue/         # Vue components
+│   │   └── wasm/        # WASM integration
+│   └── apps/
+│       └── playground/  # Demo application
+└── benchmark/           # Performance reports
 ```
 
 ---
@@ -313,75 +174,11 @@ hey -n 10000 -c 50 \
 - [x] HTTP REST API
 - [x] Execution tracing
 - [x] Built-in functions
-- [ ] gRPC support
-- [ ] Unix Domain Socket
-- [ ] Rule hot-reload
-- [ ] Persistent storage
-- [ ] Visual rule editor (Web UI)
-- [ ] Distributed execution
-
----
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
-
-### Branch Strategy
-
-We follow a structured branching model:
-
-| Branch | Purpose | Base | Merge To |
-|--------|---------|------|----------|
-| `main` | Production-ready code | - | - |
-| `develop` | Integration branch | `main` | `main` |
-| `feature/*` | New features | `develop` | `develop` |
-| `fix/*` | Bug fixes | `develop` | `develop` |
-| `hotfix/*` | Urgent production fixes | `main` | `main` + `develop` |
-| `release/*` | Release preparation | `develop` | `main` + `develop` |
-
-**Branch Naming Convention:**
-
-```
-feature/add-grpc-support
-feature/expr-cache
-fix/parser-escape-chars
-fix/memory-leak-in-eval
-hotfix/critical-security-patch
-release/v0.2.0
-```
-
-**Workflow:**
-
-1. **Feature Development**
-   ```bash
-   git checkout develop
-   git pull origin develop
-   git checkout -b feature/your-feature-name
-   # ... make changes ...
-   git push origin feature/your-feature-name
-   # Create PR to develop
-   ```
-
-2. **Bug Fixes**
-   ```bash
-   git checkout develop
-   git checkout -b fix/bug-description
-   # ... fix the bug ...
-   git push origin fix/bug-description
-   # Create PR to develop
-   ```
-
-3. **Releases**
-   ```bash
-   git checkout develop
-   git checkout -b release/vX.Y.Z
-   # ... version bump, changelog ...
-   # Create PR to main AND develop
-   ```
-
-**Protected Branches:**
-- `main` - Requires PR review, passing CI, no direct pushes
-- `develop` - Requires PR review, passing CI
+- [x] Visual rule editor
+- [x] WebAssembly support
+- [ ] Rule versioning & history
+- [ ] Collaborative editing
+- [ ] Rule marketplace
 
 ---
 
@@ -392,5 +189,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <sub>Built with 🥟 and Rust</sub>
+  <sub>Built with 🦀 and Rust</sub>
 </p>

@@ -4,7 +4,7 @@
 //! When a rules directory is specified, rules are automatically persisted to disk.
 //! Supports version management with automatic backup of previous versions.
 
-use ordo_core::prelude::{RuleExecutor, RuleSet, TraceConfig};
+use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -91,6 +91,17 @@ impl RuleStore {
         }
     }
 
+    /// Create a new in-memory store with a custom metric sink
+    pub fn new_with_metrics(metric_sink: Arc<dyn MetricSink>) -> Self {
+        Self {
+            rulesets: HashMap::new(),
+            executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
+            rules_dir: None,
+            default_format: FileFormat::Json,
+            max_versions: 10,
+        }
+    }
+
     /// Create a store with file persistence enabled
     #[allow(dead_code)]
     pub fn new_with_persistence(rules_dir: PathBuf) -> Self {
@@ -102,6 +113,21 @@ impl RuleStore {
         Self {
             rulesets: HashMap::new(),
             executor: RuleExecutor::with_trace(TraceConfig::minimal()),
+            rules_dir: Some(rules_dir),
+            default_format: FileFormat::Json,
+            max_versions,
+        }
+    }
+
+    /// Create a store with file persistence, custom max versions, and metric sink
+    pub fn new_with_persistence_and_metrics(
+        rules_dir: PathBuf,
+        max_versions: usize,
+        metric_sink: Arc<dyn MetricSink>,
+    ) -> Self {
+        Self {
+            rulesets: HashMap::new(),
+            executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
             rules_dir: Some(rules_dir),
             default_format: FileFormat::Json,
             max_versions,

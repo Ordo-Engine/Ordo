@@ -2,6 +2,7 @@
 //!
 //! Executes rule sets against input data
 
+use super::metrics::{MetricSink, NoOpMetricSink};
 use super::model::{FieldMissingBehavior, RuleSet};
 use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, TerminalResult};
 use crate::context::{Context, Value};
@@ -9,6 +10,7 @@ use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, ExprParser};
 use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // Use web_time for WASM, std::time for native
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,6 +48,8 @@ pub struct RuleExecutor {
     evaluator: Evaluator,
     /// Trace configuration
     trace_config: TraceConfig,
+    /// Metric sink for recording custom metrics from rule actions
+    metric_sink: Arc<dyn MetricSink>,
 }
 
 impl Default for RuleExecutor {
@@ -60,6 +64,7 @@ impl RuleExecutor {
         Self {
             evaluator: Evaluator::new(),
             trace_config: TraceConfig::default(),
+            metric_sink: Arc::new(NoOpMetricSink),
         }
     }
 
@@ -68,7 +73,34 @@ impl RuleExecutor {
         Self {
             evaluator: Evaluator::new(),
             trace_config,
+            metric_sink: Arc::new(NoOpMetricSink),
         }
+    }
+
+    /// Create executor with metric sink
+    pub fn with_metric_sink(metric_sink: Arc<dyn MetricSink>) -> Self {
+        Self {
+            evaluator: Evaluator::new(),
+            trace_config: TraceConfig::default(),
+            metric_sink,
+        }
+    }
+
+    /// Create executor with trace config and metric sink
+    pub fn with_trace_and_metrics(
+        trace_config: TraceConfig,
+        metric_sink: Arc<dyn MetricSink>,
+    ) -> Self {
+        Self {
+            evaluator: Evaluator::new(),
+            trace_config,
+            metric_sink,
+        }
+    }
+
+    /// Get the metric sink
+    pub fn metric_sink(&self) -> &Arc<dyn MetricSink> {
+        &self.metric_sink
     }
 
     /// Get evaluator for customization
@@ -271,8 +303,29 @@ impl RuleExecutor {
 
             ActionKind::Metric { name, value, tags } => {
                 let val = self.evaluator.eval(value, ctx)?;
-                // TODO: Integrate with metrics system
-                tracing::debug!(metric = %name, value = ?val, tags = ?tags, "Metric recorded");
+                // Convert Value to f64 for metric recording
+                let metric_value = match &val {
+                    Value::Int(i) => *i as f64,
+                    Value::Float(f) => *f,
+                    Value::Bool(b) => {
+                        if *b {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    }
+                    _ => {
+                        tracing::warn!(
+                            metric = %name,
+                            value = ?val,
+                            "Cannot convert value to metric, expected numeric type"
+                        );
+                        return Ok(());
+                    }
+                };
+                // Record metric via sink
+                self.metric_sink.record_gauge(name, metric_value, tags);
+                tracing::debug!(metric = %name, value = %metric_value, tags = ?tags, "Metric recorded");
             }
 
             ActionKind::ExternalCall { .. } => {
@@ -431,5 +484,66 @@ mod tests {
 
         assert_eq!(result.code, "CHILD");
         assert_eq!(result.output.get_path("discount"), Some(&Value::float(0.2)));
+    }
+
+    #[test]
+    fn test_execute_with_metric_sink() {
+        use crate::rule::metrics::MetricSink;
+        use crate::rule::step::{Action, ActionKind};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        // Create a test metric sink that counts calls
+        struct TestMetricSink {
+            gauge_calls: AtomicUsize,
+            counter_calls: AtomicUsize,
+        }
+
+        impl MetricSink for TestMetricSink {
+            fn record_gauge(&self, _name: &str, _value: f64, _tags: &[(String, String)]) {
+                self.gauge_calls.fetch_add(1, Ordering::SeqCst);
+            }
+
+            fn record_counter(&self, _name: &str, _value: f64, _tags: &[(String, String)]) {
+                self.counter_calls.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let sink = Arc::new(TestMetricSink {
+            gauge_calls: AtomicUsize::new(0),
+            counter_calls: AtomicUsize::new(0),
+        });
+
+        let executor = RuleExecutor::with_metric_sink(sink.clone());
+
+        // Create a ruleset with a metric action
+        let mut ruleset = RuleSet::new("metric_test", "record_metric");
+
+        // Action step that records a metric
+        ruleset.add_step(Step::action(
+            "record_metric",
+            "Record Metric",
+            vec![Action {
+                kind: ActionKind::Metric {
+                    name: "test_metric".to_string(),
+                    value: Expr::literal(42.0f64),
+                    tags: vec![("env".to_string(), "test".to_string())],
+                },
+                description: "Test metric".to_string(),
+            }],
+            "done",
+        ));
+
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK").with_message("Metric recorded"),
+        ));
+
+        let input = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        // Verify that the metric sink was called
+        assert_eq!(sink.gauge_calls.load(Ordering::SeqCst), 1);
     }
 }

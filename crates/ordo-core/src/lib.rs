@@ -62,8 +62,9 @@ pub mod prelude {
     pub use crate::error::{OrdoError, Result};
     pub use crate::expr::{BinaryOp, Evaluator, Expr, ExprParser, FunctionRegistry, UnaryOp};
     pub use crate::rule::{
-        Action, ActionKind, Branch, Condition, RuleExecutor, RuleSet, RuleSetConfig, Step,
-        StepKind, TerminalResult,
+        Action, ActionKind, Branch, Condition, ExecutionResult, LoggingMetricSink, MetricSink,
+        MetricType, NoOpMetricSink, RuleExecutor, RuleSet, RuleSetConfig, Step, StepKind,
+        TerminalResult,
     };
     pub use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
 }

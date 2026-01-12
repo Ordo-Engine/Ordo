@@ -50,6 +50,7 @@ mod uds;
 use audit::AuditLogger;
 use config::ServerConfig;
 use grpc::OrdoGrpcService;
+use metrics::PrometheusMetricSink;
 use store::RuleStore;
 
 /// Application state shared between HTTP handlers
@@ -57,6 +58,7 @@ use store::RuleStore;
 pub struct AppState {
     store: Arc<RwLock<RuleStore>>,
     audit_logger: Arc<AuditLogger>,
+    metric_sink: Arc<PrometheusMetricSink>,
 }
 
 #[tokio::main]
@@ -76,14 +78,21 @@ async fn main() -> anyhow::Result<()> {
     let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
+    // Initialize Prometheus metric sink for custom rule metrics
+    let metric_sink = Arc::new(PrometheusMetricSink::new());
+    info!("Initialized Prometheus metric sink for custom rule metrics");
+
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
         info!(
             "Initializing store with persistence at {:?} (max {} versions)",
             rules_dir, config.max_versions
         );
-        let mut store =
-            RuleStore::new_with_persistence_and_versions(rules_dir.clone(), config.max_versions);
+        let mut store = RuleStore::new_with_persistence_and_metrics(
+            rules_dir.clone(),
+            config.max_versions,
+            metric_sink.clone(),
+        );
 
         // Load existing rules from directory
         match store.load_from_dir() {
@@ -109,7 +118,9 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(RwLock::new(store))
     } else {
         info!("Initializing in-memory store (no persistence)");
-        Arc::new(RwLock::new(RuleStore::new()))
+        Arc::new(RwLock::new(RuleStore::new_with_metrics(
+            metric_sink.clone(),
+        )))
     };
 
     // Initialize metrics
@@ -151,9 +162,10 @@ async fn main() -> anyhow::Result<()> {
     if config.http_enabled() {
         let http_store = store.clone();
         let http_audit_logger = audit_logger.clone();
+        let http_metric_sink = metric_sink.clone();
         let http_addr = config.http_addr;
         tasks.push(tokio::spawn(async move {
-            start_http_server(http_addr, http_store, http_audit_logger).await
+            start_http_server(http_addr, http_store, http_audit_logger, http_metric_sink).await
         }));
     }
 
@@ -218,10 +230,12 @@ async fn start_http_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
     audit_logger: Arc<AuditLogger>,
+    metric_sink: Arc<PrometheusMetricSink>,
 ) -> anyhow::Result<()> {
     let state = AppState {
         store,
         audit_logger,
+        metric_sink,
     };
 
     // Build router
@@ -321,13 +335,17 @@ async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse 
     metrics::set_rules_count(store.len() as i64);
     drop(store);
 
+    // Combine standard metrics with custom rule metrics
+    let standard_metrics = metrics::encode_metrics();
+    let custom_metrics = state.metric_sink.encode_custom_metrics();
+
     // Return Prometheus text format
     (
         [(
             axum::http::header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8",
         )],
-        metrics::encode_metrics(),
+        format!("{}\n{}", standard_metrics, custom_metrics),
     )
 }
 

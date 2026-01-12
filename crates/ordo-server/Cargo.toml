@@ -10,6 +10,7 @@ clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 ordo-core = { version = "0.1.0", path = "../ordo-core" }
 ordo-proto = { version = "0.1.0", path = "../ordo-proto" }
+parking_lot.workspace = true
 prost.workspace = true
 rand = "0.8"
 serde = { workspace = true, features = ["derive"] }

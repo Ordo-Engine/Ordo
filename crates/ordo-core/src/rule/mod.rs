@@ -4,11 +4,14 @@
 //! - RuleSet definition
 //! - Step flow model (Decision Step, Action Step, Terminal Step)
 //! - Condition and branch definitions
+//! - Metric sink abstraction for custom metrics
 
 mod executor;
+mod metrics;
 mod model;
 mod step;
 
-pub use executor::RuleExecutor;
+pub use executor::{ExecutionResult, RuleExecutor};
+pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
 pub use model::{RuleSet, RuleSetConfig};
 pub use step::{Action, ActionKind, Branch, Condition, Step, StepKind, TerminalResult};

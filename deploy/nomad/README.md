@@ -297,6 +297,35 @@ ordo-server --rules-dir /var/lib/ordo/rules
 - **On API delete**: Rule files are removed from the directory
 - **Without `--rules-dir`**: Pure in-memory mode (rules lost on restart)
 
+### Version Management
+
+When rules are updated, previous versions are automatically saved:
+
+```bash
+# Keep last 10 versions (default)
+ordo-server --rules-dir /var/lib/ordo/rules --max-versions 10
+
+# Keep all versions (set to 0)
+ordo-server --rules-dir /var/lib/ordo/rules --max-versions 0
+```
+
+Version files are stored as `{name}.v{seq}.json` (e.g., `payment-check.v1.json`).
+
+**API Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/rulesets/:name/versions` | List version history |
+| POST | `/api/v1/rulesets/:name/rollback` | Rollback to a version |
+
+**Rollback example:**
+```bash
+# Rollback to version 2
+curl -X POST http://localhost:8080/api/v1/rulesets/my-rule/rollback \
+  -H "Content-Type: application/json" \
+  -d '{"seq": 2}'
+```
+
 **For Nomad deployments**, you can use a host volume to persist rules:
 
 ```hcl

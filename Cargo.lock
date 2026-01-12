@@ -1076,6 +1076,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
+ "chrono",
  "clap",
  "futures",
  "lazy_static",
@@ -1083,6 +1084,8 @@ dependencies = [
  "ordo-proto",
  "prometheus",
  "prost",
+ "rand",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",

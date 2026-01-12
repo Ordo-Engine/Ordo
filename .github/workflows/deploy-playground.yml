@@ -1,4 +1,4 @@
-name: Deploy Playground to GitHub Pages
+name: Deploy Playground & Docs to GitHub Pages
 
 on:
   push:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Playground
+    name: Build Playground & Docs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -88,13 +88,23 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
 
+      - name: Build docs
+        working-directory: ordo-editor/apps/docs
+        run: pnpm build
+
+      - name: Merge build outputs
+        run: |
+          mkdir -p final-dist/docs
+          cp -r ordo-editor/apps/playground/dist/* final-dist/
+          cp -r ordo-editor/apps/docs/.vitepress/dist/* final-dist/docs/
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ordo-editor/apps/playground/dist
+          path: final-dist
 
   deploy:
     name: Deploy to GitHub Pages

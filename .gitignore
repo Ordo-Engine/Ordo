@@ -48,3 +48,7 @@ node_modules/
 # dist
 dist/
 .pnpm-store/
+
+# docs
+/ordo-editor/apps/docs/dist/
+.vitepress/

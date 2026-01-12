@@ -7,8 +7,10 @@ use axum::{
 };
 use ordo_core::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 
 use crate::error::ApiError;
+use crate::metrics;
 use crate::AppState;
 
 /// API Result type
@@ -155,6 +157,7 @@ pub async fn execute_ruleset(
     Path(name): Path<String>,
     Json(request): Json<ExecuteRequest>,
 ) -> ApiResult<Json<ExecuteResponse>> {
+    let start = Instant::now();
     let store = state.store.read().await;
 
     // Get ruleset
@@ -163,7 +166,20 @@ pub async fn execute_ruleset(
         .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
 
     // Execute
-    let result = store.executor().execute(&ruleset, request.input)?;
+    let result = match store.executor().execute(&ruleset, request.input) {
+        Ok(result) => {
+            // Record success metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_success(&name, duration_secs);
+            result
+        }
+        Err(e) => {
+            // Record error metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_error(&name, duration_secs);
+            return Err(e.into());
+        }
+    };
 
     // Build response
     let trace = if request.trace {
@@ -194,15 +210,35 @@ pub async fn execute_ruleset(
 
 /// Evaluate an expression (debug endpoint)
 pub async fn eval_expression(Json(request): Json<EvalRequest>) -> ApiResult<Json<EvalResponse>> {
+    let start = Instant::now();
+
     // Parse expression
-    let expr = ExprParser::parse(&request.expression)?;
+    let expr = match ExprParser::parse(&request.expression) {
+        Ok(expr) => expr,
+        Err(e) => {
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_eval_error(duration_secs);
+            return Err(e.into());
+        }
+    };
 
     // Create context
     let ctx = Context::new(request.context);
 
     // Evaluate
     let evaluator = Evaluator::new();
-    let result = evaluator.eval(&expr, &ctx)?;
+    let result = match evaluator.eval(&expr, &ctx) {
+        Ok(result) => {
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_eval_success(duration_secs);
+            result
+        }
+        Err(e) => {
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_eval_error(duration_secs);
+            return Err(e.into());
+        }
+    };
 
     Ok(Json(EvalResponse {
         result,

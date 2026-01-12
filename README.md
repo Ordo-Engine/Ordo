@@ -159,6 +159,36 @@ By default, rules are stored in memory and lost on restart. To enable file-based
 }
 ```
 
+### Monitoring & Health Check
+
+Ordo provides built-in observability endpoints:
+
+**Health Check** (`GET /health`):
+```json
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "uptime_seconds": 3600,
+  "storage": {
+    "mode": "persistent",
+    "rules_dir": "./rules",
+    "rules_count": 12
+  }
+}
+```
+
+**Prometheus Metrics** (`GET /metrics`):
+```bash
+curl http://localhost:8080/metrics
+
+# Sample output:
+# ordo_info{version="0.1.0"} 1
+# ordo_uptime_seconds 3600
+# ordo_rules_total 12
+# ordo_executions_total{ruleset="payment-check",result="success"} 1000
+# ordo_execution_duration_seconds_bucket{ruleset="payment-check",le="0.001"} 950
+```
+
 ### Use the Visual Editor
 
 Visit the [Live Playground](https://pama-lee.github.io/Ordo/) or run locally:

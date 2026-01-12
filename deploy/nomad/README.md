@@ -127,6 +127,61 @@ nomad service info ordo-http
 | HTTP | HTTP | `GET /health` | 10s |
 | gRPC | TCP | Port connectivity | 10s |
 
+The `/health` endpoint returns detailed status:
+
+```json
+{
+  "status": "healthy",
+  "version": "0.1.0",
+  "uptime_seconds": 3600,
+  "storage": {
+    "mode": "persistent",
+    "rules_dir": "/var/lib/ordo/rules",
+    "rules_count": 12
+  }
+}
+```
+
+## Prometheus Metrics
+
+Ordo exposes Prometheus-compatible metrics at `GET /metrics`:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `ordo_info` | Gauge | Server version info |
+| `ordo_uptime_seconds` | Gauge | Server uptime |
+| `ordo_rules_total` | Gauge | Number of loaded rules |
+| `ordo_executions_total` | Counter | Rule execution count (by ruleset, result) |
+| `ordo_execution_duration_seconds` | Histogram | Execution latency |
+| `ordo_evals_total` | Counter | Expression evaluation count |
+| `ordo_eval_duration_seconds` | Histogram | Eval latency |
+
+### Prometheus Scrape Config
+
+```yaml
+scrape_configs:
+  - job_name: 'ordo'
+    static_configs:
+      - targets: ['ordo-server:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+```
+
+### Nomad Service Discovery for Prometheus
+
+If using Nomad's native service discovery with Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: 'ordo'
+    nomad_sd_configs:
+      - server: 'http://localhost:4646'
+    relabel_configs:
+      - source_labels: [__meta_nomad_service]
+        regex: ordo-http
+        action: keep
+```
+
 ## Resource Allocation
 
 ### Production

@@ -21,6 +21,7 @@
 use std::sync::Arc;
 
 use axum::{
+    extract::State,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -37,6 +38,7 @@ mod api;
 mod config;
 mod error;
 mod grpc;
+mod metrics;
 mod store;
 #[cfg(unix)]
 mod uds;
@@ -96,6 +98,13 @@ async fn main() -> anyhow::Result<()> {
         info!("Initializing in-memory store (no persistence)");
         Arc::new(RwLock::new(RuleStore::new()))
     };
+
+    // Initialize metrics
+    metrics::init();
+    {
+        let store_guard = store.read().await;
+        metrics::set_rules_count(store_guard.len() as i64);
+    }
 
     // Create tasks for each enabled protocol
     let mut tasks = Vec::new();
@@ -166,7 +175,7 @@ async fn start_http_server(
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Metrics
-        .route("/metrics", get(metrics))
+        .route("/metrics", get(prometheus_metrics))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -195,18 +204,50 @@ async fn start_grpc_server(
     Ok(())
 }
 
-/// Health check endpoint
-async fn health_check() -> impl IntoResponse {
+/// Health check endpoint with detailed status
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    let store = state.store.read().await;
+
+    // Determine storage mode and info
+    let storage_info = if store.persistence_enabled() {
+        serde_json::json!({
+            "mode": "persistent",
+            "rules_dir": store.rules_dir().map(|p| p.display().to_string()),
+            "rules_count": store.len()
+        })
+    } else {
+        serde_json::json!({
+            "mode": "memory",
+            "rules_count": store.len()
+        })
+    };
+
+    // Update metrics
+    metrics::set_rules_count(store.len() as i64);
+
     Json(serde_json::json!({
         "status": "healthy",
         "version": ordo_core::VERSION,
+        "uptime_seconds": metrics::START_TIME.elapsed().as_secs(),
+        "storage": storage_info
     }))
 }
 
-/// Metrics endpoint (placeholder)
-async fn metrics() -> impl IntoResponse {
-    // TODO: Integrate with prometheus
-    "# Ordo metrics\n"
+/// Prometheus metrics endpoint
+async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    // Update rules count before encoding
+    let store = state.store.read().await;
+    metrics::set_rules_count(store.len() as i64);
+    drop(store);
+
+    // Return Prometheus text format
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        metrics::encode_metrics(),
+    )
 }
 
 #[cfg(test)]

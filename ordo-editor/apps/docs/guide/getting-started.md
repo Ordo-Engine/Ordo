@@ -67,7 +67,7 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:3001 in your browser.
+Open `http://localhost:3001` in your browser.
 
 Or try the [online playground](https://pama-lee.github.io/Ordo/).
 

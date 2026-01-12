@@ -68,14 +68,34 @@ async fn main() -> anyhow::Result<()> {
     let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // Initialize shared store
-    let store = Arc::new(RwLock::new(RuleStore::new()));
+    // Initialize shared store (with or without persistence)
+    let store = if let Some(ref rules_dir) = config.rules_dir {
+        info!("Initializing store with persistence at {:?}", rules_dir);
+        let mut store = RuleStore::new_with_persistence(rules_dir.clone());
 
-    // Load rules from directory if specified
-    if let Some(ref rules_dir) = config.rules_dir {
-        info!("Loading rules from {:?}", rules_dir);
-        // TODO: Implement rule loading from directory
-    }
+        // Load existing rules from directory
+        match store.load_from_dir() {
+            Ok(count) => {
+                if count > 0 {
+                    info!("Loaded {} rules from {:?}", count, rules_dir);
+                } else {
+                    info!("No rules found in {:?}, starting with empty store", rules_dir);
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Failed to load rules from {:?}: {}",
+                    rules_dir,
+                    e
+                ));
+            }
+        }
+
+        Arc::new(RwLock::new(store))
+    } else {
+        info!("Initializing in-memory store (no persistence)");
+        Arc::new(RwLock::new(RuleStore::new()))
+    };
 
     // Create tasks for each enabled protocol
     let mut tasks = Vec::new();

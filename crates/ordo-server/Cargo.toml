@@ -13,6 +13,7 @@ ordo-proto = { version = "0.1.0", path = "../ordo-proto" }
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+serde_yaml = "0.9"
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic.workspace = true

@@ -111,6 +111,54 @@ cargo build --release
 ./target/release/ordo-server
 ```
 
+### Enable Rule Persistence
+
+By default, rules are stored in memory and lost on restart. To enable file-based persistence:
+
+```bash
+# Create a rules directory and enable persistence
+./target/release/ordo-server --rules-dir ./rules
+
+# Rules are automatically:
+# - Loaded from ./rules on startup (supports .json, .yaml, .yml)
+# - Saved to ./rules when created/updated via API
+# - Deleted from ./rules when removed via API
+```
+
+**Example rule file** (`./rules/discount-check.json`):
+```json
+{
+  "config": {
+    "name": "discount-check",
+    "version": "1.0.0",
+    "entry_step": "check_vip"
+  },
+  "steps": {
+    "check_vip": {
+      "id": "check_vip",
+      "name": "Check VIP Status",
+      "type": "decision",
+      "branches": [
+        { "condition": "user.vip == true", "next_step": "vip_discount" }
+      ],
+      "default_next": "normal_discount"
+    },
+    "vip_discount": {
+      "id": "vip_discount",
+      "name": "VIP Discount",
+      "type": "terminal",
+      "result": { "code": "VIP", "message": "20% discount applied" }
+    },
+    "normal_discount": {
+      "id": "normal_discount",
+      "name": "Normal Discount",
+      "type": "terminal",
+      "result": { "code": "NORMAL", "message": "5% discount applied" }
+    }
+  }
+}
+```
+
 ### Use the Visual Editor
 
 Visit the [Live Playground](https://pama-lee.github.io/Ordo/) or run locally:

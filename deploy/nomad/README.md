@@ -227,6 +227,43 @@ The Ordo server accepts these environment variables:
 
 Modify the `env` block in the job files to customize these settings.
 
+## Rule Persistence
+
+The Ordo server supports file-based rule persistence via the `--rules-dir` flag:
+
+```bash
+# Enable persistence with a directory
+ordo-server --rules-dir /var/lib/ordo/rules
+```
+
+**Behavior:**
+- **On startup**: All `.json`, `.yaml`, `.yml` files in the directory are loaded as rules
+- **On API create/update**: Rules are saved to the directory as JSON files
+- **On API delete**: Rule files are removed from the directory
+- **Without `--rules-dir`**: Pure in-memory mode (rules lost on restart)
+
+**For Nomad deployments**, you can use a host volume to persist rules:
+
+```hcl
+group "ordo" {
+  volume "rules" {
+    type   = "host"
+    source = "ordo-rules"
+  }
+
+  task "server" {
+    volume_mount {
+      volume      = "rules"
+      destination = "/var/lib/ordo/rules"
+    }
+
+    config {
+      args = ["--rules-dir", "/var/lib/ordo/rules"]
+    }
+  }
+}
+```
+
 ## Scaling
 
 To run multiple instances (horizontal scaling):

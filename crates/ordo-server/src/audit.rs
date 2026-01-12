@@ -106,8 +106,7 @@ impl AuditLogger {
     /// Update sampling rate at runtime (0-100)
     pub fn set_sample_rate(&self, rate: u8) -> u8 {
         let rate = rate.min(100);
-        let previous = self.sample_rate.swap(rate, Ordering::Relaxed);
-        previous
+        self.sample_rate.swap(rate, Ordering::Relaxed)
     }
 
     /// Get current sampling rate

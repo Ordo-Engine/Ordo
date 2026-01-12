@@ -92,6 +92,7 @@ impl RuleStore {
     }
 
     /// Create a store with file persistence enabled
+    #[allow(dead_code)]
     pub fn new_with_persistence(rules_dir: PathBuf) -> Self {
         Self::new_with_persistence_and_versions(rules_dir, 10)
     }
@@ -108,6 +109,7 @@ impl RuleStore {
     }
 
     /// Set the maximum number of versions to keep
+    #[allow(dead_code)]
     pub fn set_max_versions(&mut self, max_versions: usize) {
         self.max_versions = max_versions;
     }
@@ -295,6 +297,7 @@ impl RuleStore {
     }
 
     /// Extract the base name from a version filename
+    #[allow(dead_code)]
     fn extract_base_name(file_stem: &str) -> &str {
         // "payment-check.v1" -> "payment-check"
         if let Some(pos) = file_stem.rfind(".v") {
@@ -449,7 +452,7 @@ impl RuleStore {
             // Get file modification time
             let created_at = fs::metadata(&path)
                 .and_then(|m| m.modified())
-                .map(|t| format_system_time(t))
+                .map(format_system_time)
                 .unwrap_or_else(|_| "unknown".to_string());
 
             // Load version to get the version string
@@ -620,6 +623,7 @@ impl RuleStore {
     }
 
     /// Check if the store is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.rulesets.is_empty()
     }

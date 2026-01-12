@@ -34,10 +34,12 @@ pub struct ServerConfig {
     pub log_level: String,
 
     /// Rules directory for persistence (optional).
+    ///
     /// When specified, rules are:
     /// - Loaded from this directory on startup (.json, .yaml, .yml files)
     /// - Saved to this directory when created/updated via API
     /// - Deleted from this directory when removed via API
+    ///
     /// Without this flag, rules are stored in memory only.
     #[arg(long)]
     pub rules_dir: Option<PathBuf>,

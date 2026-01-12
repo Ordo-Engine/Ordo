@@ -10,18 +10,18 @@ http://localhost:8080/api/v1
 
 ## Endpoints Overview
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/rulesets` | List all rules |
-| POST | `/rulesets` | Create or update a rule |
-| GET | `/rulesets/:name` | Get a rule by name |
-| DELETE | `/rulesets/:name` | Delete a rule |
-| POST | `/execute/:name` | Execute a rule |
-| GET | `/rulesets/:name/versions` | List rule versions |
-| POST | `/rulesets/:name/rollback` | Rollback to version |
-| POST | `/eval` | Evaluate expression |
-| GET | `/config/audit-sample-rate` | Get sample rate |
-| PUT | `/config/audit-sample-rate` | Set sample rate |
+| Method | Endpoint                    | Description             |
+| ------ | --------------------------- | ----------------------- |
+| GET    | `/rulesets`                 | List all rules          |
+| POST   | `/rulesets`                 | Create or update a rule |
+| GET    | `/rulesets/:name`           | Get a rule by name      |
+| DELETE | `/rulesets/:name`           | Delete a rule           |
+| POST   | `/execute/:name`            | Execute a rule          |
+| GET    | `/rulesets/:name/versions`  | List rule versions      |
+| POST   | `/rulesets/:name/rollback`  | Rollback to version     |
+| POST   | `/eval`                     | Evaluate expression     |
+| GET    | `/config/audit-sample-rate` | Get sample rate         |
+| PUT    | `/config/audit-sample-rate` | Set sample rate         |
 
 ---
 
@@ -78,9 +78,9 @@ GET /api/v1/rulesets/:name
 
 **Errors:**
 
-| Status | Description |
-|--------|-------------|
-| 404 | Rule not found |
+| Status | Description    |
+| ------ | -------------- |
+| 404    | Rule not found |
 
 ### Create or Update Rule
 
@@ -102,9 +102,7 @@ Content-Type: application/json
     "check_vip": {
       "id": "check_vip",
       "type": "decision",
-      "branches": [
-        { "condition": "user.vip == true", "next_step": "vip" }
-      ],
+      "branches": [{ "condition": "user.vip == true", "next_step": "vip" }],
       "default_next": "normal"
     },
     "vip": {
@@ -141,9 +139,9 @@ Content-Type: application/json
 
 **Errors:**
 
-| Status | Description |
-|--------|-------------|
-| 400 | Validation error (invalid rule structure) |
+| Status | Description                               |
+| ------ | ----------------------------------------- |
+| 400    | Validation error (invalid rule structure) |
 
 ### Delete Rule
 
@@ -155,9 +153,9 @@ DELETE /api/v1/rulesets/:name
 
 **Errors:**
 
-| Status | Description |
-|--------|-------------|
-| 404 | Rule not found |
+| Status | Description    |
+| ------ | -------------- |
+| 404    | Rule not found |
 
 ---
 
@@ -181,17 +179,17 @@ Content-Type: application/json
       "age": 25
     },
     "order": {
-      "total": 150.00
+      "total": 150.0
     }
   },
   "trace": false
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `input` | object | Yes | Input data for rule evaluation |
-| `trace` | boolean | No | Include execution trace (default: false) |
+| Field   | Type    | Required | Description                              |
+| ------- | ------- | -------- | ---------------------------------------- |
+| `input` | object  | Yes      | Input data for rule evaluation           |
+| `trace` | boolean | No       | Include execution trace (default: false) |
 
 **Response:**
 
@@ -200,7 +198,7 @@ Content-Type: application/json
   "code": "VIP",
   "message": "VIP discount applied",
   "output": {
-    "discount": 0.20
+    "discount": 0.2
   },
   "duration_us": 2
 }
@@ -212,7 +210,7 @@ Content-Type: application/json
 {
   "code": "VIP",
   "message": "VIP discount applied",
-  "output": { "discount": 0.20 },
+  "output": { "discount": 0.2 },
   "duration_us": 3,
   "trace": {
     "path": "check_vip -> vip_discount",
@@ -226,10 +224,10 @@ Content-Type: application/json
 
 **Errors:**
 
-| Status | Description |
-|--------|-------------|
-| 404 | Rule not found |
-| 500 | Execution error |
+| Status | Description     |
+| ------ | --------------- |
+| 404    | Rule not found  |
+| 500    | Execution error |
 
 ---
 
@@ -290,10 +288,10 @@ Content-Type: application/json
 
 **Errors:**
 
-| Status | Description |
-|--------|-------------|
-| 400 | Rollback not available (memory-only mode) |
-| 404 | Rule or version not found |
+| Status | Description                               |
+| ------ | ----------------------------------------- |
+| 400    | Rollback not available (memory-only mode) |
+| 404    | Rule or version not found                 |
 
 ---
 
@@ -439,8 +437,8 @@ All errors follow this format:
 
 ### Common Error Codes
 
-| Status | Code | Description |
-|--------|------|-------------|
-| 400 | `BAD_REQUEST` | Invalid request body |
-| 404 | `NOT_FOUND` | Resource not found |
-| 500 | `INTERNAL_ERROR` | Server error |
+| Status | Code             | Description          |
+| ------ | ---------------- | -------------------- |
+| 400    | `BAD_REQUEST`    | Invalid request body |
+| 404    | `NOT_FOUND`      | Resource not found   |
+| 500    | `INTERNAL_ERROR` | Server error         |

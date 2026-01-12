@@ -27,10 +27,7 @@ const DEFAULT_OPTIONS: SerializationOptions = {
 /**
  * Serialize a ruleset to JSON string
  */
-export function serializeRuleSet(
-  ruleset: RuleSet,
-  options: SerializationOptions = {}
-): string {
+export function serializeRuleSet(ruleset: RuleSet, options: SerializationOptions = {}): string {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   const data = opts.includeMetadata
@@ -208,4 +205,3 @@ export function mergeRuleSets(base: RuleSet, patch: Partial<RuleSet>): RuleSet {
     },
   };
 }
-

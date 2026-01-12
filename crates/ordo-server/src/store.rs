@@ -198,10 +198,7 @@ impl RuleStore {
             }
         }
 
-        info!(
-            "Loaded {} rules from {:?}",
-            loaded, rules_dir
-        );
+        info!("Loaded {} rules from {:?}", loaded, rules_dir);
         Ok(loaded)
     }
 
@@ -490,7 +487,11 @@ impl RuleStore {
     }
 
     /// Rollback to a specific version
-    pub fn rollback_to_version(&mut self, name: &str, seq: u32) -> io::Result<Option<(String, String)>> {
+    pub fn rollback_to_version(
+        &mut self,
+        name: &str,
+        seq: u32,
+    ) -> io::Result<Option<(String, String)>> {
         // Get the version to rollback to
         let version_ruleset = match self.get_version(name, seq)? {
             Some(r) => r,
@@ -511,12 +512,16 @@ impl RuleStore {
         self.persist_ruleset(name, &version_ruleset)?;
 
         // Update memory cache
-        self.rulesets.insert(name.to_string(), Arc::new(version_ruleset));
+        self.rulesets
+            .insert(name.to_string(), Arc::new(version_ruleset));
 
         // Cleanup old versions
         self.cleanup_old_versions(name)?;
 
-        info!("Rolled back '{}' from {} to {} (seq {})", name, from_version, to_version, seq);
+        info!(
+            "Rolled back '{}' from {} to {} (seq {})",
+            name, from_version, to_version, seq
+        );
 
         Ok(Some((from_version, to_version)))
     }
@@ -909,7 +914,8 @@ steps:
 
         // Create versions
         for i in 1..=3 {
-            let ruleset = create_test_ruleset_with_version("delete-versions", &format!("{}.0.0", i));
+            let ruleset =
+                create_test_ruleset_with_version("delete-versions", &format!("{}.0.0", i));
             store.put(ruleset).unwrap();
         }
 

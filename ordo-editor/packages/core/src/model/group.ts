@@ -112,4 +112,3 @@ export const GROUP_COLORS = {
 } as const;
 
 export type GroupColor = keyof typeof GROUP_COLORS;
-

@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | number | boolean | null];
-  'change': [value: string | number | boolean | null];
+  change: [value: string | number | boolean | null];
 }>();
 
 // Internal string representation
@@ -237,8 +237,8 @@ function toggleBoolean() {
   height: 16px;
   border-radius: 50%;
   background: white;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  transition: transform 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ordo-value-input__toggle.active .ordo-value-input__toggle-thumb {

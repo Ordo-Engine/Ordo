@@ -8,10 +8,10 @@ Ordo provides structured audit logging to track rule changes, executions, and sy
 ordo-server --audit-dir ./audit --audit-sample-rate 10
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--audit-dir` | None | Directory for audit log files |
-| `--audit-sample-rate` | 10 | Execution sampling rate (0-100%) |
+| Flag                  | Default | Description                      |
+| --------------------- | ------- | -------------------------------- |
+| `--audit-dir`         | None    | Directory for audit log files    |
+| `--audit-sample-rate` | 10      | Execution sampling rate (0-100%) |
 
 ## Log Output
 
@@ -43,30 +43,30 @@ Each line is a complete JSON object:
 
 ### System Events
 
-| Event | Description | Fields |
-|-------|-------------|--------|
-| `server_started` | Server startup | `version`, `rules_count` |
-| `server_stopped` | Server shutdown | `uptime_seconds` |
+| Event            | Description     | Fields                   |
+| ---------------- | --------------- | ------------------------ |
+| `server_started` | Server startup  | `version`, `rules_count` |
+| `server_stopped` | Server shutdown | `uptime_seconds`         |
 
 ### Rule Change Events
 
-| Event | Description | Fields |
-|-------|-------------|--------|
-| `rule_created` | New rule created | `rule_name`, `version`, `source_ip` |
-| `rule_updated` | Rule updated | `rule_name`, `from_version`, `to_version`, `source_ip` |
-| `rule_deleted` | Rule deleted | `rule_name`, `source_ip` |
+| Event           | Description      | Fields                                                        |
+| --------------- | ---------------- | ------------------------------------------------------------- |
+| `rule_created`  | New rule created | `rule_name`, `version`, `source_ip`                           |
+| `rule_updated`  | Rule updated     | `rule_name`, `from_version`, `to_version`, `source_ip`        |
+| `rule_deleted`  | Rule deleted     | `rule_name`, `source_ip`                                      |
 | `rule_rollback` | Version rollback | `rule_name`, `from_version`, `to_version`, `seq`, `source_ip` |
 
 ### Execution Events
 
-| Event | Description | Fields |
-|-------|-------------|--------|
+| Event           | Description              | Fields                                            |
+| --------------- | ------------------------ | ------------------------------------------------- |
 | `rule_executed` | Rule execution (sampled) | `rule_name`, `duration_us`, `result`, `source_ip` |
 
 ### Configuration Events
 
-| Event | Description | Fields |
-|-------|-------------|--------|
+| Event                 | Description           | Fields                              |
+| --------------------- | --------------------- | ----------------------------------- |
 | `sample_rate_changed` | Sampling rate updated | `from_rate`, `to_rate`, `source_ip` |
 
 ## Execution Sampling
@@ -87,7 +87,7 @@ curl http://localhost:8080/api/v1/config/audit-sample-rate
 ```
 
 ```json
-{"sample_rate": 10}
+{ "sample_rate": 10 }
 ```
 
 ```bash
@@ -98,7 +98,7 @@ curl -X PUT http://localhost:8080/api/v1/config/audit-sample-rate \
 ```
 
 ```json
-{"sample_rate": 50, "previous": 10}
+{ "sample_rate": 50, "previous": 10 }
 ```
 
 ## Use Cases
@@ -169,13 +169,13 @@ Logs are automatically rotated daily. For additional rotation (size-based, compr
 
 ```yaml
 <source>
-  @type tail
-  path /var/log/ordo/audit/*.jsonl
-  pos_file /var/log/fluentd/ordo-audit.pos
-  tag ordo.audit
-  <parse>
-    @type json
-  </parse>
+@type tail
+path /var/log/ordo/audit/*.jsonl
+pos_file /var/log/fluentd/ordo-audit.pos
+tag ordo.audit
+<parse>
+@type json
+</parse>
 </source>
 ```
 

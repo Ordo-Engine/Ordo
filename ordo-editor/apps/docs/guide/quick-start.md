@@ -85,7 +85,7 @@ Response:
   "code": "VIP",
   "message": "20% discount applied",
   "output": {
-    "discount": 0.20
+    "discount": 0.2
   },
   "duration_us": 2
 }
@@ -138,7 +138,7 @@ Response includes execution trace:
 {
   "code": "VIP",
   "message": "20% discount applied",
-  "output": { "discount": 0.20 },
+  "output": { "discount": 0.2 },
   "duration_us": 3,
   "trace": {
     "path": "check_vip -> vip_discount",

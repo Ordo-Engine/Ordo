@@ -250,10 +250,9 @@ export function isTerminalStep(step: Step): step is TerminalStep {
 export function getNextStepIds(step: Step): string[] {
   switch (step.type) {
     case 'decision':
-      return [
-        ...step.branches.map((b) => b.nextStepId),
-        step.defaultNextStepId,
-      ].filter((id, i, arr) => arr.indexOf(id) === i); // unique
+      return [...step.branches.map((b) => b.nextStepId), step.defaultNextStepId].filter(
+        (id, i, arr) => arr.indexOf(id) === i
+      ); // unique
 
     case 'action':
       return [step.nextStepId];
@@ -262,4 +261,3 @@ export function getNextStepIds(step: Step): string[] {
       return [];
   }
 }
-

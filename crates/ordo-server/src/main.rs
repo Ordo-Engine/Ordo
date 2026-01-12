@@ -91,7 +91,10 @@ async fn main() -> anyhow::Result<()> {
                 if count > 0 {
                     info!("Loaded {} rules from {:?}", count, rules_dir);
                 } else {
-                    info!("No rules found in {:?}, starting with empty store", rules_dir);
+                    info!(
+                        "No rules found in {:?}, starting with empty store",
+                        rules_dir
+                    );
                 }
             }
             Err(e) => {

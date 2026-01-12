@@ -41,7 +41,7 @@ export interface EngineStep {
 }
 
 /** Engine Step Kind */
-export type EngineStepKind = 
+export type EngineStepKind =
   | { Decision: EngineDecisionKind }
   | { Action: EngineActionKind }
   | { Terminal: EngineTerminalKind };
@@ -165,4 +165,3 @@ export interface EvalResult {
   /** Parsed expression (for debugging) */
   parsed: string;
 }
-

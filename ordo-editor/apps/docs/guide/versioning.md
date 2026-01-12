@@ -10,10 +10,10 @@ Versioning requires persistence to be enabled:
 ordo-server --rules-dir ./rules --max-versions 10
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--rules-dir` | None | Directory for rule storage |
-| `--max-versions` | 10 | Maximum versions to keep per rule |
+| Flag             | Default | Description                       |
+| ---------------- | ------- | --------------------------------- |
+| `--rules-dir`    | None    | Directory for rule storage        |
+| `--max-versions` | 10      | Maximum versions to keep per rule |
 
 ## How It Works
 

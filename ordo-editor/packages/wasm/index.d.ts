@@ -24,7 +24,4 @@ export declare function validate_ruleset(ruleset_json: string): Promise<string>;
 /**
  * Evaluate an expression with the given context
  */
-export declare function eval_expression(
-  expression: string,
-  context_json: string
-): Promise<string>;
+export declare function eval_expression(expression: string, context_json: string): Promise<string>;

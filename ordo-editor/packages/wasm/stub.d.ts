@@ -10,9 +10,6 @@ export declare function execute_ruleset(
 
 export declare function validate_ruleset(ruleset_json: string): string;
 
-export declare function eval_expression(
-  expression: string,
-  context_json: string
-): string;
+export declare function eval_expression(expression: string, context_json: string): string;
 
 export default function init(): Promise<void>;

@@ -233,13 +233,13 @@ sum(["1", "2"])     # 3
 
 Functions return sensible defaults on errors:
 
-| Scenario | Result |
-|----------|--------|
-| `len(null)` | 0 |
-| `sum([])` | 0 |
-| `avg([])` | 0 |
-| `upper(null)` | "" |
-| `coalesce(null, null)` | null |
+| Scenario               | Result |
+| ---------------------- | ------ |
+| `len(null)`            | 0      |
+| `sum([])`              | 0      |
+| `avg([])`              | 0      |
+| `upper(null)`          | ""     |
+| `coalesce(null, null)` | null   |
 
 ## Performance Notes
 

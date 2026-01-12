@@ -404,4 +404,3 @@ function detectCycles(ruleset: RuleSet): string[][] {
 export function isValidRuleSet(ruleset: RuleSet): boolean {
   return validateRuleSet(ruleset, { checkUnreachable: false, checkCircular: false }).valid;
 }
-

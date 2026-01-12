@@ -24,10 +24,10 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  'update': [step: Step];
+  update: [step: Step];
   'set-start': [nodeId: string];
-  'delete': [];
-  'close': [];
+  delete: [];
+  close: [];
 }>();
 
 const { t } = useI18n();
@@ -80,7 +80,14 @@ function handleStepChange(updatedStep: Step) {
         <span v-if="isStart" class="start-badge">{{ t('step.start') }}</span>
       </div>
       <button class="close-btn" @click="emit('close')" :title="t('common.close')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
@@ -89,18 +96,11 @@ function handleStepChange(updatedStep: Step) {
 
     <!-- Actions Bar -->
     <div class="panel-actions">
-      <button 
-        v-if="!isStart"
-        class="action-btn"
-        @click="emit('set-start', node.id)"
-      >
+      <button v-if="!isStart" class="action-btn" @click="emit('set-start', node.id)">
         <OrdoIcon name="start" :size="14" />
         {{ t('step.setAsStart') }}
       </button>
-      <button 
-        class="action-btn danger"
-        @click="emit('delete')"
-      >
+      <button class="action-btn danger" @click="emit('delete')">
         <OrdoIcon name="delete" :size="14" />
         {{ t('common.delete') }}
       </button>
@@ -218,4 +218,3 @@ function handleStepChange(updatedStep: Step) {
   padding: 16px;
 }
 </style>
-

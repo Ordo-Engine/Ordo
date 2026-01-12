@@ -2,13 +2,18 @@
 /**
  * OrdoStepList - Business Stage & Step Flow Editor
  * 业务阶段与步骤流程编辑器
- * 
+ *
  * Steps are organized into Stages (Groups) representing business phases
  * 步骤按照业务阶段（分组）组织
  */
 import { ref, computed } from 'vue';
 import type { Step, RuleSet, StepGroup } from '@ordo/editor-core';
-import { Step as StepFactory, StepGroup as StepGroupFactory, generateId, GROUP_COLORS } from '@ordo/editor-core';
+import {
+  Step as StepFactory,
+  StepGroup as StepGroupFactory,
+  generateId,
+  GROUP_COLORS,
+} from '@ordo/editor-core';
 import OrdoStepEditor from '../step/OrdoStepEditor.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
@@ -30,7 +35,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
-  'change': [value: RuleSet];
+  change: [value: RuleSet];
 }>();
 
 const { t } = useI18n();
@@ -46,7 +51,7 @@ const groups = computed(() => props.modelValue.groups || []);
 const stepsInGroups = computed(() => {
   const map = new Map<string, Step[]>();
   const groupedStepIds = new Set<string>();
-  
+
   // Initialize groups
   for (const group of groups.value) {
     map.set(group.id, []);
@@ -54,7 +59,7 @@ const stepsInGroups = computed(() => {
       groupedStepIds.add(stepId);
     }
   }
-  
+
   // Assign steps to groups
   for (const step of props.modelValue.steps) {
     let found = false;
@@ -73,7 +78,7 @@ const stepsInGroups = computed(() => {
       map.get('ungrouped')!.push(step);
     }
   }
-  
+
   return map;
 });
 
@@ -116,28 +121,26 @@ function addGroup() {
     description: '',
     color: Object.values(GROUP_COLORS)[groups.value.length % Object.values(GROUP_COLORS).length],
   });
-  
+
   const newRuleset: RuleSet = {
     ...props.modelValue,
     groups: [...(props.modelValue.groups || []), newGroup],
   };
-  
+
   expandedGroups.value.add(id);
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function updateGroup(group: StepGroup) {
-  const newGroups = (props.modelValue.groups || []).map(g => 
-    g.id === group.id ? group : g
-  );
+  const newGroups = (props.modelValue.groups || []).map((g) => (g.id === group.id ? group : g));
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function deleteGroup(groupId: string) {
-  const newGroups = (props.modelValue.groups || []).filter(g => g.id !== groupId);
+  const newGroups = (props.modelValue.groups || []).filter((g) => g.id !== groupId);
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
@@ -151,7 +154,12 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
 
   switch (type) {
     case 'decision':
-      newStep = StepFactory.decision({ id, name: t('step.decision'), branches: [], defaultNextStepId: '' });
+      newStep = StepFactory.decision({
+        id,
+        name: t('step.decision'),
+        branches: [],
+        defaultNextStepId: '',
+      });
       break;
     case 'action':
       newStep = StepFactory.action({ id, name: t('step.action'), nextStepId: '' });
@@ -162,10 +170,10 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
   }
 
   let newGroups = props.modelValue.groups || [];
-  
+
   // If adding to a group, update group's stepIds
   if (groupId && groupId !== 'ungrouped') {
-    newGroups = newGroups.map(g => 
+    newGroups = newGroups.map((g) =>
       g.id === groupId ? { ...g, stepIds: [...g.stepIds, id] } : g
     );
   }
@@ -183,26 +191,26 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
 }
 
 function updateStep(step: Step) {
-  const newSteps = props.modelValue.steps.map(s => s.id === step.id ? step : s);
+  const newSteps = props.modelValue.steps.map((s) => (s.id === step.id ? step : s));
   const newRuleset: RuleSet = { ...props.modelValue, steps: newSteps };
   emit('update:modelValue', newRuleset);
 }
 
 function handleStepChange(step: Step) {
-  const newSteps = props.modelValue.steps.map(s => s.id === step.id ? step : s);
+  const newSteps = props.modelValue.steps.map((s) => (s.id === step.id ? step : s));
   const newRuleset: RuleSet = { ...props.modelValue, steps: newSteps };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function deleteStep(stepId: string) {
-  const newSteps = props.modelValue.steps.filter(s => s.id !== stepId);
+  const newSteps = props.modelValue.steps.filter((s) => s.id !== stepId);
   // Also remove from groups
-  const newGroups = (props.modelValue.groups || []).map(g => ({
+  const newGroups = (props.modelValue.groups || []).map((g) => ({
     ...g,
-    stepIds: g.stepIds.filter(id => id !== stepId),
+    stepIds: g.stepIds.filter((id) => id !== stepId),
   }));
-  
+
   const newRuleset: RuleSet = {
     ...props.modelValue,
     steps: newSteps,
@@ -221,18 +229,18 @@ function setAsStart(stepId: string) {
 
 function moveStepToGroup(stepId: string, targetGroupId: string) {
   // Remove from all groups first
-  let newGroups = (props.modelValue.groups || []).map(g => ({
+  let newGroups = (props.modelValue.groups || []).map((g) => ({
     ...g,
-    stepIds: g.stepIds.filter(id => id !== stepId),
+    stepIds: g.stepIds.filter((id) => id !== stepId),
   }));
-  
+
   // Add to target group (if not ungrouped)
   if (targetGroupId !== 'ungrouped') {
-    newGroups = newGroups.map(g =>
+    newGroups = newGroups.map((g) =>
       g.id === targetGroupId ? { ...g, stepIds: [...g.stepIds, stepId] } : g
     );
   }
-  
+
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
@@ -241,10 +249,14 @@ function moveStepToGroup(stepId: string, targetGroupId: string) {
 // Get step type label
 function getTypeLabel(type: string): string {
   switch (type) {
-    case 'decision': return 'DEC';
-    case 'action': return 'ACT';
-    case 'terminal': return 'END';
-    default: return type.toUpperCase();
+    case 'decision':
+      return 'DEC';
+    case 'action':
+      return 'ACT';
+    case 'terminal':
+      return 'END';
+    default:
+      return type.toUpperCase();
   }
 }
 
@@ -282,9 +294,16 @@ function getGroupColorStyle(group: StepGroup) {
       </div>
       <div class="header-actions">
         <button class="btn-add-stage" @click="addGroup">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
-            <path d="M12 8v8M8 12h8"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2" />
+            <path d="M12 8v8M8 12h8" />
           </svg>
           {{ t('flow.createGroup') }}
         </button>
@@ -303,7 +322,10 @@ function getGroupColorStyle(group: StepGroup) {
         <!-- Stage Header -->
         <div class="stage-header" @click="toggleGroup(group.id)">
           <div class="stage-header-left">
-            <OrdoIcon :name="isGroupExpanded(group.id) ? 'chevron-down' : 'chevron-right'" :size="14" />
+            <OrdoIcon
+              :name="isGroupExpanded(group.id) ? 'chevron-down' : 'chevron-right'"
+              :size="14"
+            />
             <div class="stage-color-dot" :style="{ background: group.color }"></div>
             <input
               class="stage-name-input"
@@ -311,48 +333,56 @@ function getGroupColorStyle(group: StepGroup) {
               @input="updateGroup({ ...group, name: ($event.target as HTMLInputElement).value })"
               @click.stop
             />
-            <span class="stage-step-count">{{ stepsInGroups.get(group.id)?.length || 0 }} {{ t('flow.steps') }}</span>
+            <span class="stage-step-count"
+              >{{ stepsInGroups.get(group.id)?.length || 0 }} {{ t('flow.steps') }}</span
+            >
           </div>
           <div class="stage-header-right" @click.stop>
             <div class="stage-add-buttons">
-              <button 
-                class="btn-add-mini type-decision" 
+              <button
+                class="btn-add-mini type-decision"
                 :title="t('step.decision')"
                 @click="addStepToGroup('decision', group.id)"
               >
                 <OrdoIcon name="decision" :size="12" />
               </button>
-              <button 
-                class="btn-add-mini type-action" 
+              <button
+                class="btn-add-mini type-action"
                 :title="t('step.action')"
                 @click="addStepToGroup('action', group.id)"
               >
                 <OrdoIcon name="action" :size="12" />
               </button>
-              <button 
-                class="btn-add-mini type-terminal" 
+              <button
+                class="btn-add-mini type-terminal"
                 :title="t('step.terminal')"
                 @click="addStepToGroup('terminal', group.id)"
               >
                 <OrdoIcon name="terminal" :size="12" />
               </button>
             </div>
-            <button class="btn-delete-stage" @click="deleteGroup(group.id)" :title="t('flow.deleteGroup')">
+            <button
+              class="btn-delete-stage"
+              @click="deleteGroup(group.id)"
+              :title="t('flow.deleteGroup')"
+            >
               <OrdoIcon name="delete" :size="14" />
             </button>
           </div>
         </div>
-        
+
         <!-- Stage Description -->
         <div v-if="isGroupExpanded(group.id)" class="stage-description">
           <input
             class="stage-desc-input"
             :value="group.description || ''"
             :placeholder="t('common.description') + '...'"
-            @input="updateGroup({ ...group, description: ($event.target as HTMLInputElement).value })"
+            @input="
+              updateGroup({ ...group, description: ($event.target as HTMLInputElement).value })
+            "
           />
         </div>
-        
+
         <!-- Steps in this Stage -->
         <div v-if="isGroupExpanded(group.id)" class="stage-steps">
           <div
@@ -363,21 +393,31 @@ function getGroupColorStyle(group: StepGroup) {
           >
             <div class="step-header" @click="toggleStep(step.id)">
               <div class="step-header-left">
-                <OrdoIcon :name="isStepExpanded(step.id) ? 'chevron-down' : 'chevron-right'" :size="12" />
-                <span class="step-type-badge" :class="step.type">{{ getTypeLabel(step.type) }}</span>
+                <OrdoIcon
+                  :name="isStepExpanded(step.id) ? 'chevron-down' : 'chevron-right'"
+                  :size="12"
+                />
+                <span class="step-type-badge" :class="step.type">{{
+                  getTypeLabel(step.type)
+                }}</span>
                 <span class="step-name">{{ step.name }}</span>
                 <span v-if="step.id === modelValue.startStepId" class="start-badge">START</span>
               </div>
               <div class="step-header-right" @click.stop>
                 <span class="step-summary">{{ getStepSummary(step) }}</span>
-                <select 
+                <select
                   class="move-select"
                   :title="t('flow.moveTo')"
                   @change="moveStepToGroup(step.id, ($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">{{ t('flow.moveTo') }}</option>
                   <option value="ungrouped">{{ t('flow.ungroupedSteps') }}</option>
-                  <option v-for="g in groups" :key="g.id" :value="g.id" :disabled="g.id === group.id">
+                  <option
+                    v-for="g in groups"
+                    :key="g.id"
+                    :value="g.id"
+                    :disabled="g.id === group.id"
+                  >
                     {{ g.name }}
                   </option>
                 </select>
@@ -394,7 +434,7 @@ function getGroupColorStyle(group: StepGroup) {
                 </button>
               </div>
             </div>
-            
+
             <!-- Step Editor (Expanded) -->
             <div v-if="isStepExpanded(step.id)" class="step-body">
               <OrdoStepEditor
@@ -408,48 +448,57 @@ function getGroupColorStyle(group: StepGroup) {
               />
             </div>
           </div>
-          
+
           <!-- Empty Stage -->
           <div v-if="(stepsInGroups.get(group.id) || []).length === 0" class="stage-empty">
             <span>{{ t('flow.noSteps') }}</span>
             <div class="quick-add">
-              <button @click="addStepToGroup('decision', group.id)">+ {{ t('step.decision') }}</button>
+              <button @click="addStepToGroup('decision', group.id)">
+                + {{ t('step.decision') }}
+              </button>
               <button @click="addStepToGroup('action', group.id)">+ {{ t('step.action') }}</button>
-              <button @click="addStepToGroup('terminal', group.id)">+ {{ t('step.terminal') }}</button>
+              <button @click="addStepToGroup('terminal', group.id)">
+                + {{ t('step.terminal') }}
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Ungrouped Steps Section -->
-      <div 
-        v-if="ungroupedSteps.length > 0 || groups.length === 0" 
+      <div
+        v-if="ungroupedSteps.length > 0 || groups.length === 0"
         class="stage-container ungrouped"
       >
         <div class="stage-header" @click="toggleGroup('ungrouped')">
           <div class="stage-header-left">
-            <OrdoIcon :name="isGroupExpanded('ungrouped') ? 'chevron-down' : 'chevron-right'" :size="14" />
-            <span class="stage-name">{{ groups.length > 0 ? t('flow.ungroupedSteps') : t('flow.allSteps') }}</span>
+            <OrdoIcon
+              :name="isGroupExpanded('ungrouped') ? 'chevron-down' : 'chevron-right'"
+              :size="14"
+            />
+            <span class="stage-name">{{
+              groups.length > 0 ? t('flow.ungroupedSteps') : t('flow.allSteps')
+            }}</span>
             <span class="stage-step-count">{{ ungroupedSteps.length }} {{ t('flow.steps') }}</span>
           </div>
           <div class="stage-header-right" @click.stop>
             <div class="stage-add-buttons">
-              <button 
-                class="btn-add-mini type-decision" 
+              <button
+                class="btn-add-mini type-decision"
                 :title="t('step.decision')"
                 @click="addStepToGroup('decision', 'ungrouped')"
               >
                 <OrdoIcon name="decision" :size="12" />
               </button>
-              <button 
-                class="btn-add-mini type-action" 
+              <button
+                class="btn-add-mini type-action"
                 :title="t('step.action')"
                 @click="addStepToGroup('action', 'ungrouped')"
               >
                 <OrdoIcon name="action" :size="12" />
               </button>
-              <button 
-                class="btn-add-mini type-terminal" 
+              <button
+                class="btn-add-mini type-terminal"
                 :title="t('step.terminal')"
                 @click="addStepToGroup('terminal', 'ungrouped')"
               >
@@ -458,7 +507,7 @@ function getGroupColorStyle(group: StepGroup) {
             </div>
           </div>
         </div>
-        
+
         <div v-if="isGroupExpanded('ungrouped')" class="stage-steps">
           <div
             v-for="step in ungroupedSteps"
@@ -468,14 +517,19 @@ function getGroupColorStyle(group: StepGroup) {
           >
             <div class="step-header" @click="toggleStep(step.id)">
               <div class="step-header-left">
-                <OrdoIcon :name="isStepExpanded(step.id) ? 'chevron-down' : 'chevron-right'" :size="12" />
-                <span class="step-type-badge" :class="step.type">{{ getTypeLabel(step.type) }}</span>
+                <OrdoIcon
+                  :name="isStepExpanded(step.id) ? 'chevron-down' : 'chevron-right'"
+                  :size="12"
+                />
+                <span class="step-type-badge" :class="step.type">{{
+                  getTypeLabel(step.type)
+                }}</span>
                 <span class="step-name">{{ step.name }}</span>
                 <span v-if="step.id === modelValue.startStepId" class="start-badge">START</span>
               </div>
               <div class="step-header-right" @click.stop>
                 <span class="step-summary">{{ getStepSummary(step) }}</span>
-                <select 
+                <select
                   v-if="groups.length > 0"
                   class="move-select"
                   title="Move to stage"
@@ -497,7 +551,7 @@ function getGroupColorStyle(group: StepGroup) {
                 </button>
               </div>
             </div>
-            
+
             <div v-if="isStepExpanded(step.id)" class="step-body">
               <OrdoStepEditor
                 :model-value="step"
@@ -510,7 +564,7 @@ function getGroupColorStyle(group: StepGroup) {
               />
             </div>
           </div>
-          
+
           <!-- Empty State -->
           <div v-if="ungroupedSteps.length === 0" class="stage-empty">
             <OrdoIcon name="terminal" :size="24" />

@@ -232,7 +232,9 @@ export function exprToString(expr: Expr): string {
       return `${expr.name}(${expr.args.map(exprToString).join(', ')})`;
 
     case 'conditional':
-      return `(${exprToString(expr.condition)} ? ${exprToString(expr.thenExpr)} : ${exprToString(expr.elseExpr)})`;
+      return `(${exprToString(expr.condition)} ? ${exprToString(expr.thenExpr)} : ${exprToString(
+        expr.elseExpr
+      )})`;
 
     case 'array':
       return `[${expr.elements.map(exprToString).join(', ')}]`;
@@ -246,7 +248,9 @@ export function exprToString(expr: Expr): string {
 
     case 'member':
       if (expr.computed) {
-        return `${exprToString(expr.object)}[${typeof expr.property === 'string' ? `"${expr.property}"` : exprToString(expr.property)}]`;
+        return `${exprToString(expr.object)}[${
+          typeof expr.property === 'string' ? `"${expr.property}"` : exprToString(expr.property)
+        }]`;
       }
       return `${exprToString(expr.object)}.${expr.property}`;
 
@@ -254,4 +258,3 @@ export function exprToString(expr: Expr): string {
       return '<?>';
   }
 }
-

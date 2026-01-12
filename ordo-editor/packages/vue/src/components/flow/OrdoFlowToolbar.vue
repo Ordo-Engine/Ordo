@@ -32,41 +32,33 @@ const { t } = useI18n();
     <!-- Add Node Group -->
     <div class="toolbar-group">
       <span class="toolbar-label">{{ t('flow.add') }}</span>
-      <button 
-        class="toolbar-btn" 
-        :title="t('step.decision')"
-        @click="emit('add-node', 'decision')"
-      >
+      <button class="toolbar-btn" :title="t('step.decision')" @click="emit('add-node', 'decision')">
         <OrdoIcon name="decision" :size="16" class="icon-decision" />
         <span class="btn-text">{{ t('step.decision') }}</span>
       </button>
-      <button 
-        class="toolbar-btn"
-        :title="t('step.action')"
-        @click="emit('add-node', 'action')"
-      >
+      <button class="toolbar-btn" :title="t('step.action')" @click="emit('add-node', 'action')">
         <OrdoIcon name="action" :size="16" class="icon-action" />
         <span class="btn-text">{{ t('step.action') }}</span>
       </button>
-      <button 
-        class="toolbar-btn"
-        :title="t('step.terminal')"
-        @click="emit('add-node', 'terminal')"
-      >
+      <button class="toolbar-btn" :title="t('step.terminal')" @click="emit('add-node', 'terminal')">
         <OrdoIcon name="terminal" :size="16" class="icon-terminal" />
         <span class="btn-text">{{ t('step.terminal') }}</span>
       </button>
-      
+
       <div class="toolbar-divider-v"></div>
-      
-      <button 
-        class="toolbar-btn"
-        :title="t('flow.createGroup')"
-        @click="emit('add-group')"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-group">
-          <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
-          <path d="M8 12h8M12 8v8"/>
+
+      <button class="toolbar-btn" :title="t('flow.createGroup')" @click="emit('add-group')">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          class="icon-group"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2" />
+          <path d="M8 12h8M12 8v8" />
         </svg>
         <span class="btn-text">{{ t('flow.group') }}</span>
       </button>
@@ -77,25 +69,33 @@ const { t } = useI18n();
     <!-- Layout Group -->
     <div class="toolbar-group">
       <span class="toolbar-label">{{ t('flow.layout') }}</span>
-      <button 
-        class="toolbar-btn"
-        :title="t('flow.autoLayout')"
-        @click="emit('auto-layout')"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="3" y="14" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/>
+      <button class="toolbar-btn" :title="t('flow.autoLayout')" @click="emit('auto-layout')">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
         </svg>
         <span class="btn-text">{{ t('flow.auto') }}</span>
       </button>
-      
-      <select 
+
+      <select
         class="toolbar-select"
         :value="layoutDirection"
         :title="t('flow.direction')"
-        @change="emit('set-layout-direction', ($event.target as HTMLSelectElement).value as LayoutDirection)"
+        @change="
+          emit(
+            'set-layout-direction',
+            ($event.target as HTMLSelectElement).value as LayoutDirection
+          )
+        "
       >
         <option value="LR">{{ t('flow.lr') }}</option>
         <option value="TB">{{ t('flow.tb') }}</option>
@@ -109,25 +109,39 @@ const { t } = useI18n();
     <!-- Edge Style Group -->
     <div class="toolbar-group">
       <span class="toolbar-label">{{ t('flow.edge') }}</span>
-      <button 
+      <button
         class="toolbar-btn"
         :class="{ active: edgeStyle === 'bezier' }"
         :title="t('flow.bezier')"
         @click="emit('toggle-edge-style')"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 20 Q 12 4, 20 20"/>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M4 20 Q 12 4, 20 20" />
         </svg>
         <span class="btn-text">{{ t('flow.bezier') }}</span>
       </button>
-      <button 
+      <button
         class="toolbar-btn"
         :class="{ active: edgeStyle === 'step' }"
         :title="t('flow.step')"
         @click="emit('toggle-edge-style')"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 4 L 4 12 L 20 12 L 20 20"/>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M4 4 L 4 12 L 20 12 L 20 20" />
         </svg>
         <span class="btn-text">{{ t('flow.step') }}</span>
       </button>
@@ -137,7 +151,7 @@ const { t } = useI18n();
 
     <!-- Actions Group -->
     <div class="toolbar-group">
-      <button 
+      <button
         class="toolbar-btn danger"
         :disabled="!hasSelection"
         :title="t('flow.deleteSelected')"
@@ -248,10 +262,18 @@ const { t } = useI18n();
   flex: 1;
 }
 
-.icon-decision { color: var(--ordo-node-decision); }
-.icon-action { color: var(--ordo-node-action); }
-.icon-terminal { color: var(--ordo-node-terminal); }
-.icon-group { color: var(--ordo-text-tertiary); }
+.icon-decision {
+  color: var(--ordo-node-decision);
+}
+.icon-action {
+  color: var(--ordo-node-action);
+}
+.icon-terminal {
+  color: var(--ordo-node-terminal);
+}
+.icon-group {
+  color: var(--ordo-text-tertiary);
+}
 
 .toolbar-divider-v {
   width: 1px;
@@ -260,4 +282,3 @@ const { t } = useI18n();
   margin: 0 4px;
 }
 </style>
-

@@ -4,28 +4,28 @@ This page documents all configuration options for Ordo server.
 
 ## Server Configuration
 
-| Option | CLI Flag | Default | Description |
-|--------|----------|---------|-------------|
-| HTTP Address | `--http-addr` | `0.0.0.0:8080` | HTTP server bind address |
-| gRPC Address | `--grpc-addr` | `0.0.0.0:50051` | gRPC server bind address |
-| UDS Path | `--uds-path` | None | Unix Domain Socket path |
-| Disable HTTP | `--disable-http` | `false` | Disable HTTP server |
-| Disable gRPC | `--disable-grpc` | `false` | Disable gRPC server |
-| Log Level | `--log-level` | `info` | Logging verbosity |
+| Option       | CLI Flag         | Default         | Description              |
+| ------------ | ---------------- | --------------- | ------------------------ |
+| HTTP Address | `--http-addr`    | `0.0.0.0:8080`  | HTTP server bind address |
+| gRPC Address | `--grpc-addr`    | `0.0.0.0:50051` | gRPC server bind address |
+| UDS Path     | `--uds-path`     | None            | Unix Domain Socket path  |
+| Disable HTTP | `--disable-http` | `false`         | Disable HTTP server      |
+| Disable gRPC | `--disable-grpc` | `false`         | Disable gRPC server      |
+| Log Level    | `--log-level`    | `info`          | Logging verbosity        |
 
 ## Storage Configuration
 
-| Option | CLI Flag | Default | Description |
-|--------|----------|---------|-------------|
-| Rules Directory | `--rules-dir` | None | Directory for rule persistence |
-| Max Versions | `--max-versions` | `10` | Historical versions per rule |
+| Option          | CLI Flag         | Default | Description                    |
+| --------------- | ---------------- | ------- | ------------------------------ |
+| Rules Directory | `--rules-dir`    | None    | Directory for rule persistence |
+| Max Versions    | `--max-versions` | `10`    | Historical versions per rule   |
 
 ## Audit Configuration
 
-| Option | CLI Flag | Default | Description |
-|--------|----------|---------|-------------|
-| Audit Directory | `--audit-dir` | None | Directory for audit logs |
-| Sample Rate | `--audit-sample-rate` | `10` | Execution sampling (0-100%) |
+| Option          | CLI Flag              | Default | Description                 |
+| --------------- | --------------------- | ------- | --------------------------- |
+| Audit Directory | `--audit-dir`         | None    | Directory for audit logs    |
+| Sample Rate     | `--audit-sample-rate` | `10`    | Execution sampling (0-100%) |
 
 ## Runtime Configuration
 
@@ -66,8 +66,8 @@ services:
   ordo:
     image: ordo-server:latest
     ports:
-      - "8080:8080"
-      - "50051:50051"
+      - '8080:8080'
+      - '50051:50051'
     volumes:
       - ./rules:/data/rules
       - ./audit:/data/audit
@@ -90,10 +90,10 @@ kind: ConfigMap
 metadata:
   name: ordo-config
 data:
-  HTTP_ADDR: "0.0.0.0:8080"
-  GRPC_ADDR: "0.0.0.0:50051"
-  LOG_LEVEL: "info"
-  AUDIT_SAMPLE_RATE: "10"
+  HTTP_ADDR: '0.0.0.0:8080'
+  GRPC_ADDR: '0.0.0.0:50051'
+  LOG_LEVEL: 'info'
+  AUDIT_SAMPLE_RATE: '10'
 ```
 
 ### Deployment
@@ -135,7 +135,7 @@ job "ordo-server" {
   group "ordo" {
     task "server" {
       driver = "docker"
-      
+
       config {
         image = "ordo-server:latest"
         args = [
@@ -146,7 +146,7 @@ job "ordo-server" {
           "--audit-sample-rate", "10",
         ]
       }
-      
+
       resources {
         cpu    = 500
         memory = 256

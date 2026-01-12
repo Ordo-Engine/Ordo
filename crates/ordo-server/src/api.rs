@@ -204,12 +204,9 @@ pub async fn execute_ruleset(
 
             // Log audit event (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-            state.audit_logger.log_execution(
-                &name,
-                result.duration_us,
-                &result.code,
-                source_ip,
-            );
+            state
+                .audit_logger
+                .log_execution(&name, result.duration_us, &result.code, source_ip);
 
             result
         }

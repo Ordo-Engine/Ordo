@@ -53,7 +53,9 @@ export class RuleExecutor {
       this.wasmInitialized = true;
     } catch (error) {
       throw new Error(
-        `Failed to initialize WASM module: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to initialize WASM module: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
     }
   }
@@ -127,7 +129,7 @@ export class RuleExecutor {
       } else if (error && typeof error.toString === 'function') {
         errorMessage = error.toString();
       }
-      
+
       console.error('[WASM] Execution error:', error);
       throw new Error(`WASM execution failed: ${errorMessage}`);
     }
@@ -152,7 +154,9 @@ export class RuleExecutor {
       });
 
       if (!uploadResponse.ok) {
-        throw new Error(`Failed to upload ruleset: ${uploadResponse.status} ${await uploadResponse.text()}`);
+        throw new Error(
+          `Failed to upload ruleset: ${uploadResponse.status} ${await uploadResponse.text()}`
+        );
       }
 
       // 2. Execute
@@ -169,7 +173,9 @@ export class RuleExecutor {
       );
 
       if (!executeResponse.ok) {
-        throw new Error(`Execution failed: ${executeResponse.status} ${await executeResponse.text()}`);
+        throw new Error(
+          `Execution failed: ${executeResponse.status} ${await executeResponse.text()}`
+        );
       }
 
       return executeResponse.json();
@@ -221,9 +227,7 @@ export class RuleExecutor {
 
     try {
       const rulesetJson = JSON.stringify(ruleset);
-      const resultJson = await Promise.resolve(
-        this.wasmModule.validate_ruleset(rulesetJson)
-      );
+      const resultJson = await Promise.resolve(this.wasmModule.validate_ruleset(rulesetJson));
       return JSON.parse(resultJson);
     } catch (error) {
       throw new Error(
@@ -280,10 +284,7 @@ export class RuleExecutor {
   /**
    * Evaluate via WASM
    */
-  private async evalViaWasm(
-    expression: string,
-    context: Record<string, any>
-  ): Promise<EvalResult> {
+  private async evalViaWasm(expression: string, context: Record<string, any>): Promise<EvalResult> {
     await this.initWasm();
 
     if (!this.wasmModule) {
@@ -345,4 +346,3 @@ export function getDefaultExecutor(): RuleExecutor {
   }
   return defaultExecutor;
 }
-

@@ -32,15 +32,18 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
-  'change': [value: RuleSet];
-  'validate': [result: ValidationResult];
+  change: [value: RuleSet];
+  validate: [result: ValidationResult];
 }>();
 
 // Provide locale using the shared key
 const currentLocale = ref<Lang>(props.locale);
-watch(() => props.locale, (val) => {
-  currentLocale.value = val;
-});
+watch(
+  () => props.locale,
+  (val) => {
+    currentLocale.value = val;
+  }
+);
 provide(LOCALE_KEY, currentLocale);
 
 // Use i18n inside this component as well
@@ -75,13 +78,19 @@ const suggestions = computed<FieldSuggestion[]>(() => {
 // Update fields
 function updateName(event: Event) {
   const target = event.target as HTMLInputElement;
-  const newRuleset: RuleSet = { ...props.modelValue, config: { ...props.modelValue.config, name: target.value } };
+  const newRuleset: RuleSet = {
+    ...props.modelValue,
+    config: { ...props.modelValue.config, name: target.value },
+  };
   emit('update:modelValue', newRuleset);
 }
 
 function updateVersion(event: Event) {
   const target = event.target as HTMLInputElement;
-  const newRuleset: RuleSet = { ...props.modelValue, config: { ...props.modelValue.config, version: target.value } };
+  const newRuleset: RuleSet = {
+    ...props.modelValue,
+    config: { ...props.modelValue.config, version: target.value },
+  };
   emit('update:modelValue', newRuleset);
 }
 
@@ -130,15 +139,19 @@ defineExpose({ validate });
           />
         </div>
       </div>
-      
+
       <!-- Validation Indicator -->
       <div v-if="showValidation && validationResult" class="ordo-validation-status">
-        <span 
+        <span
           class="status-dot"
           :class="{ valid: validationResult.valid, invalid: !validationResult.valid }"
         ></span>
         <span class="status-text">
-          {{ validationResult.valid ? t('validation.valid') : `${validationResult.errors.length} ${t('validation.invalid')}` }}
+          {{
+            validationResult.valid
+              ? t('validation.valid')
+              : `${validationResult.errors.length} ${t('validation.invalid')}`
+          }}
         </span>
       </div>
     </div>
@@ -155,8 +168,15 @@ defineExpose({ validate });
     </div>
 
     <!-- Validation Footer (Collapsible/Fixed) -->
-    <div v-if="showValidation && validationResult && !validationResult.valid" class="ordo-validation-footer">
-      <div v-for="(error, index) in validationResult.errors" :key="index" class="validation-item error">
+    <div
+      v-if="showValidation && validationResult && !validationResult.valid"
+      class="ordo-validation-footer"
+    >
+      <div
+        v-for="(error, index) in validationResult.errors"
+        :key="index"
+        class="validation-item error"
+      >
         <span class="icon">×</span> {{ error.message }}
       </div>
     </div>
@@ -227,8 +247,12 @@ defineExpose({ validate });
   background: var(--ordo-gray-400);
 }
 
-.status-dot.valid { background: var(--ordo-success); }
-.status-dot.invalid { background: var(--ordo-error); }
+.status-dot.valid {
+  background: var(--ordo-success);
+}
+.status-dot.invalid {
+  background: var(--ordo-error);
+}
 
 .ordo-editor-body {
   flex: 1;

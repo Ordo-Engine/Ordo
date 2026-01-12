@@ -23,8 +23,8 @@ export default defineConfig({
     fs: {
       // Allow serving files from the monorepo root
       allow: [
-        resolve(__dirname, '..'),  // apps folder
-        packagesPath,               // packages folder
+        resolve(__dirname, '..'), // apps folder
+        packagesPath, // packages folder
         resolve(__dirname, '../../node_modules'), // root node_modules
       ],
     },

@@ -32,13 +32,13 @@ export interface Pin {
 /** Pin colors */
 export const PIN_COLORS = {
   // Execution flow
-  execInput: '#cccccc',      // White/light gray
-  execDefault: '#666666',    // Gray (default branch)
-  execBranch: '#b76e00',     // Orange (conditional branch)
-  
+  execInput: '#cccccc', // White/light gray
+  execDefault: '#666666', // Gray (default branch)
+  execBranch: '#b76e00', // Orange (conditional branch)
+
   // Data flow
-  dataPin: '#4a9eff',        // Blue
-  
+  dataPin: '#4a9eff', // Blue
+
   // Hover states
   execHover: '#ffffff',
   dataHover: '#6bb3ff',
@@ -52,9 +52,8 @@ export const PIN_SIZES = {
 
 /** Edge/connection colors */
 export const EDGE_COLORS = {
-  exec: '#888888',           // Gray for execution flow
-  execBranch: '#b76e00',     // Orange for conditional branches
-  data: '#4a9eff',           // Blue for data flow
-  selected: '#ffffff',       // White when selected
+  exec: '#888888', // Gray for execution flow
+  execBranch: '#b76e00', // Orange for conditional branches
+  data: '#4a9eff', // Blue for data flow
+  selected: '#ffffff', // White when selected
 } as const;
-

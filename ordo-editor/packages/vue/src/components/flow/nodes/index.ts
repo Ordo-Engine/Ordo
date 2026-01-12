@@ -9,4 +9,3 @@ export { default as GroupNode } from './GroupNode.vue';
 export { default as NodePin } from './NodePin.vue';
 export { default as ExecutionAnnotation } from './ExecutionAnnotation.vue';
 export type { StepTraceInfo } from './ExecutionAnnotation.vue';
-

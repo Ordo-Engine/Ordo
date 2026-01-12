@@ -16,8 +16,12 @@ pnpm add @ordo/wasm
 
 ```html
 <script type="module">
-  import init, { execute, validate, parse_expression } from 'https://unpkg.com/@ordo/wasm/ordo_wasm.js';
-  
+  import init, {
+    execute,
+    validate,
+    parse_expression,
+  } from 'https://unpkg.com/@ordo/wasm/ordo_wasm.js';
+
   await init();
 </script>
 ```
@@ -43,34 +47,32 @@ import { execute } from '@ordo/wasm';
 
 const ruleset = {
   config: {
-    name: "discount-check",
-    version: "1.0.0",
-    entry_step: "check_vip"
+    name: 'discount-check',
+    version: '1.0.0',
+    entry_step: 'check_vip',
   },
   steps: {
     check_vip: {
-      id: "check_vip",
-      type: "decision",
-      branches: [
-        { condition: "user.vip == true", next_step: "vip" }
-      ],
-      default_next: "normal"
+      id: 'check_vip',
+      type: 'decision',
+      branches: [{ condition: 'user.vip == true', next_step: 'vip' }],
+      default_next: 'normal',
     },
     vip: {
-      id: "vip",
-      type: "terminal",
-      result: { code: "VIP", message: "VIP discount" }
+      id: 'vip',
+      type: 'terminal',
+      result: { code: 'VIP', message: 'VIP discount' },
     },
     normal: {
-      id: "normal",
-      type: "terminal",
-      result: { code: "NORMAL", message: "Normal discount" }
-    }
-  }
+      id: 'normal',
+      type: 'terminal',
+      result: { code: 'NORMAL', message: 'Normal discount' },
+    },
+  },
 };
 
 const input = {
-  user: { vip: true }
+  user: { vip: true },
 };
 
 const result = execute(JSON.stringify(ruleset), JSON.stringify(input));
@@ -85,10 +87,7 @@ Execute with execution trace for debugging.
 ```typescript
 import { execute_with_trace } from '@ordo/wasm';
 
-const result = execute_with_trace(
-  JSON.stringify(ruleset),
-  JSON.stringify(input)
-);
+const result = execute_with_trace(JSON.stringify(ruleset), JSON.stringify(input));
 
 const parsed = JSON.parse(result);
 console.log(parsed.trace);
@@ -106,9 +105,9 @@ const result = validate(JSON.stringify(ruleset));
 const validation = JSON.parse(result);
 
 if (validation.valid) {
-  console.log("Rule is valid");
+  console.log('Rule is valid');
 } else {
-  console.log("Errors:", validation.errors);
+  console.log('Errors:', validation.errors);
 }
 ```
 
@@ -119,14 +118,14 @@ Parse and validate an expression.
 ```typescript
 import { parse_expression } from '@ordo/wasm';
 
-const result = parse_expression("user.age >= 18 && user.vip == true");
+const result = parse_expression('user.age >= 18 && user.vip == true');
 const parsed = JSON.parse(result);
 
 if (parsed.valid) {
-  console.log("Expression is valid");
-  console.log("AST:", parsed.ast);
+  console.log('Expression is valid');
+  console.log('AST:', parsed.ast);
 } else {
-  console.log("Parse error:", parsed.error);
+  console.log('Parse error:', parsed.error);
 }
 ```
 
@@ -137,10 +136,7 @@ Evaluate an expression with context.
 ```typescript
 import { eval_expression } from '@ordo/wasm';
 
-const result = eval_expression(
-  "user.age >= 18",
-  JSON.stringify({ user: { age: 25 } })
-);
+const result = eval_expression('user.age >= 18', JSON.stringify({ user: { age: 25 } }));
 
 console.log(JSON.parse(result)); // true
 ```
@@ -163,10 +159,7 @@ onMounted(async () => {
 });
 
 const runRule = async (ruleset, input) => {
-  const response = execute(
-    JSON.stringify(ruleset),
-    JSON.stringify(input)
-  );
+  const response = execute(JSON.stringify(ruleset), JSON.stringify(input));
   result.value = JSON.parse(response);
 };
 </script>
@@ -178,11 +171,11 @@ const runRule = async (ruleset, input) => {
 // vite.config.ts
 export default defineConfig({
   optimizeDeps: {
-    exclude: ['@ordo/wasm']
+    exclude: ['@ordo/wasm'],
   },
   build: {
-    target: 'esnext'
-  }
+    target: 'esnext',
+  },
 });
 ```
 
@@ -202,10 +195,7 @@ function RuleExecutor({ ruleset, input }) {
 
   const run = () => {
     if (!ready) return;
-    const response = execute(
-      JSON.stringify(ruleset),
-      JSON.stringify(input)
-    );
+    const response = execute(JSON.stringify(ruleset), JSON.stringify(input));
     setResult(JSON.parse(response));
   };
 
@@ -224,21 +214,21 @@ function RuleExecutor({ ruleset, input }) {
 
 WASM execution is nearly as fast as native Rust:
 
-| Environment | Execution Time |
-|-------------|----------------|
-| Native (Rust) | 1.63 µs |
-| WASM (Chrome) | 2-3 µs |
-| WASM (Firefox) | 2-4 µs |
-| WASM (Safari) | 3-5 µs |
+| Environment    | Execution Time |
+| -------------- | -------------- |
+| Native (Rust)  | 1.63 µs        |
+| WASM (Chrome)  | 2-3 µs         |
+| WASM (Firefox) | 2-4 µs         |
+| WASM (Safari)  | 3-5 µs         |
 
 ## Browser Support
 
-| Browser | Version | Status |
-|---------|---------|--------|
-| Chrome | 57+ | ✅ Full support |
-| Firefox | 52+ | ✅ Full support |
-| Safari | 11+ | ✅ Full support |
-| Edge | 16+ | ✅ Full support |
+| Browser | Version | Status          |
+| ------- | ------- | --------------- |
+| Chrome  | 57+     | ✅ Full support |
+| Firefox | 52+     | ✅ Full support |
+| Safari  | 11+     | ✅ Full support |
+| Edge    | 16+     | ✅ Full support |
 
 ## Error Handling
 
@@ -248,7 +238,7 @@ try {
   return JSON.parse(result);
 } catch (error) {
   if (error instanceof Error) {
-    console.error("Execution error:", error.message);
+    console.error('Execution error:', error.message);
   }
 }
 ```
@@ -262,10 +252,10 @@ WASM memory is automatically managed. For large-scale usage:
 const results = [];
 for (const input of inputs) {
   results.push(execute(rulesetJson, JSON.stringify(input)));
-  
+
   // Optional: yield to event loop periodically
   if (results.length % 1000 === 0) {
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
   }
 }
 ```

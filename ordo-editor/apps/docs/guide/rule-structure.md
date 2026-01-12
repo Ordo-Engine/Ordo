@@ -23,12 +23,12 @@ A rule (RuleSet) consists of two main parts:
 
 ### Config Section
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Unique identifier for the rule |
-| `version` | string | Yes | Semantic version (e.g., "1.0.0") |
-| `description` | string | No | Human-readable description |
-| `entry_step` | string | Yes | ID of the first step to execute |
+| Field         | Type   | Required | Description                      |
+| ------------- | ------ | -------- | -------------------------------- |
+| `name`        | string | Yes      | Unique identifier for the rule   |
+| `version`     | string | Yes      | Semantic version (e.g., "1.0.0") |
+| `description` | string | No       | Human-readable description       |
+| `entry_step`  | string | Yes      | ID of the first step to execute  |
 
 ### Steps Section
 
@@ -59,13 +59,13 @@ Evaluates conditions and branches to different steps:
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique step identifier |
-| `name` | string | No | Human-readable name |
-| `type` | string | Yes | Must be `"decision"` |
-| `branches` | array | Yes | List of condition-based branches |
-| `default_next` | string | Yes | Step to execute if no branch matches |
+| Field          | Type   | Required | Description                          |
+| -------------- | ------ | -------- | ------------------------------------ |
+| `id`           | string | Yes      | Unique step identifier               |
+| `name`         | string | No       | Human-readable name                  |
+| `type`         | string | Yes      | Must be `"decision"`                 |
+| `branches`     | array  | Yes      | List of condition-based branches     |
+| `default_next` | string | Yes      | Step to execute if no branch matches |
 
 ### Terminal Step
 
@@ -86,20 +86,20 @@ Ends execution and returns a result:
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique step identifier |
-| `name` | string | No | Human-readable name |
-| `type` | string | Yes | Must be `"terminal"` |
-| `result` | object | Yes | Result to return |
+| Field    | Type   | Required | Description            |
+| -------- | ------ | -------- | ---------------------- |
+| `id`     | string | Yes      | Unique step identifier |
+| `name`   | string | No       | Human-readable name    |
+| `type`   | string | Yes      | Must be `"terminal"`   |
+| `result` | object | Yes      | Result to return       |
 
 ### Result Object
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `code` | string | Yes | Result code (e.g., "APPROVED", "REJECTED") |
-| `message` | string | No | Human-readable message |
-| `data` | object | No | Additional output data |
+| Field     | Type   | Required | Description                                |
+| --------- | ------ | -------- | ------------------------------------------ |
+| `code`    | string | Yes      | Result code (e.g., "APPROVED", "REJECTED") |
+| `message` | string | No       | Human-readable message                     |
+| `data`    | object | No       | Additional output data                     |
 
 ## Branch Conditions
 

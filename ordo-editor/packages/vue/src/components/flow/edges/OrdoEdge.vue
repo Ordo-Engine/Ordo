@@ -21,11 +21,11 @@ const tooltipPosition = ref({ x: 0, y: 0 });
 const displayLabel = computed(() => {
   // If explicitly provided via props.label, use it
   if (props.label) return String(props.label);
-  
+
   // Otherwise determine from data
   if (props.data?.isDefault) return t('step.default');
   if (props.data?.edgeType === 'exec-branch') return t('step.branch');
-  
+
   return '';
 });
 
@@ -57,14 +57,15 @@ const edgePath = computed(() => {
   // Calculate curvature based on vertical distance (more curve for longer vertical spans)
   const verticalDistance = Math.abs(props.targetY - props.sourceY);
   const horizontalDistance = Math.abs(props.targetX - props.sourceX);
-  
+
   // Adjust curvature: more curve for vertical edges, less for horizontal
   // This helps separate edges that have similar start/end points
   const baseCurvature = 0.25;
-  const curvature = horizontalDistance > 0 
-    ? baseCurvature + Math.min(0.15, verticalDistance / horizontalDistance * 0.1)
-    : baseCurvature;
-  
+  const curvature =
+    horizontalDistance > 0
+      ? baseCurvature + Math.min(0.15, (verticalDistance / horizontalDistance) * 0.1)
+      : baseCurvature;
+
   const [path] = getBezierPath({
     sourceX: props.sourceX,
     sourceY: props.sourceY,
@@ -89,24 +90,24 @@ const arrowPoints = computed(() => {
   const tx = props.targetX;
   const ty = props.targetY;
   const pos = props.targetPosition;
-  
+
   // Arrow points toward the node based on target position
   switch (pos) {
     case Position.Left:
       // Arrow pointing right (entering from left)
-      return `${tx + size},${ty - size/2} ${tx},${ty} ${tx + size},${ty + size/2}`;
+      return `${tx + size},${ty - size / 2} ${tx},${ty} ${tx + size},${ty + size / 2}`;
     case Position.Right:
       // Arrow pointing left (entering from right)
-      return `${tx - size},${ty - size/2} ${tx},${ty} ${tx - size},${ty + size/2}`;
+      return `${tx - size},${ty - size / 2} ${tx},${ty} ${tx - size},${ty + size / 2}`;
     case Position.Top:
       // Arrow pointing down (entering from top)
-      return `${tx - size/2},${ty + size} ${tx},${ty} ${tx + size/2},${ty + size}`;
+      return `${tx - size / 2},${ty + size} ${tx},${ty} ${tx + size / 2},${ty + size}`;
     case Position.Bottom:
       // Arrow pointing up (entering from bottom)
-      return `${tx - size/2},${ty - size} ${tx},${ty} ${tx + size/2},${ty - size}`;
+      return `${tx - size / 2},${ty - size} ${tx},${ty} ${tx + size / 2},${ty - size}`;
     default:
       // Default: arrow pointing left (most common for LR layout)
-      return `${tx - size},${ty - size/2} ${tx},${ty} ${tx - size},${ty + size/2}`;
+      return `${tx - size},${ty - size / 2} ${tx},${ty} ${tx - size},${ty + size / 2}`;
   }
 });
 
@@ -144,7 +145,7 @@ function handleMouseMove(event: MouseEvent) {
       @mouseleave="handleMouseLeave"
       @mousemove="handleMouseMove"
     />
-    
+
     <!-- Visible edge path -->
     <path
       :d="edgePath"
@@ -155,14 +156,10 @@ function handleMouseMove(event: MouseEvent) {
       class="edge-path"
       :class="{ 'edge-selected': selected }"
     />
-    
+
     <!-- Arrow marker (direction based on target position) -->
-    <polygon
-      :points="arrowPoints"
-      :fill="edgeColor"
-      class="edge-arrow"
-    />
-    
+    <polygon :points="arrowPoints" :fill="edgeColor" class="edge-arrow" />
+
     <!-- Edge label -->
     <g v-if="displayLabel" :transform="`translate(${labelPosition.x}, ${labelPosition.y})`">
       <rect
@@ -173,22 +170,18 @@ function handleMouseMove(event: MouseEvent) {
         rx="3"
         class="edge-label-bg"
       />
-      <text
-        class="edge-label-text"
-        text-anchor="middle"
-        dominant-baseline="middle"
-      >
+      <text class="edge-label-text" text-anchor="middle" dominant-baseline="middle">
         {{ displayLabel }}
       </text>
     </g>
-    
+
     <!-- Tooltip (rendered via portal in real app, simplified here) -->
     <Teleport to="body" v-if="showTooltip && hasCondition">
-      <div 
+      <div
         class="edge-tooltip"
-        :style="{ 
-          left: tooltipPosition.x + 'px', 
-          top: tooltipPosition.y + 'px' 
+        :style="{
+          left: tooltipPosition.x + 'px',
+          top: tooltipPosition.y + 'px',
         }"
       >
         <div class="tooltip-header">Condition</div>
@@ -208,7 +201,9 @@ function handleMouseMove(event: MouseEvent) {
 }
 
 .edge-path {
-  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+  transition:
+    stroke 0.15s ease,
+    stroke-width 0.15s ease;
 }
 
 .edge-path.edge-selected {
@@ -264,4 +259,3 @@ function handleMouseMove(event: MouseEvent) {
   word-break: break-all;
 }
 </style>
-

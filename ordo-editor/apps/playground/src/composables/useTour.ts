@@ -54,7 +54,8 @@ export function useTour(options: TourOptions = {}) {
       element: '[data-tour="explorer"]',
       popover: {
         title: 'File Explorer',
-        description: 'Browse and manage your rule files here. Click on a file to open it in the editor.',
+        description:
+          'Browse and manage your rule files here. Click on a file to open it in the editor.',
         side: 'right',
         align: 'start',
       },
@@ -63,7 +64,8 @@ export function useTour(options: TourOptions = {}) {
       element: '[data-tour="mode-form"]',
       popover: {
         title: 'Form Mode',
-        description: 'Edit rules using a structured form interface. Great for detailed configuration.',
+        description:
+          'Edit rules using a structured form interface. Great for detailed configuration.',
         side: 'right',
       },
     },
@@ -71,7 +73,8 @@ export function useTour(options: TourOptions = {}) {
       element: '[data-tour="mode-flow"]',
       popover: {
         title: 'Flow Mode',
-        description: 'Visualize your rules as a flow chart. Drag to rearrange, click nodes to edit.',
+        description:
+          'Visualize your rules as a flow chart. Drag to rearrange, click nodes to edit.',
         side: 'right',
       },
       onHighlightStarted: () => {
@@ -83,7 +86,8 @@ export function useTour(options: TourOptions = {}) {
       element: '[data-tour="editor"]',
       popover: {
         title: 'Rule Editor',
-        description: 'This is where you design your business rules. Try switching between Form and Flow modes!',
+        description:
+          'This is where you design your business rules. Try switching between Form and Flow modes!',
         side: 'left',
         align: 'center',
       },
@@ -92,7 +96,8 @@ export function useTour(options: TourOptions = {}) {
       element: '[data-tour="console"]',
       popover: {
         title: 'Execution Console',
-        description: 'Click here to open the execution panel. Test your rules with sample data and see results instantly!',
+        description:
+          'Click here to open the execution panel. Test your rules with sample data and see results instantly!',
         side: 'top',
       },
     },
@@ -100,7 +105,8 @@ export function useTour(options: TourOptions = {}) {
       element: '[data-tour="json-output"]',
       popover: {
         title: 'JSON Output',
-        description: 'View the serialized JSON of your ruleset. Copy it to use in your application.',
+        description:
+          'View the serialized JSON of your ruleset. Copy it to use in your application.',
         side: 'left',
       },
     },
@@ -127,12 +133,12 @@ export function useTour(options: TourOptions = {}) {
         trackEvent(AnalyticsEvents.TOUR_COMPLETED);
       },
       onHighlightStarted: (_element: any, step: any) => {
-        const stepIndex = tourSteps.findIndex(s => s.element === step.element);
+        const stepIndex = tourSteps.findIndex((s) => s.element === step.element);
         if (stepIndex !== -1 && tourSteps[stepIndex].onHighlightStarted) {
           tourSteps[stepIndex].onHighlightStarted!();
         }
       },
-      steps: tourSteps.map(step => ({
+      steps: tourSteps.map((step) => ({
         element: step.element,
         popover: {
           title: step.popover.title,

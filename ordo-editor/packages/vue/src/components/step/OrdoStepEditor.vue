@@ -32,8 +32,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: Step];
-  'change': [value: Step];
-  'delete': [stepId: string];
+  change: [value: Step];
+  delete: [stepId: string];
 }>();
 
 // Type guards
@@ -125,4 +125,3 @@ function handleDelete() {
   opacity: 1;
 }
 </style>
-

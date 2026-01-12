@@ -60,32 +60,37 @@ const statusIcon = computed(() => {
     <div class="annotation-bubble">
       <!-- Order badge -->
       <span class="order-badge">{{ trace.order }}</span>
-      
+
       <!-- Status icon -->
       <span class="status-icon">{{ statusIcon }}</span>
-      
+
       <!-- Duration -->
       <span class="duration">{{ formattedDuration }}</span>
-      
+
       <!-- Branch info for decision nodes -->
-      <span v-if="trace.branchTaken" class="branch-info">
-        → {{ trace.branchTaken }}
-      </span>
-      
+      <span v-if="trace.branchTaken" class="branch-info"> → {{ trace.branchTaken }} </span>
+
       <!-- Result code for terminal nodes -->
-      <span v-if="trace.resultCode" class="result-code" :class="trace.resultCode.includes('ERROR') ? 'error' : 'success'">
+      <span
+        v-if="trace.resultCode"
+        class="result-code"
+        :class="trace.resultCode.includes('ERROR') ? 'error' : 'success'"
+      >
         {{ trace.resultCode }}
       </span>
-      
+
       <!-- Variables tooltip -->
-      <div v-if="trace.variablesSet && Object.keys(trace.variablesSet).length > 0" class="variables-tooltip">
+      <div
+        v-if="trace.variablesSet && Object.keys(trace.variablesSet).length > 0"
+        class="variables-tooltip"
+      >
         <div v-for="(value, key) in trace.variablesSet" :key="key" class="variable-item">
           <span class="var-name">{{ key }}</span>
           <span class="var-value">{{ JSON.stringify(value) }}</span>
         </div>
       </div>
     </div>
-    
+
     <!-- Connector line -->
     <div class="annotation-connector"></div>
   </div>
@@ -250,4 +255,3 @@ const statusIcon = computed(() => {
   transform: translateX(-50%);
 }
 </style>
-

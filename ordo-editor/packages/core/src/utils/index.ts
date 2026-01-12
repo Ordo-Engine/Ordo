@@ -263,4 +263,3 @@ export function setByPath(obj: unknown, path: string, value: unknown): unknown {
   current[parts[parts.length - 1]] = value;
   return result;
 }
-

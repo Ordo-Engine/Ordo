@@ -1,7 +1,7 @@
 /**
  * Format adapter for converting between Editor and Engine formats
  * 编辑器与引擎格式转换适配器
- * 
+ *
  * The Rust engine expects a specific JSON format:
  * - Steps are stored in a HashMap<String, Step>
  * - StepKind uses #[serde(tag = "type")] so format is { "type": "decision", ... }
@@ -9,7 +9,14 @@
  * - Terminal steps have a "result" field containing code, message, output
  */
 
-import type { RuleSet, Step, DecisionStep, ActionStep, TerminalStep, Branch as EditorBranch } from '../model';
+import type {
+  RuleSet,
+  Step,
+  DecisionStep,
+  ActionStep,
+  TerminalStep,
+  Branch as EditorBranch,
+} from '../model';
 
 /**
  * Engine RuleSet format (matches Rust ordo-core::RuleSet)
@@ -154,12 +161,12 @@ function convertConditionToString(condition: any): string {
   if (!condition) {
     return 'true';
   }
-  
+
   // If it's already a string, return it
   if (typeof condition === 'string') {
     return condition;
   }
-  
+
   // Handle simple condition type
   if (condition.type === 'simple') {
     const left = convertValueToExprString(condition.left);
@@ -167,7 +174,7 @@ function convertConditionToString(condition: any): string {
     const op = convertOperator(condition.operator);
     return `${left} ${op} ${right}`;
   }
-  
+
   // Handle compound conditions (and/or)
   if (condition.type === 'compound' || condition.type === 'and' || condition.type === 'or') {
     const operator = condition.operator || condition.type;
@@ -177,12 +184,12 @@ function convertConditionToString(condition: any): string {
     const joinOp = operator === 'and' ? ' && ' : ' || ';
     return `(${conditions.join(joinOp)})`;
   }
-  
+
   // Handle expression type
   if (condition.type === 'expression' && condition.expression) {
     return condition.expression;
   }
-  
+
   // Fallback: try to stringify or return 'true'
   console.warn('Unknown condition format:', condition);
   return 'true';
@@ -193,11 +200,11 @@ function convertConditionToString(condition: any): string {
  */
 function convertValueToExprString(value: any): string {
   if (!value) return 'null';
-  
+
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   if (typeof value === 'boolean') return String(value);
-  
+
   // Handle variable reference
   if (value.type === 'variable' || value.type === 'field') {
     let path = value.path || value.name || '';
@@ -210,7 +217,7 @@ function convertValueToExprString(value: any): string {
     }
     return path;
   }
-  
+
   // Handle literal value
   if (value.type === 'literal') {
     const v = value.value;
@@ -220,12 +227,12 @@ function convertValueToExprString(value: any): string {
     if (v === null) return 'null';
     return JSON.stringify(v);
   }
-  
+
   // Handle expression
   if (value.type === 'expression' && value.expression) {
     return value.expression;
   }
-  
+
   // Fallback
   return JSON.stringify(value);
 }
@@ -235,20 +242,20 @@ function convertValueToExprString(value: any): string {
  */
 function convertOperator(op: string): string {
   const operatorMap: Record<string, string> = {
-    'eq': '==',
-    'ne': '!=',
-    'neq': '!=',
-    'gt': '>',
-    'gte': '>=',
-    'ge': '>=',
-    'lt': '<',
-    'lte': '<=',
-    'le': '<=',
-    'contains': 'contains',
-    'startsWith': 'startsWith',
-    'endsWith': 'endsWith',
-    'in': 'in',
-    'notIn': 'not in',
+    eq: '==',
+    ne: '!=',
+    neq: '!=',
+    gt: '>',
+    gte: '>=',
+    ge: '>=',
+    lt: '<',
+    lte: '<=',
+    le: '<=',
+    contains: 'contains',
+    startsWith: 'startsWith',
+    endsWith: 'endsWith',
+    in: 'in',
+    notIn: 'not in',
   };
   return operatorMap[op] || op;
 }
@@ -282,7 +289,7 @@ function convertActionStep(step: ActionStep): EngineStep {
         message = JSON.stringify(message);
       }
     }
-    
+
     actions.push({
       action: 'log',
       message: message,
@@ -305,7 +312,7 @@ function convertActionStep(step: ActionStep): EngineStep {
  */
 function convertTerminalStep(step: TerminalStep): EngineStep {
   // Convert output fields to tuple format: Vec<(String, Expr)>
-  const output: Array<[string, any]> = (step.output || []).map(field => [
+  const output: Array<[string, any]> = (step.output || []).map((field) => [
     field.name,
     convertToEngineExpr(field.value),
   ]);
@@ -339,7 +346,7 @@ function convertTerminalStep(step: TerminalStep): EngineStep {
  * - { "Literal": <value> }  -- NOT { "Literal": { "value": ... } }
  * - { "Field": "<path>" }   -- NOT { "Field": { "path": ... } }
  * etc.
- * 
+ *
  * The Rust Expr enum:
  * - Literal(Value) serializes to { "Literal": <the_value> }
  * - Field(String) serializes to { "Field": "<the_string>" }
@@ -348,7 +355,7 @@ function convertToEngineExpr(value: any): any {
   if (value === null || value === undefined) {
     return { Literal: null };
   }
-  
+
   // Handle primitive types
   if (typeof value === 'string') {
     // Check if it looks like a field reference
@@ -366,18 +373,18 @@ function convertToEngineExpr(value: any): any {
     // Otherwise treat as literal string
     return { Literal: value };
   }
-  
+
   if (typeof value === 'number' || typeof value === 'boolean') {
     return { Literal: value };
   }
-  
+
   // Handle editor's typed value objects
   if (typeof value === 'object') {
     // Editor literal format: { type: 'literal', value: ..., valueType: ... }
     if (value.type === 'literal') {
       return { Literal: value.value };
     }
-    
+
     // Editor variable format: { type: 'variable', path: '$.xxx' }
     if (value.type === 'variable' || value.type === 'field') {
       let path = value.path || value.name || '';
@@ -388,13 +395,13 @@ function convertToEngineExpr(value: any): any {
       }
       return { Field: path };
     }
-    
+
     // Editor expression format: { type: 'expression', expression: '...' }
     if (value.type === 'expression' && value.expression) {
       // For expressions, we need to parse them - for now just wrap as literal
       return { Literal: value.expression };
     }
-    
+
     // Check if it's already in Expr format (but with wrong nesting)
     if ('Literal' in value) {
       // Check if nested value also needs conversion
@@ -405,7 +412,7 @@ function convertToEngineExpr(value: any): any {
       }
       return value;
     }
-    
+
     if ('Field' in value) {
       const fieldValue = value.Field;
       if (fieldValue && typeof fieldValue === 'object' && fieldValue.path !== undefined) {
@@ -414,16 +421,16 @@ function convertToEngineExpr(value: any): any {
       }
       return value;
     }
-    
+
     // Array
     if (Array.isArray(value)) {
       return { Literal: value };
     }
-    
+
     // Otherwise treat as literal object
     return { Literal: value };
   }
-  
+
   return { Literal: value };
 }
 
@@ -449,7 +456,7 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
 
   // Check startStepId references an existing step
   if (ruleset.startStepId) {
-    const startStepExists = ruleset.steps.some(s => s.id === ruleset.startStepId);
+    const startStepExists = ruleset.steps.some((s) => s.id === ruleset.startStepId);
     if (!startStepExists) {
       errors.push(`startStepId '${ruleset.startStepId}' does not reference an existing step`);
     }
@@ -457,22 +464,26 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
 
   // Check step references
   for (const step of ruleset.steps) {
-    const stepIds = new Set(ruleset.steps.map(s => s.id));
+    const stepIds = new Set(ruleset.steps.map((s) => s.id));
 
     switch (step.type) {
       case 'decision': {
         const decisionStep = step as DecisionStep;
-        
+
         // Check branches
         for (const branch of decisionStep.branches || []) {
           if (branch.nextStepId && !stepIds.has(branch.nextStepId)) {
-            errors.push(`Step '${step.id}' branch '${branch.id}' references non-existent step '${branch.nextStepId}'`);
+            errors.push(
+              `Step '${step.id}' branch '${branch.id}' references non-existent step '${branch.nextStepId}'`
+            );
           }
         }
 
         // Check default next
         if (decisionStep.defaultNextStepId && !stepIds.has(decisionStep.defaultNextStepId)) {
-          errors.push(`Step '${step.id}' defaultNextStepId references non-existent step '${decisionStep.defaultNextStepId}'`);
+          errors.push(
+            `Step '${step.id}' defaultNextStepId references non-existent step '${decisionStep.defaultNextStepId}'`
+          );
         }
         break;
       }
@@ -480,7 +491,9 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
       case 'action': {
         const actionStep = step as ActionStep;
         if (actionStep.nextStepId && !stepIds.has(actionStep.nextStepId)) {
-          errors.push(`Step '${step.id}' nextStepId references non-existent step '${actionStep.nextStepId}'`);
+          errors.push(
+            `Step '${step.id}' nextStepId references non-existent step '${actionStep.nextStepId}'`
+          );
         }
         break;
       }

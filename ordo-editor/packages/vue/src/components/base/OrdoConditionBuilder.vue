@@ -31,7 +31,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: Condition];
-  'change': [value: Condition];
+  change: [value: Condition];
 }>();
 
 // Available operators for simple conditions
@@ -75,11 +75,7 @@ function updateConditionType(type: 'simple' | 'logical' | 'expression') {
 
   switch (type) {
     case 'simple':
-      newCondition = ConditionFactory.simple(
-        Expr.variable('$.field'),
-        'eq',
-        Expr.string('')
-      );
+      newCondition = ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string(''));
       break;
     case 'logical':
       newCondition = ConditionFactory.and(
@@ -227,7 +223,7 @@ function getExprValue(expr: { type: string; path?: string; value?: unknown }): s
   <div class="ordo-condition-builder" :class="{ disabled }">
     <!-- Type Switcher (only show if not nested too deep to avoid clutter) -->
     <div class="ordo-condition-builder__header">
-       <div class="ordo-condition-builder__type-tabs">
+      <div class="ordo-condition-builder__type-tabs">
         <button
           type="button"
           :class="{ active: isSimple }"
@@ -273,7 +269,11 @@ function getExprValue(expr: { type: string; path?: string; value?: unknown }): s
             :value="simpleCondition.operator"
             :disabled="disabled"
             class="ordo-condition-builder__operator"
-            @change="updateSimpleOperator(($event.target as HTMLSelectElement).value as SimpleCondition['operator'])"
+            @change="
+              updateSimpleOperator(
+                ($event.target as HTMLSelectElement).value as SimpleCondition['operator']
+              )
+            "
           >
             <option v-for="op in operators" :key="op.value" :value="op.value">
               {{ op.label }}
@@ -295,12 +295,14 @@ function getExprValue(expr: { type: string; path?: string; value?: unknown }): s
     <!-- Logical condition (AND/OR group) -->
     <div v-if="isLogical && logicalCondition" class="ordo-condition-builder__logical">
       <div class="ordo-condition-builder__logical-bar">
-         <select
+        <select
           :value="logicalCondition.operator"
           :disabled="disabled"
           class="ordo-condition-builder__logical-select"
           :class="logicalCondition.operator"
-          @change="updateLogicalOperator(($event.target as HTMLSelectElement).value as 'and' | 'or')"
+          @change="
+            updateLogicalOperator(($event.target as HTMLSelectElement).value as 'and' | 'or')
+          "
         >
           <option value="and">AND (All match)</option>
           <option value="or">OR (Any match)</option>
@@ -330,13 +332,20 @@ function getExprValue(expr: { type: string; path?: string; value?: unknown }): s
             title="Remove condition"
             @click="removeLogicalCondition(index)"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
         </div>
-        
+
         <button
           type="button"
           class="ordo-condition-builder__add-btn"
@@ -459,7 +468,7 @@ function getExprValue(expr: { type: string; path?: string; value?: unknown }): s
   border-bottom: 1px solid var(--ordo-border-color);
 }
 
-[data-ordo-theme="dark"] .ordo-condition-builder__logical-bar {
+[data-ordo-theme='dark'] .ordo-condition-builder__logical-bar {
   background: var(--ordo-gray-800);
 }
 

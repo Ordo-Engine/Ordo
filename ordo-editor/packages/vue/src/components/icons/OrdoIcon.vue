@@ -25,11 +25,11 @@ const sizePx = computed(() => props.size || 16);
     <template v-if="name === 'decision'">
       <path d="M12 3L20 12L12 21L4 12L12 3Z" />
     </template>
-    
+
     <template v-else-if="name === 'action'">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
     </template>
-    
+
     <template v-else-if="name === 'terminal'">
       <circle cx="12" cy="12" r="10" />
     </template>
@@ -62,7 +62,7 @@ const sizePx = computed(() => props.size || 16);
     <template v-else-if="name === 'chevron-down'">
       <polyline points="6 9 12 15 18 9" />
     </template>
-    
+
     <template v-else-if="name === 'arrow-right'">
       <line x1="5" y1="12" x2="19" y2="12" />
       <polyline points="12 5 19 12 12 19" />
@@ -80,7 +80,9 @@ const sizePx = computed(() => props.size || 16);
 
     <!-- Status -->
     <template v-else-if="name === 'start'">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+      <polygon
+        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+      />
     </template>
 
     <template v-else-if="name === 'check'">
@@ -88,7 +90,9 @@ const sizePx = computed(() => props.size || 16);
     </template>
 
     <template v-else-if="name === 'warning'">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <path
+        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+      />
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
     </template>
@@ -101,4 +105,3 @@ const sizePx = computed(() => props.size || 16);
   vertical-align: middle;
 }
 </style>
-

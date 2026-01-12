@@ -70,7 +70,9 @@ async function execute() {
   try {
     input = JSON.parse(inputJson.value);
   } catch (e) {
-    error.value = `${t('execution.parseError')}: ${e instanceof Error ? e.message : 'Unknown error'}`;
+    error.value = `${t('execution.parseError')}: ${
+      e instanceof Error ? e.message : 'Unknown error'
+    }`;
     return;
   }
 
@@ -85,7 +87,9 @@ async function execute() {
 
     result.value = await executor.execute(props.ruleset, input, options);
   } catch (e) {
-    error.value = `${t('execution.executionError')}: ${e instanceof Error ? e.message : 'Unknown error'}`;
+    error.value = `${t('execution.executionError')}: ${
+      e instanceof Error ? e.message : 'Unknown error'
+    }`;
   } finally {
     executing.value = false;
   }
@@ -96,13 +100,16 @@ function formatOutput(output: any): string {
 }
 
 // Watch for modal open to reset state
-watch(() => props.open, (newVal) => {
-  if (newVal) {
-    // Reset when opening
-    result.value = null;
-    error.value = null;
+watch(
+  () => props.open,
+  (newVal) => {
+    if (newVal) {
+      // Reset when opening
+      result.value = null;
+      error.value = null;
+    }
   }
-});
+);
 </script>
 
 <template>
@@ -113,7 +120,14 @@ watch(() => props.open, (newVal) => {
           <div class="modal-header">
             <h2>{{ t('execution.title') }}</h2>
             <button class="close-btn" @click="close" :title="t('common.close')">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
@@ -158,12 +172,31 @@ watch(() => props.open, (newVal) => {
                 :disabled="executing"
                 @click="execute"
               >
-                <svg v-if="!executing" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z"/>
+                <svg
+                  v-if="!executing"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M8 5v14l11-7z" />
                 </svg>
                 <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25"/>
-                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" fill="none"/>
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    fill="none"
+                    opacity="0.25"
+                  />
+                  <path
+                    d="M12 2a10 10 0 0 1 10 10"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    fill="none"
+                  />
                 </svg>
                 {{ executing ? t('execution.executing') : t('execution.execute') }}
               </button>
@@ -222,10 +255,18 @@ watch(() => props.open, (newVal) => {
 
             <!-- No Result Placeholder -->
             <div v-else class="section no-result-section">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M8 12h8"/>
-                <path d="M12 8v8"/>
+              <svg
+                width="48"
+                height="48"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                opacity="0.3"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M8 12h8" />
+                <path d="M12 8v8" />
               </svg>
               <p>{{ t('execution.noResult') }}</p>
             </div>
@@ -446,8 +487,12 @@ watch(() => props.open, (newVal) => {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .trace-checkbox {
@@ -673,4 +718,3 @@ watch(() => props.open, (newVal) => {
   max-width: 300px;
 }
 </style>
-

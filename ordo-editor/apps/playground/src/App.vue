@@ -85,63 +85,75 @@ function onClearFlowTrace() {
 
 // Sample input data for each ruleset
 const sampleInputData: Record<string, string> = {
-  'file_1': JSON.stringify({
-    user: {
-      id: 'user_001',
-      age: 28,
-      level: 'vip',
-      balance: 5000,
-      registeredDays: 365
+  file_1: JSON.stringify(
+    {
+      user: {
+        id: 'user_001',
+        age: 28,
+        level: 'vip',
+        balance: 5000,
+        registeredDays: 365,
+      },
+      order: {
+        amount: 500,
+        type: 'purchase',
+        channel: 'web',
+        itemCount: 3,
+      },
+      context: {
+        ip: '192.168.1.1',
+        device: 'desktop',
+        time: new Date().toISOString(),
+      },
     },
-    order: {
-      amount: 500,
-      type: 'purchase',
-      channel: 'web',
-      itemCount: 3
+    null,
+    2
+  ),
+  file_2: JSON.stringify(
+    {
+      transaction: {
+        amount: 15000,
+        currency: 'USD',
+        type: 'transfer',
+        merchantId: 'merchant_001',
+      },
+      user: {
+        id: 'user_002',
+        riskScore: 35,
+        verifiedLevel: 2,
+        failedAttempts: 0,
+      },
+      device: {
+        fingerprint: 'fp_abc123',
+        isNewDevice: false,
+        location: 'New York, US',
+      },
     },
-    context: {
-      ip: '192.168.1.1',
-      device: 'desktop',
-      time: new Date().toISOString()
-    }
-  }, null, 2),
-  'file_2': JSON.stringify({
-    transaction: {
-      amount: 15000,
-      currency: 'USD',
-      type: 'transfer',
-      merchantId: 'merchant_001'
+    null,
+    2
+  ),
+  file_3: JSON.stringify(
+    {
+      customer: {
+        id: 'cust_001',
+        tier: 'gold',
+        totalPurchases: 15000,
+        isNewCustomer: false,
+      },
+      cart: {
+        subtotal: 650,
+        itemCount: 5,
+        categories: ['electronics', 'clothing'],
+        hasCoupon: false,
+      },
+      promotion: {
+        campaignId: 'summer_sale_2024',
+        isHoliday: true,
+      },
     },
-    user: {
-      id: 'user_002',
-      riskScore: 35,
-      verifiedLevel: 2,
-      failedAttempts: 0
-    },
-    device: {
-      fingerprint: 'fp_abc123',
-      isNewDevice: false,
-      location: 'New York, US'
-    }
-  }, null, 2),
-  'file_3': JSON.stringify({
-    customer: {
-      id: 'cust_001',
-      tier: 'gold',
-      totalPurchases: 15000,
-      isNewCustomer: false
-    },
-    cart: {
-      subtotal: 650,
-      itemCount: 5,
-      categories: ['electronics', 'clothing'],
-      hasCoupon: false
-    },
-    promotion: {
-      campaignId: 'summer_sale_2024',
-      isHoliday: true
-    }
-  }, null, 2),
+    null,
+    2
+  ),
 };
 
 // Get current sample input
@@ -179,7 +191,7 @@ function handleMouseUp() {
 onMounted(() => {
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
-  
+
   // Show welcome modal for first-time visitors
   if (shouldShowTour()) {
     showWelcome.value = true;
@@ -221,63 +233,108 @@ interface OrdoFile {
 
 // Sample schemas for different rule types
 const paymentSchema: SchemaField[] = [
-  { name: 'user', type: 'object', description: 'User information', fields: [
-    { name: 'id', type: 'string', required: true, description: 'User ID' },
-    { name: 'age', type: 'number', description: 'User age' },
-    { name: 'level', type: 'string', description: 'VIP level (normal/silver/gold/vip)' },
-    { name: 'balance', type: 'number', description: 'Account balance' },
-    { name: 'registeredDays', type: 'number', description: 'Days since registration' },
-  ]},
-  { name: 'order', type: 'object', description: 'Order information', fields: [
-    { name: 'amount', type: 'number', required: true, description: 'Order amount' },
-    { name: 'type', type: 'string', description: 'Order type' },
-    { name: 'channel', type: 'string', description: 'Payment channel' },
-    { name: 'itemCount', type: 'number', description: 'Number of items' },
-  ]},
-  { name: 'context', type: 'object', description: 'Request context', fields: [
-    { name: 'ip', type: 'string', description: 'Client IP' },
-    { name: 'device', type: 'string', description: 'Device type' },
-    { name: 'time', type: 'string', description: 'Request time' },
-  ]},
+  {
+    name: 'user',
+    type: 'object',
+    description: 'User information',
+    fields: [
+      { name: 'id', type: 'string', required: true, description: 'User ID' },
+      { name: 'age', type: 'number', description: 'User age' },
+      { name: 'level', type: 'string', description: 'VIP level (normal/silver/gold/vip)' },
+      { name: 'balance', type: 'number', description: 'Account balance' },
+      { name: 'registeredDays', type: 'number', description: 'Days since registration' },
+    ],
+  },
+  {
+    name: 'order',
+    type: 'object',
+    description: 'Order information',
+    fields: [
+      { name: 'amount', type: 'number', required: true, description: 'Order amount' },
+      { name: 'type', type: 'string', description: 'Order type' },
+      { name: 'channel', type: 'string', description: 'Payment channel' },
+      { name: 'itemCount', type: 'number', description: 'Number of items' },
+    ],
+  },
+  {
+    name: 'context',
+    type: 'object',
+    description: 'Request context',
+    fields: [
+      { name: 'ip', type: 'string', description: 'Client IP' },
+      { name: 'device', type: 'string', description: 'Device type' },
+      { name: 'time', type: 'string', description: 'Request time' },
+    ],
+  },
 ];
 
 const riskSchema: SchemaField[] = [
-  { name: 'transaction', type: 'object', description: 'Transaction data', fields: [
-    { name: 'amount', type: 'number', required: true, description: 'Transaction amount' },
-    { name: 'currency', type: 'string', description: 'Currency code' },
-    { name: 'type', type: 'string', description: 'Transaction type' },
-    { name: 'merchantId', type: 'string', description: 'Merchant ID' },
-  ]},
-  { name: 'user', type: 'object', description: 'User profile', fields: [
-    { name: 'id', type: 'string', required: true, description: 'User ID' },
-    { name: 'riskScore', type: 'number', description: 'Historical risk score (0-100)' },
-    { name: 'verifiedLevel', type: 'number', description: 'KYC verification level' },
-    { name: 'failedAttempts', type: 'number', description: 'Recent failed attempts' },
-  ]},
-  { name: 'device', type: 'object', description: 'Device info', fields: [
-    { name: 'fingerprint', type: 'string', description: 'Device fingerprint' },
-    { name: 'isNewDevice', type: 'boolean', description: 'Is new device' },
-    { name: 'location', type: 'string', description: 'Geo location' },
-  ]},
+  {
+    name: 'transaction',
+    type: 'object',
+    description: 'Transaction data',
+    fields: [
+      { name: 'amount', type: 'number', required: true, description: 'Transaction amount' },
+      { name: 'currency', type: 'string', description: 'Currency code' },
+      { name: 'type', type: 'string', description: 'Transaction type' },
+      { name: 'merchantId', type: 'string', description: 'Merchant ID' },
+    ],
+  },
+  {
+    name: 'user',
+    type: 'object',
+    description: 'User profile',
+    fields: [
+      { name: 'id', type: 'string', required: true, description: 'User ID' },
+      { name: 'riskScore', type: 'number', description: 'Historical risk score (0-100)' },
+      { name: 'verifiedLevel', type: 'number', description: 'KYC verification level' },
+      { name: 'failedAttempts', type: 'number', description: 'Recent failed attempts' },
+    ],
+  },
+  {
+    name: 'device',
+    type: 'object',
+    description: 'Device info',
+    fields: [
+      { name: 'fingerprint', type: 'string', description: 'Device fingerprint' },
+      { name: 'isNewDevice', type: 'boolean', description: 'Is new device' },
+      { name: 'location', type: 'string', description: 'Geo location' },
+    ],
+  },
 ];
 
 const discountSchema: SchemaField[] = [
-  { name: 'customer', type: 'object', description: 'Customer info', fields: [
-    { name: 'id', type: 'string', required: true, description: 'Customer ID' },
-    { name: 'tier', type: 'string', description: 'Membership tier' },
-    { name: 'totalPurchases', type: 'number', description: 'Total historical purchases' },
-    { name: 'isNewCustomer', type: 'boolean', description: 'First time buyer' },
-  ]},
-  { name: 'cart', type: 'object', description: 'Shopping cart', fields: [
-    { name: 'subtotal', type: 'number', required: true, description: 'Cart subtotal' },
-    { name: 'itemCount', type: 'number', description: 'Number of items' },
-    { name: 'categories', type: 'array', description: 'Item categories' },
-    { name: 'hasCoupon', type: 'boolean', description: 'Has coupon applied' },
-  ]},
-  { name: 'promotion', type: 'object', description: 'Current promotions', fields: [
-    { name: 'campaignId', type: 'string', description: 'Active campaign ID' },
-    { name: 'isHoliday', type: 'boolean', description: 'Is holiday period' },
-  ]},
+  {
+    name: 'customer',
+    type: 'object',
+    description: 'Customer info',
+    fields: [
+      { name: 'id', type: 'string', required: true, description: 'Customer ID' },
+      { name: 'tier', type: 'string', description: 'Membership tier' },
+      { name: 'totalPurchases', type: 'number', description: 'Total historical purchases' },
+      { name: 'isNewCustomer', type: 'boolean', description: 'First time buyer' },
+    ],
+  },
+  {
+    name: 'cart',
+    type: 'object',
+    description: 'Shopping cart',
+    fields: [
+      { name: 'subtotal', type: 'number', required: true, description: 'Cart subtotal' },
+      { name: 'itemCount', type: 'number', description: 'Number of items' },
+      { name: 'categories', type: 'array', description: 'Item categories' },
+      { name: 'hasCoupon', type: 'boolean', description: 'Has coupon applied' },
+    ],
+  },
+  {
+    name: 'promotion',
+    type: 'object',
+    description: 'Current promotions',
+    fields: [
+      { name: 'campaignId', type: 'string', description: 'Active campaign ID' },
+      { name: 'isHoliday', type: 'boolean', description: 'Is holiday period' },
+    ],
+  },
 ];
 
 // Sample rulesets
@@ -299,21 +356,13 @@ const paymentRuleset: RuleSet = {
         Step.branch({
           id: 'branch_vip',
           label: 'VIP User',
-          condition: Condition.simple(
-            Expr.variable('$.user.level'),
-            'eq',
-            Expr.string('vip')
-          ),
+          condition: Condition.simple(Expr.variable('$.user.level'), 'eq', Expr.string('vip')),
           nextStepId: 'step_vip_discount',
         }),
         Step.branch({
           id: 'branch_gold',
           label: 'Gold User',
-          condition: Condition.simple(
-            Expr.variable('$.user.level'),
-            'eq',
-            Expr.string('gold')
-          ),
+          condition: Condition.simple(Expr.variable('$.user.level'), 'eq', Expr.string('gold')),
           nextStepId: 'step_gold_discount',
         }),
       ],
@@ -351,21 +400,13 @@ const paymentRuleset: RuleSet = {
         Step.branch({
           id: 'branch_high_amount',
           label: 'High Amount (>10000)',
-          condition: Condition.simple(
-            Expr.variable('$.order.amount'),
-            'gt',
-            Expr.number(10000)
-          ),
+          condition: Condition.simple(Expr.variable('$.order.amount'), 'gt', Expr.number(10000)),
           nextStepId: 'step_manual_review',
         }),
         Step.branch({
           id: 'branch_low_amount',
           label: 'Low Amount (<100)',
-          condition: Condition.simple(
-            Expr.variable('$.order.amount'),
-            'lt',
-            Expr.number(100)
-          ),
+          condition: Condition.simple(Expr.variable('$.order.amount'), 'lt', Expr.number(100)),
           nextStepId: 'step_fast_approve',
         }),
       ],
@@ -484,21 +525,13 @@ const riskRuleset: RuleSet = {
         Step.branch({
           id: 'branch_high_risk',
           label: 'High Risk Score (>70)',
-          condition: Condition.simple(
-            Expr.variable('$.user.riskScore'),
-            'gt',
-            Expr.number(70)
-          ),
+          condition: Condition.simple(Expr.variable('$.user.riskScore'), 'gt', Expr.number(70)),
           nextStepId: 'step_block',
         }),
         Step.branch({
           id: 'branch_medium_risk',
           label: 'Medium Risk (>40)',
-          condition: Condition.simple(
-            Expr.variable('$.user.riskScore'),
-            'gt',
-            Expr.number(40)
-          ),
+          condition: Condition.simple(Expr.variable('$.user.riskScore'), 'gt', Expr.number(40)),
           nextStepId: 'step_require_2fa',
         }),
       ],
@@ -663,11 +696,7 @@ const discountRuleset: RuleSet = {
         Step.branch({
           id: 'branch_gold_tier',
           label: 'Gold Tier',
-          condition: Condition.simple(
-            Expr.variable('$.customer.tier'),
-            'eq',
-            Expr.string('gold')
-          ),
+          condition: Condition.simple(Expr.variable('$.customer.tier'), 'eq', Expr.string('gold')),
           nextStepId: 'step_gold_tier_discount',
         }),
         Step.branch({
@@ -704,9 +733,7 @@ const discountRuleset: RuleSet = {
     Step.action({
       id: 'step_silver_discount',
       name: 'Silver Discount',
-      assignments: [
-        { name: 'tierDiscount', value: Expr.number(0.10) },
-      ],
+      assignments: [{ name: 'tierDiscount', value: Expr.number(0.1) }],
       nextStepId: 'step_check_cart_size',
     }),
     Step.decision({
@@ -717,11 +744,7 @@ const discountRuleset: RuleSet = {
         Step.branch({
           id: 'branch_large_cart',
           label: 'Large Cart (>500)',
-          condition: Condition.simple(
-            Expr.variable('$.cart.subtotal'),
-            'gt',
-            Expr.number(500)
-          ),
+          condition: Condition.simple(Expr.variable('$.cart.subtotal'), 'gt', Expr.number(500)),
           nextStepId: 'step_bulk_discount',
         }),
       ],
@@ -730,9 +753,7 @@ const discountRuleset: RuleSet = {
     Step.action({
       id: 'step_bulk_discount',
       name: 'Bulk Order Discount',
-      assignments: [
-        { name: 'bulkDiscount', value: Expr.number(0.05) },
-      ],
+      assignments: [{ name: 'bulkDiscount', value: Expr.number(0.05) }],
       nextStepId: 'step_check_holiday',
     }),
     Step.decision({
@@ -780,7 +801,14 @@ const discountRuleset: RuleSet = {
       color: '#1e3a5f',
       position: { x: 0, y: 0 },
       size: { width: 400, height: 300 },
-      stepIds: ['step_check_new_customer', 'step_new_customer_bonus', 'step_check_tier', 'step_platinum_discount', 'step_gold_tier_discount', 'step_silver_discount'],
+      stepIds: [
+        'step_check_new_customer',
+        'step_new_customer_bonus',
+        'step_check_tier',
+        'step_platinum_discount',
+        'step_gold_tier_discount',
+        'step_silver_discount',
+      ],
     },
     {
       id: 'discount_stage_2',
@@ -789,7 +817,12 @@ const discountRuleset: RuleSet = {
       color: '#4d3319',
       position: { x: 0, y: 0 },
       size: { width: 400, height: 300 },
-      stepIds: ['step_check_cart_size', 'step_bulk_discount', 'step_check_holiday', 'step_holiday_bonus'],
+      stepIds: [
+        'step_check_cart_size',
+        'step_bulk_discount',
+        'step_check_holiday',
+        'step_holiday_bonus',
+      ],
     },
     {
       id: 'discount_stage_3',
@@ -809,24 +842,39 @@ const discountRuleset: RuleSet = {
 
 // Initialize files
 const files = ref<OrdoFile[]>([
-  { id: 'file_1', name: 'payment_validation.ordo', ruleset: JSON.parse(JSON.stringify(paymentRuleset)), modified: false },
-  { id: 'file_2', name: 'risk_assessment.ordo', ruleset: JSON.parse(JSON.stringify(riskRuleset)), modified: false },
-  { id: 'file_3', name: 'discount_calculator.ordo', ruleset: JSON.parse(JSON.stringify(discountRuleset)), modified: false },
+  {
+    id: 'file_1',
+    name: 'payment_validation.ordo',
+    ruleset: JSON.parse(JSON.stringify(paymentRuleset)),
+    modified: false,
+  },
+  {
+    id: 'file_2',
+    name: 'risk_assessment.ordo',
+    ruleset: JSON.parse(JSON.stringify(riskRuleset)),
+    modified: false,
+  },
+  {
+    id: 'file_3',
+    name: 'discount_calculator.ordo',
+    ruleset: JSON.parse(JSON.stringify(discountRuleset)),
+    modified: false,
+  },
 ]);
 
 const activeFileId = ref<string>('file_1');
 const openTabs = ref<string[]>(['file_1']);
 
-const activeFile = computed(() => files.value.find(f => f.id === activeFileId.value));
+const activeFile = computed(() => files.value.find((f) => f.id === activeFileId.value));
 const ruleset = computed({
   get: () => activeFile.value?.ruleset ?? paymentRuleset,
   set: (newVal) => {
-    const file = files.value.find(f => f.id === activeFileId.value);
+    const file = files.value.find((f) => f.id === activeFileId.value);
     if (file) {
       file.ruleset = newVal;
       file.modified = true;
     }
-  }
+  },
 });
 
 // Current file schema
@@ -837,7 +885,7 @@ const currentSchema = computed(() => {
 // Field suggestions for expressions
 const suggestions = computed(() => {
   const result: { path: string; label: string; type: string; description?: string }[] = [];
-  
+
   function flatten(fields: SchemaField[], prefix = '') {
     for (const field of fields) {
       const path = prefix ? `${prefix}.${field.name}` : field.name;
@@ -852,7 +900,7 @@ const suggestions = computed(() => {
       }
     }
   }
-  
+
   flatten(currentSchema.value);
   return result;
 });
@@ -910,7 +958,7 @@ function createNewFile() {
 }
 
 function deleteFile(fileId: string) {
-  const idx = files.value.findIndex(f => f.id === fileId);
+  const idx = files.value.findIndex((f) => f.id === fileId);
   if (idx !== -1) {
     files.value.splice(idx, 1);
     closeTab(fileId);
@@ -921,10 +969,10 @@ function deleteFile(fileId: string) {
 }
 
 function getFileIcon(file: OrdoFile) {
-  const stepTypes = file.ruleset.steps.map(s => s.type);
+  const stepTypes = file.ruleset.steps.map((s) => s.type);
   if (stepTypes.includes('decision') && stepTypes.includes('terminal')) {
     return 'decision';
-  } else if (stepTypes.every(s => s === 'action')) {
+  } else if (stepTypes.every((s) => s === 'action')) {
     return 'action';
   }
   return 'terminal';
@@ -952,114 +1000,190 @@ function handleChange(newRuleset: RuleSet) {
   ruleset.value = newRuleset;
 }
 
-watch(theme, (newTheme) => {
-  document.documentElement.setAttribute('data-ordo-theme', newTheme);
-}, { immediate: true });
+watch(
+  theme,
+  (newTheme) => {
+    document.documentElement.setAttribute('data-ordo-theme', newTheme);
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
-  <div class="ide-layout" :class="[theme, { 'resizing': isResizingLeft || isResizingRight }]">
+  <div class="ide-layout" :class="[theme, { resizing: isResizingLeft || isResizingRight }]">
     <!-- Activity Bar (Far Left) -->
     <aside class="ide-activity-bar">
       <!-- Explorer toggle -->
-      <div 
-        class="activity-icon" 
+      <div
+        class="activity-icon"
         :class="{ active: showLeftSidebar }"
         @click="toggleLeftSidebar"
         title="Toggle Explorer"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 13h7v8H3z"/>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 13h7v8H3z" />
         </svg>
       </div>
-      
+
       <!-- Form Mode -->
-      <div 
-        class="activity-icon" 
+      <div
+        class="activity-icon"
         :class="{ active: editorMode === 'form' }"
         @click="setEditorMode('form')"
         title="Form Editor"
         data-tour="mode-form"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <line x1="7" y1="8" x2="17" y2="8"/>
-          <line x1="7" y1="12" x2="17" y2="12"/>
-          <line x1="7" y1="16" x2="13" y2="16"/>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="7" y1="8" x2="17" y2="8" />
+          <line x1="7" y1="12" x2="17" y2="12" />
+          <line x1="7" y1="16" x2="13" y2="16" />
         </svg>
       </div>
-      
+
       <!-- Flow Mode -->
-      <div 
-        class="activity-icon" 
+      <div
+        class="activity-icon"
         :class="{ active: editorMode === 'flow' }"
         @click="setEditorMode('flow')"
         title="Flow Editor"
         data-tour="mode-flow"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="5" r="3"/>
-          <circle cx="6" cy="19" r="3"/>
-          <circle cx="18" cy="19" r="3"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="12" x2="6" y2="16"/>
-          <line x1="12" y1="12" x2="18" y2="16"/>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <circle cx="12" cy="5" r="3" />
+          <circle cx="6" cy="19" r="3" />
+          <circle cx="18" cy="19" r="3" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="12" x2="6" y2="16" />
+          <line x1="12" y1="12" x2="18" y2="16" />
         </svg>
       </div>
-      
+
       <div class="spacer"></div>
-      
+
       <!-- JSON Panel toggle -->
-      <div 
-        class="activity-icon" 
+      <div
+        class="activity-icon"
         :class="{ active: showRightSidebar }"
         @click="toggleRightSidebar"
         title="Toggle JSON Output"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
-          <path d="M7 13l3 3-3 3"/>
-          <path d="M17 11l-3-3 3-3"/>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path
+            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+          />
+          <path d="M7 13l3 3-3 3" />
+          <path d="M17 11l-3-3 3-3" />
         </svg>
       </div>
-      
+
       <!-- Documentation -->
-      <a 
-        class="activity-icon" 
-        href="/Ordo/docs/"
-        title="Documentation"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      <a class="activity-icon" href="/Ordo/docs/" title="Documentation">
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
         </svg>
       </a>
-      
+
       <!-- Help / Tour -->
-      <div 
-        class="activity-icon" 
-        @click="handleRestartTour"
-        title="Start Tour"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
+      <div class="activity-icon" @click="handleRestartTour" title="Start Tour">
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
       </div>
-      
-      <div class="activity-icon" @click="toggleLocale" :title="locale === 'en' ? 'Switch to Chinese' : 'Switch to English'">
-        <span style="font-size: 10px; font-weight: 700;">{{ locale === 'en' ? 'EN' : '中' }}</span>
+
+      <div
+        class="activity-icon"
+        @click="toggleLocale"
+        :title="locale === 'en' ? 'Switch to Chinese' : 'Switch to English'"
+      >
+        <span style="font-size: 10px; font-weight: 700">{{ locale === 'en' ? 'EN' : '中' }}</span>
       </div>
-      <div class="activity-icon" @click="toggleTheme" :title="theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'">
-        <svg v-if="theme === 'light'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-        <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      <div
+        class="activity-icon"
+        @click="toggleTheme"
+        :title="theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'"
+      >
+        <svg
+          v-if="theme === 'light'"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+        <svg
+          v-else
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
       </div>
     </aside>
 
     <!-- Left Sidebar (Explorer) -->
-    <aside 
-      v-if="showLeftSidebar" 
+    <aside
+      v-if="showLeftSidebar"
       class="ide-sidebar left"
       :style="{ width: leftSidebarWidth + 'px' }"
       data-tour="explorer"
@@ -1068,13 +1192,27 @@ watch(theme, (newTheme) => {
         <span>EXPLORER</span>
         <div class="header-actions">
           <button class="icon-btn" @click="createNewFile" title="New File">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
           <button class="sidebar-close" @click="toggleLeftSidebar" title="Close">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -1084,8 +1222,8 @@ watch(theme, (newTheme) => {
       <div class="sidebar-content">
         <div class="sidebar-section">
           <div class="section-title">RULE FILES</div>
-          <div 
-            v-for="file in files" 
+          <div
+            v-for="file in files"
             :key="file.id"
             class="file-item"
             :class="{ active: file.id === activeFileId }"
@@ -1097,7 +1235,10 @@ watch(theme, (newTheme) => {
               <span v-if="file.modified" class="modified-dot">●</span>
             </div>
             <div class="file-meta">
-              <span class="step-count" :class="{ 'has-decision': getStepTypeCounts(file).decision > 0 }">
+              <span
+                class="step-count"
+                :class="{ 'has-decision': getStepTypeCounts(file).decision > 0 }"
+              >
                 <span v-if="getStepTypeCounts(file).decision > 0" class="step-badge decision">
                   {{ getStepTypeCounts(file).decision }}D
                 </span>
@@ -1109,20 +1250,27 @@ watch(theme, (newTheme) => {
                 </span>
               </span>
             </div>
-            <button 
+            <button
               v-if="files.length > 1"
-              class="file-delete" 
+              class="file-delete"
               @click.stop="deleteFile(file.id)"
               title="Delete"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
             </button>
           </div>
         </div>
-        
+
         <!-- File Info -->
         <div v-if="activeFile" class="sidebar-section">
           <div class="section-title">FILE INFO</div>
@@ -1141,7 +1289,7 @@ watch(theme, (newTheme) => {
             </div>
           </div>
         </div>
-        
+
         <!-- Step Types Legend -->
         <div class="sidebar-section">
           <div class="section-title">STEP TYPES</div>
@@ -1169,16 +1317,18 @@ watch(theme, (newTheme) => {
     <main class="ide-editor-area">
       <!-- Tabs -->
       <div class="ide-tabs">
-        <div 
-          v-for="tabId in openTabs" 
+        <div
+          v-for="tabId in openTabs"
           :key="tabId"
           class="ide-tab"
           :class="{ active: tabId === activeFileId }"
           @click="selectFile(tabId)"
         >
-          <OrdoIcon :name="getFileIcon(files.find(f => f.id === tabId)!)" :size="14" />
-          {{ files.find(f => f.id === tabId)?.name }}
-          <span v-if="files.find(f => f.id === tabId)?.modified" class="modified-indicator">●</span>
+          <OrdoIcon :name="getFileIcon(files.find((f) => f.id === tabId)!)" :size="14" />
+          {{ files.find((f) => f.id === tabId)?.name }}
+          <span v-if="files.find((f) => f.id === tabId)?.modified" class="modified-indicator"
+            >●</span
+          >
           <span class="mode-badge">{{ editorMode === 'form' ? 'Form' : 'Flow' }}</span>
           <span class="close" @click.stop="closeTab(tabId)">×</span>
         </div>
@@ -1196,7 +1346,7 @@ watch(theme, (newTheme) => {
             :locale="locale"
             @change="handleChange"
           />
-          
+
           <!-- Flow Editor -->
           <OrdoFlowEditor
             v-else
@@ -1207,7 +1357,7 @@ watch(theme, (newTheme) => {
             @change="handleChange"
           />
         </div>
-        
+
         <!-- Execution Panel (Bottom) -->
         <OrdoExecutionPanel
           v-model:visible="showExecutionPanel"
@@ -1218,31 +1368,43 @@ watch(theme, (newTheme) => {
           @clear-flow-trace="onClearFlowTrace"
         />
       </div>
-      
+
       <!-- Empty state -->
       <div v-else class="empty-state">
         <OrdoIcon name="terminal" :size="48" />
         <p>No file selected</p>
         <button class="create-btn" @click="createNewFile">Create New Rule</button>
       </div>
-      
+
       <!-- Status Bar -->
       <footer class="ide-status-bar">
         <div class="status-item">Ordo v0.1.0</div>
-        <div class="status-item">
-          <OrdoIcon name="check" :size="12" /> Ready
-        </div>
+        <div class="status-item"><OrdoIcon name="check" :size="12" /> Ready</div>
         <div class="spacer"></div>
-        <div v-if="activeFile" class="status-item clickable" :class="{ active: showExecutionPanel }" @click="toggleExecutionPanel" title="Toggle Execution Panel" data-tour="console">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 4px;">
-            <path d="M8 5v14l11-7z"/>
+        <div
+          v-if="activeFile"
+          class="status-item clickable"
+          :class="{ active: showExecutionPanel }"
+          @click="toggleExecutionPanel"
+          title="Toggle Execution Panel"
+          data-tour="console"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            style="margin-right: 4px"
+          >
+            <path d="M8 5v14l11-7z" />
           </svg>
           {{ showExecutionPanel ? 'Hide Console' : 'Console' }}
         </div>
-        <div v-if="activeFile" class="status-item">
-          {{ activeFile.ruleset.steps.length }} steps
-        </div>
-        <div class="status-item clickable" @click="setEditorMode(editorMode === 'form' ? 'flow' : 'form')">
+        <div v-if="activeFile" class="status-item">{{ activeFile.ruleset.steps.length }} steps</div>
+        <div
+          class="status-item clickable"
+          @click="setEditorMode(editorMode === 'form' ? 'flow' : 'form')"
+        >
           Mode: {{ editorMode === 'form' ? 'Form' : 'Flow' }}
         </div>
         <div class="status-item clickable" @click="toggleRightSidebar">
@@ -1256,26 +1418,40 @@ watch(theme, (newTheme) => {
     </main>
 
     <!-- Right Sidebar (JSON Output) -->
-    <aside 
-      v-if="showRightSidebar" 
+    <aside
+      v-if="showRightSidebar"
       class="ide-sidebar right"
       :style="{ width: rightSidebarWidth + 'px' }"
       data-tour="json-output"
     >
       <!-- Resize handle -->
       <div class="resize-handle left" @mousedown="startResizeRight"></div>
-      
+
       <div class="sidebar-header">
         <span>JSON OUTPUT</span>
         <div class="header-actions">
           <button class="icon-btn" @click="copyJson" title="Copy JSON">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
           </button>
           <button class="sidebar-close" @click="toggleRightSidebar" title="Close">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -1288,11 +1464,7 @@ watch(theme, (newTheme) => {
     </aside>
 
     <!-- Welcome Modal -->
-    <WelcomeModal 
-      v-if="showWelcome"
-      @start-tour="handleStartTour"
-      @skip="handleSkipTour"
-    />
+    <WelcomeModal v-if="showWelcome" @start-tour="handleStartTour" @skip="handleSkipTour" />
   </div>
 </template>
 
@@ -1333,7 +1505,9 @@ watch(theme, (newTheme) => {
   justify-content: center;
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity 0.2s, background 0.2s;
+  transition:
+    opacity 0.2s,
+    background 0.2s;
   color: var(--ordo-text-secondary);
   border-radius: 6px;
   margin: 2px 4px;
@@ -1350,7 +1524,9 @@ watch(theme, (newTheme) => {
   background: var(--ordo-bg-selected);
 }
 
-.spacer { flex: 1; }
+.spacer {
+  flex: 1;
+}
 
 /* Sidebars */
 .ide-sidebar {
@@ -1388,7 +1564,8 @@ watch(theme, (newTheme) => {
   gap: 4px;
 }
 
-.sidebar-close, .icon-btn {
+.sidebar-close,
+.icon-btn {
   background: transparent;
   border: none;
   cursor: pointer;
@@ -1400,7 +1577,8 @@ watch(theme, (newTheme) => {
   justify-content: center;
 }
 
-.sidebar-close:hover, .icon-btn:hover {
+.sidebar-close:hover,
+.icon-btn:hover {
   background: var(--ordo-bg-item-hover);
   color: var(--ordo-text-primary);
 }
@@ -1773,6 +1951,6 @@ watch(theme, (newTheme) => {
 }
 
 .status-item:hover {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.2);
 }
 </style>

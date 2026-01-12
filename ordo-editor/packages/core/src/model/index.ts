@@ -8,4 +8,3 @@ export * from './condition';
 export * from './step';
 export * from './ruleset';
 export * from './group';
-

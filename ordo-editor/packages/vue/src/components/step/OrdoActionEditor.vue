@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: ActionStep];
-  'change': [value: ActionStep];
+  change: [value: ActionStep];
 }>();
 
 const { t } = useI18n();
@@ -69,7 +69,10 @@ function addAssignment() {
     name: `var_${generateId('').slice(0, 6)}`,
     value: Expr.string(''),
   };
-  const newStep = { ...props.modelValue, assignments: [...(props.modelValue.assignments || []), newAssignment] };
+  const newStep = {
+    ...props.modelValue,
+    assignments: [...(props.modelValue.assignments || []), newAssignment],
+  };
   emit('update:modelValue', newStep);
   emit('change', newStep);
 }
@@ -77,10 +80,10 @@ function addAssignment() {
 function updateAssignment(index: number, assignment: Partial<VariableAssignment>) {
   const assignments = [...(props.modelValue.assignments || [])];
   assignments[index] = { ...assignments[index], ...assignment };
-  
-  // For value update, handle expression parsing inside updateAssignment logic if needed, 
+
+  // For value update, handle expression parsing inside updateAssignment logic if needed,
   // but here we just pass expression directly
-  
+
   const newStep = { ...props.modelValue, assignments };
   emit('update:modelValue', newStep);
   emit('change', newStep);
@@ -88,7 +91,10 @@ function updateAssignment(index: number, assignment: Partial<VariableAssignment>
 
 function removeAssignment(index: number) {
   const assignments = (props.modelValue.assignments || []).filter((_, i) => i !== index);
-  const newStep = { ...props.modelValue, assignments: assignments.length > 0 ? assignments : undefined };
+  const newStep = {
+    ...props.modelValue,
+    assignments: assignments.length > 0 ? assignments : undefined,
+  };
   emit('update:modelValue', newStep);
   emit('change', newStep);
 }
@@ -97,9 +103,12 @@ function removeAssignment(index: number) {
 function updateLogging(logging: Partial<NonNullable<ActionStep['logging']>>) {
   const currentLogging = props.modelValue.logging || { message: Expr.string(''), level: 'info' };
   const newLogging = { ...currentLogging, ...logging };
-  
+
   // If level is cleared and no message, remove logging
-  if (!newLogging.level && (!newLogging.message || newLogging.message.type === 'literal' && !newLogging.message.value)) {
+  if (
+    !newLogging.level &&
+    (!newLogging.message || (newLogging.message.type === 'literal' && !newLogging.message.value))
+  ) {
     const newStep = { ...props.modelValue, logging: undefined };
     emit('update:modelValue', newStep);
     emit('change', newStep);
@@ -188,7 +197,9 @@ function updateExprValue(val: string): any {
                   :value="assign.name"
                   :disabled="disabled"
                   class="ordo-input-clean"
-                  @input="updateAssignment(index, { name: ($event.target as HTMLInputElement).value })"
+                  @input="
+                    updateAssignment(index, { name: ($event.target as HTMLInputElement).value })
+                  "
                 />
               </td>
               <td>
@@ -207,9 +218,7 @@ function updateExprValue(val: string): any {
             </tr>
           </tbody>
         </table>
-        <div v-else class="ordo-empty-state">
-          No variable assignments.
-        </div>
+        <div v-else class="ordo-empty-state">No variable assignments.</div>
       </div>
     </div>
 
@@ -281,8 +290,12 @@ function updateExprValue(val: string): any {
   gap: 4px;
 }
 
-.ordo-form-group.grow { flex: 1; }
-.ordo-form-group.full { width: 100%; }
+.ordo-form-group.grow {
+  flex: 1;
+}
+.ordo-form-group.full {
+  width: 100%;
+}
 
 .ordo-form-group label {
   font-size: 11px;
@@ -326,7 +339,9 @@ function updateExprValue(val: string): any {
   border-radius: var(--ordo-radius-sm);
 }
 
-.ordo-btn-text:hover { background: var(--ordo-accent-bg); }
+.ordo-btn-text:hover {
+  background: var(--ordo-accent-bg);
+}
 
 /* Table Styles */
 .ordo-table-container {
@@ -356,7 +371,9 @@ function updateExprValue(val: string): any {
   background: var(--ordo-bg-item);
 }
 
-.ordo-data-table tr:last-child td { border-bottom: none; }
+.ordo-data-table tr:last-child td {
+  border-bottom: none;
+}
 
 .ordo-input-clean {
   width: 100%;
@@ -366,7 +383,10 @@ function updateExprValue(val: string): any {
   color: var(--ordo-variable);
 }
 
-.ordo-input-clean:focus { outline: none; background: var(--ordo-bg-input); }
+.ordo-input-clean:focus {
+  outline: none;
+  background: var(--ordo-bg-input);
+}
 
 .ordo-empty-state {
   padding: 12px;
@@ -385,7 +405,13 @@ function updateExprValue(val: string): any {
   width: 80px;
 }
 
-.center { text-align: center; }
-.ordo-btn-icon.danger { color: var(--ordo-error); }
-.ordo-btn-icon.danger:hover { background: var(--ordo-error-bg); }
+.center {
+  text-align: center;
+}
+.ordo-btn-icon.danger {
+  color: var(--ordo-error);
+}
+.ordo-btn-icon.danger:hover {
+  background: var(--ordo-error-bg);
+}
 </style>

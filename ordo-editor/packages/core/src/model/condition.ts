@@ -11,7 +11,17 @@ export interface SimpleCondition {
   /** Left-hand side expression */
   left: Expr;
   /** Comparison operator */
-  operator: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'contains' | 'startsWith' | 'endsWith';
+  operator:
+    | 'eq'
+    | 'ne'
+    | 'gt'
+    | 'gte'
+    | 'lt'
+    | 'lte'
+    | 'in'
+    | 'contains'
+    | 'startsWith'
+    | 'endsWith';
   /** Right-hand side expression */
   right: Expr;
 }
@@ -64,11 +74,7 @@ export type Condition = ConditionUnion;
 
 export const Condition = {
   /** Create a simple comparison condition */
-  simple(
-    left: Expr,
-    operator: SimpleCondition['operator'],
-    right: Expr
-  ): SimpleCondition {
+  simple(left: Expr, operator: SimpleCondition['operator'], right: Expr): SimpleCondition {
     return { type: 'simple', left, operator, right };
   },
 
@@ -119,7 +125,9 @@ export function conditionToString(condition: Condition): string {
         startsWith: 'startsWith',
         endsWith: 'endsWith',
       };
-      return `${exprToString(condition.left)} ${opMap[condition.operator]} ${exprToString(condition.right)}`;
+      return `${exprToString(condition.left)} ${opMap[condition.operator]} ${exprToString(
+        condition.right
+      )}`;
     }
 
     case 'logical': {
@@ -155,4 +163,3 @@ export function isEmptyCondition(condition: Condition): boolean {
   if (condition.type === 'logical' && condition.conditions.length === 0) return true;
   return false;
 }
-

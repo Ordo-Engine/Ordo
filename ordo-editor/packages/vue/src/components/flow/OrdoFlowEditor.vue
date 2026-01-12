@@ -73,22 +73,25 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
-  'change': [value: RuleSet];
+  change: [value: RuleSet];
 }>();
 
 // Provide locale using the shared key
 const currentLocale = ref<Lang>(props.locale);
-watch(() => props.locale, (val) => {
-  currentLocale.value = val;
-});
+watch(
+  () => props.locale,
+  (val) => {
+    currentLocale.value = val;
+  }
+);
 provide(LOCALE_KEY, currentLocale);
 
 const { t } = useI18n();
 
 // Vue Flow instance
-const { 
-  onNodesChange, 
-  onEdgesChange, 
+const {
+  onNodesChange,
+  onEdgesChange,
   onConnect,
   onNodeDragStart,
   onNodeDrag,
@@ -173,7 +176,7 @@ const selectedGroupNode = computed(() => {
 // Initialize from ruleset
 function initFromRuleset(forceLayout = false) {
   const flowData = rulesetToFlow(props.modelValue);
-  
+
   // Add zIndex to group nodes to keep them at bottom
   // NOTE: Do NOT set draggable here - let it inherit from VueFlow's nodes-draggable prop
   // This ensures groups are locked when the lock button is clicked
@@ -184,7 +187,7 @@ function initFromRuleset(forceLayout = false) {
     // draggable is NOT set here - inherited from VueFlow's nodes-draggable
     connectable: false, // Groups don't have handles
   }));
-  
+
   groupNodes.value = groupsWithZIndex;
   nodes.value = [...groupsWithZIndex, ...flowData.nodes];
   edges.value = flowData.edges;
@@ -203,11 +206,11 @@ function initFromRuleset(forceLayout = false) {
 function syncToRuleset() {
   // Set flag to prevent watch from re-initializing
   isInternalUpdate.value = true;
-  
+
   // Filter out group nodes for step processing
   const stepNodes = nodes.value.filter((n) => n.type !== 'group');
   const currentGroupNodes = nodes.value.filter((n) => n.type === 'group');
-  
+
   const newRuleset = flowToRuleset(
     stepNodes,
     edges.value,
@@ -217,7 +220,7 @@ function syncToRuleset() {
   );
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
-  
+
   // Reset flag after Vue's next tick
   setTimeout(() => {
     isInternalUpdate.value = false;
@@ -256,15 +259,15 @@ watch(
  */
 function applyExecutionTrace(trace: ExecutionTraceData) {
   showExecutionOverlay.value = true;
-  
+
   // Build annotations map
   const annotations = new Map<string, StepTraceInfo>();
   const pathSteps = trace.path || [];
-  
+
   trace.steps.forEach((step, index) => {
     const isEntry = index === 0;
     const isTerminal = index === trace.steps.length - 1;
-    
+
     annotations.set(step.id, {
       stepId: step.id,
       stepName: step.name,
@@ -275,28 +278,28 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
       resultCode: isTerminal ? trace.resultCode : undefined,
     });
   });
-  
+
   executionAnnotations.value = annotations;
-  
+
   // Highlight the execution path
-  const nodeIds = new Set<string>(trace.steps.map(s => s.id));
+  const nodeIds = new Set<string>(trace.steps.map((s) => s.id));
   const edgeIds = new Set<string>();
-  
+
   // Find edges that connect consecutive steps in the path
   for (let i = 0; i < pathSteps.length - 1; i++) {
     const sourceId = pathSteps[i];
     const targetId = pathSteps[i + 1];
-    
-    const edge = edges.value.find(e => e.source === sourceId && e.target === targetId);
+
+    const edge = edges.value.find((e) => e.source === sourceId && e.target === targetId);
     if (edge) {
       edgeIds.add(edge.id);
     }
   }
-  
+
   highlightedNodeIds.value = nodeIds;
   highlightedEdgeIds.value = edgeIds;
   applyExecutionHighlightStyles();
-  
+
   // Fit view to show the execution path
   setTimeout(() => {
     fitView({ padding: 0.2 });
@@ -319,34 +322,30 @@ function clearExecutionTrace() {
  */
 function applyExecutionHighlightStyles() {
   const hasHighlight = highlightedNodeIds.value.size > 0;
-  
+
   // Update nodes with execution highlight classes
-  nodes.value = nodes.value.map(node => {
+  nodes.value = nodes.value.map((node) => {
     if (node.type === 'group') return node;
-    
+
     const isHighlighted = highlightedNodeIds.value.has(node.id);
     const annotation = executionAnnotations.value.get(node.id);
-    
+
     return {
       ...node,
-      class: hasHighlight 
-        ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed')
-        : '',
+      class: hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : '',
       data: {
         ...node.data,
         executionAnnotation: annotation || null,
       },
     };
   });
-  
+
   // Update edges with execution highlight classes
-  edges.value = edges.value.map(edge => {
+  edges.value = edges.value.map((edge) => {
     const isHighlighted = highlightedEdgeIds.value.has(edge.id);
     return {
       ...edge,
-      class: hasHighlight 
-        ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed')
-        : '',
+      class: hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : '',
       animated: isHighlighted, // Animate executed edges
     };
   });
@@ -364,78 +363,78 @@ function applyExecutionHighlightStyles() {
 function findConnectedPath(nodeId: string): { nodeIds: Set<string>; edgeIds: Set<string> } {
   const nodeIds = new Set<string>();
   const edgeIds = new Set<string>();
-  
+
   // Skip group nodes
-  const node = nodes.value.find(n => n.id === nodeId);
+  const node = nodes.value.find((n) => n.id === nodeId);
   if (!node || node.type === 'group') {
     return { nodeIds, edgeIds };
   }
-  
+
   // Build adjacency maps
   const outgoingEdges = new Map<string, Array<{ edgeId: string; targetId: string }>>();
   const incomingEdges = new Map<string, Array<{ edgeId: string; sourceId: string }>>();
-  
+
   for (const edge of edges.value) {
     if (!outgoingEdges.has(edge.source)) {
       outgoingEdges.set(edge.source, []);
     }
     outgoingEdges.get(edge.source)!.push({ edgeId: edge.id, targetId: edge.target });
-    
+
     if (!incomingEdges.has(edge.target)) {
       incomingEdges.set(edge.target, []);
     }
     incomingEdges.get(edge.target)!.push({ edgeId: edge.id, sourceId: edge.source });
   }
-  
+
   // Add the selected node itself
   nodeIds.add(nodeId);
-  
+
   // Trace DOWNSTREAM only (follow edges in their direction: source -> target)
   const downstreamVisited = new Set<string>([nodeId]);
   const downstreamQueue: string[] = [nodeId];
-  
+
   while (downstreamQueue.length > 0) {
     const currentId = downstreamQueue.shift()!;
-    
+
     const outgoing = outgoingEdges.get(currentId) || [];
     for (const { edgeId, targetId } of outgoing) {
       // Skip group nodes
-      const targetNode = nodes.value.find(n => n.id === targetId);
+      const targetNode = nodes.value.find((n) => n.id === targetId);
       if (targetNode?.type === 'group') continue;
-      
+
       edgeIds.add(edgeId);
       nodeIds.add(targetId);
-      
+
       if (!downstreamVisited.has(targetId)) {
         downstreamVisited.add(targetId);
         downstreamQueue.push(targetId);
       }
     }
   }
-  
+
   // Trace UPSTREAM only (follow edges backwards: target -> source)
   const upstreamVisited = new Set<string>([nodeId]);
   const upstreamQueue: string[] = [nodeId];
-  
+
   while (upstreamQueue.length > 0) {
     const currentId = upstreamQueue.shift()!;
-    
+
     const incoming = incomingEdges.get(currentId) || [];
     for (const { edgeId, sourceId } of incoming) {
       // Skip group nodes
-      const sourceNode = nodes.value.find(n => n.id === sourceId);
+      const sourceNode = nodes.value.find((n) => n.id === sourceId);
       if (sourceNode?.type === 'group') continue;
-      
+
       edgeIds.add(edgeId);
       nodeIds.add(sourceId);
-      
+
       if (!upstreamVisited.has(sourceId)) {
         upstreamVisited.add(sourceId);
         upstreamQueue.push(sourceId);
       }
     }
   }
-  
+
   return { nodeIds, edgeIds };
 }
 
@@ -450,7 +449,7 @@ function updateHighlightedPath(nodeId: string | null) {
     applyHighlightStyles();
     return;
   }
-  
+
   const { nodeIds, edgeIds } = findConnectedPath(nodeId);
   highlightedNodeIds.value = nodeIds;
   highlightedEdgeIds.value = edgeIds;
@@ -462,28 +461,24 @@ function updateHighlightedPath(nodeId: string | null) {
  */
 function applyHighlightStyles() {
   const hasHighlight = highlightedNodeIds.value.size > 0;
-  
+
   // Update nodes with highlight/dim classes
-  nodes.value = nodes.value.map(node => {
+  nodes.value = nodes.value.map((node) => {
     if (node.type === 'group') return node;
-    
+
     const isHighlighted = highlightedNodeIds.value.has(node.id);
     return {
       ...node,
-      class: hasHighlight 
-        ? (isHighlighted ? 'path-highlighted' : 'path-dimmed')
-        : '',
+      class: hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : '',
     };
   });
-  
+
   // Update edges with highlight/dim classes
-  edges.value = edges.value.map(edge => {
+  edges.value = edges.value.map((edge) => {
     const isHighlighted = highlightedEdgeIds.value.has(edge.id);
     return {
       ...edge,
-      class: hasHighlight 
-        ? (isHighlighted ? 'path-highlighted' : 'path-dimmed')
-        : '',
+      class: hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : '',
     };
   });
 }
@@ -496,7 +491,7 @@ function applyHighlightStyles() {
 function onNodeClick(event: any) {
   const nodeId = event.node?.id;
   if (!nodeId) return;
-  
+
   // Check if Ctrl/Cmd is pressed for multi-select
   if (event.event?.ctrlKey || event.event?.metaKey) {
     if (selectedNodeIds.value.includes(nodeId)) {
@@ -509,14 +504,14 @@ function onNodeClick(event: any) {
   } else {
     selectedNodeIds.value = [nodeId];
     // Highlight connected path for single selection (skip groups)
-    const node = nodes.value.find(n => n.id === nodeId);
+    const node = nodes.value.find((n) => n.id === nodeId);
     if (node?.type !== 'group') {
       updateHighlightedPath(nodeId);
     } else {
       updateHighlightedPath(null);
     }
   }
-  
+
   selectedNodeId.value = nodeId;
   hideContextMenu();
 }
@@ -543,17 +538,17 @@ function onNodeContextMenu(event: any) {
   const nodeEvent = event.event as MouseEvent;
   nodeEvent.preventDefault();
   nodeEvent.stopPropagation();
-  
+
   selectedEdgeId.value = null; // Clear edge selection
   const nodeId = event.node?.id;
   if (!nodeId) return;
-  
+
   // Add node to selection if not already selected
   if (!selectedNodeIds.value.includes(nodeId)) {
     selectedNodeIds.value = [nodeId];
     selectedNodeId.value = nodeId;
   }
-  
+
   showContextMenuAt(nodeEvent);
 }
 
@@ -562,14 +557,14 @@ function onEdgeContextMenu(event: any) {
   const edgeEvent = event.event as MouseEvent;
   edgeEvent.preventDefault();
   edgeEvent.stopPropagation();
-  
+
   const edgeId = event.edge?.id;
   if (!edgeId) return;
-  
+
   selectedEdgeId.value = edgeId;
   selectedNodeId.value = null;
   selectedNodeIds.value = [];
-  
+
   showContextMenuAt(edgeEvent);
 }
 
@@ -610,14 +605,10 @@ onEdgesChange((changes) => {
 
 // Handle new connections
 onConnect((params) => {
-  const newEdge = createEdge(
-    params.source,
-    params.target,
-    {
-      sourceHandle: params.sourceHandle || undefined,
-      targetHandle: params.targetHandle || undefined,
-    }
-  );
+  const newEdge = createEdge(params.source, params.target, {
+    sourceHandle: params.sourceHandle || undefined,
+    targetHandle: params.targetHandle || undefined,
+  });
   edges.value.push(newEdge);
   syncToRuleset();
 });
@@ -650,11 +641,11 @@ onNodeDragStart(({ node }) => {
     groupDragState.value = null;
     return;
   }
-  
+
   // Get the group data to find child step IDs
   const groupData = node.data;
   const stepIds = groupData?.stepIds || groupData?.group?.stepIds || [];
-  
+
   groupDragState.value = {
     groupId: node.id,
     startPosition: { x: node.position.x, y: node.position.y },
@@ -666,13 +657,13 @@ onNodeDragStart(({ node }) => {
 onNodeDrag(({ node }) => {
   if (node.type !== 'group' || !groupDragState.value) return;
   if (groupDragState.value.groupId !== node.id) return;
-  
+
   // Calculate the delta (how much the group has moved)
   const deltaX = node.position.x - groupDragState.value.startPosition.x;
   const deltaY = node.position.y - groupDragState.value.startPosition.y;
-  
+
   if (deltaX === 0 && deltaY === 0) return;
-  
+
   // Update all child nodes by the same delta
   nodes.value = nodes.value.map((n) => {
     if (groupDragState.value!.childNodeIds.includes(n.id)) {
@@ -686,7 +677,7 @@ onNodeDrag(({ node }) => {
     }
     return n;
   });
-  
+
   // Update the start position for the next drag event
   groupDragState.value.startPosition = { x: node.position.x, y: node.position.y };
 });
@@ -699,23 +690,21 @@ onNodeDragStop(({ node }) => {
     syncToRuleset(); // Sync positions after group drag
     return;
   }
-  
+
   // Find intersecting group nodes
-  const intersectingGroups = getIntersectingNodes(node).filter(
-    (n: any) => n.type === 'group'
-  );
-  
+  const intersectingGroups = getIntersectingNodes(node).filter((n: any) => n.type === 'group');
+
   if (intersectingGroups.length > 0) {
     // Get the first (topmost) group
     const targetGroup = intersectingGroups[0];
-    
+
     // If node is already in this group, do nothing
     if (node.parentNode === targetGroup.id) return;
-    
+
     // Calculate relative position within the group
     const relativeX = node.position.x - targetGroup.position.x;
     const relativeY = node.position.y - targetGroup.position.y - 32; // Account for header
-    
+
     // Update node to be child of group
     nodes.value = nodes.value.map((n) => {
       if (n.id === node.id) {
@@ -728,7 +717,7 @@ onNodeDragStop(({ node }) => {
       }
       return n;
     });
-    
+
     syncToRuleset();
   } else if (node.parentNode) {
     // Node was dragged out of a group - remove parent
@@ -737,7 +726,7 @@ onNodeDragStop(({ node }) => {
       // Calculate absolute position
       const absoluteX = node.position.x + parentGroup.position.x;
       const absoluteY = node.position.y + parentGroup.position.y + 32;
-      
+
       nodes.value = nodes.value.map((n) => {
         if (n.id === node.id) {
           return {
@@ -749,7 +738,7 @@ onNodeDragStop(({ node }) => {
         }
         return n;
       });
-      
+
       syncToRuleset();
     }
   }
@@ -798,7 +787,7 @@ function deleteSelectedNode() {
   if (!selectedNodeId.value) return;
 
   const nodeToDelete = nodes.value.find((n) => n.id === selectedNodeId.value);
-  
+
   // If deleting a group, unparent all child nodes first
   if (nodeToDelete?.type === 'group') {
     nodes.value = nodes.value.map((n) => {
@@ -827,16 +816,19 @@ function addGroup() {
   const selectedSteps = nodes.value.filter(
     (n) => selectedNodeIds.value.includes(n.id) && n.type !== 'group'
   );
-  
+
   let position: { x: number; y: number };
   let size: { width: number; height: number };
-  
+
   if (selectedSteps.length > 0) {
     // Calculate bounding box of selected nodes
     const padding = 40;
     const headerHeight = 32;
-    
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (const node of selectedSteps) {
       const nodeWidth = 180; // Approximate node width
       const nodeHeight = 100; // Approximate node height
@@ -845,32 +837,32 @@ function addGroup() {
       maxX = Math.max(maxX, node.position.x + nodeWidth);
       maxY = Math.max(maxY, node.position.y + nodeHeight);
     }
-    
+
     position = { x: minX - padding, y: minY - padding - headerHeight };
-    size = { 
-      width: maxX - minX + padding * 2, 
-      height: maxY - minY + padding * 2 + headerHeight 
+    size = {
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2 + headerHeight,
     };
   } else {
     // Create empty group at suggested position
     position = getSuggestedPosition(nodes.value, selectedNodeId.value || undefined);
     size = { width: 300, height: 200 };
   }
-  
+
   const newGroup = createGroupNode('New Group', position, size);
-  
+
   // Add zIndex to keep at bottom
   const groupWithZIndex = {
     ...newGroup,
     zIndex: -1000,
     connectable: false,
   };
-  
+
   // Insert group at the beginning (so it renders behind other nodes)
   nodes.value = [groupWithZIndex, ...nodes.value];
   selectedNodeId.value = newGroup.id;
   selectedNodeIds.value = [newGroup.id];
-  
+
   syncToRuleset();
 }
 
@@ -895,10 +887,10 @@ function duplicateSelectedNode() {
     hideContextMenu();
     return;
   }
-  
+
   const originalStep = selectedStepNode.value.data.step;
   const newId = generateId('step');
-  
+
   // Clone the step with a new ID
   let newStep: Step;
   switch (originalStep.type) {
@@ -934,20 +926,20 @@ function duplicateSelectedNode() {
       hideContextMenu();
       return;
   }
-  
+
   // Position the new node slightly offset from the original
   const position = {
     x: selectedStepNode.value.position.x + 40,
     y: selectedStepNode.value.position.y + 40,
   };
-  
+
   const newNode = createNodeFromStep(newStep, position, false);
   nodes.value.push(newNode);
-  
+
   // Select the new node
   selectedNodeId.value = newId;
   selectedNodeIds.value = [newId];
-  
+
   syncToRuleset();
   hideContextMenu();
 }
@@ -955,13 +947,13 @@ function duplicateSelectedNode() {
 // Delete selected edge
 function deleteSelectedEdge() {
   if (!selectedEdgeId.value) return;
-  
+
   const edgeIdToDelete = selectedEdgeId.value;
   selectedEdgeId.value = null;
-  
+
   // Use Vue Flow's removeEdges method
   removeEdges([edgeIdToDelete]);
-  
+
   syncToRuleset();
   hideContextMenu();
 }
@@ -969,25 +961,21 @@ function deleteSelectedEdge() {
 // Reverse selected edge direction
 function reverseSelectedEdge() {
   if (!selectedEdgeId.value) return;
-  
+
   const edgeId = selectedEdgeId.value;
   const edge = edges.value.find((e) => e.id === edgeId);
   if (!edge) return;
-  
+
   // Create new edge with swapped source and target
-  const newEdge = createEdge(
-    edge.target,
-    edge.source,
-    {
-      sourceHandle: edge.targetHandle || undefined,
-      targetHandle: edge.sourceHandle || undefined,
-    }
-  );
-  
+  const newEdge = createEdge(edge.target, edge.source, {
+    sourceHandle: edge.targetHandle || undefined,
+    targetHandle: edge.sourceHandle || undefined,
+  });
+
   // Remove old edge and add new edge using Vue Flow methods
   removeEdges([edgeId]);
   addEdges([newEdge]);
-  
+
   selectedEdgeId.value = newEdge.id;
   syncToRuleset();
   hideContextMenu();
@@ -1002,10 +990,10 @@ function deleteFromMenu() {
 
   // Delete all selected nodes
   const idsToDelete = [...selectedNodeIds.value];
-  
+
   for (const id of idsToDelete) {
     const nodeToDelete = nodes.value.find((n) => n.id === id);
-    
+
     // If deleting a group, unparent all child nodes first
     if (nodeToDelete?.type === 'group') {
       nodes.value = nodes.value.map((n) => {
@@ -1015,16 +1003,14 @@ function deleteFromMenu() {
         return n;
       });
     }
-    
+
     // Remove node
     nodes.value = nodes.value.filter((n) => n.id !== id);
-    
+
     // Remove connected edges
-    edges.value = edges.value.filter(
-      (e) => e.source !== id && e.target !== id
-    );
+    edges.value = edges.value.filter((e) => e.source !== id && e.target !== id);
   }
-  
+
   selectedNodeId.value = null;
   selectedNodeIds.value = [];
   syncToRuleset();
@@ -1053,12 +1039,7 @@ function setAsStart(nodeId: string) {
     },
   }));
 
-  const newRuleset = flowToRuleset(
-    nodes.value,
-    edges.value,
-    props.modelValue.config,
-    nodeId
-  );
+  const newRuleset = flowToRuleset(nodes.value, edges.value, props.modelValue.config, nodeId);
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
@@ -1066,7 +1047,7 @@ function setAsStart(nodeId: string) {
 // Auto layout
 function autoLayout() {
   const groups = props.modelValue.groups || [];
-  
+
   if (groups.length > 0) {
     // Use group-based layout when groups are defined
     const { nodes: layoutedNodes, groupUpdates } = applyGroupBasedLayout(
@@ -1075,16 +1056,16 @@ function autoLayout() {
       groups,
       { direction: layoutDirection.value }
     );
-    
+
     // Update nodes with new positions (applyGroupBasedLayout already handles group nodes)
     nodes.value = layoutedNodes;
-    
+
     // Sync group updates to ruleset
     if (groupUpdates.length > 0) {
       isInternalUpdate.value = true;
-      
-      const updatedGroups = groups.map(g => {
-        const update = groupUpdates.find(u => u.id === g.id);
+
+      const updatedGroups = groups.map((g) => {
+        const update = groupUpdates.find((u) => u.id === g.id);
         if (update) {
           return {
             ...g,
@@ -1094,13 +1075,13 @@ function autoLayout() {
         }
         return g;
       });
-      
+
       const newRuleset = {
         ...props.modelValue,
         groups: updatedGroups,
       };
       emit('update:modelValue', newRuleset);
-      
+
       // Reset flag after Vue's next tick
       setTimeout(() => {
         isInternalUpdate.value = false;
@@ -1112,7 +1093,7 @@ function autoLayout() {
       direction: layoutDirection.value,
     });
   }
-  
+
   // Fit view after layout
   setTimeout(() => {
     fitView({ padding: 0.2 });
@@ -1140,7 +1121,7 @@ function updateNode(updatedStep: Step) {
 // Update group name
 function updateGroupName(newName: string) {
   if (!selectedGroupNode.value) return;
-  
+
   nodes.value = nodes.value.map((n) => {
     if (n.id === selectedGroupNode.value?.id && n.data?.group) {
       return {
@@ -1166,7 +1147,7 @@ function toggleEdgeStyle() {
 
 // Computed edge type for Vue Flow
 const defaultEdgeOptions = computed(() => ({
-  type: 'ordo',  // Use custom edge type
+  type: 'ordo', // Use custom edge type
   animated: false,
 }));
 
@@ -1225,87 +1206,135 @@ onMounted(() => {
         <Controls />
         <MiniMap />
       </VueFlow>
-      
+
       <!-- Context Menu -->
-      <div 
-        v-if="showContextMenu" 
+      <div
+        v-if="showContextMenu"
         class="context-menu"
         :style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
         @click.stop
         @mousedown.stop
       >
         <!-- Group creation (only when multiple nodes selected) -->
-        <div 
-          v-if="selectedNodeIds.length > 1" 
-          class="context-menu-item" 
+        <div
+          v-if="selectedNodeIds.length > 1"
+          class="context-menu-item"
           @click="createGroupFromSelection"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2" />
           </svg>
           <span>{{ t('flow.createGroup') }}</span>
           <span class="shortcut">{{ selectedNodeIds.length }}</span>
         </div>
-        
+
         <!-- Set as start (only for single step node) -->
-        <div 
-          v-if="selectedNodeIds.length === 1 && selectedStepNode" 
+        <div
+          v-if="selectedNodeIds.length === 1 && selectedStepNode"
           class="context-menu-item"
           @click="setAsStartFromMenu"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 3 19 12 5 21 5 3"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polygon points="5 3 19 12 5 21 5 3" />
           </svg>
           <span>{{ t('flow.setAsStart') }}</span>
         </div>
-        
+
         <!-- Duplicate node -->
-        <div 
-          v-if="selectedNodeIds.length === 1 && selectedStepNode" 
+        <div
+          v-if="selectedNodeIds.length === 1 && selectedStepNode"
           class="context-menu-item"
           @click="duplicateSelectedNode"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
           <span>{{ t('flow.duplicate') }}</span>
         </div>
-        
+
         <div class="context-menu-divider" v-if="selectedNodeIds.length > 0"></div>
-        
+
         <!-- Delete nodes -->
-        <div 
-          v-if="selectedNodeIds.length > 0" 
+        <div
+          v-if="selectedNodeIds.length > 0"
           class="context-menu-item danger"
           @click="deleteFromMenu"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <polyline points="3 6 5 6 21 6" />
+            <path
+              d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+            />
           </svg>
           <span>{{ t('common.delete') }}</span>
-          <span class="shortcut" v-if="selectedNodeIds.length > 1">{{ selectedNodeIds.length }}</span>
+          <span class="shortcut" v-if="selectedNodeIds.length > 1">{{
+            selectedNodeIds.length
+          }}</span>
         </div>
-        
+
         <!-- Edge context menu items -->
         <template v-if="selectedEdgeId">
           <div class="context-menu-item" @click="reverseSelectedEdge">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="17 1 21 5 17 9"/>
-              <path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-              <polyline points="7 23 3 19 7 15"/>
-              <path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="17 1 21 5 17 9" />
+              <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+              <polyline points="7 23 3 19 7 15" />
+              <path d="M21 13v2a4 4 0 0 1-4 4H3" />
             </svg>
             <span>{{ t('flow.reverseEdge') }}</span>
           </div>
-          
+
           <div class="context-menu-divider"></div>
-          
+
           <div class="context-menu-item danger" @click="deleteSelectedEdge">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+              />
             </svg>
             <span>{{ t('flow.deleteEdge') }}</span>
           </div>
@@ -1325,18 +1354,32 @@ onMounted(() => {
       @delete="deleteSelectedNode"
       @close="selectedNodeId = null"
     />
-    
+
     <!-- Property Panel for Group Nodes -->
     <div v-if="selectedGroupNode" class="group-property-panel">
       <div class="panel-header">
         <div class="header-title">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2" />
           </svg>
           <span class="type-label">{{ t('flow.group') }}</span>
         </div>
         <button class="close-btn" @click="selectedNodeId = null" :title="t('common.close')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
@@ -1345,15 +1388,17 @@ onMounted(() => {
       <div class="panel-content">
         <div class="form-row">
           <label>{{ t('common.name') }}</label>
-          <input 
-            type="text" 
+          <input
+            type="text"
             :value="selectedGroupNode.data?.group?.name"
             @input="updateGroupName(($event.target as HTMLInputElement).value)"
           />
         </div>
         <div class="form-row">
           <label>{{ t('flow.stepsInGroup') }}</label>
-          <div class="step-count">{{ selectedGroupNode.data?.group?.stepIds?.length || 0 }} {{ t('flow.steps') }}</div>
+          <div class="step-count">
+            {{ selectedGroupNode.data?.group?.stepIds?.length || 0 }} {{ t('flow.steps') }}
+          </div>
         </div>
         <div class="panel-actions">
           <button class="action-btn danger" @click="deleteSelectedNode">
@@ -1680,7 +1725,9 @@ onMounted(() => {
 :deep(.vue-flow__node.path-dimmed) {
   opacity: 0.3;
   filter: grayscale(0.5);
-  transition: opacity 0.2s ease, filter 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    filter 0.2s ease;
 }
 
 /* Highlighted edges - bright and visible */
@@ -1727,7 +1774,9 @@ onMounted(() => {
 :deep(.vue-flow__node.execution-dimmed) {
   opacity: 0.25;
   filter: grayscale(0.7);
-  transition: opacity 0.2s ease, filter 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    filter 0.2s ease;
 }
 
 /* Executed edges - green and animated */
@@ -1766,4 +1815,3 @@ onMounted(() => {
 @import '@vue-flow/controls/dist/style.css';
 @import '@vue-flow/minimap/dist/style.css';
 </style>
-

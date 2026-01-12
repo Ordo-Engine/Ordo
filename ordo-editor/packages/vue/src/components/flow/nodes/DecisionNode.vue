@@ -62,49 +62,41 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
 </script>
 
 <template>
-  <div 
-    class="flow-node decision-node" 
-    :class="{ selected, 'is-start': data.isStart }"
-  >
+  <div class="flow-node decision-node" :class="{ selected, 'is-start': data.isStart }">
     <!-- Execution Annotation -->
-    <ExecutionAnnotation 
-      v-if="data.executionAnnotation" 
+    <ExecutionAnnotation
+      v-if="data.executionAnnotation"
       :trace="data.executionAnnotation"
       position="top"
     />
-    
+
     <!-- Node Header -->
     <div class="node-header">
       <!-- Exec Input Pin (Left) -->
-      <Handle 
-        type="target" 
-        :position="Position.Left" 
-        class="pin pin-exec pin-input"
-        id="input"
-      >
+      <Handle type="target" :position="Position.Left" class="pin pin-exec pin-input" id="input">
         <svg class="pin-shape" width="10" height="10" viewBox="0 0 10 10">
           <polygon points="0,0 10,5 0,10" :fill="PIN_COLORS.execInput" class="pin-fill" />
         </svg>
       </Handle>
-      
+
       <span class="node-badge start" v-if="data.isStart">{{ t('step.start') }}</span>
       <OrdoIcon name="decision" :size="14" class="node-icon" />
       <span class="node-title">{{ displayTitle }}</span>
       <span class="node-type-badge">{{ t('step.typeDecision') }}</span>
     </div>
-    
+
     <!-- Branch Outputs Section -->
     <div class="node-section branches-section" v-if="branchCount > 0">
-      <div 
-        v-for="branch in branches" 
+      <div
+        v-for="branch in branches"
         :key="branch.id"
         class="branch-row"
         :title="getBranchTooltip(branch)"
       >
         <span class="branch-label">{{ getBranchLabel(branch) }}</span>
-        <Handle 
-          type="source" 
-          :position="Position.Right" 
+        <Handle
+          type="source"
+          :position="Position.Right"
           class="pin pin-exec pin-output pin-branch"
           :id="branch.id"
         >
@@ -113,13 +105,13 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
           </svg>
         </Handle>
       </div>
-      
+
       <!-- Default branch -->
       <div class="branch-row branch-default">
         <span class="branch-label default-label">{{ t('step.default') }}</span>
-        <Handle 
-          type="source" 
-          :position="Position.Right" 
+        <Handle
+          type="source"
+          :position="Position.Right"
           class="pin pin-exec pin-output pin-default"
           id="default"
         >
@@ -129,14 +121,14 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
         </Handle>
       </div>
     </div>
-    
+
     <!-- Empty state if no branches -->
     <div class="node-section empty-section" v-else>
       <div class="branch-row branch-default">
         <span class="branch-label default-label">{{ t('step.default') }}</span>
-        <Handle 
-          type="source" 
-          :position="Position.Right" 
+        <Handle
+          type="source"
+          :position="Position.Right"
           class="pin pin-exec pin-output pin-default"
           id="default"
         >
@@ -146,17 +138,13 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
         </Handle>
       </div>
     </div>
-    
+
     <!-- Data Outputs Section (if any assignments) -->
     <div class="node-section data-section" v-if="assignments.length > 0">
-      <div 
-        v-for="assign in assignments" 
-        :key="assign"
-        class="data-row"
-      >
-        <Handle 
-          type="source" 
-          :position="Position.Right" 
+      <div v-for="assign in assignments" :key="assign" class="data-row">
+        <Handle
+          type="source"
+          :position="Position.Right"
           class="pin pin-data pin-output"
           :id="`data-${assign}`"
         >
@@ -179,7 +167,9 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
   max-width: 260px;
   font-family: var(--ordo-font-sans);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: box-shadow 0.15s, border-color 0.15s;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
   position: relative;
 }
 
@@ -313,7 +303,7 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
-  
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -326,7 +316,9 @@ function getBranchTooltip(branch: { condition?: unknown }): string {
 }
 
 .pin-fill {
-  transition: filter 0.15s ease, fill 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    fill 0.15s ease;
 }
 
 /* Hover effects - glow only, no size change */

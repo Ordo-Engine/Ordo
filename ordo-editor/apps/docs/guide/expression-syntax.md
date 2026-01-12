@@ -70,41 +70,41 @@ order.items[2].product.category
 
 ### String Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `len(s)` | String length | `len(name) > 0` |
-| `upper(s)` | Uppercase | `upper(code) == "VIP"` |
-| `lower(s)` | Lowercase | `lower(email)` |
-| `trim(s)` | Remove whitespace | `trim(input)` |
-| `contains(s, sub)` | Check substring | `contains(email, "@")` |
-| `starts_with(s, prefix)` | Check prefix | `starts_with(code, "PRE")` |
-| `ends_with(s, suffix)` | Check suffix | `ends_with(file, ".pdf")` |
+| Function                 | Description       | Example                    |
+| ------------------------ | ----------------- | -------------------------- |
+| `len(s)`                 | String length     | `len(name) > 0`            |
+| `upper(s)`               | Uppercase         | `upper(code) == "VIP"`     |
+| `lower(s)`               | Lowercase         | `lower(email)`             |
+| `trim(s)`                | Remove whitespace | `trim(input)`              |
+| `contains(s, sub)`       | Check substring   | `contains(email, "@")`     |
+| `starts_with(s, prefix)` | Check prefix      | `starts_with(code, "PRE")` |
+| `ends_with(s, suffix)`   | Check suffix      | `ends_with(file, ".pdf")`  |
 
 ### Array Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `len(arr)` | Array length | `len(items) > 0` |
+| Function   | Description    | Example              |
+| ---------- | -------------- | -------------------- |
+| `len(arr)` | Array length   | `len(items) > 0`     |
 | `sum(arr)` | Sum of numbers | `sum(prices) >= 100` |
-| `avg(arr)` | Average | `avg(scores) > 70` |
-| `min(arr)` | Minimum value | `min(bids)` |
-| `max(arr)` | Maximum value | `max(scores) == 100` |
+| `avg(arr)` | Average        | `avg(scores) > 70`   |
+| `min(arr)` | Minimum value  | `min(bids)`          |
+| `max(arr)` | Maximum value  | `max(scores) == 100` |
 
 ### Numeric Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `abs(n)` | Absolute value | `abs(balance) < 100` |
-| `round(n)` | Round to nearest | `round(price)` |
-| `floor(n)` | Round down | `floor(score)` |
-| `ceil(n)` | Round up | `ceil(amount)` |
+| Function   | Description      | Example              |
+| ---------- | ---------------- | -------------------- |
+| `abs(n)`   | Absolute value   | `abs(balance) < 100` |
+| `round(n)` | Round to nearest | `round(price)`       |
+| `floor(n)` | Round down       | `floor(score)`       |
+| `ceil(n)`  | Round up         | `ceil(amount)`       |
 
 ### Utility Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `exists(field)` | Check if field exists | `exists(discount)` |
-| `coalesce(a, b, ...)` | First non-null value | `coalesce(nickname, name, "Guest")` |
+| Function              | Description           | Example                             |
+| --------------------- | --------------------- | ----------------------------------- |
+| `exists(field)`       | Check if field exists | `exists(discount)`                  |
+| `coalesce(a, b, ...)` | First non-null value  | `coalesce(nickname, name, "Guest")` |
 
 ## Conditional Expressions
 

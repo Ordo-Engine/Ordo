@@ -9,4 +9,3 @@ import { initAnalytics } from './utils/analytics';
 initAnalytics();
 
 createApp(App).mount('#app');
-

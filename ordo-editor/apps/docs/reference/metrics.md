@@ -99,26 +99,31 @@ scrape_configs:
 ### Example Queries
 
 **Request Rate:**
+
 ```
 rate(ordo_executions_total[5m])
 ```
 
 **Error Rate:**
+
 ```
 rate(ordo_executions_total{result="error"}[5m]) / rate(ordo_executions_total[5m])
 ```
 
 **P99 Latency:**
+
 ```
 histogram_quantile(0.99, rate(ordo_execution_duration_seconds_bucket[5m]))
 ```
 
 **Rules Count:**
+
 ```
 ordo_rules_total
 ```
 
 **Uptime:**
+
 ```
 ordo_uptime_seconds
 ```
@@ -179,8 +184,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High error rate in Ordo"
-          description: "Error rate is above 5%"
+          summary: 'High error rate in Ordo'
+          description: 'Error rate is above 5%'
 
       - alert: OrdoHighLatency
         expr: |
@@ -191,8 +196,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High latency in Ordo"
-          description: "P99 latency is above 10ms"
+          summary: 'High latency in Ordo'
+          description: 'P99 latency is above 10ms'
 
       - alert: OrdoDown
         expr: up{job="ordo"} == 0
@@ -200,7 +205,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "Ordo server is down"
+          summary: 'Ordo server is down'
 ```
 
 ## Best Practices
@@ -213,10 +218,10 @@ groups:
 
 ## Metric Labels
 
-| Metric | Labels |
-|--------|--------|
-| `ordo_info` | `version` |
-| `ordo_executions_total` | `ruleset`, `result` |
-| `ordo_execution_duration_seconds` | `ruleset` |
-| `ordo_eval_total` | `result` |
-| `ordo_eval_duration_seconds` | (none) |
+| Metric                            | Labels              |
+| --------------------------------- | ------------------- |
+| `ordo_info`                       | `version`           |
+| `ordo_executions_total`           | `ruleset`, `result` |
+| `ordo_execution_duration_seconds` | `ruleset`           |
+| `ordo_eval_total`                 | `result`            |
+| `ordo_eval_duration_seconds`      | (none)              |

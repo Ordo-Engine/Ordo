@@ -27,9 +27,9 @@ await init();
 
 // Execute a ruleset
 const result = execute_ruleset(
-  rulesetJson,  // RuleSet as JSON string
-  inputJson,     // Input data as JSON string
-  true           // Include trace
+  rulesetJson, // RuleSet as JSON string
+  inputJson, // Input data as JSON string
+  true // Include trace
 );
 
 const executionResult = JSON.parse(result);
@@ -55,4 +55,3 @@ Validate a ruleset definition.
 Evaluate an expression with given context.
 
 **Returns**: JSON string with result and parsed expression
-

@@ -42,7 +42,7 @@ export interface FlowEdgeData {
   branchId?: string;
   isDefault?: boolean;
   edgeType: FlowEdgeType;
-  condition?: string;  // Full condition expression for tooltip
+  condition?: string; // Full condition expression for tooltip
 }
 
 /** Flow edge with typed data */
@@ -98,15 +98,13 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
     switch (step.type) {
       case 'decision': {
         const decisionStep = step as DecisionStep;
-        
+
         // Edges for each branch
         for (const branch of decisionStep.branches) {
           if (branch.nextStepId) {
             // Get condition string for tooltip
-            const conditionStr = branch.condition 
-              ? conditionToString(branch.condition)
-              : undefined;
-            
+            const conditionStr = branch.condition ? conditionToString(branch.condition) : undefined;
+
             const edgeStyle = getEdgeStyle('exec-branch');
             edges.push({
               id: `${step.id}-${branch.id}`,
@@ -125,7 +123,7 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
             });
           }
         }
-        
+
         // Default edge
         if (decisionStep.defaultNextStepId) {
           const edgeStyle = getEdgeStyle('exec');
@@ -174,18 +172,16 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
   if (ruleset.groups) {
     for (const group of ruleset.groups) {
       // Parse size from stored values (may be string or number)
-      const width = typeof group.size.width === 'string' 
-        ? parseInt(group.size.width, 10) 
-        : group.size.width;
-      const height = typeof group.size.height === 'string'
-        ? parseInt(group.size.height, 10)
-        : group.size.height;
-      
+      const width =
+        typeof group.size.width === 'string' ? parseInt(group.size.width, 10) : group.size.width;
+      const height =
+        typeof group.size.height === 'string' ? parseInt(group.size.height, 10) : group.size.height;
+
       const groupNode: FlowGroupNode = {
         id: `group-${group.id}`, // Prefix to avoid ID collision with steps
         type: 'group',
         position: group.position,
-        data: { 
+        data: {
           group,
           groupId: group.id,
           name: group.name,
@@ -227,28 +223,28 @@ export function flowToRuleset(
   if (groupNodes) {
     for (const groupNode of groupNodes) {
       if (!groupNode.data?.group) continue;
-      
+
       // Parse width/height from style (may be "300px" format)
       let width = groupNode.data.group.size.width;
       let height = groupNode.data.group.size.height;
-      
+
       if (groupNode.style) {
         const styleWidth = (groupNode.style as any)?.width;
         const styleHeight = (groupNode.style as any)?.height;
-        
+
         if (typeof styleWidth === 'string') {
           width = parseInt(styleWidth, 10) || width;
         } else if (typeof styleWidth === 'number') {
           width = styleWidth;
         }
-        
+
         if (typeof styleHeight === 'string') {
           height = parseInt(styleHeight, 10) || height;
         } else if (typeof styleHeight === 'number') {
           height = styleHeight;
         }
       }
-      
+
       const group: StepGroup = {
         ...groupNode.data.group,
         position: { x: groupNode.position.x, y: groupNode.position.y },
@@ -262,9 +258,9 @@ export function flowToRuleset(
   for (const node of nodes) {
     // Get the step data from node
     if (!node.data) continue;
-    
+
     const step = { ...node.data.step };
-    
+
     // Update position
     step.position = { x: node.position.x, y: node.position.y };
 
@@ -273,17 +269,15 @@ export function flowToRuleset(
       case 'decision': {
         const decisionStep = step as DecisionStep;
         const outgoingEdges = edges.filter((e) => e.source === node.id);
-        
+
         // Update branch targets
         for (const branch of decisionStep.branches) {
-          const branchEdge = outgoingEdges.find(
-            (e) => e.data?.branchId === branch.id
-          );
+          const branchEdge = outgoingEdges.find((e) => e.data?.branchId === branch.id);
           if (branchEdge) {
             branch.nextStepId = branchEdge.target;
           }
         }
-        
+
         // Update default target
         const defaultEdge = outgoingEdges.find((e) => e.data?.isDefault);
         if (defaultEdge) {
@@ -387,7 +381,7 @@ export function createGroupNode(
     id: group.id,
     type: 'group',
     position: group.position,
-    data: { 
+    data: {
       group,
       groupId: group.id,
       name: group.name,
@@ -421,21 +415,20 @@ export function createEdge(
   const edgeId = options?.branchId
     ? `${sourceId}-${options.branchId}`
     : options?.isDefault
-    ? `${sourceId}-default`
-    : `${sourceId}-next`;
+      ? `${sourceId}-default`
+      : `${sourceId}-next`;
 
   // Determine edge type
-  const edgeType: FlowEdgeType = options?.branchId 
-    ? 'exec-branch' 
-    : 'exec';
-  
+  const edgeType: FlowEdgeType = options?.branchId ? 'exec-branch' : 'exec';
+
   const edgeStyle = getEdgeStyle(edgeType);
 
   return {
     id: edgeId,
     source: sourceId,
     target: targetId,
-    sourceHandle: options?.sourceHandle || (options?.branchId || (options?.isDefault ? 'default' : 'output')),
+    sourceHandle:
+      options?.sourceHandle || options?.branchId || (options?.isDefault ? 'default' : 'output'),
     targetHandle: options?.targetHandle || 'input',
     label: options?.label,
     style: edgeStyle,

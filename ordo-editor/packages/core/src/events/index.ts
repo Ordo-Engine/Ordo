@@ -52,9 +52,16 @@ export interface EditorEventPayloads {
   'step:deselect': { stepId: string };
   'step:move': { stepId: string; position: { x: number; y: number } };
 
-  'branch:add': { stepId: string; branch: { id: string; condition: Condition; nextStepId: string } };
+  'branch:add': {
+    stepId: string;
+    branch: { id: string; condition: Condition; nextStepId: string };
+  };
   'branch:remove': { stepId: string; branchId: string };
-  'branch:update': { stepId: string; branchId: string; branch: { condition?: Condition; nextStepId?: string } };
+  'branch:update': {
+    stepId: string;
+    branchId: string;
+    branch: { condition?: Condition; nextStepId?: string };
+  };
 
   'connection:add': { fromStepId: string; toStepId: string; branchId?: string };
   'connection:remove': { fromStepId: string; toStepId: string; branchId?: string };
@@ -89,10 +96,7 @@ export class EditorEventBus {
   /**
    * Subscribe to an event
    */
-  on<T extends EditorEventType>(
-    event: T,
-    handler: EditorEventHandler<T>
-  ): EventSubscription {
+  on<T extends EditorEventType>(event: T, handler: EditorEventHandler<T>): EventSubscription {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set());
     }
@@ -106,10 +110,7 @@ export class EditorEventBus {
   /**
    * Subscribe to an event (one-time)
    */
-  once<T extends EditorEventType>(
-    event: T,
-    handler: EditorEventHandler<T>
-  ): EventSubscription {
+  once<T extends EditorEventType>(event: T, handler: EditorEventHandler<T>): EventSubscription {
     const wrappedHandler: EditorEventHandler<T> = (payload) => {
       this.off(event, wrappedHandler);
       handler(payload);
@@ -120,10 +121,7 @@ export class EditorEventBus {
   /**
    * Unsubscribe from an event
    */
-  off<T extends EditorEventType>(
-    event: T,
-    handler: EditorEventHandler<T>
-  ): void {
+  off<T extends EditorEventType>(event: T, handler: EditorEventHandler<T>): void {
     const handlers = this.handlers.get(event);
     if (handlers) {
       handlers.delete(handler as EditorEventHandler<EditorEventType>);
@@ -187,4 +185,3 @@ export function createEventBus(): EditorEventBus {
 
 // Fix unused import warning
 export type { Expr };
-

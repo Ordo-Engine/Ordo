@@ -53,49 +53,41 @@ function formatValue(assignment: VariableAssignment): string {
 </script>
 
 <template>
-  <div 
-    class="flow-node action-node" 
-    :class="{ selected, 'is-start': data.isStart }"
-  >
+  <div class="flow-node action-node" :class="{ selected, 'is-start': data.isStart }">
     <!-- Execution Annotation -->
-    <ExecutionAnnotation 
-      v-if="data.executionAnnotation" 
+    <ExecutionAnnotation
+      v-if="data.executionAnnotation"
       :trace="data.executionAnnotation"
       position="top"
     />
-    
+
     <!-- Node Header -->
     <div class="node-header">
       <!-- Exec Input Pin (Left) -->
-      <Handle 
-        type="target" 
-        :position="Position.Left" 
-        class="pin pin-exec pin-input"
-        id="input"
-      >
+      <Handle type="target" :position="Position.Left" class="pin pin-exec pin-input" id="input">
         <svg class="pin-shape" width="10" height="10" viewBox="0 0 10 10">
           <polygon points="0,0 10,5 0,10" :fill="PIN_COLORS.execInput" class="pin-fill" />
         </svg>
       </Handle>
-      
+
       <span class="node-badge start" v-if="data.isStart">{{ t('step.start') }}</span>
       <OrdoIcon name="action" :size="14" class="node-icon" />
       <span class="node-title">{{ displayTitle }}</span>
       <span class="node-type-badge">{{ t('step.typeAction') }}</span>
     </div>
-    
+
     <!-- Variable Assignments Section -->
     <div class="node-section vars-section" v-if="assignments.length > 0">
-      <div 
-        v-for="assign in assignments" 
+      <div
+        v-for="assign in assignments"
         :key="assign.variable"
         class="var-row"
         :title="`${assign.variable} = ${formatValue(assign)}`"
       >
         <!-- Data Input (optional, for expression dependencies) -->
-        <Handle 
-          type="target" 
-          :position="Position.Left" 
+        <Handle
+          type="target"
+          :position="Position.Left"
           class="pin pin-data pin-input"
           :id="`data-in-${assign.variable}`"
         >
@@ -103,15 +95,15 @@ function formatValue(assignment: VariableAssignment): string {
             <circle cx="4" cy="4" r="3.5" :fill="PIN_COLORS.dataPin" class="pin-fill" />
           </svg>
         </Handle>
-        
+
         <span class="var-name">{{ assign.variable }}</span>
         <span class="var-op">=</span>
         <span class="var-value">{{ formatValue(assign) }}</span>
-        
+
         <!-- Data Output -->
-        <Handle 
-          type="source" 
-          :position="Position.Right" 
+        <Handle
+          type="source"
+          :position="Position.Right"
           class="pin pin-data pin-output"
           :id="`data-out-${assign.variable}`"
         >
@@ -121,26 +113,24 @@ function formatValue(assignment: VariableAssignment): string {
         </Handle>
       </div>
     </div>
-    
+
     <!-- Info chips (logging, external call) -->
     <div class="node-section info-section" v-if="hasLogging || hasExternalCall">
       <div class="info-row">
-        <span class="info-chip" v-if="hasLogging">
-          <OrdoIcon name="check" :size="10" /> log
-        </span>
+        <span class="info-chip" v-if="hasLogging"> <OrdoIcon name="check" :size="10" /> log </span>
         <span class="info-chip external" v-if="hasExternalCall">
           <OrdoIcon name="action" :size="10" /> call
         </span>
       </div>
     </div>
-    
+
     <!-- Exec Output Section -->
     <div class="node-section exec-section">
       <div class="exec-row">
         <span class="exec-label">{{ t('step.next') }}</span>
-        <Handle 
-          type="source" 
-          :position="Position.Right" 
+        <Handle
+          type="source"
+          :position="Position.Right"
           class="pin pin-exec pin-output pin-default"
           id="output"
         >
@@ -162,7 +152,9 @@ function formatValue(assignment: VariableAssignment): string {
   max-width: 280px;
   font-family: var(--ordo-font-sans);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: box-shadow 0.15s, border-color 0.15s;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
   position: relative;
 }
 
@@ -333,7 +325,7 @@ function formatValue(assignment: VariableAssignment): string {
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
-  
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -346,7 +338,9 @@ function formatValue(assignment: VariableAssignment): string {
 }
 
 .pin-fill {
-  transition: filter 0.15s ease, fill 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    fill 0.15s ease;
 }
 
 /* Hover effects - glow only, no size change */

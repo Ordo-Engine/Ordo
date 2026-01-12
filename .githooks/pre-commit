@@ -1,0 +1,19 @@
+#!/bin/sh
+# Pre-commit hook: auto-format code before commit
+
+set -e
+
+echo "🔧 Running cargo fmt..."
+cargo fmt --all
+
+echo "🔧 Running pnpm format (if available)..."
+if [ -d "ordo-editor" ] && command -v pnpm >/dev/null 2>&1; then
+    cd ordo-editor
+    pnpm format 2>/dev/null || true
+    cd ..
+fi
+
+# Stage any formatting changes
+git add -u
+
+echo "✅ Pre-commit formatting complete"

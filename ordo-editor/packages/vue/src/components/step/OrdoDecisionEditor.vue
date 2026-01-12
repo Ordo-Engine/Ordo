@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: DecisionStep];
-  'change': [value: DecisionStep];
+  change: [value: DecisionStep];
 }>();
 
 const { t } = useI18n();
@@ -100,11 +100,11 @@ function removeBranch(index: number) {
 function moveBranch(index: number, direction: 'up' | 'down') {
   if (direction === 'up' && index === 0) return;
   if (direction === 'down' && index >= props.modelValue.branches.length - 1) return;
-  
+
   const newBranches = [...props.modelValue.branches];
   const targetIndex = direction === 'up' ? index - 1 : index + 1;
   [newBranches[targetIndex], newBranches[index]] = [newBranches[index], newBranches[targetIndex]];
-  
+
   const newStep = { ...props.modelValue, branches: newBranches };
   emit('update:modelValue', newStep);
   emit('change', newStep);
@@ -130,7 +130,10 @@ function moveBranch(index: number, direction: 'up' | 'down') {
     <!-- Description -->
     <div class="ordo-form-row">
       <div class="ordo-form-group full">
-        <label>{{ t('common.description') }} <span class="subtle">({{ t('common.optional') }})</span></label>
+        <label
+          >{{ t('common.description') }}
+          <span class="subtle">({{ t('common.optional') }})</span></label
+        >
         <textarea
           :value="modelValue.description || ''"
           :disabled="disabled"
@@ -166,12 +169,20 @@ function moveBranch(index: number, direction: 'up' | 'down') {
               class="ordo-input-transparent"
               @input="updateBranch(index, { label: ($event.target as HTMLInputElement).value })"
             />
-            
+
             <div class="ordo-branch-actions">
-              <button class="ordo-btn-icon" :disabled="index === 0" @click="moveBranch(index, 'up')">
+              <button
+                class="ordo-btn-icon"
+                :disabled="index === 0"
+                @click="moveBranch(index, 'up')"
+              >
                 <OrdoIcon name="arrow-up" :size="12" />
               </button>
-              <button class="ordo-btn-icon" :disabled="index >= modelValue.branches.length - 1" @click="moveBranch(index, 'down')">
+              <button
+                class="ordo-btn-icon"
+                :disabled="index >= modelValue.branches.length - 1"
+                @click="moveBranch(index, 'down')"
+              >
                 <OrdoIcon name="arrow-down" :size="12" />
               </button>
               <button class="ordo-btn-icon danger" @click="removeBranch(index)">
@@ -193,7 +204,7 @@ function moveBranch(index: number, direction: 'up' | 'down') {
                 />
               </div>
             </div>
-            
+
             <div class="ordo-branch-row">
               <span class="label">Then</span>
               <div class="content">
@@ -201,7 +212,9 @@ function moveBranch(index: number, direction: 'up' | 'down') {
                   :value="branch.nextStepId"
                   :disabled="disabled"
                   class="ordo-input-base"
-                  @change="updateBranch(index, { nextStepId: ($event.target as HTMLSelectElement).value })"
+                  @change="
+                    updateBranch(index, { nextStepId: ($event.target as HTMLSelectElement).value })
+                  "
                 >
                   <option value="">-- {{ t('step.nextStep') }} --</option>
                   <option v-for="opt in stepOptions" :key="opt.value" :value="opt.value">
@@ -212,7 +225,7 @@ function moveBranch(index: number, direction: 'up' | 'down') {
             </div>
           </div>
         </div>
-        
+
         <div v-if="modelValue.branches.length === 0" class="ordo-empty-state">
           No branches defined.
         </div>
@@ -259,8 +272,12 @@ function moveBranch(index: number, direction: 'up' | 'down') {
   gap: 4px;
 }
 
-.ordo-form-group.grow { flex: 1; }
-.ordo-form-group.full { width: 100%; }
+.ordo-form-group.grow {
+  flex: 1;
+}
+.ordo-form-group.full {
+  width: 100%;
+}
 
 .ordo-form-group label {
   font-size: 11px;
@@ -269,7 +286,11 @@ function moveBranch(index: number, direction: 'up' | 'down') {
   text-transform: uppercase;
 }
 
-.subtle { color: var(--ordo-text-tertiary); font-weight: normal; text-transform: none; }
+.subtle {
+  color: var(--ordo-text-tertiary);
+  font-weight: normal;
+  text-transform: none;
+}
 
 .ordo-section {
   display: flex;
@@ -306,7 +327,9 @@ function moveBranch(index: number, direction: 'up' | 'down') {
   border-radius: var(--ordo-radius-sm);
 }
 
-.ordo-btn-text:hover { background: var(--ordo-accent-bg); }
+.ordo-btn-text:hover {
+  background: var(--ordo-accent-bg);
+}
 
 /* Branches */
 .ordo-branches-list {
@@ -389,6 +412,10 @@ function moveBranch(index: number, direction: 'up' | 'down') {
   background: var(--ordo-bg-item);
 }
 
-.ordo-btn-icon.danger { color: var(--ordo-error); }
-.ordo-btn-icon.danger:hover { background: var(--ordo-error-bg); }
+.ordo-btn-icon.danger {
+  color: var(--ordo-error);
+}
+.ordo-btn-icon.danger:hover {
+  background: var(--ordo-error-bg);
+}
 </style>

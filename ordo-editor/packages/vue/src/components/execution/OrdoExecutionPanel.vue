@@ -28,7 +28,15 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   'update:visible': [value: boolean];
   'update:height': [value: number];
-  'show-in-flow': [trace: { path: string[]; steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>; resultCode: string; resultMessage: string; output?: Record<string, any> }];
+  'show-in-flow': [
+    trace: {
+      path: string[];
+      steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+      resultCode: string;
+      resultMessage: string;
+      output?: Record<string, any>;
+    },
+  ];
   'clear-flow-trace': [];
 }>();
 
@@ -39,7 +47,9 @@ const executor = new RuleExecutor();
 const executing = ref(false);
 const result = ref<ExecutionResult | null>(null);
 const error = ref<string | null>(null);
-const executionHistory = ref<Array<{ input: string; result: ExecutionResult | null; error: string | null; timestamp: Date }>>([]);
+const executionHistory = ref<
+  Array<{ input: string; result: ExecutionResult | null; error: string | null; timestamp: Date }>
+>([]);
 
 // Input
 const inputJson = ref(props.sampleInput);
@@ -57,18 +67,24 @@ const startY = ref(0);
 const startHeight = ref(0);
 
 // Watch for sample input changes
-watch(() => props.sampleInput, (newVal) => {
-  if (newVal && inputJson.value === '{\n  \n}') {
-    inputJson.value = newVal;
+watch(
+  () => props.sampleInput,
+  (newVal) => {
+    if (newVal && inputJson.value === '{\n  \n}') {
+      inputJson.value = newVal;
+    }
   }
-});
+);
 
 // Watch for visibility changes
-watch(() => props.visible, (newVal) => {
-  if (newVal && inputJson.value === '{\n  \n}' && props.sampleInput) {
-    inputJson.value = props.sampleInput;
+watch(
+  () => props.visible,
+  (newVal) => {
+    if (newVal && inputJson.value === '{\n  \n}' && props.sampleInput) {
+      inputJson.value = props.sampleInput;
+    }
   }
-});
+);
 
 // Computed
 const isVisible = computed({
@@ -78,7 +94,9 @@ const isVisible = computed({
 
 const resultClass = computed(() => {
   if (!result.value) return '';
-  return result.value.code.includes('ERROR') || result.value.code.includes('FAIL') || result.value.code.includes('BLOCK')
+  return result.value.code.includes('ERROR') ||
+    result.value.code.includes('FAIL') ||
+    result.value.code.includes('BLOCK')
     ? 'result-error'
     : 'result-success';
 });
@@ -122,7 +140,7 @@ async function execute() {
 
     result.value = await executor.execute(props.ruleset, input, options);
     activeTab.value = 'output';
-    
+
     // Add to history
     executionHistory.value.unshift({
       input: inputJson.value,
@@ -133,7 +151,7 @@ async function execute() {
   } catch (e) {
     error.value = `Execution Error: ${e instanceof Error ? e.message : 'Unknown error'}`;
     activeTab.value = 'output';
-    
+
     // Add to history
     executionHistory.value.unshift({
       input: inputJson.value,
@@ -144,7 +162,7 @@ async function execute() {
   } finally {
     executing.value = false;
   }
-  
+
   // Limit history
   if (executionHistory.value.length > 20) {
     executionHistory.value = executionHistory.value.slice(0, 20);
@@ -159,7 +177,7 @@ function clearHistory() {
   executionHistory.value = [];
 }
 
-function loadFromHistory(item: typeof executionHistory.value[0]) {
+function loadFromHistory(item: (typeof executionHistory.value)[0]) {
   inputJson.value = item.input;
   result.value = item.result;
   error.value = item.error;
@@ -171,11 +189,11 @@ const isShowingInFlow = ref(false);
 
 function showInFlow(execResult: ExecutionResult | null) {
   if (!execResult || !execResult.trace) return;
-  
+
   // Parse the path string into array
   const pathStr = execResult.trace.path || '';
-  const pathArray = pathStr.split(' -> ').filter(s => s.trim());
-  
+  const pathArray = pathStr.split(' -> ').filter((s) => s.trim());
+
   emit('show-in-flow', {
     path: pathArray,
     steps: execResult.trace.steps || [],
@@ -183,7 +201,7 @@ function showInFlow(execResult: ExecutionResult | null) {
     resultMessage: execResult.message,
     output: execResult.output as Record<string, any>,
   });
-  
+
   isShowingInFlow.value = true;
 }
 
@@ -224,71 +242,101 @@ function stopResize() {
       <div class="resize-handle" @mousedown="startResize">
         <div class="resize-bar"></div>
       </div>
-      
+
       <!-- Panel Header -->
       <div class="panel-header">
         <div class="panel-tabs">
-          <button 
-            class="tab-btn" 
+          <button
+            class="tab-btn"
             :class="{ active: activeTab === 'input' }"
             @click="activeTab = 'input'"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 7V4h16v3"/>
-              <path d="M9 20h6"/>
-              <path d="M12 4v16"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M4 7V4h16v3" />
+              <path d="M9 20h6" />
+              <path d="M12 4v16" />
             </svg>
             {{ t('execution.input') }}
           </button>
-          <button 
-            class="tab-btn" 
+          <button
+            class="tab-btn"
             :class="{ active: activeTab === 'output' }"
             @click="activeTab = 'output'"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="4 17 10 11 4 5"/>
-              <line x1="12" y1="19" x2="20" y2="19"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
             </svg>
             {{ t('execution.output') }}
             <span v-if="result" class="result-badge" :class="resultClass">{{ result.code }}</span>
           </button>
-          <button 
+          <button
             v-if="result?.trace"
-            class="tab-btn" 
+            class="tab-btn"
             :class="{ active: activeTab === 'trace' }"
             @click="activeTab = 'trace'"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
             </svg>
             {{ t('execution.trace') }}
           </button>
-          <button 
-            class="tab-btn" 
+          <button
+            class="tab-btn"
             :class="{ active: activeTab === 'history' }"
             @click="activeTab = 'history'"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 3v5h5"/>
-              <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M3 3v5h5" />
+              <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
             </svg>
             {{ t('execution.history') }}
-            <span v-if="executionHistory.length" class="count-badge">{{ executionHistory.length }}</span>
+            <span v-if="executionHistory.length" class="count-badge">{{
+              executionHistory.length
+            }}</span>
           </button>
         </div>
-        
+
         <div class="panel-actions">
           <select v-model="executionMode" class="mode-select" :title="t('execution.mode')">
             <option value="wasm">WASM</option>
             <option value="http">HTTP</option>
           </select>
-          
+
           <label class="trace-checkbox" :title="t('execution.includeTrace')">
             <input type="checkbox" v-model="includeTrace" />
             <span>Trace</span>
           </label>
-          
+
           <button
             class="execute-btn"
             :class="{ executing }"
@@ -297,34 +345,61 @@ function stopResize() {
             :title="t('execution.execute')"
           >
             <svg v-if="!executing" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z"/>
+              <path d="M8 5v14l11-7z" />
             </svg>
             <svg v-else class="spinner" width="12" height="12" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25"/>
-              <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" fill="none"/>
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="3"
+                fill="none"
+                opacity="0.25"
+              />
+              <path
+                d="M12 2a10 10 0 0 1 10 10"
+                stroke="currentColor"
+                stroke-width="3"
+                fill="none"
+              />
             </svg>
             {{ executing ? t('execution.executing') : t('execution.execute') }}
           </button>
-          
+
           <button class="close-btn" @click="close" :title="t('common.close')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
         </div>
       </div>
-      
+
       <!-- Panel Content -->
       <div class="panel-content">
         <!-- Input Tab -->
         <div v-show="activeTab === 'input'" class="tab-content input-tab">
           <div class="input-toolbar">
             <button class="toolbar-btn" @click="loadSampleInput" :title="t('execution.loadSample')">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
               {{ t('execution.loadSample') }}
             </button>
@@ -336,7 +411,7 @@ function stopResize() {
             spellcheck="false"
           />
         </div>
-        
+
         <!-- Output Tab -->
         <div v-show="activeTab === 'output'" class="tab-content output-tab">
           <div v-if="result" class="result-display">
@@ -344,15 +419,22 @@ function stopResize() {
               <span class="code-badge" :class="resultClass">{{ result.code }}</span>
               <span class="message">{{ result.message }}</span>
               <span class="duration">{{ result.duration_us }}µs</span>
-              <button 
-                v-if="result.trace" 
+              <button
+                v-if="result.trace"
                 class="show-in-flow-btn-lg"
                 :class="{ active: isShowingInFlow }"
                 @click="isShowingInFlow ? clearFlowTrace() : showInFlow(result)"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
                 {{ isShowingInFlow ? t('execution.hideFromFlow') : t('execution.showInFlow') }}
               </button>
@@ -363,26 +445,28 @@ function stopResize() {
             <pre class="error-text">{{ error }}</pre>
           </div>
           <div v-else class="no-output">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
-              <polyline points="4 17 10 11 4 5"/>
-              <line x1="12" y1="19" x2="20" y2="19"/>
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              opacity="0.3"
+            >
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
             </svg>
             <p>{{ t('execution.noResult') }}</p>
           </div>
         </div>
-        
+
         <!-- Trace Tab -->
         <div v-show="activeTab === 'trace'" class="tab-content trace-tab">
           <div v-if="result?.trace" class="trace-display">
-            <div class="trace-path">
-              <strong>Path:</strong> {{ result.trace.path }}
-            </div>
+            <div class="trace-path"><strong>Path:</strong> {{ result.trace.path }}</div>
             <div class="trace-steps">
-              <div
-                v-for="(step, index) in result.trace.steps"
-                :key="step.id"
-                class="trace-step"
-              >
+              <div v-for="(step, index) in result.trace.steps" :key="step.id" class="trace-step">
                 <span class="step-index">{{ index + 1 }}</span>
                 <span class="step-id">{{ step.id }}</span>
                 <span class="step-name">{{ step.name }}</span>
@@ -394,15 +478,24 @@ function stopResize() {
             <p>{{ t('execution.noTrace') }}</p>
           </div>
         </div>
-        
+
         <!-- History Tab -->
         <div v-show="activeTab === 'history'" class="tab-content history-tab">
           <div v-if="executionHistory.length" class="history-list">
             <div class="history-toolbar">
               <button class="toolbar-btn" @click="clearHistory">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path
+                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  />
                 </svg>
                 {{ t('execution.clearHistory') }}
               </button>
@@ -414,20 +507,33 @@ function stopResize() {
               @click="loadFromHistory(item)"
             >
               <span class="history-time">{{ item.timestamp.toLocaleTimeString() }}</span>
-              <span v-if="item.result" class="history-code" :class="item.result.code.includes('ERROR') ? 'error' : 'success'">
+              <span
+                v-if="item.result"
+                class="history-code"
+                :class="item.result.code.includes('ERROR') ? 'error' : 'success'"
+              >
                 {{ item.result.code }}
               </span>
               <span v-else class="history-code error">ERROR</span>
-              <span class="history-duration" v-if="item.result">{{ item.result.duration_us }}µs</span>
-              <button 
-                v-if="item.result?.trace" 
+              <span class="history-duration" v-if="item.result"
+                >{{ item.result.duration_us }}µs</span
+              >
+              <button
+                v-if="item.result?.trace"
                 class="show-in-flow-btn"
                 @click.stop="showInFlow(item.result)"
                 :title="t('execution.showInFlow')"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
               </button>
             </div>
@@ -445,7 +551,9 @@ function stopResize() {
 /* Panel Transition */
 .panel-enter-active,
 .panel-leave-active {
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .panel-enter-from,
@@ -615,8 +723,12 @@ function stopResize() {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .close-btn {
@@ -995,4 +1107,3 @@ function stopResize() {
   font-size: 12px;
 }
 </style>
-

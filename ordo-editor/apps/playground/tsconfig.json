@@ -6,9 +6,5 @@
   },
   "include": ["src/**/*", "src/**/*.vue"],
   "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/vue" }
-  ]
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/vue" }]
 }
-

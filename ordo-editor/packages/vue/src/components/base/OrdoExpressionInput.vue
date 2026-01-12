@@ -47,8 +47,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
-  'change': [value: string];
-  'validate': [valid: boolean, error?: string];
+  change: [value: string];
+  validate: [valid: boolean, error?: string];
 }>();
 
 // State
@@ -279,15 +279,33 @@ onUnmounted(() => {
 
       <!-- Validation indicator -->
       <div v-if="showValidation && modelValue" class="ordo-expression-input__indicator">
-        <span v-if="validationError" class="ordo-expression-input__status error" :title="validationError">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <span
+          v-if="validationError"
+          class="ordo-expression-input__status error"
+          :title="validationError"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
         </span>
         <span v-else class="ordo-expression-input__status success">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
         </span>
@@ -435,7 +453,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--ordo-gray-100);
 }
 
-[data-ordo-theme="dark"] .ordo-expression-input__suggestion {
+[data-ordo-theme='dark'] .ordo-expression-input__suggestion {
   border-bottom-color: var(--ordo-gray-800);
 }
 
@@ -448,8 +466,8 @@ onUnmounted(() => {
   background: var(--ordo-primary-50);
 }
 
-[data-ordo-theme="dark"] .ordo-expression-input__suggestion:hover,
-[data-ordo-theme="dark"] .ordo-expression-input__suggestion.selected {
+[data-ordo-theme='dark'] .ordo-expression-input__suggestion:hover,
+[data-ordo-theme='dark'] .ordo-expression-input__suggestion.selected {
   background: var(--ordo-gray-800);
 }
 
@@ -494,7 +512,9 @@ onUnmounted(() => {
 /* Transitions */
 .ordo-fade-enter-active,
 .ordo-fade-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .ordo-fade-enter-from,

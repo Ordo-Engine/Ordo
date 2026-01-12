@@ -151,7 +151,9 @@ export function getOrphanSteps(ruleset: RuleSet): Step[] {
 }
 
 /** Get steps that reference non-existent steps */
-export function getBrokenReferences(ruleset: RuleSet): Array<{ stepId: string; missingId: string }> {
+export function getBrokenReferences(
+  ruleset: RuleSet
+): Array<{ stepId: string; missingId: string }> {
   const stepIds = new Set(getAllStepIds(ruleset));
   const broken: Array<{ stepId: string; missingId: string }> = [];
 
@@ -219,7 +221,11 @@ export function removeStep(ruleset: RuleSet, stepId: string): RuleSet {
 }
 
 /** Update a step in the ruleset */
-export function updateStep(ruleset: RuleSet, stepId: string, updater: (step: Step) => Step): RuleSet {
+export function updateStep(
+  ruleset: RuleSet,
+  stepId: string,
+  updater: (step: Step) => Step
+): RuleSet {
   return {
     ...ruleset,
     steps: ruleset.steps.map((s) => (s.id === stepId ? updater(s) : s)),
@@ -229,4 +235,3 @@ export function updateStep(ruleset: RuleSet, stepId: string, updater: (step: Ste
     },
   };
 }
-

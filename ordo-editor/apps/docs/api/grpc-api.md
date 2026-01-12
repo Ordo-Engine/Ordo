@@ -21,16 +21,16 @@ package ordo;
 service OrdoService {
   // Execute a rule
   rpc Execute(ExecuteRequest) returns (ExecuteResponse);
-  
+
   // List all rules
   rpc ListRuleSets(ListRuleSetsRequest) returns (ListRuleSetsResponse);
-  
+
   // Get a rule by name
   rpc GetRuleSet(GetRuleSetRequest) returns (GetRuleSetResponse);
-  
+
   // Health check
   rpc Health(HealthRequest) returns (HealthResponse);
-  
+
   // Evaluate expression
   rpc Eval(EvalRequest) returns (EvalResponse);
 }
@@ -150,9 +150,7 @@ Response:
   "durationUs": "2",
   "trace": {
     "path": "check_vip -> vip_discount",
-    "steps": [
-      {"id": "check_vip", "name": "Check VIP", "durationUs": "1"}
-    ]
+    "steps": [{ "id": "check_vip", "name": "Check VIP", "durationUs": "1" }]
   }
 }
 ```
@@ -180,21 +178,21 @@ use ordo_proto::{ExecuteRequest, HealthRequest};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = OrdoServiceClient::connect("http://localhost:50051").await?;
-    
+
     // Health check
     let response = client.health(HealthRequest {}).await?;
     println!("Status: {}", response.into_inner().status);
-    
+
     // Execute rule
     let response = client.execute(ExecuteRequest {
         name: "discount-check".to_string(),
         input_json: r#"{"user": {"vip": true}}"#.to_string(),
         trace: false,
     }).await?;
-    
+
     let result = response.into_inner();
     println!("Code: {}, Duration: {}µs", result.code, result.duration_us);
-    
+
     Ok(())
 }
 ```
@@ -207,7 +205,7 @@ package main
 import (
     "context"
     "log"
-    
+
     pb "github.com/your-org/ordo-proto"
     "google.golang.org/grpc"
 )
@@ -218,9 +216,9 @@ func main() {
         log.Fatal(err)
     }
     defer conn.Close()
-    
+
     client := pb.NewOrdoServiceClient(conn)
-    
+
     // Execute rule
     resp, err := client.Execute(context.Background(), &pb.ExecuteRequest{
         Name:      "discount-check",
@@ -230,7 +228,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    
+
     log.Printf("Code: %s, Duration: %dµs", resp.Code, resp.DurationUs)
 }
 ```
@@ -259,11 +257,11 @@ print(f"Code: {response.code}, Duration: {response.duration_us}µs")
 
 gRPC provides better performance than HTTP for high-throughput scenarios:
 
-| Metric | HTTP | gRPC |
-|--------|------|------|
-| Latency (p99) | ~500µs | ~200µs |
-| Throughput | 54K QPS | 80K+ QPS |
-| Payload size | Larger (JSON) | Smaller (Protobuf) |
+| Metric        | HTTP          | gRPC               |
+| ------------- | ------------- | ------------------ |
+| Latency (p99) | ~500µs        | ~200µs             |
+| Throughput    | 54K QPS       | 80K+ QPS           |
+| Payload size  | Larger (JSON) | Smaller (Protobuf) |
 
 ## TLS Configuration
 

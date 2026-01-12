@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
-  'change': [value: string];
+  change: [value: string];
 }>();
 
 // State
@@ -49,7 +49,7 @@ function flattenSchema(fields: SchemaField[], prefix = '', depth = 0): FlatField
 
   for (const field of fields) {
     const path = prefix ? `${prefix}.${field.name}` : field.name;
-    
+
     result.push({
       path,
       label: field.name,
@@ -74,10 +74,11 @@ const filteredFields = computed(() => {
   const query = searchQuery.value.toLowerCase();
   if (!query) return flatFields.value;
 
-  return flatFields.value.filter((f) => 
-    f.path.toLowerCase().includes(query) ||
-    f.label.toLowerCase().includes(query) ||
-    f.description?.toLowerCase().includes(query)
+  return flatFields.value.filter(
+    (f) =>
+      f.path.toLowerCase().includes(query) ||
+      f.label.toLowerCase().includes(query) ||
+      f.description?.toLowerCase().includes(query)
   );
 });
 
@@ -182,9 +183,7 @@ if (typeof document !== 'undefined') {
               </span>
             </div>
           </template>
-          <div v-else class="ordo-field-selector__empty">
-            No fields found
-          </div>
+          <div v-else class="ordo-field-selector__empty">No fields found</div>
         </div>
       </div>
     </Transition>
@@ -354,7 +353,9 @@ if (typeof document !== 'undefined') {
 /* Transitions */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: opacity 0.15s, transform 0.15s;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
 }
 
 .dropdown-enter-from,
@@ -363,4 +364,3 @@ if (typeof document !== 'undefined') {
   transform: translateY(-8px);
 }
 </style>
-

@@ -87,9 +87,7 @@ describe('Format Adapter', () => {
             id: 'action',
             name: 'Action',
             type: 'action',
-            assignments: [
-              { name: 'result', value: { type: 'literal', value: 'done' } },
-            ],
+            assignments: [{ name: 'result', value: { type: 'literal', value: 'done' } }],
             nextStepId: 'end',
           } as ActionStep,
           {
@@ -190,4 +188,3 @@ describe('Format Adapter', () => {
     });
   });
 });
-

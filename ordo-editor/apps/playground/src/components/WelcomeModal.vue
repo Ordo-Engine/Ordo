@@ -28,28 +28,42 @@ function skip() {
         <div class="welcome-modal">
           <div class="welcome-icon">
             <!-- Logo / Brand Icon -->
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-              <path d="M2 17l10 5 10-5"/>
-              <path d="M2 12l10 5 10-5"/>
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          
+
           <h1>Welcome to Ordo Playground</h1>
-          
+
           <p class="welcome-desc">
-            Ordo is a high-performance rule engine with a visual editor.<br>
+            Ordo is a high-performance rule engine with a visual editor.<br />
             Design complex business rules with ease.
           </p>
-          
+
           <div class="features">
             <div class="feature">
               <span class="feature-icon">
                 <!-- Palette / Design icon -->
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/>
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
                 </svg>
               </span>
               <span>Visual Flow Editor</span>
@@ -57,8 +71,15 @@ function skip() {
             <div class="feature">
               <span class="feature-icon">
                 <!-- Zap / Lightning icon -->
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                 </svg>
               </span>
               <span>WASM-powered Execution</span>
@@ -66,31 +87,51 @@ function skip() {
             <div class="feature">
               <span class="feature-icon">
                 <!-- Search / Trace icon -->
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/>
-                  <path d="M21 21l-4.35-4.35"/>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="M21 21l-4.35-4.35" />
                 </svg>
               </span>
               <span>Step-by-step Tracing</span>
             </div>
           </div>
-          
+
           <div class="actions">
             <button class="btn-primary" @click="startTour">
               Take a Quick Tour
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
-            <button class="btn-secondary" @click="skip">
-              Skip, I'll explore myself
-            </button>
+            <button class="btn-secondary" @click="skip">Skip, I'll explore myself</button>
           </div>
-          
+
           <p class="hint">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 16v-4M12 8h.01"/>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              style="vertical-align: middle; margin-right: 4px"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4M12 8h.01" />
             </svg>
             You can restart the tour anytime from the help button
           </p>
@@ -233,7 +274,9 @@ h1 {
 
 .fade-enter-active .welcome-modal,
 .fade-leave-active .welcome-modal {
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
 }
 
 .fade-enter-from .welcome-modal,

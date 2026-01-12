@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:modelValue': [value: TerminalStep];
-  'change': [value: TerminalStep];
+  change: [value: TerminalStep];
 }>();
 
 const { t } = useI18n();
@@ -140,7 +140,7 @@ function updateExprValue(val: string): any {
 
     <!-- Result Code & Message -->
     <div class="ordo-form-row">
-      <div class="ordo-form-group" style="width: 150px;">
+      <div class="ordo-form-group" style="width: 150px">
         <label>{{ t('step.resultCode') }}</label>
         <input
           :value="modelValue.code"
@@ -207,9 +207,7 @@ function updateExprValue(val: string): any {
             </tr>
           </tbody>
         </table>
-        <div v-else class="ordo-empty-state">
-          No output fields.
-        </div>
+        <div v-else class="ordo-empty-state">No output fields.</div>
       </div>
     </div>
   </div>
@@ -235,8 +233,12 @@ function updateExprValue(val: string): any {
   gap: 4px;
 }
 
-.ordo-form-group.grow { flex: 1; }
-.ordo-form-group.full { width: 100%; }
+.ordo-form-group.grow {
+  flex: 1;
+}
+.ordo-form-group.full {
+  width: 100%;
+}
 
 .ordo-form-group label {
   font-size: 11px;
@@ -280,7 +282,9 @@ function updateExprValue(val: string): any {
   border-radius: var(--ordo-radius-sm);
 }
 
-.ordo-btn-text:hover { background: var(--ordo-accent-bg); }
+.ordo-btn-text:hover {
+  background: var(--ordo-accent-bg);
+}
 
 /* Table */
 .ordo-table-container {
@@ -310,7 +314,9 @@ function updateExprValue(val: string): any {
   background: var(--ordo-bg-item);
 }
 
-.ordo-data-table tr:last-child td { border-bottom: none; }
+.ordo-data-table tr:last-child td {
+  border-bottom: none;
+}
 
 .ordo-input-clean {
   width: 100%;
@@ -320,9 +326,15 @@ function updateExprValue(val: string): any {
   color: var(--ordo-keyword);
 }
 
-.ordo-input-clean:focus { outline: none; background: var(--ordo-bg-input); }
+.ordo-input-clean:focus {
+  outline: none;
+  background: var(--ordo-bg-input);
+}
 
-.code-font { font-family: var(--ordo-font-mono); font-weight: 600; }
+.code-font {
+  font-family: var(--ordo-font-mono);
+  font-weight: 600;
+}
 
 .ordo-empty-state {
   padding: 12px;
@@ -332,7 +344,13 @@ function updateExprValue(val: string): any {
   background: var(--ordo-bg-item);
 }
 
-.center { text-align: center; }
-.ordo-btn-icon.danger { color: var(--ordo-error); }
-.ordo-btn-icon.danger:hover { background: var(--ordo-error-bg); }
+.center {
+  text-align: center;
+}
+.ordo-btn-icon.danger {
+  color: var(--ordo-error);
+}
+.ordo-btn-icon.danger:hover {
+  background: var(--ordo-error-bg);
+}
 </style>

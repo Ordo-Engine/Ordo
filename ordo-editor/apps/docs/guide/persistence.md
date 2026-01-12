@@ -48,9 +48,7 @@ rules/
     "check_vip": {
       "id": "check_vip",
       "type": "decision",
-      "branches": [
-        { "condition": "user.vip == true", "next_step": "vip_discount" }
-      ],
+      "branches": [{ "condition": "user.vip == true", "next_step": "vip_discount" }],
       "default_next": "normal_discount"
     }
   }
@@ -62,7 +60,7 @@ rules/
 ```yaml
 config:
   name: discount-check
-  version: "1.0.0"
+  version: '1.0.0'
   entry_step: check_vip
 
 steps:
@@ -70,7 +68,7 @@ steps:
     id: check_vip
     type: decision
     branches:
-      - condition: "user.vip == true"
+      - condition: 'user.vip == true'
         next_step: vip_discount
     default_next: normal_discount
 
@@ -79,7 +77,7 @@ steps:
     type: terminal
     result:
       code: VIP
-      message: "20% discount applied"
+      message: '20% discount applied'
 ```
 
 ## File Naming

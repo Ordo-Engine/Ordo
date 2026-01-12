@@ -5,4 +5,3 @@
 
 // Import theme CSS
 import './theme.css';
-

@@ -10,4 +10,3 @@ export { default as OrdoFieldSelector } from './OrdoFieldSelector.vue';
 
 // Re-export types
 export type { FieldSuggestion } from './OrdoExpressionInput.vue';
-

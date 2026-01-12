@@ -17,14 +17,9 @@ use tracing::info;
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AuditEvent {
     /// Server started
-    ServerStarted {
-        version: String,
-        rules_count: usize,
-    },
+    ServerStarted { version: String, rules_count: usize },
     /// Server stopped
-    ServerStopped {
-        uptime_seconds: u64,
-    },
+    ServerStopped { uptime_seconds: u64 },
     /// Rule created
     RuleCreated {
         rule_name: String,

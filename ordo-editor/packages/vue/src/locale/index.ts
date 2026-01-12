@@ -348,7 +348,7 @@ export const LOCALE_KEY: InjectionKey<Ref<Lang>> = Symbol.for('ordo-locale');
 
 export function createI18n(defaultLang: Lang = 'en') {
   const currentLang = ref<Lang>(defaultLang);
-  
+
   const install = (app: any) => {
     app.provide(LOCALE_KEY, currentLang);
   };
@@ -361,16 +361,16 @@ export function createI18n(defaultLang: Lang = 'en') {
 
 export function useI18n() {
   const locale = inject(LOCALE_KEY, ref<Lang>('en'));
-  
+
   const t = (path: string): string => {
     const keys = path.split('.');
     let current: any = messages[locale.value];
-    
+
     for (const key of keys) {
       if (current[key] === undefined) return path;
       current = current[key];
     }
-    
+
     return current;
   };
 

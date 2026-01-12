@@ -2,8 +2,8 @@
 layout: home
 
 hero:
-  name: "Ordo"
-  text: "High-Performance Rule Engine"
+  name: 'Ordo'
+  text: 'High-Performance Rule Engine'
   tagline: Sub-microsecond latency, 500K+ QPS, with visual editor
   image:
     src: /logo.png
@@ -54,9 +54,7 @@ features:
       "id": "check_vip",
       "name": "Check VIP Status",
       "type": "decision",
-      "branches": [
-        { "condition": "user.vip == true", "next_step": "vip_discount" }
-      ],
+      "branches": [{ "condition": "user.vip == true", "next_step": "vip_discount" }],
       "default_next": "normal_discount"
     },
     "vip_discount": {
@@ -75,9 +73,9 @@ features:
 
 ## Performance
 
-| Metric | Result |
-|--------|--------|
-| Single rule execution | **1.63 µs** |
-| Expression evaluation | **79-211 ns** |
-| HTTP API throughput | **54,000 QPS** |
+| Metric                 | Result           |
+| ---------------------- | ---------------- |
+| Single rule execution  | **1.63 µs**      |
+| Expression evaluation  | **79-211 ns**    |
+| HTTP API throughput    | **54,000 QPS**   |
 | Projected multi-thread | **500,000+ QPS** |

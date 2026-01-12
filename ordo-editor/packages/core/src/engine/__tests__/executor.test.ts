@@ -21,7 +21,7 @@ describe('RuleExecutor', () => {
 
   beforeEach(async () => {
     executor = new RuleExecutor();
-    
+
     // Get mock module
     mockWasm = await import('@ordo/wasm/dist/ordo_wasm');
   });
@@ -78,9 +78,9 @@ describe('RuleExecutor', () => {
         throw new Error('WASM error');
       });
 
-      await expect(
-        executor.execute(ruleset, {}, { mode: 'wasm' })
-      ).rejects.toThrow('WASM execution failed');
+      await expect(executor.execute(ruleset, {}, { mode: 'wasm' })).rejects.toThrow(
+        'WASM execution failed'
+      );
     });
   });
 
@@ -99,9 +99,7 @@ describe('RuleExecutor', () => {
         ],
       };
 
-      mockWasm.validate_ruleset.mockReturnValue(
-        JSON.stringify({ valid: true })
-      );
+      mockWasm.validate_ruleset.mockReturnValue(JSON.stringify({ valid: true }));
 
       const result = await executor.validate(ruleset, { mode: 'wasm' });
 
@@ -140,4 +138,3 @@ describe('RuleExecutor', () => {
     });
   });
 });
-

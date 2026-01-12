@@ -53,54 +53,46 @@ function formatOutputValue(output: OutputField): string {
 </script>
 
 <template>
-  <div 
-    class="flow-node terminal-node" 
-    :class="{ selected, 'is-start': data.isStart }"
-  >
+  <div class="flow-node terminal-node" :class="{ selected, 'is-start': data.isStart }">
     <!-- Execution Annotation -->
-    <ExecutionAnnotation 
-      v-if="data.executionAnnotation" 
+    <ExecutionAnnotation
+      v-if="data.executionAnnotation"
       :trace="data.executionAnnotation"
       position="top"
     />
-    
+
     <!-- Node Header -->
     <div class="node-header">
       <!-- Exec Input Pin (Left) -->
-      <Handle 
-        type="target" 
-        :position="Position.Left" 
-        class="pin pin-exec pin-input"
-        id="input"
-      >
+      <Handle type="target" :position="Position.Left" class="pin pin-exec pin-input" id="input">
         <svg class="pin-shape" width="10" height="10" viewBox="0 0 10 10">
           <polygon points="0,0 10,5 0,10" :fill="PIN_COLORS.execInput" class="pin-fill" />
         </svg>
       </Handle>
-      
+
       <span class="node-badge start" v-if="data.isStart">{{ t('step.start') }}</span>
       <OrdoIcon name="terminal" :size="14" class="node-icon" />
       <span class="node-title">{{ displayTitle }}</span>
       <span class="node-type-badge">{{ t('step.typeTerminal') }}</span>
     </div>
-    
+
     <!-- Result Code Section -->
     <div class="node-section result-section">
       <div class="result-code">{{ resultCode }}</div>
     </div>
-    
+
     <!-- Output Fields Section -->
     <div class="node-section outputs-section" v-if="outputs.length > 0">
-      <div 
-        v-for="output in outputs" 
+      <div
+        v-for="output in outputs"
         :key="output.field"
         class="output-row"
         :title="`${output.field} = ${formatOutputValue(output)}`"
       >
         <!-- Data Input (for expression dependencies) -->
-        <Handle 
-          type="target" 
-          :position="Position.Left" 
+        <Handle
+          type="target"
+          :position="Position.Left"
           class="pin pin-data pin-input"
           :id="`data-in-${output.field}`"
         >
@@ -108,7 +100,7 @@ function formatOutputValue(output: OutputField): string {
             <circle cx="4" cy="4" r="3.5" :fill="PIN_COLORS.dataPin" class="pin-fill" />
           </svg>
         </Handle>
-        
+
         <span class="output-name">{{ output.field }}</span>
         <span class="output-op">=</span>
         <span class="output-value">{{ formatOutputValue(output) }}</span>
@@ -128,7 +120,9 @@ function formatOutputValue(output: OutputField): string {
   max-width: 240px;
   font-family: var(--ordo-font-sans);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: box-shadow 0.15s, border-color 0.15s;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
   position: relative;
 }
 
@@ -272,7 +266,7 @@ function formatOutputValue(output: OutputField): string {
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
-  
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -285,7 +279,9 @@ function formatOutputValue(output: OutputField): string {
 }
 
 .pin-fill {
-  transition: filter 0.15s ease, fill 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    fill 0.15s ease;
 }
 
 /* Hover effects - glow only, no size change */

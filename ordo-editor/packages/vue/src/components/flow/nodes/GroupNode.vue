@@ -2,7 +2,7 @@
 /**
  * GroupNode - Background container for organizing steps visually
  * 分组节点 - 用于可视化组织步骤的背景容器
- * 
+ *
  * This is NOT a regular node - it's a background container that:
  * - Always stays at the bottom layer (lowest z-index)
  * - Has no connection handles
@@ -34,8 +34,8 @@ const props = defineProps<Props>();
 const { t } = useI18n();
 
 const emit = defineEmits<{
-  'update': [group: StepGroup];
-  'delete': [];
+  update: [group: StepGroup];
+  delete: [];
 }>();
 
 // Get group data (support both old and new format)
@@ -65,11 +65,14 @@ const groupColor = computed(() => {
 const stepCount = computed(() => groupData.value.stepIds.length);
 
 // Watch for external name changes
-watch(() => groupData.value.name, (newName) => {
-  if (newName && !isEditing.value) {
-    editName.value = newName;
+watch(
+  () => groupData.value.name,
+  (newName) => {
+    if (newName && !isEditing.value) {
+      editName.value = newName;
+    }
   }
-});
+);
 
 // Start editing name
 function startEdit(event: MouseEvent) {
@@ -122,20 +125,16 @@ function deleteGroup(event: MouseEvent) {
 </script>
 
 <template>
-  <div 
-    class="group-node-container" 
-    :class="{ selected }"
-    :style="{ '--group-color': groupColor }"
-  >
+  <div class="group-node-container" :class="{ selected }" :style="{ '--group-color': groupColor }">
     <!-- Resizer - only visible when selected -->
-    <NodeResizer 
-      :min-width="200" 
+    <NodeResizer
+      :min-width="200"
       :min-height="120"
       :is-visible="selected"
       color="transparent"
-      :handle-style="{ 
-        width: '8px', 
-        height: '8px', 
+      :handle-style="{
+        width: '8px',
+        height: '8px',
         background: 'var(--group-color)',
         border: 'none',
         borderRadius: '2px',
@@ -144,13 +143,13 @@ function deleteGroup(event: MouseEvent) {
         border: 'none',
       }"
     />
-    
+
     <!-- Group Header Bar -->
     <div class="group-header">
       <span class="group-label" v-if="!isEditing" @dblclick="startEdit">
         {{ groupData.name }}
       </span>
-      <input 
+      <input
         v-else
         ref="titleInput"
         v-model="editName"
@@ -159,19 +158,19 @@ function deleteGroup(event: MouseEvent) {
         @keydown="handleKeydown"
         @click.stop
       />
-      
+
       <span class="step-badge" v-if="stepCount > 0">{{ stepCount }}</span>
-      
-      <button 
+
+      <button
         v-if="selected"
-        class="delete-btn" 
-        @click="deleteGroup" 
+        class="delete-btn"
+        @click="deleteGroup"
         :title="t('flow.deleteGroup')"
       >
         <OrdoIcon name="delete" :size="12" />
       </button>
     </div>
-    
+
     <!-- Group Body - transparent, just for visual -->
     <div class="group-body">
       <div class="drop-zone" v-if="stepCount === 0 && selected">

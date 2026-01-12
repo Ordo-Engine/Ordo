@@ -180,6 +180,37 @@ curl -X POST http://localhost:8080/api/v1/rulesets/discount-check/rollback \
   -d '{"seq": 2}'
 ```
 
+### Audit Logging
+
+Enable structured audit logging to track rule changes, executions, and system events:
+
+```bash
+# Enable audit logging with 10% execution sampling
+./target/release/ordo-server --rules-dir ./rules --audit-dir ./audit --audit-sample-rate 10
+```
+
+**Audit log format** (JSON Lines):
+```json
+{"timestamp":"2024-01-08T10:00:00.123Z","level":"INFO","event":"server_started","version":"0.1.0","rules_count":12}
+{"timestamp":"2024-01-08T10:00:01.456Z","level":"INFO","event":"rule_created","rule_name":"payment-check","version":"1.0.0","source_ip":"127.0.0.1"}
+{"timestamp":"2024-01-08T10:00:02.789Z","level":"INFO","event":"rule_executed","rule_name":"payment-check","duration_us":1500,"result":"success"}
+```
+
+**Event types**: `server_started`, `server_stopped`, `rule_created`, `rule_updated`, `rule_deleted`, `rule_rollback`, `rule_executed`
+
+**Dynamic sample rate adjustment** - update at runtime without restart:
+```bash
+# Get current sample rate
+curl http://localhost:8080/api/v1/config/audit-sample-rate
+# {"sample_rate": 10}
+
+# Update sample rate to 50%
+curl -X PUT http://localhost:8080/api/v1/config/audit-sample-rate \
+  -H "Content-Type: application/json" \
+  -d '{"sample_rate": 50}'
+# {"sample_rate": 50, "previous": 10}
+```
+
 ### Monitoring & Health Check
 
 Ordo provides built-in observability endpoints:
@@ -275,7 +306,8 @@ ordo/
 - [x] Built-in functions
 - [x] Visual rule editor
 - [x] WebAssembly support
-- [ ] Rule versioning & history
+- [x] Rule versioning & history
+- [x] Audit logging
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 

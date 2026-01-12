@@ -11,6 +11,7 @@ futures = "0.3"
 ordo-core = { version = "0.1.0", path = "../ordo-core" }
 ordo-proto = { version = "0.1.0", path = "../ordo-proto" }
 prost.workspace = true
+rand = "0.8"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml = "0.9"

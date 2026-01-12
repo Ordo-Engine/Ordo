@@ -1,12 +1,13 @@
 //! API handlers
 
 use axum::{
-    extract::{Path, State},
+    extract::{ConnectInfo, Path, State},
     http::StatusCode,
     Json,
 };
 use ordo_core::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::time::Instant;
 
 use crate::error::ApiError;
@@ -113,15 +114,39 @@ pub async fn get_ruleset(
 /// Create or update a ruleset
 pub async fn create_ruleset(
     State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Json(request): Json<CreateRuleSetRequest>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
     let mut store = state.store.write().await;
     let name = request.ruleset.config.name.clone();
+    let new_version = request.ruleset.config.version.clone();
     let exists = store.exists(&name);
+
+    // Get old version before update
+    let old_version = if exists {
+        store.get(&name).map(|r| r.config.version.clone())
+    } else {
+        None
+    };
 
     store
         .put(request.ruleset)
         .map_err(|errors| ApiError::bad_request(format!("Validation errors: {:?}", errors)))?;
+
+    // Log audit event
+    let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+    if exists {
+        state.audit_logger.log_rule_updated(
+            &name,
+            &old_version.unwrap_or_default(),
+            &new_version,
+            source_ip,
+        );
+    } else {
+        state
+            .audit_logger
+            .log_rule_created(&name, &new_version, source_ip);
+    }
 
     let status = if exists {
         StatusCode::OK
@@ -141,10 +166,14 @@ pub async fn create_ruleset(
 /// Delete a ruleset
 pub async fn delete_ruleset(
     State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Path(name): Path<String>,
 ) -> ApiResult<StatusCode> {
     let mut store = state.store.write().await;
     if store.delete(&name) {
+        // Log audit event
+        let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+        state.audit_logger.log_rule_deleted(&name, source_ip);
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::not_found(format!("RuleSet '{}' not found", name)))
@@ -154,6 +183,7 @@ pub async fn delete_ruleset(
 /// Execute a ruleset
 pub async fn execute_ruleset(
     State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Path(name): Path<String>,
     Json(request): Json<ExecuteRequest>,
 ) -> ApiResult<Json<ExecuteResponse>> {
@@ -171,12 +201,32 @@ pub async fn execute_ruleset(
             // Record success metrics
             let duration_secs = start.elapsed().as_secs_f64();
             metrics::record_execution_success(&name, duration_secs);
+
+            // Log audit event (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            state.audit_logger.log_execution(
+                &name,
+                result.duration_us,
+                &result.code,
+                source_ip,
+            );
+
             result
         }
         Err(e) => {
             // Record error metrics
             let duration_secs = start.elapsed().as_secs_f64();
             metrics::record_execution_error(&name, duration_secs);
+
+            // Log audit event for errors (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            state.audit_logger.log_execution(
+                &name,
+                start.elapsed().as_micros() as u64,
+                "error",
+                source_ip,
+            );
+
             return Err(e.into());
         }
     };
@@ -303,6 +353,7 @@ pub async fn list_versions(
 /// Rollback a ruleset to a specific version
 pub async fn rollback_ruleset(
     State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     Path(name): Path<String>,
     Json(request): Json<RollbackRequest>,
 ) -> ApiResult<Json<RollbackResponse>> {
@@ -322,16 +373,77 @@ pub async fn rollback_ruleset(
 
     // Perform rollback
     match store.rollback_to_version(&name, request.seq) {
-        Ok(Some((from_version, to_version))) => Ok(Json(RollbackResponse {
-            status: "rolled_back".to_string(),
-            name,
-            from_version,
-            to_version,
-        })),
+        Ok(Some((from_version, to_version))) => {
+            // Log audit event
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            state.audit_logger.log_rule_rollback(
+                &name,
+                &from_version,
+                &to_version,
+                request.seq,
+                source_ip,
+            );
+
+            Ok(Json(RollbackResponse {
+                status: "rolled_back".to_string(),
+                name,
+                from_version,
+                to_version,
+            }))
+        }
         Ok(None) => Err(ApiError::not_found(format!(
             "Version {} not found for rule '{}'",
             request.seq, name
         ))),
         Err(e) => Err(ApiError::internal(format!("Rollback failed: {}", e))),
     }
+}
+
+// ==================== Audit Configuration ====================
+
+/// Sample rate request
+#[derive(Deserialize)]
+pub struct SampleRateRequest {
+    /// New sample rate (0-100)
+    pub sample_rate: u8,
+}
+
+/// Sample rate response
+#[derive(Serialize)]
+pub struct SampleRateResponse {
+    /// Current sample rate
+    pub sample_rate: u8,
+    /// Previous sample rate (only in update response)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous: Option<u8>,
+}
+
+/// Get current audit sample rate
+pub async fn get_audit_sample_rate(State(state): State<AppState>) -> Json<SampleRateResponse> {
+    let rate = state.audit_logger.get_sample_rate();
+    Json(SampleRateResponse {
+        sample_rate: rate,
+        previous: None,
+    })
+}
+
+/// Update audit sample rate
+pub async fn set_audit_sample_rate(
+    State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+    Json(request): Json<SampleRateRequest>,
+) -> Json<SampleRateResponse> {
+    let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+    let previous = state.audit_logger.set_sample_rate(request.sample_rate);
+    let current = state.audit_logger.get_sample_rate();
+
+    // Log the change
+    state
+        .audit_logger
+        .log_sample_rate_changed(previous, current, source_ip);
+
+    Json(SampleRateResponse {
+        sample_rate: current,
+        previous: Some(previous),
+    })
 }

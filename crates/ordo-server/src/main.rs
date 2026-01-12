@@ -16,6 +16,9 @@
 //!
 //! # Custom ports
 //! ordo-server --http-addr 0.0.0.0:9090 --grpc-addr 0.0.0.0:9091
+//!
+//! # Enable audit logging with 10% sampling
+//! ordo-server --audit-dir ./audit --audit-sample-rate 10
 //! ```
 
 use std::sync::Arc;
@@ -35,6 +38,7 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod api;
+mod audit;
 mod config;
 mod error;
 mod grpc;
@@ -43,6 +47,7 @@ mod store;
 #[cfg(unix)]
 mod uds;
 
+use audit::AuditLogger;
 use config::ServerConfig;
 use grpc::OrdoGrpcService;
 use store::RuleStore;
@@ -51,6 +56,7 @@ use store::RuleStore;
 #[derive(Clone)]
 pub struct AppState {
     store: Arc<RwLock<RuleStore>>,
+    audit_logger: Arc<AuditLogger>,
 }
 
 #[tokio::main]
@@ -110,15 +116,41 @@ async fn main() -> anyhow::Result<()> {
         metrics::set_rules_count(store_guard.len() as i64);
     }
 
+    // Initialize audit logger
+    let audit_logger = Arc::new(AuditLogger::new(
+        config.audit_dir.clone(),
+        config.audit_sample_rate,
+    ));
+
+    // Log audit configuration
+    if config.audit_dir.is_some() {
+        info!(
+            "Audit logging enabled: dir={:?}, sample_rate={}%",
+            config.audit_dir, config.audit_sample_rate
+        );
+    } else {
+        info!(
+            "Audit logging to stdout only, sample_rate={}%",
+            config.audit_sample_rate
+        );
+    }
+
+    // Log server started event
+    {
+        let store_guard = store.read().await;
+        audit_logger.log_server_started(ordo_core::VERSION, store_guard.len());
+    }
+
     // Create tasks for each enabled protocol
     let mut tasks = Vec::new();
 
     // HTTP Server
     if config.http_enabled() {
         let http_store = store.clone();
+        let http_audit_logger = audit_logger.clone();
         let http_addr = config.http_addr;
         tasks.push(tokio::spawn(async move {
-            start_http_server(http_addr, http_store).await
+            start_http_server(http_addr, http_store, http_audit_logger).await
         }));
     }
 
@@ -143,6 +175,30 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
+    // Setup shutdown signal handler
+    let shutdown_audit_logger = audit_logger.clone();
+    tokio::spawn(async move {
+        // Wait for Ctrl+C or SIGTERM
+        let ctrl_c = tokio::signal::ctrl_c();
+        #[cfg(unix)]
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+
+        #[cfg(unix)]
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+
+        #[cfg(not(unix))]
+        ctrl_c.await.ok();
+
+        // Log server stopped event
+        let uptime = metrics::START_TIME.elapsed().as_secs();
+        shutdown_audit_logger.log_server_stopped(uptime);
+        info!("Server shutting down after {} seconds", uptime);
+    });
+
     // Wait for any server to finish (usually due to error)
     if !tasks.is_empty() {
         let (result, _, _) = futures::future::select_all(tasks).await;
@@ -158,8 +214,12 @@ async fn main() -> anyhow::Result<()> {
 async fn start_http_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
+    audit_logger: Arc<AuditLogger>,
 ) -> anyhow::Result<()> {
-    let state = AppState { store };
+    let state = AppState {
+        store,
+        audit_logger,
+    };
 
     // Build router
     let app = Router::new()
@@ -187,6 +247,11 @@ async fn start_http_server(
         .route("/api/v1/execute/:name", post(api::execute_ruleset))
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
+        // Audit configuration
+        .route(
+            "/api/v1/config/audit-sample-rate",
+            get(api::get_audit_sample_rate).put(api::set_audit_sample_rate),
+        )
         // Metrics
         .route("/metrics", get(prometheus_metrics))
         .layer(TraceLayer::new_for_http())

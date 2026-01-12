@@ -48,6 +48,20 @@ pub struct ServerConfig {
     /// Only applies when --rules-dir is specified.
     #[arg(long, default_value = "10")]
     pub max_versions: usize,
+
+    /// Audit log directory (optional).
+    /// When specified, audit events are written to JSON Lines files
+    /// in this directory, with daily rotation (audit-YYYY-MM-DD.jsonl).
+    /// Events are also logged to stdout regardless of this setting.
+    #[arg(long)]
+    pub audit_dir: Option<PathBuf>,
+
+    /// Execution log sampling rate (0-100, default 10).
+    /// Controls the percentage of rule executions that are logged.
+    /// 0 = no execution logging, 100 = log all executions.
+    /// This can be changed at runtime via the API.
+    #[arg(long, default_value = "10")]
+    pub audit_sample_rate: u8,
 }
 
 impl ServerConfig {
@@ -78,6 +92,8 @@ impl Default for ServerConfig {
             log_level: "info".to_string(),
             rules_dir: None,
             max_versions: 10,
+            audit_dir: None,
+            audit_sample_rate: 10,
         }
     }
 }

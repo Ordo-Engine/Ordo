@@ -50,5 +50,5 @@ dist/
 .pnpm-store/
 
 # VitePress docs build artifacts (keep config.mts)
-.vitepress/cache/
-.vitepress/dist/
+**/.vitepress/cache/
+**/.vitepress/dist/

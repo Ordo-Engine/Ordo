@@ -23,6 +23,8 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 prometheus.workspace = true
 lazy_static = "1.4"
+chrono.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -72,8 +72,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
-        info!("Initializing store with persistence at {:?}", rules_dir);
-        let mut store = RuleStore::new_with_persistence(rules_dir.clone());
+        info!(
+            "Initializing store with persistence at {:?} (max {} versions)",
+            rules_dir, config.max_versions
+        );
+        let mut store =
+            RuleStore::new_with_persistence_and_versions(rules_dir.clone(), config.max_versions);
 
         // Load existing rules from directory
         match store.load_from_dir() {
@@ -169,6 +173,15 @@ async fn start_http_server(
         .route(
             "/api/v1/rulesets/:name",
             get(api::get_ruleset).delete(api::delete_ruleset),
+        )
+        // Version management
+        .route(
+            "/api/v1/rulesets/:name/versions",
+            get(api::list_versions),
+        )
+        .route(
+            "/api/v1/rulesets/:name/rollback",
+            post(api::rollback_ruleset),
         )
         // Rule execution
         .route("/api/v1/execute/:name", post(api::execute_ruleset))

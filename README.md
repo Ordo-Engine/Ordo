@@ -159,6 +159,27 @@ By default, rules are stored in memory and lost on restart. To enable file-based
 }
 ```
 
+### Rule Version Management
+
+When persistence is enabled, Ordo automatically keeps historical versions of your rules:
+
+```bash
+# Control version history (default: 10 versions)
+./target/release/ordo-server --rules-dir ./rules --max-versions 10
+```
+
+**List versions** (`GET /api/v1/rulesets/:name/versions`):
+```bash
+curl http://localhost:8080/api/v1/rulesets/discount-check/versions
+```
+
+**Rollback to a previous version** (`POST /api/v1/rulesets/:name/rollback`):
+```bash
+curl -X POST http://localhost:8080/api/v1/rulesets/discount-check/rollback \
+  -H "Content-Type: application/json" \
+  -d '{"seq": 2}'
+```
+
 ### Monitoring & Health Check
 
 Ordo provides built-in observability endpoints:

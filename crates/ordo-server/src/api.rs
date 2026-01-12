@@ -245,3 +245,93 @@ pub async fn eval_expression(Json(request): Json<EvalRequest>) -> ApiResult<Json
         parsed: format!("{:?}", expr),
     }))
 }
+
+// ==================== Version Management ====================
+
+/// Rollback request
+#[derive(Deserialize)]
+pub struct RollbackRequest {
+    /// Version sequence number to rollback to
+    pub seq: u32,
+}
+
+/// Rollback response
+#[derive(Serialize)]
+pub struct RollbackResponse {
+    /// Status
+    pub status: String,
+    /// Rule name
+    pub name: String,
+    /// Version before rollback
+    pub from_version: String,
+    /// Version after rollback
+    pub to_version: String,
+}
+
+/// List versions of a ruleset
+pub async fn list_versions(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> ApiResult<Json<crate::store::VersionListResponse>> {
+    let store = state.store.read().await;
+
+    // Check if ruleset exists
+    if !store.exists(&name) {
+        return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
+    }
+
+    // Check if persistence is enabled
+    if !store.persistence_enabled() {
+        // Return empty version list for in-memory mode
+        return Ok(Json(crate::store::VersionListResponse {
+            name: name.clone(),
+            current_version: store
+                .get(&name)
+                .map(|r| r.config.version.clone())
+                .unwrap_or_default(),
+            versions: vec![],
+        }));
+    }
+
+    let versions = store
+        .list_versions(&name)
+        .map_err(|e| ApiError::internal(format!("Failed to list versions: {}", e)))?;
+
+    Ok(Json(versions))
+}
+
+/// Rollback a ruleset to a specific version
+pub async fn rollback_ruleset(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(request): Json<RollbackRequest>,
+) -> ApiResult<Json<RollbackResponse>> {
+    let mut store = state.store.write().await;
+
+    // Check if ruleset exists
+    if !store.exists(&name) {
+        return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
+    }
+
+    // Check if persistence is enabled
+    if !store.persistence_enabled() {
+        return Err(ApiError::bad_request(
+            "Version rollback not available in memory-only mode".to_string(),
+        ));
+    }
+
+    // Perform rollback
+    match store.rollback_to_version(&name, request.seq) {
+        Ok(Some((from_version, to_version))) => Ok(Json(RollbackResponse {
+            status: "rolled_back".to_string(),
+            name,
+            from_version,
+            to_version,
+        })),
+        Ok(None) => Err(ApiError::not_found(format!(
+            "Version {} not found for rule '{}'",
+            request.seq, name
+        ))),
+        Err(e) => Err(ApiError::internal(format!("Rollback failed: {}", e))),
+    }
+}

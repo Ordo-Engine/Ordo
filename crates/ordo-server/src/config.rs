@@ -41,6 +41,13 @@ pub struct ServerConfig {
     /// Without this flag, rules are stored in memory only.
     #[arg(long)]
     pub rules_dir: Option<PathBuf>,
+
+    /// Maximum number of historical versions to keep per rule.
+    /// When a rule is updated, the previous version is saved.
+    /// Older versions beyond this limit are automatically deleted.
+    /// Only applies when --rules-dir is specified.
+    #[arg(long, default_value = "10")]
+    pub max_versions: usize,
 }
 
 impl ServerConfig {
@@ -70,6 +77,7 @@ impl Default for ServerConfig {
             disable_grpc: false,
             log_level: "info".to_string(),
             rules_dir: None,
+            max_versions: 10,
         }
     }
 }

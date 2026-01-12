@@ -99,27 +99,27 @@ scrape_configs:
 ### Example Queries
 
 **Request Rate:**
-```promql
+```
 rate(ordo_executions_total[5m])
 ```
 
 **Error Rate:**
-```promql
+```
 rate(ordo_executions_total{result="error"}[5m]) / rate(ordo_executions_total[5m])
 ```
 
 **P99 Latency:**
-```promql
+```
 histogram_quantile(0.99, rate(ordo_execution_duration_seconds_bucket[5m]))
 ```
 
 **Rules Count:**
-```promql
+```
 ordo_rules_total
 ```
 
 **Uptime:**
-```promql
+```
 ordo_uptime_seconds
 ```
 

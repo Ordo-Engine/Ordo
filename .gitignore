@@ -49,6 +49,6 @@ node_modules/
 dist/
 .pnpm-store/
 
-# docs
-/ordo-editor/apps/docs/dist/
-.vitepress/
+# VitePress docs build artifacts (keep config.mts)
+.vitepress/cache/
+.vitepress/dist/

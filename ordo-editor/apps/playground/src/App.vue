@@ -13,6 +13,7 @@ import {
 import { Step, Condition, Expr, generateId } from '@ordo/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
 import { useTour } from './composables/useTour';
+import { useI18n } from './composables/useI18n';
 
 // Tour - with callback to switch to flow mode
 const { startTour, shouldShowTour, resetTour } = useTour({
@@ -22,9 +23,10 @@ const { startTour, shouldShowTour, resetTour } = useTour({
 });
 const showWelcome = ref(false);
 
+const { t, locale, setLocale } = useI18n();
+
 // Theme & Locale & Editor Mode
 const theme = ref<'light' | 'dark'>('dark');
-const locale = ref<Lang>('en');
 const editorMode = ref<'form' | 'flow'>('form');
 
 // Sidebar visibility
@@ -45,7 +47,7 @@ function toggleTheme() {
 }
 
 function toggleLocale() {
-  locale.value = locale.value === 'en' ? 'zh-CN' : 'en';
+  setLocale(locale.value === 'en' ? 'zh-CN' : 'en');
 }
 
 function setEditorMode(mode: 'form' | 'flow') {
@@ -1121,7 +1123,7 @@ watch(
       </a>
 
       <!-- Help / Tour -->
-      <div class="activity-icon" @click="handleRestartTour" title="Start Tour">
+      <div class="activity-icon" @click="handleRestartTour" :title="t('app.help')">
         <svg
           width="18"
           height="18"
@@ -1136,18 +1138,10 @@ watch(
         </svg>
       </div>
 
-      <div
-        class="activity-icon"
-        @click="toggleLocale"
-        :title="locale === 'en' ? 'Switch to Chinese' : 'Switch to English'"
-      >
+      <div class="activity-icon" @click="toggleLocale" :title="t('app.lang')">
         <span style="font-size: 10px; font-weight: 700">{{ locale === 'en' ? 'EN' : '中' }}</span>
       </div>
-      <div
-        class="activity-icon"
-        @click="toggleTheme"
-        :title="theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'"
-      >
+      <div class="activity-icon" @click="toggleTheme" :title="t('app.theme')">
         <svg
           v-if="theme === 'light'"
           width="18"

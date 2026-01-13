@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
+import { useI18n } from '../composables/useI18n';
 
 const emit = defineEmits<{
   (e: 'start-tour'): void;
   (e: 'skip'): void;
 }>();
 
+const { t, locale } = useI18n();
 const isVisible = ref(true);
+
+const docsLink = computed(() => {
+  return locale.value === 'zh-CN'
+    ? 'https://pama-lee.github.io/Ordo/docs/zh/'
+    : 'https://pama-lee.github.io/Ordo/docs/en/';
+});
 
 function startTour() {
   isVisible.value = false;
@@ -42,12 +50,9 @@ function skip() {
             </svg>
           </div>
 
-          <h1>Welcome to Ordo Playground</h1>
+          <h1>{{ t('welcome.title') }}</h1>
 
-          <p class="welcome-desc">
-            Ordo is a high-performance rule engine with a visual editor.<br />
-            Design complex business rules with ease.
-          </p>
+          <p class="welcome-desc" v-html="t('welcome.desc')"></p>
 
           <div class="features">
             <div class="feature">
@@ -66,7 +71,7 @@ function skip() {
                   <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
                 </svg>
               </span>
-              <span>Visual Flow Editor</span>
+              <span>{{ t('welcome.features.visual') }}</span>
             </div>
             <div class="feature">
               <span class="feature-icon">
@@ -82,7 +87,7 @@ function skip() {
                   <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                 </svg>
               </span>
-              <span>WASM-powered Execution</span>
+              <span>{{ t('welcome.features.wasm') }}</span>
             </div>
             <div class="feature">
               <span class="feature-icon">
@@ -99,13 +104,13 @@ function skip() {
                   <path d="M21 21l-4.35-4.35" />
                 </svg>
               </span>
-              <span>Step-by-step Tracing</span>
+              <span>{{ t('welcome.features.trace') }}</span>
             </div>
           </div>
 
           <div class="actions">
             <button class="btn-primary" @click="startTour">
-              Take a Quick Tour
+              {{ t('welcome.actions.tour') }}
               <svg
                 width="16"
                 height="16"
@@ -117,7 +122,23 @@ function skip() {
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
-            <button class="btn-secondary" @click="skip">Skip, I'll explore myself</button>
+            <button class="btn-secondary" @click="skip">{{ t('welcome.actions.skip') }}</button>
+            <a :href="docsLink" target="_blank" class="btn-secondary">
+              {{ t('welcome.actions.docs') }}
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                style="margin-left: 8px"
+              >
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            </a>
           </div>
 
           <p class="hint">
@@ -133,7 +154,7 @@ function skip() {
               <circle cx="12" cy="12" r="10" />
               <path d="M12 16v-4M12 8h.01" />
             </svg>
-            You can restart the tour anytime from the help button
+            {{ t('welcome.hint') }}
           </p>
         </div>
       </div>
@@ -240,6 +261,9 @@ h1 {
 }
 
 .btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 12px 24px;
   background: transparent;
   color: var(--ordo-text-secondary, #999);
@@ -248,6 +272,7 @@ h1 {
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  text-decoration: none;
 }
 
 .btn-secondary:hover {

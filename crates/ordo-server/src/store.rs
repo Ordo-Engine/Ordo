@@ -4,6 +4,7 @@
 //! When a rules directory is specified, rules are automatically persisted to disk.
 //! Supports version management with automatic backup of previous versions.
 
+use crate::metrics;
 use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -601,11 +602,16 @@ impl RuleStore {
         }
 
         self.rulesets.insert(name, Arc::new(ruleset));
+
+        // Record store operation metric
+        metrics::record_store_operation("put");
+
         Ok(())
     }
 
     /// Get a ruleset by name
     pub fn get(&self, name: &str) -> Option<Arc<RuleSet>> {
+        metrics::record_store_operation("get");
         self.rulesets.get(name).cloned()
     }
 
@@ -616,6 +622,9 @@ impl RuleStore {
         let existed = self.rulesets.remove(name).is_some();
 
         if existed {
+            // Record store operation metric
+            metrics::record_store_operation("delete");
+
             // Delete current file
             if let Err(e) = self.delete_file(name) {
                 error!("Failed to delete rule file for '{}': {}", name, e);
@@ -632,6 +641,7 @@ impl RuleStore {
 
     /// List all ruleset names
     pub fn list(&self) -> Vec<RuleSetInfo> {
+        metrics::record_store_operation("list");
         self.rulesets
             .values()
             .map(|rs| RuleSetInfo {

@@ -87,6 +87,32 @@ lazy_static! {
         "Total number of HTTP requests",
         &["method", "endpoint", "status"]
     ).unwrap();
+
+    // ==================== Concurrency Metrics ====================
+
+    /// Number of currently active rule executions
+    pub static ref ACTIVE_EXECUTIONS: IntGauge = register_int_gauge!(
+        "ordo_active_executions",
+        "Number of currently active rule executions"
+    ).unwrap();
+
+    // ==================== Terminal Result Metrics ====================
+
+    /// Terminal result distribution by ruleset and result code
+    pub static ref TERMINAL_RESULTS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_terminal_results_total",
+        "Distribution of terminal result codes by ruleset",
+        &["ruleset", "result_code"]
+    ).unwrap();
+
+    // ==================== Store Operation Metrics ====================
+
+    /// Total store operations (get, put, delete, list)
+    pub static ref STORE_OPERATIONS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_store_operations_total",
+        "Total number of store operations",
+        &["operation"]
+    ).unwrap();
 }
 
 /// Initialize metrics (call once at startup)
@@ -96,6 +122,7 @@ pub fn init() {
 
     // Initialize counters to ensure they appear in /metrics even with 0 value
     RULES_TOTAL.set(0);
+    ACTIVE_EXECUTIONS.set(0);
 }
 
 /// Update uptime metric
@@ -138,6 +165,39 @@ pub fn record_eval_success(duration_secs: f64) {
 pub fn record_eval_error(duration_secs: f64) {
     EVALS_TOTAL.with_label_values(&["error"]).inc();
     EVAL_DURATION.with_label_values(&[]).observe(duration_secs);
+}
+
+/// Increment active executions counter (call at start of execution)
+pub fn inc_active_executions() {
+    ACTIVE_EXECUTIONS.inc();
+}
+
+/// Decrement active executions counter (call at end of execution)
+pub fn dec_active_executions() {
+    ACTIVE_EXECUTIONS.dec();
+}
+
+/// Record terminal result code
+pub fn record_terminal_result(ruleset: &str, result_code: &str) {
+    TERMINAL_RESULTS_TOTAL
+        .with_label_values(&[ruleset, result_code])
+        .inc();
+}
+
+/// Record HTTP request
+///
+/// Note: This function is available for use with HTTP middleware.
+/// Currently not used but kept for future integration.
+#[allow(dead_code)]
+pub fn record_http_request(method: &str, endpoint: &str, status: u16) {
+    HTTP_REQUESTS_TOTAL
+        .with_label_values(&[method, endpoint, &status.to_string()])
+        .inc();
+}
+
+/// Record store operation
+pub fn record_store_operation(operation: &str) {
+    STORE_OPERATIONS_TOTAL.with_label_values(&[operation]).inc();
 }
 
 /// Encode all metrics to Prometheus text format

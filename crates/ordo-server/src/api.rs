@@ -189,13 +189,17 @@ pub async fn execute_ruleset(
 ) -> ApiResult<Json<ExecuteResponse>> {
     let start = Instant::now();
 
+    // Track active executions
+    metrics::inc_active_executions();
+
     // Get ruleset with minimal lock hold time
     // We get Arc<RuleSet> and immediately release the lock
     let ruleset = {
         let store = state.store.read().await;
-        store
-            .get(&name)
-            .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
+        store.get(&name).ok_or_else(|| {
+            metrics::dec_active_executions();
+            ApiError::not_found(format!("RuleSet '{}' not found", name))
+        })?
         // Lock is released here when store goes out of scope
     };
 
@@ -205,6 +209,9 @@ pub async fn execute_ruleset(
             // Record success metrics
             let duration_secs = start.elapsed().as_secs_f64();
             metrics::record_execution_success(&name, duration_secs);
+
+            // Record terminal result distribution
+            metrics::record_terminal_result(&name, &result.code);
 
             // Log audit event (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
@@ -219,6 +226,9 @@ pub async fn execute_ruleset(
             let duration_secs = start.elapsed().as_secs_f64();
             metrics::record_execution_error(&name, duration_secs);
 
+            // Record terminal result for errors
+            metrics::record_terminal_result(&name, "error");
+
             // Log audit event for errors (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
             state.audit_logger.log_execution(
@@ -228,9 +238,13 @@ pub async fn execute_ruleset(
                 source_ip,
             );
 
+            metrics::dec_active_executions();
             return Err(e.into());
         }
     };
+
+    // Decrement active executions
+    metrics::dec_active_executions();
 
     // Build response
     let trace = if request.trace {

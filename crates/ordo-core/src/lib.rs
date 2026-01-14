@@ -60,7 +60,11 @@ pub mod trace;
 pub mod prelude {
     pub use crate::context::{Context, Value};
     pub use crate::error::{OrdoError, Result};
-    pub use crate::expr::{BinaryOp, Evaluator, Expr, ExprParser, FunctionRegistry, UnaryOp};
+    pub use crate::expr::{
+        BatchStats, BinaryOp, BytecodeVM, CompiledExpr, CompiledExprStats, Evaluator, Expr,
+        ExprCompiler, ExprOptimizer, ExprParser, FunctionRegistry, Opcode, OptimizationStats,
+        UnaryOp, VectorizedEvaluator,
+    };
     pub use crate::rule::{
         Action, ActionKind, BatchExecutionResult, Branch, Condition, ExecutionResult,
         LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink, RuleExecutor, RuleSet,

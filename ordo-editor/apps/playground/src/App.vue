@@ -12,8 +12,25 @@ import {
 } from '@ordo/editor-vue';
 import { Step, Condition, Expr, generateId } from '@ordo/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
+import DebugPage from './pages/DebugPage.vue';
 import { useTour } from './composables/useTour';
 import { useI18n } from './composables/useI18n';
+
+// Debug page toggle
+const showDebugPage = ref(false);
+const debugRuleset = ref<RuleSet | null>(null);
+const debugTrigger = ref(0); // Used to trigger watch in DebugPage
+
+function toggleDebugPage() {
+  showDebugPage.value = !showDebugPage.value;
+}
+
+function debugCurrentRuleset() {
+  // Create a new object reference each time to trigger Vue's watch
+  debugRuleset.value = JSON.parse(JSON.stringify(ruleset.value));
+  debugTrigger.value++; // Increment trigger to force update
+  showDebugPage.value = true;
+}
 
 // Tour - with callback to switch to flow mode
 const { startTour, shouldShowTour, resetTour } = useTour({
@@ -1122,6 +1139,27 @@ watch(
         </svg>
       </a>
 
+      <!-- Debug Page -->
+      <div
+        class="activity-icon"
+        :class="{ active: showDebugPage }"
+        @click="toggleDebugPage"
+        title="VM Debugger"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M12 2L2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" />
+          <path d="M2 12l10 5 10-5" />
+        </svg>
+      </div>
+
       <!-- Help / Tour -->
       <div class="activity-icon" @click="handleRestartTour" :title="t('app.help')">
         <svg
@@ -1328,8 +1366,15 @@ watch(
         </div>
       </div>
 
+      <!-- Debug Page (full content area) -->
+      <div v-if="showDebugPage" class="ide-editor-wrapper">
+        <div class="ide-editor-content">
+          <DebugPage :external-ruleset="debugRuleset" :trigger="debugTrigger" />
+        </div>
+      </div>
+
       <!-- Editor Content -->
-      <div class="ide-editor-wrapper" v-if="activeFile">
+      <div v-else-if="activeFile" class="ide-editor-wrapper">
         <div class="ide-editor-content" data-tour="editor">
           <!-- Form Editor -->
           <OrdoFormEditor
@@ -1395,6 +1440,27 @@ watch(
           {{ showExecutionPanel ? 'Hide Console' : 'Console' }}
         </div>
         <div v-if="activeFile" class="status-item">{{ activeFile.ruleset.steps.length }} steps</div>
+        <div
+          v-if="activeFile"
+          class="status-item clickable"
+          @click="debugCurrentRuleset"
+          title="Debug Current RuleSet"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            style="margin-right: 4px"
+          >
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          Debug
+        </div>
         <div
           class="status-item clickable"
           @click="setEditorMode(editorMode === 'form' ? 'flow' : 'form')"

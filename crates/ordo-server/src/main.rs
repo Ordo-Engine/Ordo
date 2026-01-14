@@ -19,6 +19,12 @@
 //!
 //! # Enable audit logging with 10% sampling
 //! ordo-server --audit-dir ./audit --audit-sample-rate 10
+//!
+//! # Enable debug mode (for development/testing only!)
+//! ordo-server --debug-mode
+//!
+//! # Using environment variables
+//! ORDO_HTTP_ADDR=0.0.0.0:9090 ORDO_DEBUG_MODE=true ordo-server
 //! ```
 
 use std::sync::Arc;
@@ -33,13 +39,15 @@ use clap::Parser;
 use ordo_proto::ordo_service_server::OrdoServiceServer;
 use tokio::sync::RwLock;
 use tonic::transport::Server as TonicServer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod api;
 mod audit;
 mod config;
+pub mod debug;
 mod error;
 mod grpc;
 mod metrics;
@@ -57,17 +65,22 @@ use store::RuleStore;
 /// Application state shared between HTTP handlers
 #[derive(Clone)]
 pub struct AppState {
-    store: Arc<RwLock<RuleStore>>,
-    audit_logger: Arc<AuditLogger>,
-    metric_sink: Arc<PrometheusMetricSink>,
+    pub store: Arc<RwLock<RuleStore>>,
+    pub audit_logger: Arc<AuditLogger>,
+    pub metric_sink: Arc<PrometheusMetricSink>,
     /// Shared executor for rule execution (avoids holding lock during execution)
-    executor: Arc<RuleExecutor>,
+    pub executor: Arc<RuleExecutor>,
+    /// Server configuration
+    pub config: Arc<ServerConfig>,
+    /// Debug session manager (only active in debug mode)
+    pub debug_sessions: Arc<debug::DebugSessionManager>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Parse command line arguments
+    // Parse command line arguments (also reads from environment variables)
     let config = ServerConfig::parse();
+    let config = Arc::new(config);
 
     // Initialize logging
     let log_level = match config.log_level.as_str() {
@@ -80,6 +93,14 @@ async fn main() -> anyhow::Result<()> {
     };
     let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
+
+    // Log debug mode warning
+    if config.debug_enabled() {
+        warn!("╔════════════════════════════════════════════════════════════╗");
+        warn!("║  DEBUG MODE ENABLED - DO NOT USE IN PRODUCTION!            ║");
+        warn!("║  Debug API endpoints are exposed and may impact performance║");
+        warn!("╚════════════════════════════════════════════════════════════╝");
+    }
 
     // Initialize Prometheus metric sink for custom rule metrics
     let metric_sink = Arc::new(PrometheusMetricSink::new());
@@ -158,6 +179,9 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Initialize debug session manager
+    let debug_sessions = Arc::new(debug::DebugSessionManager::new());
+
     // Log server started event
     {
         let store_guard = store.read().await;
@@ -173,6 +197,8 @@ async fn main() -> anyhow::Result<()> {
         let http_audit_logger = audit_logger.clone();
         let http_metric_sink = metric_sink.clone();
         let http_executor = executor.clone();
+        let http_config = config.clone();
+        let http_debug_sessions = debug_sessions.clone();
         let http_addr = config.http_addr;
         tasks.push(tokio::spawn(async move {
             start_http_server(
@@ -181,6 +207,8 @@ async fn main() -> anyhow::Result<()> {
                 http_audit_logger,
                 http_metric_sink,
                 http_executor,
+                http_config,
+                http_debug_sessions,
             )
             .await
         }));
@@ -249,16 +277,22 @@ async fn start_http_server(
     audit_logger: Arc<AuditLogger>,
     metric_sink: Arc<PrometheusMetricSink>,
     executor: Arc<RuleExecutor>,
+    config: Arc<ServerConfig>,
+    debug_sessions: Arc<debug::DebugSessionManager>,
 ) -> anyhow::Result<()> {
+    let debug_enabled = config.debug_enabled();
+
     let state = AppState {
         store,
         audit_logger,
         metric_sink,
         executor,
+        config,
+        debug_sessions,
     };
 
-    // Build router
-    let app = Router::new()
+    // Build base router
+    let mut app = Router::new()
         // Health check
         .route("/health", get(health_check))
         // Rule management (Admin API)
@@ -281,6 +315,11 @@ async fn start_http_server(
         )
         // Rule execution
         .route("/api/v1/execute/:name", post(api::execute_ruleset))
+        // Batch execution
+        .route(
+            "/api/v1/execute/:name/batch",
+            post(api::execute_ruleset_batch),
+        )
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Audit configuration
@@ -289,7 +328,64 @@ async fn start_http_server(
             get(api::get_audit_sample_rate).put(api::set_audit_sample_rate),
         )
         // Metrics
-        .route("/metrics", get(prometheus_metrics))
+        .route("/metrics", get(prometheus_metrics));
+
+    // Register debug routes only in debug mode
+    if debug_enabled {
+        info!("Registering debug API endpoints");
+        app = app
+            // Debug execution with full trace (existing ruleset by name)
+            .route(
+                "/api/v1/debug/execute/:name",
+                post(debug::api::debug_execute_ruleset),
+            )
+            // Debug execution with inline ruleset (no upload required)
+            .route(
+                "/api/v1/debug/execute-inline",
+                post(debug::api::debug_execute_inline),
+            )
+            // Debug expression evaluation
+            .route("/api/v1/debug/eval", post(debug::api::debug_eval_expression))
+            // Debug session management
+            .route(
+                "/api/v1/debug/sessions",
+                get(debug::api::list_debug_sessions).post(debug::api::create_debug_session),
+            )
+            .route(
+                "/api/v1/debug/sessions/:session_id",
+                get(debug::api::get_debug_session).delete(debug::api::delete_debug_session),
+            )
+            // SSE stream for debug events
+            .route(
+                "/api/v1/debug/stream/:session_id",
+                get(debug::api::debug_stream),
+            )
+            // Debug control commands
+            .route(
+                "/api/v1/debug/control/:session_id",
+                post(debug::api::debug_control),
+            );
+    }
+
+    // CORS configuration - permissive for debug mode, restrictive otherwise
+    let cors = if debug_enabled {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        CorsLayer::new()
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::PUT,
+                axum::http::Method::DELETE,
+            ])
+            .allow_headers([axum::http::header::CONTENT_TYPE])
+    };
+
+    let app = app
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -343,7 +439,8 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         "status": "healthy",
         "version": ordo_core::VERSION,
         "uptime_seconds": metrics::START_TIME.elapsed().as_secs(),
-        "storage": storage_info
+        "storage": storage_info,
+        "debug_mode": state.config.debug_enabled()
     }))
 }
 
@@ -378,5 +475,6 @@ mod tests {
         assert!(config.http_enabled());
         assert!(config.grpc_enabled());
         assert!(!config.uds_enabled());
+        assert!(!config.debug_enabled());
     }
 }

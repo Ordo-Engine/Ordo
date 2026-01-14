@@ -87,6 +87,82 @@ pub struct CreateRuleSetRequest {
     pub ruleset: RuleSet,
 }
 
+// ==================== Batch Execution Types ====================
+
+/// Batch execution options
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BatchExecuteOptions {
+    /// Whether to execute in parallel (default: true)
+    #[serde(default = "default_parallel")]
+    pub parallel: bool,
+    /// Whether to stop on first error (default: false)
+    /// Note: This option is reserved for future implementation
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub stop_on_error: bool,
+    /// Whether to include trace in results (default: false)
+    #[serde(default)]
+    pub trace: bool,
+}
+
+fn default_parallel() -> bool {
+    true
+}
+
+/// Batch execute request
+#[derive(Deserialize)]
+pub struct BatchExecuteRequest {
+    /// List of inputs to execute
+    pub inputs: Vec<Value>,
+    /// Execution options
+    #[serde(default)]
+    pub options: BatchExecuteOptions,
+}
+
+/// Single result in batch execution
+#[derive(Serialize)]
+pub struct BatchExecuteResultItem {
+    /// Result code (or "error" if failed)
+    pub code: String,
+    /// Result message
+    pub message: String,
+    /// Output data
+    pub output: Value,
+    /// Execution duration in microseconds
+    pub duration_us: u64,
+    /// Execution trace (if requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<TraceInfo>,
+    /// Error message (if failed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Batch execution summary
+#[derive(Serialize)]
+pub struct BatchExecuteSummary {
+    /// Total number of inputs
+    pub total: usize,
+    /// Number of successful executions
+    pub success: usize,
+    /// Number of failed executions
+    pub failed: usize,
+    /// Total execution time in microseconds
+    pub total_duration_us: u64,
+}
+
+/// Batch execute response
+#[derive(Serialize)]
+pub struct BatchExecuteResponse {
+    /// Results for each input (in order)
+    pub results: Vec<BatchExecuteResultItem>,
+    /// Summary statistics
+    pub summary: BatchExecuteSummary,
+}
+
+/// Maximum batch size limit
+const MAX_BATCH_SIZE: usize = 1000;
+
 // ==================== Handlers ====================
 
 /// List all rulesets
@@ -270,6 +346,114 @@ pub async fn execute_ruleset(
         output: result.output,
         duration_us: result.duration_us,
         trace,
+    }))
+}
+
+/// Execute a ruleset with multiple inputs (batch execution)
+///
+/// This endpoint is more efficient than calling /execute/:name multiple times:
+/// - Single HTTP request for all inputs
+/// - Single lock acquisition for ruleset lookup
+/// - Optional parallel execution
+pub async fn execute_ruleset_batch(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(request): Json<BatchExecuteRequest>,
+) -> ApiResult<Json<BatchExecuteResponse>> {
+    let start = Instant::now();
+
+    // Validate batch size
+    if request.inputs.is_empty() {
+        return Err(ApiError::bad_request(
+            "inputs array cannot be empty".to_string(),
+        ));
+    }
+    if request.inputs.len() > MAX_BATCH_SIZE {
+        return Err(ApiError::bad_request(format!(
+            "batch size {} exceeds maximum allowed size {}",
+            request.inputs.len(),
+            MAX_BATCH_SIZE
+        )));
+    }
+
+    let batch_size = request.inputs.len();
+
+    // Track active executions (count as batch_size concurrent executions)
+    metrics::inc_active_executions();
+
+    // Get ruleset with minimal lock hold time (only once for the entire batch)
+    let ruleset = {
+        let store = state.store.read().await;
+        store.get(&name).ok_or_else(|| {
+            metrics::dec_active_executions();
+            ApiError::not_found(format!("RuleSet '{}' not found", name))
+        })?
+    };
+
+    // Execute batch
+    let batch_result =
+        state
+            .executor
+            .execute_batch(&ruleset, request.inputs, request.options.parallel);
+
+    // Record metrics
+    let duration_secs = start.elapsed().as_secs_f64();
+    metrics::record_batch_execution(
+        &name,
+        batch_size,
+        batch_result.success,
+        batch_result.failed,
+        duration_secs,
+    );
+
+    // Record terminal results for each execution
+    for result in &batch_result.results {
+        metrics::record_terminal_result(&name, &result.code);
+    }
+
+    metrics::dec_active_executions();
+
+    // Build response
+    let results: Vec<BatchExecuteResultItem> = batch_result
+        .results
+        .into_iter()
+        .map(|r| {
+            let trace = if request.options.trace {
+                r.trace.as_ref().map(|t| TraceInfo {
+                    path: t.path_string(),
+                    steps: t
+                        .steps
+                        .iter()
+                        .map(|s| StepInfo {
+                            id: s.step_id.clone(),
+                            name: s.step_name.clone(),
+                            duration_us: s.duration_us,
+                        })
+                        .collect(),
+                })
+            } else {
+                None
+            };
+
+            BatchExecuteResultItem {
+                code: r.code,
+                message: r.message,
+                output: r.output,
+                duration_us: r.duration_us,
+                trace,
+                error: r.error,
+            }
+        })
+        .collect();
+
+    Ok(Json(BatchExecuteResponse {
+        results,
+        summary: BatchExecuteSummary {
+            total: batch_result.total,
+            success: batch_result.success,
+            failed: batch_result.failed,
+            total_duration_us: batch_result.total_duration_us,
+        },
     }))
 }
 

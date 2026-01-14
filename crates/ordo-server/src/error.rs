@@ -55,6 +55,15 @@ impl ApiError {
             message: message.into(),
         }
     }
+
+    #[allow(dead_code)]
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "FORBIDDEN".to_string(),
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {

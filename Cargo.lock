@@ -1052,6 +1052,7 @@ dependencies = [
  "criterion",
  "hashbrown 0.14.5",
  "parking_lot",
+ "rayon",
  "regex",
  "serde",
  "serde_json",
@@ -1075,6 +1076,7 @@ name = "ordo-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum 0.7.9",
  "chrono",
  "clap",

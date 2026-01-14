@@ -23,6 +23,9 @@ export * from './components/flow';
 // Execution components
 export * from './components/execution';
 
+// Debug components
+export * from './components/debug';
+
 // Icons
 export { default as OrdoIcon } from './components/icons/OrdoIcon.vue';
 
@@ -86,6 +89,7 @@ import {
   getNextStepIds,
   exprToString,
   conditionToString,
+  convertToEngineFormat,
 } from '@ordo/editor-core';
 
 // Export factory objects with their original names
@@ -105,6 +109,7 @@ export {
   getNextStepIds,
   exprToString,
   conditionToString,
+  convertToEngineFormat,
 };
 
 // Version

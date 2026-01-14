@@ -11,10 +11,10 @@
 //! - Pre-compiled bytecode reuse
 
 use super::ast::{BinaryOp, Expr};
-use super::bytecode::CompiledExpr;
 use super::compiler::ExprCompiler;
 use super::functions::FunctionRegistry;
 use super::vm::BytecodeVM;
+use super::vm::CompiledExpr;
 use crate::context::{Context, Value};
 use crate::error::Result;
 

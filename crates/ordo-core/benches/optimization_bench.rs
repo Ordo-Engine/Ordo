@@ -170,7 +170,7 @@ fn bench_bytecode_vm(c: &mut Criterion) {
     let mut group = c.benchmark_group("bytecode_vm");
 
     let evaluator = Evaluator::new();
-    let mut vm = BytecodeVM::new();
+    let vm = BytecodeVM::new();
     let ctx = make_context();
 
     let expressions = vec![
@@ -241,7 +241,7 @@ fn bench_vectorized(c: &mut Criterion) {
         );
 
         // Sequential: bytecode VM
-        let mut vm = BytecodeVM::new();
+        let vm = BytecodeVM::new();
         let compiled = ExprCompiler::new().compile(&expr);
         group.bench_with_input(
             BenchmarkId::new("sequential_bytecode", batch_size),
@@ -356,7 +356,7 @@ fn bench_throughput(c: &mut Criterion) {
     let mut optimizer = ExprOptimizer::new();
     let optimized = optimizer.optimize(expr.clone());
     let compiled = ExprCompiler::new().compile(&optimized);
-    let mut vm = BytecodeVM::new();
+    let vm = BytecodeVM::new();
     group.bench_function("optimized_bytecode", |b| {
         b.iter(|| {
             contexts
@@ -406,7 +406,7 @@ fn bench_memory_efficiency(c: &mut Criterion) {
 
         // Benchmark repeated execution (to show memory locality benefits)
         let ctx = make_context();
-        let mut vm = BytecodeVM::new();
+        let vm = BytecodeVM::new();
 
         group.bench_with_input(
             BenchmarkId::new("repeated_100", name),

@@ -1760,14 +1760,26 @@ onMounted(() => {
 /* Execution Trace Overlay Styles */
 /* ============================================ */
 
-/* Executed nodes - green glow */
+/* Executed nodes - green glow with pulse animation */
 :deep(.vue-flow__node.execution-highlighted) {
   filter: drop-shadow(0 0 12px rgba(78, 201, 105, 0.7));
   z-index: 10 !important;
+  animation: execution-pulse 2s ease-in-out infinite;
+}
+
+@keyframes execution-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(78, 201, 105, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(78, 201, 105, 0.9));
+  }
 }
 
 :deep(.vue-flow__node.execution-highlighted .flow-node) {
   border-color: var(--ordo-success, #4ec969) !important;
+  transition: border-color 0.3s ease;
 }
 
 /* Non-executed nodes - dimmed */
@@ -1775,15 +1787,26 @@ onMounted(() => {
   opacity: 0.25;
   filter: grayscale(0.7);
   transition:
-    opacity 0.2s ease,
-    filter 0.2s ease;
+    opacity 0.3s ease,
+    filter 0.3s ease;
 }
 
-/* Executed edges - green and animated */
+/* Executed edges - green and animated with flowing dash */
 :deep(.vue-flow__edge.execution-highlighted path) {
   stroke: var(--ordo-success, #4ec969) !important;
   stroke-width: 3 !important;
   filter: drop-shadow(0 0 6px rgba(78, 201, 105, 0.8));
+  stroke-dasharray: 8 4;
+  animation: execution-flow 0.8s linear infinite;
+}
+
+@keyframes execution-flow {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
 }
 
 :deep(.vue-flow__edge.execution-highlighted polygon) {
@@ -1794,17 +1817,47 @@ onMounted(() => {
 /* Non-executed edges - dimmed */
 :deep(.vue-flow__edge.execution-dimmed path) {
   opacity: 0.1;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
 }
 
 :deep(.vue-flow__edge.execution-dimmed polygon) {
   opacity: 0.1;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
 }
 
 :deep(.vue-flow__edge.execution-dimmed .edge-label-bg),
 :deep(.vue-flow__edge.execution-dimmed .edge-label-text) {
   opacity: 0.1;
+}
+
+/* Entry node special styling */
+:deep(.vue-flow__node.execution-entry) {
+  animation: execution-entry-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes execution-entry-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 12px rgba(137, 180, 250, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(137, 180, 250, 1));
+  }
+}
+
+/* Terminal node special styling */
+:deep(.vue-flow__node.execution-terminal) {
+  animation: execution-terminal-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes execution-terminal-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 12px rgba(166, 227, 161, 0.6));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(166, 227, 161, 1));
+  }
 }
 </style>
 

@@ -1076,6 +1076,7 @@ name = "ordo-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum 0.7.9",
  "chrono",
  "clap",

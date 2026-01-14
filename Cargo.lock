@@ -1052,6 +1052,7 @@ dependencies = [
  "criterion",
  "hashbrown 0.14.5",
  "parking_lot",
+ "rayon",
  "regex",
  "serde",
  "serde_json",

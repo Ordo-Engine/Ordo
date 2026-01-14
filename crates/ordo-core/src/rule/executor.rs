@@ -9,6 +9,7 @@ use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, ExprParser};
 use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
+use rayon::prelude::*;
 use std::sync::Arc;
 
 // Use web_time for WASM, std::time for native
@@ -187,6 +188,79 @@ impl RuleExecutor {
                     });
                 }
             }
+        }
+    }
+
+    /// Execute a rule set against multiple inputs (batch execution)
+    ///
+    /// This method is more efficient than calling `execute` multiple times because:
+    /// - The ruleset is only looked up once
+    /// - Inputs can be processed in parallel using rayon
+    ///
+    /// # Arguments
+    /// * `ruleset` - The rule set to execute
+    /// * `inputs` - Vector of input values to execute
+    /// * `parallel` - Whether to execute in parallel (uses rayon)
+    ///
+    /// # Returns
+    /// A `BatchExecutionResult` containing results for each input
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn execute_batch(
+        &self,
+        ruleset: &RuleSet,
+        inputs: Vec<Value>,
+        parallel: bool,
+    ) -> BatchExecutionResult {
+        let start_time = Instant::now();
+        let total = inputs.len();
+
+        let results: Vec<SingleExecutionResult> = if parallel && total > 1 {
+            // Parallel execution using rayon
+            inputs
+                .into_par_iter()
+                .map(|input| self.execute_single_for_batch(ruleset, input))
+                .collect()
+        } else {
+            // Sequential execution
+            inputs
+                .into_iter()
+                .map(|input| self.execute_single_for_batch(ruleset, input))
+                .collect()
+        };
+
+        let success = results.iter().filter(|r| r.error.is_none()).count();
+        let failed = total - success;
+        let total_duration_us = start_time.elapsed().as_micros() as u64;
+
+        BatchExecutionResult {
+            results,
+            total,
+            success,
+            failed,
+            total_duration_us,
+        }
+    }
+
+    /// Execute a single input for batch processing
+    #[cfg(not(target_arch = "wasm32"))]
+    fn execute_single_for_batch(&self, ruleset: &RuleSet, input: Value) -> SingleExecutionResult {
+        match self.execute(ruleset, input) {
+            Ok(result) => SingleExecutionResult {
+                code: result.code,
+                message: result.message,
+                output: result.output,
+                duration_us: result.duration_us,
+                trace: result.trace,
+                error: None,
+            },
+            Err(e) => SingleExecutionResult {
+                code: "error".to_string(),
+                message: e.to_string(),
+                output: Value::Null,
+                duration_us: 0,
+                trace: None,
+                error: Some(e.to_string()),
+            },
         }
     }
 
@@ -387,21 +461,62 @@ impl ExecutionResult {
     pub fn is_success(&self) -> bool {
         self.code == "SUCCESS" || self.code.starts_with("OK")
     }
+}
 
-    /// Convert to JSON
-    pub fn to_json(&self) -> Result<String> {
-        let mut map = std::collections::HashMap::new();
-        map.insert("code".to_string(), Value::string(&self.code));
-        map.insert("message".to_string(), Value::string(&self.message));
-        map.insert("output".to_string(), self.output.clone());
-        map.insert(
-            "duration_us".to_string(),
-            Value::int(self.duration_us as i64),
-        );
+// ==================== Batch Execution Types ====================
 
-        serde_json::to_string_pretty(&Value::object(map)).map_err(|e| OrdoError::InternalError {
-            message: e.to_string(),
-        })
+/// Single execution result for batch processing
+#[derive(Debug, Clone)]
+pub struct SingleExecutionResult {
+    /// Result code
+    pub code: String,
+    /// Result message
+    pub message: String,
+    /// Output data
+    pub output: Value,
+    /// Execution duration in microseconds
+    pub duration_us: u64,
+    /// Execution trace (if enabled)
+    pub trace: Option<ExecutionTrace>,
+    /// Error message (if execution failed)
+    pub error: Option<String>,
+}
+
+impl SingleExecutionResult {
+    /// Check if execution was successful
+    pub fn is_success(&self) -> bool {
+        self.error.is_none()
+    }
+}
+
+/// Batch execution result
+#[derive(Debug, Clone)]
+pub struct BatchExecutionResult {
+    /// Results for each input (in order)
+    pub results: Vec<SingleExecutionResult>,
+    /// Total number of inputs
+    pub total: usize,
+    /// Number of successful executions
+    pub success: usize,
+    /// Number of failed executions
+    pub failed: usize,
+    /// Total execution time in microseconds
+    pub total_duration_us: u64,
+}
+
+impl BatchExecutionResult {
+    /// Check if all executions were successful
+    pub fn all_success(&self) -> bool {
+        self.failed == 0
+    }
+
+    /// Get success rate (0.0 - 1.0)
+    pub fn success_rate(&self) -> f64 {
+        if self.total == 0 {
+            1.0
+        } else {
+            self.success as f64 / self.total as f64
+        }
     }
 }
 
@@ -546,5 +661,111 @@ mod tests {
         assert_eq!(result.code, "OK");
         // Verify that the metric sink was called
         assert_eq!(sink.gauge_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_execute_batch_sequential() {
+        let ruleset = create_test_ruleset();
+        let executor = RuleExecutor::new();
+
+        let inputs = vec![
+            serde_json::from_str(r#"{"age": 25}"#).unwrap(),
+            serde_json::from_str(r#"{"age": 15}"#).unwrap(),
+            serde_json::from_str(r#"{"age": 10}"#).unwrap(),
+        ];
+
+        let result = executor.execute_batch(&ruleset, inputs, false);
+
+        assert_eq!(result.total, 3);
+        assert_eq!(result.success, 3);
+        assert_eq!(result.failed, 0);
+        assert!(result.all_success());
+        assert_eq!(result.success_rate(), 1.0);
+
+        assert_eq!(result.results[0].code, "ADULT");
+        assert_eq!(result.results[1].code, "TEEN");
+        assert_eq!(result.results[2].code, "CHILD");
+    }
+
+    #[test]
+    fn test_execute_batch_parallel() {
+        let ruleset = create_test_ruleset();
+        let executor = RuleExecutor::new();
+
+        let inputs = vec![
+            serde_json::from_str(r#"{"age": 25}"#).unwrap(),
+            serde_json::from_str(r#"{"age": 15}"#).unwrap(),
+            serde_json::from_str(r#"{"age": 10}"#).unwrap(),
+            serde_json::from_str(r#"{"age": 30}"#).unwrap(),
+            serde_json::from_str(r#"{"age": 5}"#).unwrap(),
+        ];
+
+        let result = executor.execute_batch(&ruleset, inputs, true);
+
+        assert_eq!(result.total, 5);
+        assert_eq!(result.success, 5);
+        assert_eq!(result.failed, 0);
+        assert!(result.all_success());
+
+        // Results should be in order even with parallel execution
+        assert_eq!(result.results[0].code, "ADULT");
+        assert_eq!(result.results[1].code, "TEEN");
+        assert_eq!(result.results[2].code, "CHILD");
+        assert_eq!(result.results[3].code, "ADULT");
+        assert_eq!(result.results[4].code, "CHILD");
+    }
+
+    #[test]
+    fn test_execute_batch_empty() {
+        let ruleset = create_test_ruleset();
+        let executor = RuleExecutor::new();
+
+        let inputs = vec![];
+        let result = executor.execute_batch(&ruleset, inputs, false);
+
+        assert_eq!(result.total, 0);
+        assert_eq!(result.success, 0);
+        assert_eq!(result.failed, 0);
+        assert!(result.all_success());
+        assert_eq!(result.success_rate(), 1.0);
+    }
+
+    #[test]
+    fn test_execute_batch_with_errors() {
+        // Create a ruleset that will fail for certain inputs
+        let mut ruleset = RuleSet::new("error_test", "check");
+
+        ruleset.add_step(
+            Step::decision("check", "Check Value")
+                .branch(Condition::from_string("value > 0"), "ok")
+                // No default - will error if value <= 0
+                .build(),
+        );
+
+        ruleset.add_step(Step::terminal(
+            "ok",
+            "OK",
+            TerminalResult::new("SUCCESS").with_message("Value is positive"),
+        ));
+
+        let executor = RuleExecutor::new();
+
+        let inputs = vec![
+            serde_json::from_str(r#"{"value": 10}"#).unwrap(),
+            serde_json::from_str(r#"{"value": -5}"#).unwrap(), // This will fail
+            serde_json::from_str(r#"{"value": 20}"#).unwrap(),
+        ];
+
+        let result = executor.execute_batch(&ruleset, inputs, false);
+
+        assert_eq!(result.total, 3);
+        assert_eq!(result.success, 2);
+        assert_eq!(result.failed, 1);
+        assert!(!result.all_success());
+
+        assert_eq!(result.results[0].code, "SUCCESS");
+        assert_eq!(result.results[1].code, "error");
+        assert!(result.results[1].error.is_some());
+        assert_eq!(result.results[2].code, "SUCCESS");
     }
 }

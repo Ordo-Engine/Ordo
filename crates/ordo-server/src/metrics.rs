@@ -113,6 +113,40 @@ lazy_static! {
         "Total number of store operations",
         &["operation"]
     ).unwrap();
+
+    // ==================== Batch Execution Metrics ====================
+
+    /// Total batch executions counter
+    pub static ref BATCH_EXECUTIONS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_batch_executions_total",
+        "Total number of batch executions",
+        &["ruleset"]
+    ).unwrap();
+
+    /// Batch size histogram
+    pub static ref BATCH_SIZE: HistogramVec = register_histogram_vec!(
+        "ordo_batch_size",
+        "Distribution of batch sizes",
+        &["ruleset"],
+        // Buckets for batch sizes
+        vec![1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
+    ).unwrap();
+
+    /// Batch execution duration histogram
+    pub static ref BATCH_DURATION: HistogramVec = register_histogram_vec!(
+        "ordo_batch_duration_seconds",
+        "Batch execution duration in seconds",
+        &["ruleset"],
+        // Buckets optimized for batch latency (longer than single execution)
+        vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0]
+    ).unwrap();
+
+    /// Batch success/failure counter
+    pub static ref BATCH_RESULTS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_batch_results_total",
+        "Total number of individual results in batch executions",
+        &["ruleset", "result"]
+    ).unwrap();
 }
 
 /// Initialize metrics (call once at startup)
@@ -198,6 +232,36 @@ pub fn record_http_request(method: &str, endpoint: &str, status: u16) {
 /// Record store operation
 pub fn record_store_operation(operation: &str) {
     STORE_OPERATIONS_TOTAL.with_label_values(&[operation]).inc();
+}
+
+/// Record batch execution metrics
+pub fn record_batch_execution(
+    ruleset: &str,
+    batch_size: usize,
+    success_count: usize,
+    failed_count: usize,
+    duration_secs: f64,
+) {
+    // Record batch execution count
+    BATCH_EXECUTIONS_TOTAL.with_label_values(&[ruleset]).inc();
+
+    // Record batch size distribution
+    BATCH_SIZE
+        .with_label_values(&[ruleset])
+        .observe(batch_size as f64);
+
+    // Record batch duration
+    BATCH_DURATION
+        .with_label_values(&[ruleset])
+        .observe(duration_secs);
+
+    // Record individual results
+    BATCH_RESULTS_TOTAL
+        .with_label_values(&[ruleset, "success"])
+        .inc_by(success_count as f64);
+    BATCH_RESULTS_TOTAL
+        .with_label_values(&[ruleset, "failed"])
+        .inc_by(failed_count as f64);
 }
 
 /// Encode all metrics to Prometheus text format

@@ -11,7 +11,7 @@ mod metrics;
 mod model;
 mod step;
 
-pub use executor::{ExecutionResult, RuleExecutor};
+pub use executor::{BatchExecutionResult, ExecutionResult, RuleExecutor, SingleExecutionResult};
 pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
 pub use model::{RuleSet, RuleSetConfig};
 pub use step::{Action, ActionKind, Branch, Condition, Step, StepKind, TerminalResult};

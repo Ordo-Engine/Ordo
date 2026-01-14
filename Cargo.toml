@@ -52,3 +52,5 @@ prost = "0.12"
 # 监控
 prometheus = "0.13"
 
+# 并行计算
+rayon = "1.10"

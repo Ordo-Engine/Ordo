@@ -281,6 +281,8 @@ async fn start_http_server(
         )
         // Rule execution
         .route("/api/v1/execute/:name", post(api::execute_ruleset))
+        // Batch execution
+        .route("/api/v1/execute/:name/batch", post(api::execute_ruleset_batch))
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Audit configuration

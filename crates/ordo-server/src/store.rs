@@ -237,7 +237,7 @@ impl RuleStore {
 
         let content = fs::read_to_string(path)?;
 
-        let ruleset: RuleSet = match format {
+        let mut ruleset: RuleSet = match format {
             FileFormat::Json => serde_json::from_str(&content)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
             FileFormat::Yaml => serde_yaml::from_str(&content)
@@ -249,6 +249,14 @@ impl RuleStore {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Validation failed: {}", errors.join(", ")),
+            )
+        })?;
+
+        // Pre-compile all expressions for faster execution
+        ruleset.compile().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Expression compilation failed: {}", e),
             )
         })?;
 
@@ -559,9 +567,16 @@ impl RuleStore {
     ///
     /// If persistence is enabled, the ruleset is also written to disk.
     /// If the rule already exists, the current version is backed up first.
-    pub fn put(&mut self, ruleset: RuleSet) -> Result<(), Vec<String>> {
+    /// Expressions are automatically compiled for faster execution.
+    pub fn put(&mut self, mut ruleset: RuleSet) -> Result<(), Vec<String>> {
         // Validate before storing
         ruleset.validate()?;
+
+        // Pre-compile all expressions for faster execution
+        if let Err(e) = ruleset.compile() {
+            return Err(vec![format!("Expression compilation error: {}", e)]);
+        }
+
         let name = ruleset.config.name.clone();
 
         // Backup current version if it exists (for version history)

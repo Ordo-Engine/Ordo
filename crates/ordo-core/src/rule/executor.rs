@@ -9,7 +9,6 @@ use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, ExprParser};
 use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 // Use web_time for WASM, std::time for native
@@ -338,12 +337,14 @@ impl RuleExecutor {
 
     /// Build output from terminal result
     fn build_output(&self, result: &TerminalResult, ctx: &Context) -> Result<Value> {
-        let mut output = HashMap::new();
+        use crate::context::IString;
+
+        let mut output: hashbrown::HashMap<IString, Value> = hashbrown::HashMap::new();
 
         // Evaluate output expressions
         for (key, expr) in &result.output {
             let value = self.evaluator.eval(expr, ctx)?;
-            output.insert(key.clone(), value);
+            output.insert(Arc::from(key.as_str()), value);
         }
 
         // Merge with static data
@@ -353,7 +354,7 @@ impl RuleExecutor {
             }
         }
 
-        Ok(Value::object(output))
+        Ok(Value::object_optimized(output))
     }
 }
 
@@ -389,7 +390,7 @@ impl ExecutionResult {
 
     /// Convert to JSON
     pub fn to_json(&self) -> Result<String> {
-        let mut map = HashMap::new();
+        let mut map = std::collections::HashMap::new();
         map.insert("code".to_string(), Value::string(&self.code));
         map.insert("message".to_string(), Value::string(&self.message));
         map.insert("output".to_string(), self.output.clone());

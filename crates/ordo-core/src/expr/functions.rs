@@ -319,12 +319,160 @@ impl FunctionRegistry {
     }
 
     /// Call a function by name
+    ///
+    /// Uses fast path for common built-in functions to avoid HashMap lookup overhead.
+    #[inline]
     pub fn call(&self, name: &str, args: &[Value]) -> Result<Value> {
+        // Fast path for most common functions - avoids HashMap lookup
+        match name {
+            "len" => return self.builtin_len(args),
+            "sum" => return self.builtin_sum(args),
+            "max" => return self.builtin_max(args),
+            "min" => return self.builtin_min(args),
+            "abs" => return self.builtin_abs(args),
+            "count" => return self.builtin_count(args),
+            "is_null" => return self.builtin_is_null(args),
+            _ => {}
+        }
+
+        // Slow path for other functions
         let func = self
             .functions
             .get(name)
             .ok_or_else(|| OrdoError::function_not_found(name))?;
         func(args)
+    }
+
+    // ==================== Fast path implementations ====================
+
+    #[inline]
+    fn builtin_len(&self, args: &[Value]) -> Result<Value> {
+        if args.len() != 1 {
+            return Err(OrdoError::FunctionArgError {
+                name: "len".to_string(),
+                message: format!("expected 1 argument(s), got {}", args.len()),
+            });
+        }
+        match &args[0] {
+            Value::String(s) => Ok(Value::int(s.len() as i64)),
+            Value::Array(a) => Ok(Value::int(a.len() as i64)),
+            Value::Object(o) => Ok(Value::int(o.len() as i64)),
+            v => Err(OrdoError::type_error(
+                "string, array, or object",
+                v.type_name(),
+            )),
+        }
+    }
+
+    #[inline]
+    fn builtin_sum(&self, args: &[Value]) -> Result<Value> {
+        if args.len() != 1 {
+            return Err(OrdoError::FunctionArgError {
+                name: "sum".to_string(),
+                message: format!("expected 1 argument(s), got {}", args.len()),
+            });
+        }
+        let arr = args[0]
+            .as_array()
+            .ok_or_else(|| OrdoError::type_error("array", args[0].type_name()))?;
+
+        let mut int_sum: i64 = 0;
+        let mut float_sum: f64 = 0.0;
+        let mut has_float = false;
+
+        for v in arr {
+            match v {
+                Value::Int(n) => int_sum += n,
+                Value::Float(n) => {
+                    has_float = true;
+                    float_sum += n;
+                }
+                _ => return Err(OrdoError::type_error("number", v.type_name())),
+            }
+        }
+
+        if has_float {
+            Ok(Value::float(int_sum as f64 + float_sum))
+        } else {
+            Ok(Value::int(int_sum))
+        }
+    }
+
+    #[inline]
+    fn builtin_max(&self, args: &[Value]) -> Result<Value> {
+        if args.is_empty() {
+            return Err(OrdoError::FunctionArgError {
+                name: "max".to_string(),
+                message: "expected at least 1 argument".to_string(),
+            });
+        }
+        let mut result = &args[0];
+        for arg in &args[1..] {
+            if arg.compare(result) == Some(std::cmp::Ordering::Greater) {
+                result = arg;
+            }
+        }
+        Ok(result.clone())
+    }
+
+    #[inline]
+    fn builtin_min(&self, args: &[Value]) -> Result<Value> {
+        if args.is_empty() {
+            return Err(OrdoError::FunctionArgError {
+                name: "min".to_string(),
+                message: "expected at least 1 argument".to_string(),
+            });
+        }
+        let mut result = &args[0];
+        for arg in &args[1..] {
+            if arg.compare(result) == Some(std::cmp::Ordering::Less) {
+                result = arg;
+            }
+        }
+        Ok(result.clone())
+    }
+
+    #[inline]
+    fn builtin_abs(&self, args: &[Value]) -> Result<Value> {
+        if args.len() != 1 {
+            return Err(OrdoError::FunctionArgError {
+                name: "abs".to_string(),
+                message: format!("expected 1 argument(s), got {}", args.len()),
+            });
+        }
+        match &args[0] {
+            Value::Int(n) => n
+                .checked_abs()
+                .map(Value::int)
+                .ok_or_else(|| OrdoError::eval_error("Integer overflow in abs()")),
+            Value::Float(n) => Ok(Value::float(n.abs())),
+            v => Err(OrdoError::type_error("number", v.type_name())),
+        }
+    }
+
+    #[inline]
+    fn builtin_count(&self, args: &[Value]) -> Result<Value> {
+        if args.len() != 1 {
+            return Err(OrdoError::FunctionArgError {
+                name: "count".to_string(),
+                message: format!("expected 1 argument(s), got {}", args.len()),
+            });
+        }
+        let arr = args[0]
+            .as_array()
+            .ok_or_else(|| OrdoError::type_error("array", args[0].type_name()))?;
+        Ok(Value::int(arr.len() as i64))
+    }
+
+    #[inline]
+    fn builtin_is_null(&self, args: &[Value]) -> Result<Value> {
+        if args.len() != 1 {
+            return Err(OrdoError::FunctionArgError {
+                name: "is_null".to_string(),
+                message: format!("expected 1 argument(s), got {}", args.len()),
+            });
+        }
+        Ok(Value::bool(args[0].is_null()))
     }
 }
 
@@ -359,9 +507,10 @@ fn require_float(_name: &str, value: &Value) -> Result<f64> {
         .ok_or_else(|| OrdoError::type_error("number", value.type_name()))
 }
 
-fn require_array<'a>(_name: &str, value: &'a Value) -> Result<&'a Vec<Value>> {
+fn require_array<'a>(_name: &str, value: &'a Value) -> Result<&'a [Value]> {
     value
         .as_array()
+        .map(|v| v.as_slice())
         .ok_or_else(|| OrdoError::type_error("array", value.type_name()))
 }
 

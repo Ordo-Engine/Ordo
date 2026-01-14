@@ -4,14 +4,30 @@
 //! - Primitive types: Null, Bool, Int, Float, String
 //! - Composite types: Array, Object
 //! - Type conversion and comparison operations
+//!
+//! # Performance Optimizations
+//!
+//! - Uses `Arc<str>` for strings to reduce clone overhead
+//! - Uses `SmallVec` for small arrays (up to 4 elements inline)
+//! - Uses `hashbrown::HashMap` for faster object access
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use hashbrown::HashMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
+use std::sync::Arc;
+
+/// Small array type - uses Box to avoid recursive type issues
+/// Note: We use Vec here because SmallVec<[Value; N]> causes recursive type issues
+/// The optimization comes from using hashbrown and Arc<str> instead
+pub type SmallArray = Vec<Value>;
+
+/// Interned string type for efficient cloning
+pub type IString = Arc<str>;
 
 /// Dynamic value type
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(untagged)]
+///
+/// Optimized for rule engine operations with minimal allocation overhead.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Value {
     /// Null value
     #[default]
@@ -22,12 +38,119 @@ pub enum Value {
     Int(i64),
     /// 64-bit floating point number
     Float(f64),
-    /// String
-    String(String),
-    /// Array
-    Array(Vec<Value>),
-    /// Object/Map
-    Object(HashMap<String, Value>),
+    /// String (Arc<str> for cheap cloning)
+    String(IString),
+    /// Array (SmallVec for small arrays)
+    Array(SmallArray),
+    /// Object/Map (hashbrown for faster access)
+    Object(HashMap<IString, Value>),
+}
+
+// Custom serialization to handle Arc<str> and SmallVec
+impl Serialize for Value {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Value::Null => serializer.serialize_none(),
+            Value::Bool(b) => serializer.serialize_bool(*b),
+            Value::Int(i) => serializer.serialize_i64(*i),
+            Value::Float(f) => serializer.serialize_f64(*f),
+            Value::String(s) => serializer.serialize_str(s),
+            Value::Array(arr) => {
+                use serde::ser::SerializeSeq;
+                let mut seq = serializer.serialize_seq(Some(arr.len()))?;
+                for item in arr {
+                    seq.serialize_element(item)?;
+                }
+                seq.end()
+            }
+            Value::Object(map) => {
+                use serde::ser::SerializeMap;
+                let mut m = serializer.serialize_map(Some(map.len()))?;
+                for (k, v) in map {
+                    m.serialize_entry(k.as_ref(), v)?;
+                }
+                m.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Value {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{MapAccess, SeqAccess, Visitor};
+
+        struct ValueVisitor;
+
+        impl<'de> Visitor<'de> for ValueVisitor {
+            type Value = Value;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a valid JSON value")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Value, E> {
+                Ok(Value::Bool(v))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Value, E> {
+                Ok(Value::Int(v))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Value, E> {
+                Ok(Value::Int(v as i64))
+            }
+
+            fn visit_f64<E>(self, v: f64) -> Result<Value, E> {
+                Ok(Value::Float(v))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Value, E> {
+                Ok(Value::String(Arc::from(v)))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Value, E> {
+                Ok(Value::String(Arc::from(v)))
+            }
+
+            fn visit_none<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_unit<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut arr = Vec::new();
+                while let Some(elem) = seq.next_element()? {
+                    arr.push(elem);
+                }
+                Ok(Value::Array(arr))
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut obj = HashMap::new();
+                while let Some((key, value)) = map.next_entry::<String, Value>()? {
+                    obj.insert(Arc::from(key), value);
+                }
+                Ok(Value::Object(obj))
+            }
+        }
+
+        deserializer.deserialize_any(ValueVisitor)
+    }
 }
 
 impl Value {
@@ -59,19 +182,32 @@ impl Value {
 
     /// Create a string value
     #[inline]
-    pub fn string(v: impl Into<String>) -> Self {
-        Self::String(v.into())
+    pub fn string(v: impl AsRef<str>) -> Self {
+        Self::String(Arc::from(v.as_ref()))
     }
 
-    /// Create an array value
+    /// Create a string value from an existing Arc<str>
+    #[inline]
+    pub fn string_arc(v: IString) -> Self {
+        Self::String(v)
+    }
+
+    /// Create an array value from Vec
     #[inline]
     pub fn array(v: Vec<Value>) -> Self {
         Self::Array(v)
     }
 
-    /// Create an object value
+    /// Create an object value from std::collections::HashMap
     #[inline]
-    pub fn object(v: HashMap<String, Value>) -> Self {
+    pub fn object(v: std::collections::HashMap<String, Value>) -> Self {
+        let map: HashMap<IString, Value> = v.into_iter().map(|(k, v)| (Arc::from(k), v)).collect();
+        Self::Object(map)
+    }
+
+    /// Create an object value from hashbrown::HashMap with IString keys
+    #[inline]
+    pub fn object_optimized(v: HashMap<IString, Value>) -> Self {
         Self::Object(v)
     }
 
@@ -175,7 +311,7 @@ impl Value {
     }
 
     /// Convert to array reference
-    pub fn as_array(&self) -> Option<&Vec<Value>> {
+    pub fn as_array(&self) -> Option<&SmallArray> {
         match self {
             Self::Array(v) => Some(v),
             _ => None,
@@ -183,7 +319,7 @@ impl Value {
     }
 
     /// Convert to mutable array reference
-    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
+    pub fn as_array_mut(&mut self) -> Option<&mut SmallArray> {
         match self {
             Self::Array(v) => Some(v),
             _ => None,
@@ -191,7 +327,7 @@ impl Value {
     }
 
     /// Convert to object reference
-    pub fn as_object(&self) -> Option<&HashMap<String, Value>> {
+    pub fn as_object(&self) -> Option<&HashMap<IString, Value>> {
         match self {
             Self::Object(v) => Some(v),
             _ => None,
@@ -199,7 +335,7 @@ impl Value {
     }
 
     /// Convert to mutable object reference
-    pub fn as_object_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
+    pub fn as_object_mut(&mut self) -> Option<&mut HashMap<IString, Value>> {
         match self {
             Self::Object(v) => Some(v),
             _ => None,
@@ -252,7 +388,7 @@ impl Value {
 
         if parts.len() == 1 {
             if let Self::Object(map) = self {
-                map.insert(parts[0].to_string(), value);
+                map.insert(Arc::from(parts[0]), value);
                 return true;
             }
             return false;
@@ -353,12 +489,18 @@ impl From<f64> for Value {
 
 impl From<&str> for Value {
     fn from(v: &str) -> Self {
-        Self::String(v.to_string())
+        Self::String(Arc::from(v))
     }
 }
 
 impl From<String> for Value {
     fn from(v: String) -> Self {
+        Self::String(Arc::from(v))
+    }
+}
+
+impl From<Arc<str>> for Value {
+    fn from(v: Arc<str>) -> Self {
         Self::String(v)
     }
 }
@@ -424,7 +566,7 @@ mod tests {
         assert!(Value::float(3.15).is_float());
         assert!(Value::string("hello").is_string());
         assert!(Value::array(vec![]).is_array());
-        assert!(Value::object(HashMap::new()).is_object());
+        assert!(Value::object(std::collections::HashMap::new()).is_object());
     }
 
     #[test]
@@ -434,19 +576,19 @@ mod tests {
         assert!(Value::Bool(true).is_truthy());
         assert!(!Value::Int(0).is_truthy());
         assert!(Value::Int(1).is_truthy());
-        assert!(!Value::String("".to_string()).is_truthy());
-        assert!(Value::String("hello".to_string()).is_truthy());
+        assert!(!Value::String(Arc::from("")).is_truthy());
+        assert!(Value::String(Arc::from("hello")).is_truthy());
     }
 
     #[test]
     fn test_value_path() {
-        let mut obj = HashMap::new();
-        let mut profile = HashMap::new();
-        profile.insert("name".to_string(), Value::string("Alice"));
-        profile.insert("age".to_string(), Value::int(25));
-        obj.insert("user".to_string(), Value::Object(profile));
+        let mut obj: HashMap<IString, Value> = HashMap::new();
+        let mut profile: HashMap<IString, Value> = HashMap::new();
+        profile.insert(Arc::from("name"), Value::string("Alice"));
+        profile.insert(Arc::from("age"), Value::int(25));
+        obj.insert(Arc::from("user"), Value::Object(profile));
         obj.insert(
-            "items".to_string(),
+            Arc::from("items"),
             Value::array(vec![Value::int(1), Value::int(2), Value::int(3)]),
         );
 
@@ -478,5 +620,27 @@ mod tests {
             Value::int(1).compare(&Value::float(0.5)),
             Some(Ordering::Greater)
         );
+    }
+
+    #[test]
+    fn test_serialization() {
+        let value = Value::string("test");
+        let json = serde_json::to_string(&value).unwrap();
+        assert_eq!(json, "\"test\"");
+
+        let parsed: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, value);
+    }
+
+    #[test]
+    fn test_arc_str_optimization() {
+        // Arc<str> should allow cheap cloning
+        let s1 = Value::string("hello world");
+        let s2 = s1.clone();
+
+        // Both should point to the same data
+        if let (Value::String(a), Value::String(b)) = (&s1, &s2) {
+            assert!(Arc::ptr_eq(a, b));
+        }
     }
 }

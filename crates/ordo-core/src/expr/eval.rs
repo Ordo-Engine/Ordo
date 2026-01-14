@@ -327,7 +327,7 @@ impl Evaluator {
             Value::Array(arr) => Ok(Value::bool(arr.contains(value))),
             Value::String(s) => {
                 if let Value::String(v) = value {
-                    Ok(Value::bool(s.contains(v.as_str())))
+                    Ok(Value::bool(s.contains(v.as_ref())))
                 } else {
                     Err(OrdoError::eval_error(
                         "'in' with string requires string value",

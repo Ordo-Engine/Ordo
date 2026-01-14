@@ -3,6 +3,7 @@
 //! Defines the structure of rule sets
 
 use super::step::Step;
+use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -111,7 +112,7 @@ impl RuleSet {
     }
 
     /// Validate the RuleSet
-    pub fn validate(&self) -> Result<(), Vec<String>> {
+    pub fn validate(&self) -> std::result::Result<(), Vec<String>> {
         let mut errors = Vec::new();
 
         // Check entry step exists
@@ -139,23 +140,71 @@ impl RuleSet {
     }
 
     /// Load from JSON string
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+    pub fn from_json(json: &str) -> std::result::Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
     /// Load from YAML string
-    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
+    pub fn from_yaml(yaml: &str) -> std::result::Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
     }
 
     /// Serialize to JSON
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+    pub fn to_json(&self) -> std::result::Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
     /// Serialize to YAML
-    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+    pub fn to_yaml(&self) -> std::result::Result<String, serde_yaml::Error> {
         serde_yaml::to_string(self)
+    }
+
+    /// Compile all expression strings in this ruleset to expression ASTs.
+    ///
+    /// This pre-parses all condition expressions for faster evaluation at runtime.
+    /// Call this after loading a ruleset from JSON/YAML to avoid repeated parsing
+    /// during rule execution.
+    ///
+    /// # Example
+    /// ```
+    /// use ordo_core::prelude::*;
+    ///
+    /// let json = r#"{
+    ///     "config": { "name": "test", "entry_step": "start" },
+    ///     "steps": {
+    ///         "start": {
+    ///             "id": "start",
+    ///             "name": "Start",
+    ///             "type": "terminal",
+    ///             "result": { "code": "OK" }
+    ///         }
+    ///     }
+    /// }"#;
+    ///
+    /// let mut ruleset = RuleSet::from_json(json).unwrap();
+    /// ruleset.compile().unwrap(); // Pre-compile all expressions
+    /// ```
+    pub fn compile(&mut self) -> Result<()> {
+        for step in self.steps.values_mut() {
+            step.compile()?;
+        }
+        Ok(())
+    }
+
+    /// Load from JSON string and compile expressions
+    pub fn from_json_compiled(json: &str) -> Result<Self> {
+        let mut ruleset: Self = serde_json::from_str(json)
+            .map_err(|e| crate::error::OrdoError::parse_error(e.to_string()))?;
+        ruleset.compile()?;
+        Ok(ruleset)
+    }
+
+    /// Load from YAML string and compile expressions
+    pub fn from_yaml_compiled(yaml: &str) -> Result<Self> {
+        let mut ruleset: Self = serde_yaml::from_str(yaml)
+            .map_err(|e| crate::error::OrdoError::parse_error(e.to_string()))?;
+        ruleset.compile()?;
+        Ok(ruleset)
     }
 }
 

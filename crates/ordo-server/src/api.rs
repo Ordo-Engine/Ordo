@@ -188,15 +188,19 @@ pub async fn execute_ruleset(
     Json(request): Json<ExecuteRequest>,
 ) -> ApiResult<Json<ExecuteResponse>> {
     let start = Instant::now();
-    let store = state.store.read().await;
 
-    // Get ruleset
-    let ruleset = store
-        .get(&name)
-        .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+    // Get ruleset with minimal lock hold time
+    // We get Arc<RuleSet> and immediately release the lock
+    let ruleset = {
+        let store = state.store.read().await;
+        store
+            .get(&name)
+            .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
+        // Lock is released here when store goes out of scope
+    };
 
-    // Execute
-    let result = match store.executor().execute(&ruleset, request.input) {
+    // Execute without holding the lock (uses shared executor from AppState)
+    let result = match state.executor.execute(&ruleset, request.input) {
         Ok(result) => {
             // Record success metrics
             let duration_secs = start.elapsed().as_secs_f64();

@@ -3,7 +3,8 @@
 //! Defines the step flow model
 
 use crate::context::Value;
-use crate::expr::Expr;
+use crate::error::Result;
+use crate::expr::{Expr, ExprParser};
 use serde::{Deserialize, Serialize};
 
 /// A step in the rule flow
@@ -77,6 +78,17 @@ impl Step {
             StepKind::Action { next_step, .. } => vec![next_step.clone()],
             StepKind::Terminal { .. } => vec![],
         }
+    }
+
+    /// Compile all expression strings in this step to expression ASTs.
+    /// This pre-parses conditions for faster evaluation at runtime.
+    pub fn compile(&mut self) -> Result<()> {
+        if let StepKind::Decision { branches, .. } = &mut self.kind {
+            for branch in branches {
+                branch.compile()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -174,6 +186,13 @@ pub struct Branch {
     pub actions: Vec<Action>,
 }
 
+impl Branch {
+    /// Compile the condition expression in this branch
+    pub fn compile(&mut self) -> Result<()> {
+        self.condition.compile()
+    }
+}
+
 /// Condition for branching
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -197,6 +216,23 @@ impl Condition {
     /// Create an expression condition from string
     pub fn from_string(s: impl Into<String>) -> Self {
         Self::ExpressionString(s.into())
+    }
+
+    /// Compile expression string to expression AST.
+    /// This converts `ExpressionString` to `Expression` for faster evaluation.
+    /// Returns Ok(()) if already compiled or compilation succeeds.
+    pub fn compile(&mut self) -> Result<()> {
+        if let Condition::ExpressionString(s) = self {
+            let expr = ExprParser::parse(s)?;
+            *self = Condition::Expression(expr);
+        }
+        Ok(())
+    }
+
+    /// Check if this condition is already compiled
+    #[inline]
+    pub fn is_compiled(&self) -> bool {
+        !matches!(self, Condition::ExpressionString(_))
     }
 }
 

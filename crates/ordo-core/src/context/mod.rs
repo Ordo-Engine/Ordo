@@ -8,4 +8,4 @@ mod store;
 mod value;
 
 pub use store::Context;
-pub use value::Value;
+pub use value::{IString, SmallArray, Value};

@@ -51,6 +51,7 @@ use audit::AuditLogger;
 use config::ServerConfig;
 use grpc::OrdoGrpcService;
 use metrics::PrometheusMetricSink;
+use ordo_core::prelude::{RuleExecutor, TraceConfig};
 use store::RuleStore;
 
 /// Application state shared between HTTP handlers
@@ -59,6 +60,8 @@ pub struct AppState {
     store: Arc<RwLock<RuleStore>>,
     audit_logger: Arc<AuditLogger>,
     metric_sink: Arc<PrometheusMetricSink>,
+    /// Shared executor for rule execution (avoids holding lock during execution)
+    executor: Arc<RuleExecutor>,
 }
 
 #[tokio::main]
@@ -81,6 +84,12 @@ async fn main() -> anyhow::Result<()> {
     // Initialize Prometheus metric sink for custom rule metrics
     let metric_sink = Arc::new(PrometheusMetricSink::new());
     info!("Initialized Prometheus metric sink for custom rule metrics");
+
+    // Initialize shared executor (moved out of RuleStore for lock-free execution)
+    let executor = Arc::new(RuleExecutor::with_trace_and_metrics(
+        TraceConfig::minimal(),
+        metric_sink.clone(),
+    ));
 
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
@@ -163,9 +172,17 @@ async fn main() -> anyhow::Result<()> {
         let http_store = store.clone();
         let http_audit_logger = audit_logger.clone();
         let http_metric_sink = metric_sink.clone();
+        let http_executor = executor.clone();
         let http_addr = config.http_addr;
         tasks.push(tokio::spawn(async move {
-            start_http_server(http_addr, http_store, http_audit_logger, http_metric_sink).await
+            start_http_server(
+                http_addr,
+                http_store,
+                http_audit_logger,
+                http_metric_sink,
+                http_executor,
+            )
+            .await
         }));
     }
 
@@ -231,11 +248,13 @@ async fn start_http_server(
     store: Arc<RwLock<RuleStore>>,
     audit_logger: Arc<AuditLogger>,
     metric_sink: Arc<PrometheusMetricSink>,
+    executor: Arc<RuleExecutor>,
 ) -> anyhow::Result<()> {
     let state = AppState {
         store,
         audit_logger,
         metric_sink,
+        executor,
     };
 
     // Build router

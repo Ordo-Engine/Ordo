@@ -162,8 +162,15 @@ curl http://localhost:8080/api/v1/rulesets
 curl -X DELETE http://localhost:8080/api/v1/rulesets/discount-check
 ```
 
-## Next Steps
+## What's Next?
 
-- [Rule Structure](./rule-structure) - Learn about step types and branching
-- [Expression Syntax](./expression-syntax) - Write complex conditions
-- [HTTP API Reference](/api/http-api) - Full API documentation
+You've learned the basics! Here are some key concepts to explore:
+
+- **Rule Structure**: Rules consist of steps (decision, action, terminal) connected by conditions
+- **Expression Syntax**: Use operators like `==`, `!=`, `>`, `<`, `&&`, `||` and functions like `len()`, `sum()`, `contains()`
+- **API Endpoints**:
+  - `POST /api/v1/rulesets` - Create rules
+  - `GET /api/v1/rulesets` - List rules
+  - `POST /api/v1/execute/{name}` - Execute rules
+  - `GET /health` - Health check
+  - `GET /metrics` - Prometheus metrics

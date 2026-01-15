@@ -17,6 +17,18 @@ smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+# JIT compilation
+cranelift.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+cranelift-codegen.workspace = true
+
+# Concurrent data structures
+dashmap.workspace = true
+crossbeam-channel.workspace = true
+lru.workspace = true
+
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
 
@@ -26,4 +38,8 @@ harness = false
 
 [[bench]]
 name = "optimization_bench"
+harness = false
+
+[[bench]]
+name = "jit_bench"
 harness = false

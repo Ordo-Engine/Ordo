@@ -54,3 +54,15 @@ prometheus = "0.13"
 
 # 并行计算
 rayon = "1.10"
+
+# JIT 编译
+cranelift = "0.110"
+cranelift-jit = "0.110"
+cranelift-module = "0.110"
+cranelift-native = "0.110"
+cranelift-codegen = "0.110"
+
+# 并发数据结构
+dashmap = "6"
+crossbeam-channel = "0.5"
+lru = "0.12"

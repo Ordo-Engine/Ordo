@@ -16,6 +16,18 @@ export interface FieldSuggestion {
   description?: string;
 }
 
+/** JIT analysis result for the expression */
+export interface JITAnalysisResult {
+  /** Whether the expression is JIT-compatible */
+  jitCompatible: boolean;
+  /** Reason for incompatibility */
+  reason?: string;
+  /** Unsupported features found */
+  unsupportedFeatures?: string[];
+  /** Supported features used */
+  supportedFeatures?: string[];
+}
+
 export interface Props {
   /** Expression string */
   modelValue: string;
@@ -27,6 +39,10 @@ export interface Props {
   disabled?: boolean;
   /** Whether to show syntax validation */
   showValidation?: boolean;
+  /** Whether to show JIT compatibility indicator */
+  showJitIndicator?: boolean;
+  /** External JIT analysis result (if provided, skips internal analysis) */
+  jitAnalysis?: JITAnalysisResult | null;
   /** Multiline mode */
   multiline?: boolean;
   /** Minimum rows (for multiline) */
@@ -40,6 +56,8 @@ const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
   disabled: false,
   showValidation: true,
+  showJitIndicator: false,
+  jitAnalysis: null,
   multiline: false,
   minRows: 1,
   maxRows: 5,
@@ -49,6 +67,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string];
   change: [value: string];
   validate: [valid: boolean, error?: string];
+  'jit-analysis': [result: JITAnalysisResult];
 }>();
 
 // State
@@ -57,6 +76,72 @@ const showSuggestions = ref(false);
 const selectedSuggestionIndex = ref(0);
 const cursorPosition = ref(0);
 const validationError = ref<string | null>(null);
+
+// JIT compatibility state
+const internalJitAnalysis = ref<JITAnalysisResult | null>(null);
+const isAnalyzingJit = ref(false);
+
+// Use external analysis if provided, otherwise use internal
+const jitResult = computed(() => props.jitAnalysis ?? internalJitAnalysis.value);
+
+// Simple client-side JIT compatibility check (heuristic-based)
+// For accurate analysis, use the WASM analyze_jit_compatibility function
+function analyzeJitCompatibility(expr: string): JITAnalysisResult {
+  if (!expr.trim()) {
+    return { jitCompatible: true };
+  }
+
+  const unsupportedFeatures: string[] = [];
+  const supportedFeatures: string[] = [];
+
+  // Check for unsupported string operations
+  if (expr.includes(' in ') || expr.includes(' contains ') || expr.includes(' not in ')) {
+    unsupportedFeatures.push('set_operations');
+  }
+
+  // Check for string literals (JIT works best with numeric expressions)
+  const stringLiteralMatch = expr.match(/["'][^"']*["']/g);
+  if (stringLiteralMatch && stringLiteralMatch.length > 0) {
+    unsupportedFeatures.push('string_comparison');
+  }
+
+  // Check for array syntax
+  if (expr.includes('[') && expr.includes(']')) {
+    unsupportedFeatures.push('array_access');
+  }
+
+  // Check for supported features
+  if (/[<>]=?|==|!=/.test(expr)) {
+    supportedFeatures.push('comparison');
+  }
+  if (/&&|\|\|/.test(expr)) {
+    supportedFeatures.push('logical_operations');
+  }
+  if (/[+\-*/]/.test(expr)) {
+    supportedFeatures.push('arithmetic');
+  }
+  if (/\$\.\w+/.test(expr) || /\b\w+\.\w+\b/.test(expr)) {
+    supportedFeatures.push('field_access');
+  }
+
+  // Check for supported math functions
+  const supportedFuncs = ['abs', 'min', 'max', 'floor', 'ceil', 'round', 'sqrt', 'pow'];
+  for (const func of supportedFuncs) {
+    if (expr.includes(`${func}(`)) {
+      supportedFeatures.push('math_functions');
+      break;
+    }
+  }
+
+  const jitCompatible = unsupportedFeatures.length === 0;
+
+  return {
+    jitCompatible,
+    reason: jitCompatible ? undefined : `Unsupported: ${unsupportedFeatures.join(', ')}`,
+    unsupportedFeatures,
+    supportedFeatures,
+  };
+}
 
 // Filter suggestions based on current word
 const currentWord = computed(() => {
@@ -147,6 +232,13 @@ watch(
       const result = validateExpression(newVal);
       validationError.value = result.error || null;
       emit('validate', result.valid, result.error);
+    }
+
+    // Analyze JIT compatibility if enabled and no external analysis provided
+    if (props.showJitIndicator && !props.jitAnalysis) {
+      const jitResult = analyzeJitCompatibility(newVal);
+      internalJitAnalysis.value = jitResult;
+      emit('jit-analysis', jitResult);
     }
   },
   { immediate: true }
@@ -277,10 +369,32 @@ onUnmounted(() => {
         @keyup="updateCursorPosition"
       />
 
-      <!-- Validation indicator -->
-      <div v-if="showValidation && modelValue" class="ordo-expression-input__indicator">
+      <!-- Indicators container -->
+      <div v-if="(showValidation || showJitIndicator) && modelValue" class="ordo-expression-input__indicators">
+        <!-- JIT compatibility indicator -->
         <span
-          v-if="validationError"
+          v-if="showJitIndicator && jitResult"
+          class="ordo-expression-input__status jit"
+          :class="{ compatible: jitResult.jitCompatible, incompatible: !jitResult.jitCompatible }"
+          :title="jitResult.jitCompatible 
+            ? 'JIT Compatible - Can be compiled for ~20x faster execution' 
+            : `Not JIT Compatible: ${jitResult.reason || 'Unknown reason'}`"
+        >
+          <!-- Lightning bolt icon for JIT -->
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            stroke="none"
+          >
+            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+          </svg>
+        </span>
+
+        <!-- Validation indicator -->
+        <span
+          v-if="showValidation && validationError"
           class="ordo-expression-input__status error"
           :title="validationError"
         >
@@ -297,7 +411,7 @@ onUnmounted(() => {
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
         </span>
-        <span v-else class="ordo-expression-input__status success">
+        <span v-else-if="showValidation" class="ordo-expression-input__status success">
           <svg
             width="14"
             height="14"
@@ -401,23 +515,26 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.ordo-expression-input__indicator {
+.ordo-expression-input__indicators {
   position: absolute;
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
+  gap: 4px;
   pointer-events: none;
 }
 
-.ordo-expression-input__field.is-multiline + .ordo-expression-input__indicator {
+.ordo-expression-input__field.is-multiline + .ordo-expression-input__indicators {
   top: 10px;
   transform: none;
 }
 
 .ordo-expression-input__status {
   display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ordo-expression-input__status.error {
@@ -426,6 +543,29 @@ onUnmounted(() => {
 
 .ordo-expression-input__status.success {
   color: var(--ordo-success);
+}
+
+/* JIT Compatibility Indicator */
+.ordo-expression-input__status.jit {
+  padding: 2px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.ordo-expression-input__status.jit.compatible {
+  color: #f59e0b; /* Amber/gold for lightning */
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.ordo-expression-input__status.jit.incompatible {
+  color: var(--ordo-text-tertiary);
+  opacity: 0.4;
+}
+
+/* Tooltip styling would be added via a tooltip component */
+.ordo-expression-input__status.jit:hover {
+  pointer-events: auto;
+  cursor: help;
 }
 
 /* Suggestions Dropdown */

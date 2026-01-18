@@ -1291,6 +1291,7 @@ dependencies = [
  "dashmap",
  "hashbrown 0.14.5",
  "lru",
+ "ordo-derive",
  "parking_lot",
  "rayon",
  "regex",
@@ -1300,6 +1301,15 @@ dependencies = [
  "smallvec",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "ordo-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

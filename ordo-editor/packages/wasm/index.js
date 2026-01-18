@@ -57,3 +57,14 @@ export async function eval_expression(expression, context_json) {
   await ensureLoaded();
   return wasmModule.eval_expression(expression, context_json);
 }
+
+// JIT Compatibility Analysis Functions
+export async function analyze_jit_compatibility(expression) {
+  await ensureLoaded();
+  return wasmModule.analyze_jit_compatibility(expression);
+}
+
+export async function analyze_ruleset_jit(ruleset_json) {
+  await ensureLoaded();
+  return wasmModule.analyze_ruleset_jit(ruleset_json);
+}

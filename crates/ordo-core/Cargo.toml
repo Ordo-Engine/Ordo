@@ -29,8 +29,16 @@ dashmap.workspace = true
 crossbeam-channel.workspace = true
 lru.workspace = true
 
+# Derive macros
+ordo-derive = { workspace = true, optional = true }
+
+[features]
+default = ["derive"]
+derive = ["ordo-derive"]
+
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
+ordo-derive = { workspace = true }
 
 [[bench]]
 name = "engine_bench"
@@ -41,5 +49,17 @@ name = "optimization_bench"
 harness = false
 
 [[bench]]
-name = "jit_bench"
+name = "schema_jit_bench"
+harness = false
+
+[[bench]]
+name = "jit_comparison_bench"
+harness = false
+
+[[bench]]
+name = "jit_realistic_bench"
+harness = false
+
+[[bench]]
+name = "jit_stress_bench"
 harness = false

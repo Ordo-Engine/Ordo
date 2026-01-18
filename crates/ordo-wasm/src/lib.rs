@@ -2,7 +2,9 @@
 //!
 //! This crate provides WASM-compatible bindings for executing rules in the browser.
 
+use ordo_core::expr::{BinaryOp, Expr};
 use ordo_core::prelude::*;
+use ordo_core::rule::{ActionKind, Condition};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -201,6 +203,431 @@ pub fn eval_expression(
 extern "C" {
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     fn now() -> f64;
+}
+
+// ============================================================================
+// JIT Compatibility Analysis
+// ============================================================================
+
+/// Result of JIT compatibility analysis for a single expression
+#[derive(Serialize, Deserialize)]
+pub struct JITExprAnalysis {
+    /// Whether the expression is JIT-compatible
+    pub jit_compatible: bool,
+    /// Reason for incompatibility (if not compatible)
+    pub reason: Option<String>,
+    /// List of fields accessed by the expression
+    pub accessed_fields: Vec<String>,
+    /// Unsupported features found in the expression
+    pub unsupported_features: Vec<String>,
+    /// Supported features used in the expression
+    pub supported_features: Vec<String>,
+}
+
+/// Result of JIT compatibility analysis for a ruleset
+#[derive(Serialize, Deserialize)]
+pub struct JITRulesetAnalysis {
+    /// Overall JIT compatibility (all expressions must be compatible)
+    pub overall_compatible: bool,
+    /// Number of JIT-compatible expressions
+    pub compatible_count: usize,
+    /// Number of incompatible expressions
+    pub incompatible_count: usize,
+    /// Total number of expressions analyzed
+    pub total_expressions: usize,
+    /// Analysis of individual expressions (keyed by step_id)
+    pub expressions: Vec<JITExpressionEntry>,
+    /// Estimated performance improvement (1.0 = no improvement)
+    pub estimated_speedup: f64,
+    /// Summary of required schema fields
+    pub required_fields: Vec<RequiredFieldInfo>,
+}
+
+/// Entry for a single expression analysis
+#[derive(Serialize, Deserialize)]
+pub struct JITExpressionEntry {
+    /// Step ID containing this expression
+    pub step_id: String,
+    /// Step name
+    pub step_name: String,
+    /// Type of expression location (condition, assignment, etc.)
+    pub location: String,
+    /// The expression string
+    pub expression: String,
+    /// Analysis result
+    pub analysis: JITExprAnalysis,
+}
+
+/// Information about a required field for JIT
+#[derive(Serialize, Deserialize)]
+pub struct RequiredFieldInfo {
+    /// Field path (e.g., "user.age")
+    pub path: String,
+    /// Inferred type from usage
+    pub inferred_type: String,
+    /// Steps that access this field
+    pub used_in_steps: Vec<String>,
+}
+
+/// Analyze a single expression for JIT compatibility
+///
+/// # Arguments
+/// * `expression` - Expression string to analyze
+///
+/// # Returns
+/// JSON string containing JITExprAnalysis
+#[wasm_bindgen]
+pub fn analyze_jit_compatibility(expression: &str) -> std::result::Result<String, JsValue> {
+    // Parse expression
+    let expr = ExprParser::parse(expression)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse expression: {}", e)))?;
+
+    let analysis = analyze_expr_jit_compatibility(&expr);
+
+    serde_json::to_string(&analysis)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+/// Analyze an entire ruleset for JIT compatibility
+///
+/// # Arguments
+/// * `ruleset_json` - RuleSet definition as JSON string
+///
+/// # Returns
+/// JSON string containing JITRulesetAnalysis
+#[wasm_bindgen]
+pub fn analyze_ruleset_jit(ruleset_json: &str) -> std::result::Result<String, JsValue> {
+    // Parse ruleset
+    let ruleset: RuleSet = serde_json::from_str(ruleset_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse ruleset: {}", e)))?;
+
+    let analysis = analyze_ruleset_jit_compatibility(&ruleset);
+
+    serde_json::to_string(&analysis)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+// ============================================================================
+// Internal Analysis Functions
+// ============================================================================
+
+/// Analyze a single expression for JIT compatibility
+fn analyze_expr_jit_compatibility(expr: &Expr) -> JITExprAnalysis {
+    let mut accessed_fields = Vec::new();
+    let mut unsupported_features = Vec::new();
+    let mut supported_features = Vec::new();
+    let mut is_compatible = true;
+    let mut reason: Option<String> = None;
+
+    collect_expr_analysis(
+        expr,
+        &mut accessed_fields,
+        &mut unsupported_features,
+        &mut supported_features,
+    );
+
+    // Check for unsupported features
+    if !unsupported_features.is_empty() {
+        is_compatible = false;
+        reason = Some(format!(
+            "Unsupported features: {}",
+            unsupported_features.join(", ")
+        ));
+    }
+
+    JITExprAnalysis {
+        jit_compatible: is_compatible,
+        reason,
+        accessed_fields,
+        unsupported_features,
+        supported_features,
+    }
+}
+
+/// Collect analysis information from an expression
+fn collect_expr_analysis(
+    expr: &Expr,
+    accessed_fields: &mut Vec<String>,
+    unsupported_features: &mut Vec<String>,
+    supported_features: &mut Vec<String>,
+) {
+    match expr {
+        Expr::Literal(v) => match v {
+            Value::Null | Value::Bool(_) | Value::Int(_) | Value::Float(_) => {
+                if !supported_features.contains(&"numeric_literal".to_string()) {
+                    supported_features.push("numeric_literal".to_string());
+                }
+            }
+            Value::String(_) => {
+                if !unsupported_features.contains(&"string_literal".to_string()) {
+                    unsupported_features.push("string_literal".to_string());
+                }
+            }
+            Value::Array(_) => {
+                if !unsupported_features.contains(&"array_literal".to_string()) {
+                    unsupported_features.push("array_literal".to_string());
+                }
+            }
+            Value::Object(_) => {
+                if !unsupported_features.contains(&"object_literal".to_string()) {
+                    unsupported_features.push("object_literal".to_string());
+                }
+            }
+        },
+        Expr::Field(name) => {
+            if !accessed_fields.contains(name) {
+                accessed_fields.push(name.clone());
+            }
+            if !supported_features.contains(&"field_access".to_string()) {
+                supported_features.push("field_access".to_string());
+            }
+        }
+        Expr::Binary { left, right, op } => {
+            // Check operator support
+            match op {
+                BinaryOp::In | BinaryOp::NotIn | BinaryOp::Contains => {
+                    let op_name = format!("{:?}_operator", op);
+                    if !unsupported_features.contains(&op_name) {
+                        unsupported_features.push(op_name);
+                    }
+                }
+                _ => {
+                    if !supported_features.contains(&"binary_operations".to_string()) {
+                        supported_features.push("binary_operations".to_string());
+                    }
+                }
+            }
+            collect_expr_analysis(
+                left,
+                accessed_fields,
+                unsupported_features,
+                supported_features,
+            );
+            collect_expr_analysis(
+                right,
+                accessed_fields,
+                unsupported_features,
+                supported_features,
+            );
+        }
+        Expr::Unary { operand, .. } => {
+            if !supported_features.contains(&"unary_operations".to_string()) {
+                supported_features.push("unary_operations".to_string());
+            }
+            collect_expr_analysis(
+                operand,
+                accessed_fields,
+                unsupported_features,
+                supported_features,
+            );
+        }
+        Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            if !supported_features.contains(&"conditional".to_string()) {
+                supported_features.push("conditional".to_string());
+            }
+            collect_expr_analysis(
+                condition,
+                accessed_fields,
+                unsupported_features,
+                supported_features,
+            );
+            collect_expr_analysis(
+                then_branch,
+                accessed_fields,
+                unsupported_features,
+                supported_features,
+            );
+            collect_expr_analysis(
+                else_branch,
+                accessed_fields,
+                unsupported_features,
+                supported_features,
+            );
+        }
+        Expr::Call { name, args } => {
+            // Check if function is supported
+            let supported_funcs = ["abs", "min", "max", "floor", "ceil", "round", "sqrt", "pow"];
+            if supported_funcs.contains(&name.as_str()) {
+                if !supported_features.contains(&"math_functions".to_string()) {
+                    supported_features.push("math_functions".to_string());
+                }
+            } else {
+                let feature = format!("function:{}", name);
+                if !unsupported_features.contains(&feature) {
+                    unsupported_features.push(feature);
+                }
+            }
+            for arg in args {
+                collect_expr_analysis(
+                    arg,
+                    accessed_fields,
+                    unsupported_features,
+                    supported_features,
+                );
+            }
+        }
+        Expr::Array(items) => {
+            if !unsupported_features.contains(&"array_construction".to_string()) {
+                unsupported_features.push("array_construction".to_string());
+            }
+            for item in items {
+                collect_expr_analysis(
+                    item,
+                    accessed_fields,
+                    unsupported_features,
+                    supported_features,
+                );
+            }
+        }
+        Expr::Object(pairs) => {
+            if !unsupported_features.contains(&"object_construction".to_string()) {
+                unsupported_features.push("object_construction".to_string());
+            }
+            for (_, v) in pairs {
+                collect_expr_analysis(v, accessed_fields, unsupported_features, supported_features);
+            }
+        }
+        Expr::Exists(field) => {
+            if !unsupported_features.contains(&"exists_check".to_string()) {
+                unsupported_features.push("exists_check".to_string());
+            }
+            if !accessed_fields.contains(field) {
+                accessed_fields.push(field.clone());
+            }
+        }
+        Expr::Coalesce(exprs) => {
+            if !unsupported_features.contains(&"coalesce".to_string()) {
+                unsupported_features.push("coalesce".to_string());
+            }
+            for e in exprs {
+                collect_expr_analysis(e, accessed_fields, unsupported_features, supported_features);
+            }
+        }
+    }
+}
+
+/// Analyze an entire ruleset for JIT compatibility
+fn analyze_ruleset_jit_compatibility(ruleset: &RuleSet) -> JITRulesetAnalysis {
+    let mut expressions = Vec::new();
+    let mut compatible_count = 0;
+    let mut incompatible_count = 0;
+    let mut all_fields: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    // Analyze each step
+    for (step_id, step) in &ruleset.steps {
+        match &step.kind {
+            StepKind::Decision { branches, .. } => {
+                for (branch_idx, branch) in branches.iter().enumerate() {
+                    // Analyze the condition
+                    let (expr_opt, expr_str) = match &branch.condition {
+                        Condition::Always => (None, "true".to_string()),
+                        Condition::Expression(expr) => (Some(expr.clone()), format!("{:?}", expr)),
+                        Condition::ExpressionString(s) => match ExprParser::parse(s) {
+                            Ok(expr) => (Some(expr), s.clone()),
+                            Err(_) => (None, s.clone()),
+                        },
+                    };
+
+                    if let Some(expr) = expr_opt {
+                        let analysis = analyze_expr_jit_compatibility(&expr);
+
+                        // Track fields
+                        for field in &analysis.accessed_fields {
+                            all_fields
+                                .entry(field.clone())
+                                .or_default()
+                                .push(step_id.clone());
+                        }
+
+                        if analysis.jit_compatible {
+                            compatible_count += 1;
+                        } else {
+                            incompatible_count += 1;
+                        }
+
+                        expressions.push(JITExpressionEntry {
+                            step_id: step_id.clone(),
+                            step_name: step.name.clone(),
+                            location: format!("branch:{}", branch_idx),
+                            expression: expr_str,
+                            analysis,
+                        });
+                    }
+                }
+            }
+            StepKind::Action { actions, .. } => {
+                for action in actions {
+                    if let ActionKind::SetVariable { name: _, value } = &action.kind {
+                        // value is an Expr, analyze it directly
+                        let analysis = analyze_expr_jit_compatibility(value);
+
+                        for field in &analysis.accessed_fields {
+                            all_fields
+                                .entry(field.clone())
+                                .or_default()
+                                .push(step_id.clone());
+                        }
+
+                        if analysis.jit_compatible {
+                            compatible_count += 1;
+                        } else {
+                            incompatible_count += 1;
+                        }
+
+                        expressions.push(JITExpressionEntry {
+                            step_id: step_id.clone(),
+                            step_name: step.name.clone(),
+                            location: "assignment".to_string(),
+                            expression: format!("{:?}", value),
+                            analysis,
+                        });
+                    }
+                }
+            }
+            StepKind::Terminal { .. } => {
+                // Terminal steps typically don't have complex expressions to analyze
+            }
+        }
+    }
+
+    let total = compatible_count + incompatible_count;
+    let overall_compatible = incompatible_count == 0 && total > 0;
+
+    // Estimate speedup based on compatibility ratio
+    let estimated_speedup = if overall_compatible && total > 0 {
+        // JIT typically provides 20-30x speedup for numeric expressions
+        20.0
+    } else if total > 0 {
+        let ratio = compatible_count as f64 / total as f64;
+        1.0 + (ratio * 19.0) // Linear interpolation from 1x to 20x
+    } else {
+        1.0
+    };
+
+    // Build required fields info
+    let required_fields: Vec<RequiredFieldInfo> = all_fields
+        .into_iter()
+        .map(|(path, used_in)| RequiredFieldInfo {
+            path,
+            inferred_type: "numeric".to_string(), // JIT requires numeric types
+            used_in_steps: used_in,
+        })
+        .collect();
+
+    JITRulesetAnalysis {
+        overall_compatible,
+        compatible_count,
+        incompatible_count,
+        total_expressions: total,
+        expressions,
+        estimated_speedup,
+        required_fields,
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

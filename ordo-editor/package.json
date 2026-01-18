@@ -10,17 +10,14 @@
     "build:core": "pnpm --filter @ordo-engine/editor-core build",
     "build:vue": "pnpm --filter @ordo-engine/editor-vue build",
     "build:react": "pnpm --filter @ordo-engine/editor-react build",
+    "build:packages": "pnpm build:core && pnpm build:vue && pnpm build:react",
     "test": "pnpm -r test",
     "lint": "eslint . --ext .ts,.tsx,.vue",
     "lint:fix": "eslint . --ext .ts,.tsx,.vue --fix",
     "format": "prettier --write \"**/*.{ts,tsx,vue,json,md}\"",
-    "typecheck": "pnpm -r typecheck",
-    "changeset": "changeset",
-    "version": "changeset version",
-    "release": "pnpm build:core && pnpm build:vue && pnpm build:react && changeset publish"
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.29.8",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",

@@ -306,20 +306,18 @@ fn extract_prost_tag(attrs: &[syn::Attribute]) -> Option<u32> {
     for attr in attrs {
         if attr.path().is_ident("prost") {
             // Parse the attribute content to find tag = "N"
-            if let Ok(meta) = attr.parse_args::<syn::Meta>() {
-                if let syn::Meta::List(list) = meta {
-                    for nested in list.tokens.clone().into_iter() {
-                        let token_str = nested.to_string();
-                        if token_str.starts_with("tag") {
-                            // Extract the number from tag = "N"
-                            if let Some(num_str) = token_str
-                                .split('=')
-                                .nth(1)
-                                .map(|s| s.trim().trim_matches('"').trim())
-                            {
-                                if let Ok(tag) = num_str.parse::<u32>() {
-                                    return Some(tag);
-                                }
+            if let Ok(syn::Meta::List(list)) = attr.parse_args::<syn::Meta>() {
+                for nested in list.tokens.clone().into_iter() {
+                    let token_str = nested.to_string();
+                    if token_str.starts_with("tag") {
+                        // Extract the number from tag = "N"
+                        if let Some(num_str) = token_str
+                            .split('=')
+                            .nth(1)
+                            .map(|s| s.trim().trim_matches('"').trim())
+                        {
+                            if let Ok(tag) = num_str.parse::<u32>() {
+                                return Some(tag);
                             }
                         }
                     }

@@ -2,13 +2,14 @@
 resolver = "2"
 members = [
     "crates/ordo-core",
+    "crates/ordo-derive",
     "crates/ordo-proto", 
     "crates/ordo-server",
     "crates/ordo-wasm",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Ordo Team"]
 license = "MIT"
@@ -66,3 +67,11 @@ cranelift-codegen = "0.110"
 dashmap = "6"
 crossbeam-channel = "0.5"
 lru = "0.12"
+
+# Proc macros
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+# Internal crates
+ordo-derive = { path = "crates/ordo-derive" }

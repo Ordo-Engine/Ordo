@@ -25,10 +25,12 @@ pub use ast::{BinaryOp, Expr, UnaryOp};
 pub use compiler::ExprCompiler;
 pub use eval::Evaluator;
 pub use functions::FunctionRegistry;
+
+// Schema-Aware JIT exports
 pub use jit::{
-    BackgroundJIT, CacheEntryMetadata, CompiledFunction, DiskCache, DiskCacheIndex, JITCacheConfig,
-    JITCacheStats, JITCompiler, JITErrorCode, JITEvaluator, JITEvaluatorConfig, JITStats, JITTask,
-    MemoryCache,
+    DynamicTypedContext, FieldAccessInfo, SchemaCompiledFunction, SchemaJITCompiler,
+    SchemaJITErrorCode, SchemaJITEvaluator, SchemaJITEvaluatorConfig, SchemaJITEvaluatorStats,
+    SchemaJITStats, TypedContext,
 };
 pub use optimizer::{ExprOptimizer, OptimizationStats};
 pub use parser::ExprParser;

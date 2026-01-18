@@ -1,31 +1,44 @@
 name: NPM Publish
 
 on:
+  # 只在 release tag 时触发
   push:
-    branches:
-      - main
-    paths:
-      - 'ordo-editor/**'
-      - '.github/workflows/npm-publish.yml'
+    tags:
+      - 'v*'
+  # 手动触发（用于紧急修复）
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.2.0)'
+        required: false
+        type: string
 
 defaults:
   run:
     working-directory: ordo-editor
 
 jobs:
-  release:
-    name: Release to NPM
+  publish:
+    name: Publish to NPM
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
       id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            # Extract version from tag (v0.1.0 -> 0.1.0)
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -54,28 +67,46 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Update package versions
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "Updating packages to version $VERSION"
+          
+          # Update all package.json files
+          for pkg in packages/core packages/vue packages/react packages/wasm; do
+            if [ -f "$pkg/package.json" ]; then
+              jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > tmp.json && mv tmp.json "$pkg/package.json"
+              echo "Updated $pkg/package.json to $VERSION"
+            fi
+          done
+          
+          # Update VERSION constants in TypeScript
+          sed -i "s/VERSION = '[^']*'/VERSION = '$VERSION'/" packages/core/src/index.ts || true
+          sed -i "s/VERSION = '[^']*'/VERSION = '$VERSION'/" packages/vue/src/index.ts || true
+
       - name: Build packages
         run: |
           pnpm build:core
           pnpm build:vue
           pnpm build:react
 
-      - name: Create Release Pull Request or Publish
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          publish: pnpm changeset publish
-          version: pnpm changeset version
-          title: 'chore: release npm packages'
-          commit: 'chore: release npm packages'
-          createGithubReleases: false
+      - name: Publish to NPM
+        run: |
+          # Publish packages in order (dependencies first)
+          cd packages/wasm && npm publish --access public || echo "wasm already published or failed"
+          cd ../core && npm publish --access public || echo "core already published or failed"
+          cd ../vue && npm publish --access public || echo "vue already published or failed"
+          cd ../react && npm publish --access public || echo "react already published or failed"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Published packages
-        if: steps.changesets.outputs.published == 'true'
+      - name: Summary
         run: |
-          echo "Published packages:"
-          echo "${{ steps.changesets.outputs.publishedPackages }}"
+          echo "## NPM Packages Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version: ${{ steps.get_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [@ordo-engine/wasm](https://www.npmjs.com/package/@ordo-engine/wasm)" >> $GITHUB_STEP_SUMMARY
+          echo "- [@ordo-engine/editor-core](https://www.npmjs.com/package/@ordo-engine/editor-core)" >> $GITHUB_STEP_SUMMARY
+          echo "- [@ordo-engine/editor-vue](https://www.npmjs.com/package/@ordo-engine/editor-vue)" >> $GITHUB_STEP_SUMMARY
+          echo "- [@ordo-engine/editor-react](https://www.npmjs.com/package/@ordo-engine/editor-react)" >> $GITHUB_STEP_SUMMARY

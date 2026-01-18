@@ -1,6 +1,6 @@
 {
   "name": "@ordo-engine/wasm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WebAssembly bindings for Ordo Rule Engine",
   "type": "module",
   "main": "./index.js",

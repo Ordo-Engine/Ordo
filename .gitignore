@@ -28,6 +28,8 @@
 
 # Benchmark raw data (reports are kept)
 /target/criterion/
+*_benchmark_results.txt
+*_BENCHMARK_REPORT.md
 
 # Temporary files
 *.tmp

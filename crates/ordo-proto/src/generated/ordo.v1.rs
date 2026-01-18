@@ -138,6 +138,49 @@ pub struct EvalResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TypedExecuteRequest {
+    /// Name of the ruleset to execute
+    #[prost(string, tag = "1")]
+    pub ruleset_name: ::prost::alloc::string::String,
+    /// Schema name for the context (must be registered on server)
+    #[prost(string, tag = "2")]
+    pub schema_name: ::prost::alloc::string::String,
+    /// Context data as protobuf bytes
+    /// The server will decode this using the registered schema
+    #[prost(bytes = "vec", tag = "3")]
+    pub context_bytes: ::prost::alloc::vec::Vec<u8>,
+    /// Whether to include execution trace in response
+    #[prost(bool, tag = "4")]
+    pub include_trace: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TypedEvalRequest {
+    /// Expression to evaluate
+    #[prost(string, tag = "1")]
+    pub expression: ::prost::alloc::string::String,
+    /// Schema name for the context
+    #[prost(string, tag = "2")]
+    pub schema_name: ::prost::alloc::string::String,
+    /// Context data as protobuf bytes
+    #[prost(bytes = "vec", tag = "3")]
+    pub context_bytes: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TypedEvalResponse {
+    /// Result value as f64 (all JIT results are numeric)
+    #[prost(double, tag = "1")]
+    pub result: f64,
+    /// Whether JIT was used (true) or fell back to VM (false)
+    #[prost(bool, tag = "2")]
+    pub jit_used: bool,
+    /// Execution time in nanoseconds
+    #[prost(uint64, tag = "3")]
+    pub duration_ns: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HealthRequest {
     /// Optional: specific service to check
     #[prost(string, tag = "1")]

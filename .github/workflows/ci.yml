@@ -117,7 +117,11 @@ jobs:
             ${{ runner.os }}-cargo-bench-
       
       - name: Run benchmarks
-        run: cargo bench --package ordo-core
+        # Skip JIT benchmarks in CI (requires mprotect permissions not available in GitHub Actions)
+        # JIT benchmarks: schema_jit_bench, jit_stress_bench, jit_realistic_bench, jit_comparison_bench
+        run: |
+          cargo bench --package ordo-core --bench engine_bench
+          cargo bench --package ordo-core --bench optimization_bench
       
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4

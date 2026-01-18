@@ -8,14 +8,14 @@
 //! - Legacy JIT (trampoline): ~60-100ns per field access
 //! - BytecodeVM: ~15-40ns per field access
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 use std::sync::OnceLock;
 
 use ordo_core::context::{Context, FieldType, MessageSchema, Value};
 use ordo_core::expr::jit::TypedContext;
 use ordo_core::expr::{
-    BinaryOp, BytecodeVM, CompiledExpr, Evaluator, Expr, ExprCompiler, ExprParser,
-    SchemaJITCompiler, SchemaJITEvaluator, SchemaJITEvaluatorConfig,
+    BinaryOp, BytecodeVM, Evaluator, Expr, ExprCompiler, SchemaJITCompiler, SchemaJITEvaluator,
 };
 
 // ============================================================================

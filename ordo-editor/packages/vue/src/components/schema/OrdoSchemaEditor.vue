@@ -263,18 +263,10 @@ function getDisplayType(type: JITFieldType): string {
 
     <!-- Tabs -->
     <div class="schema-tabs">
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'fields' }"
-        @click="activeTab = 'fields'"
-      >
+      <button class="tab" :class="{ active: activeTab === 'fields' }" @click="activeTab = 'fields'">
         Fields
       </button>
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'import' }"
-        @click="activeTab = 'import'"
-      >
+      <button class="tab" :class="{ active: activeTab === 'import' }" @click="activeTab = 'import'">
         Import Proto
       </button>
       <button
@@ -300,7 +292,10 @@ function getDisplayType(type: JITFieldType): string {
           class="field-item"
           :class="{ editing: editingFieldIndex === index }"
         >
-          <div class="field-header" @click="editingFieldIndex = editingFieldIndex === index ? null : index">
+          <div
+            class="field-header"
+            @click="editingFieldIndex = editingFieldIndex === index ? null : index"
+          >
             <span class="field-offset">@{{ field.offset }}</span>
             <span class="field-name">{{ field.name }}</span>
             <span class="field-type">{{ getDisplayType(field.type) }}</span>
@@ -328,7 +323,11 @@ function getDisplayType(type: JITFieldType): string {
               <label>Type</label>
               <select
                 :value="typeof field.type === 'string' ? field.type : ''"
-                @change="updateField(index, { type: ($event.target as HTMLSelectElement).value as JITPrimitiveType })"
+                @change="
+                  updateField(index, {
+                    type: ($event.target as HTMLSelectElement).value as JITPrimitiveType,
+                  })
+                "
               >
                 <option v-for="t in primitiveTypes" :key="t" :value="t">{{ t }}</option>
               </select>
@@ -338,7 +337,11 @@ function getDisplayType(type: JITFieldType): string {
               <input
                 type="number"
                 :value="field.protoTag"
-                @input="updateField(index, { protoTag: parseInt(($event.target as HTMLInputElement).value) || undefined })"
+                @input="
+                  updateField(index, {
+                    protoTag: parseInt(($event.target as HTMLInputElement).value) || undefined,
+                  })
+                "
               />
             </div>
             <div class="edit-row checkbox">
@@ -346,7 +349,9 @@ function getDisplayType(type: JITFieldType): string {
                 <input
                   type="checkbox"
                   :checked="field.required"
-                  @change="updateField(index, { required: ($event.target as HTMLInputElement).checked })"
+                  @change="
+                    updateField(index, { required: ($event.target as HTMLInputElement).checked })
+                  "
                 />
                 Required
               </label>
@@ -399,10 +404,7 @@ function getDisplayType(type: JITFieldType): string {
     <!-- Preview Tab -->
     <div v-if="activeTab === 'preview'" class="tab-content preview-tab">
       <pre class="rust-code">{{ generatedRustCode }}</pre>
-      <button
-        class="copy-btn"
-        @click="navigator.clipboard.writeText(generatedRustCode)"
-      >
+      <button class="copy-btn" @click="navigator.clipboard.writeText(generatedRustCode)">
         Copy to Clipboard
       </button>
     </div>

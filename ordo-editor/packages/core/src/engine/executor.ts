@@ -152,9 +152,7 @@ export class RuleExecutor {
             },
           };
         }
-        throw new Error(
-          `JIT execution failed: ${response.status} ${await response.text()}`
-        );
+        throw new Error(`JIT execution failed: ${response.status} ${await response.text()}`);
       }
 
       return response.json();
@@ -450,11 +448,9 @@ export class RuleExecutor {
 
     try {
       const rulesetJson = JSON.stringify(ruleset);
-      const resultJson = await Promise.resolve(
-        this.wasmModule.analyze_ruleset_jit(rulesetJson)
-      );
+      const resultJson = await Promise.resolve(this.wasmModule.analyze_ruleset_jit(rulesetJson));
       const result = JSON.parse(resultJson);
-      
+
       // Convert snake_case to camelCase for frontend
       return {
         overallCompatible: result.overall_compatible,
@@ -509,32 +505,34 @@ export class RuleExecutor {
       }
 
       const result = await response.json();
-      
+
       // Convert snake_case to camelCase for frontend
       return {
         overallCompatible: result.overall_compatible,
         compatibleCount: result.compatible_count,
         incompatibleCount: result.incompatible_count,
         totalExpressions: result.total_expressions,
-        expressions: result.expressions?.map((e: any) => ({
-          stepId: e.step_id,
-          stepName: e.step_name,
-          location: e.location,
-          expression: e.expression,
-          analysis: {
-            jitCompatible: e.analysis?.jit_compatible,
-            reason: e.analysis?.reason,
-            accessedFields: e.analysis?.accessed_fields,
-            unsupportedFeatures: e.analysis?.unsupported_features,
-            supportedFeatures: e.analysis?.supported_features,
-          },
-        })) || [],
+        expressions:
+          result.expressions?.map((e: any) => ({
+            stepId: e.step_id,
+            stepName: e.step_name,
+            location: e.location,
+            expression: e.expression,
+            analysis: {
+              jitCompatible: e.analysis?.jit_compatible,
+              reason: e.analysis?.reason,
+              accessedFields: e.analysis?.accessed_fields,
+              unsupportedFeatures: e.analysis?.unsupported_features,
+              supportedFeatures: e.analysis?.supported_features,
+            },
+          })) || [],
         estimatedSpeedup: result.estimated_speedup || 1.0,
-        requiredFields: result.required_fields?.map((f: any) => ({
-          path: f.path,
-          inferredType: f.inferred_type,
-          usedInSteps: f.used_in_steps,
-        })) || [],
+        requiredFields:
+          result.required_fields?.map((f: any) => ({
+            path: f.path,
+            inferredType: f.inferred_type,
+            usedInSteps: f.used_in_steps,
+          })) || [],
       };
     } catch (error) {
       throw new Error(

@@ -52,11 +52,7 @@ export interface ParsedProtoFile {
 /**
  * Map protobuf type to JIT field type
  */
-function mapProtoTypeToJIT(
-  protoType: string,
-  repeated: boolean,
-  optional: boolean
-): JITFieldType {
+function mapProtoTypeToJIT(protoType: string, repeated: boolean, optional: boolean): JITFieldType {
   let baseType: JITFieldType;
 
   // Map protobuf scalar types to JIT types
@@ -141,7 +137,10 @@ function getPrimitiveSize(type: JITPrimitiveType): number {
  * Calculate C-compatible layout for fields
  * Uses simple alignment rules similar to Rust #[repr(C)]
  */
-function calculateLayout(fields: JITSchemaField[]): { fields: JITSchemaField[]; totalSize: number } {
+function calculateLayout(fields: JITSchemaField[]): {
+  fields: JITSchemaField[];
+  totalSize: number;
+} {
   let offset = 0;
   const layoutFields: JITSchemaField[] = [];
 
@@ -288,9 +287,7 @@ export function parseProtoContent(content: string): ParsedProtoFile {
     // Field definition (within message)
     if (currentMessage) {
       // Handle repeated/optional modifiers
-      const fieldMatch = line.match(
-        /^(repeated\s+|optional\s+)?(\w+)\s+(\w+)\s*=\s*(\d+)/
-      );
+      const fieldMatch = line.match(/^(repeated\s+|optional\s+)?(\w+)\s+(\w+)\s*=\s*(\d+)/);
       if (fieldMatch) {
         const modifier = fieldMatch[1]?.trim() || '';
         const type = fieldMatch[2];

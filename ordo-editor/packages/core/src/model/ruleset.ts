@@ -43,10 +43,10 @@ export type JITPrimitiveType =
 /** JIT field type (can be primitive, nested, repeated, or optional) */
 export type JITFieldType =
   | JITPrimitiveType
-  | { message: string }      // Nested message type (reference by name)
-  | { repeated: JITFieldType }  // Array/repeated field
-  | { optional: JITFieldType }  // Optional field
-  | { enum: string };           // Enum type (stored as i32)
+  | { message: string } // Nested message type (reference by name)
+  | { repeated: JITFieldType } // Array/repeated field
+  | { optional: JITFieldType } // Optional field
+  | { enum: string }; // Enum type (stored as i32)
 
 /** JIT schema field definition */
 export interface JITSchemaField {
@@ -177,7 +177,7 @@ export function isJITNumericType(type: JITFieldType): boolean {
 /** Convert a simple SchemaField to JITSchemaField (basic inference) */
 export function schemaFieldToJIT(field: SchemaField, offset: number): JITSchemaField {
   let jitType: JITFieldType;
-  
+
   switch (field.type) {
     case 'number':
       jitType = 'float64';
@@ -197,12 +197,13 @@ export function schemaFieldToJIT(field: SchemaField, offset: number): JITSchemaF
     default:
       jitType = 'float64';
   }
-  
+
   return {
     name: field.name,
     type: jitType,
     offset,
-    size: typeof jitType === 'string' ? getJITPrimitiveSize(jitType as JITPrimitiveType) : undefined,
+    size:
+      typeof jitType === 'string' ? getJITPrimitiveSize(jitType as JITPrimitiveType) : undefined,
     required: field.required,
     description: field.description,
   };
@@ -223,25 +224,25 @@ export function createEmptyJITSchema(name: string): JITSchema {
 export function calculateJITSchemaLayout(schema: JITSchema): JITSchema {
   let offset = 0;
   const fields: JITSchemaField[] = [];
-  
+
   for (const field of schema.fields) {
-    const size = field.size ?? (typeof field.type === 'string' 
-      ? getJITPrimitiveSize(field.type as JITPrimitiveType) 
-      : 8); // Default to 8 for complex types
-    
+    const size =
+      field.size ??
+      (typeof field.type === 'string' ? getJITPrimitiveSize(field.type as JITPrimitiveType) : 8); // Default to 8 for complex types
+
     // Align to field size (simple alignment rule)
     const alignment = Math.min(size, 8);
     offset = Math.ceil(offset / alignment) * alignment;
-    
+
     fields.push({
       ...field,
       offset,
       size,
     });
-    
+
     offset += size;
   }
-  
+
   return {
     ...schema,
     fields,

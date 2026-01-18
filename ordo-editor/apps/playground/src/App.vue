@@ -58,12 +58,11 @@ const ruleExecutor = new RuleExecutor();
 
 async function analyzeJitCompatibility() {
   if (!activeFile.value) return;
-  
+
   try {
-    jitAnalysisResult.value = await ruleExecutor.analyzeJitCompatibility(
-      activeFile.value.ruleset,
-      { mode: 'wasm' }
-    );
+    jitAnalysisResult.value = await ruleExecutor.analyzeJitCompatibility(activeFile.value.ruleset, {
+      mode: 'wasm',
+    });
   } catch (e) {
     console.error('JIT analysis failed:', e);
     jitAnalysisResult.value = null;
@@ -1188,13 +1187,7 @@ watch(
         @click="toggleSchemaPage"
         title="JIT Schema Editor"
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          class="jit-icon"
-        >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="jit-icon">
           <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
         </svg>
       </div>
@@ -1439,12 +1432,9 @@ watch(
           <div class="schema-page-layout">
             <!-- Left: Schema Editor -->
             <div class="schema-editor-section">
-              <OrdoSchemaEditor
-                v-model="currentJitSchema"
-                @change="handleSchemaChange"
-              />
+              <OrdoSchemaEditor v-model="currentJitSchema" @change="handleSchemaChange" />
             </div>
-            
+
             <!-- Right: Performance Panel & JIT Analysis -->
             <div class="schema-analysis-section">
               <!-- Server Endpoint Configuration -->
@@ -1485,23 +1475,51 @@ watch(
 
               <!-- JIT Analysis Result -->
               <div v-if="jitAnalysisResult" class="jit-analysis-result">
-                <div class="analysis-overview" :class="{ compatible: jitAnalysisResult.overallCompatible }">
+                <div
+                  class="analysis-overview"
+                  :class="{ compatible: jitAnalysisResult.overallCompatible }"
+                >
                   <div class="overview-icon">
-                    <svg v-if="jitAnalysisResult.overallCompatible" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <svg
+                      v-if="jitAnalysisResult.overallCompatible"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
                       <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
                     </svg>
-                    <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg
+                      v-else
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
                       <circle cx="12" cy="12" r="10"></circle>
                       <line x1="12" y1="8" x2="12" y2="12"></line>
                       <line x1="12" y1="16" x2="12.01" y2="16"></line>
                     </svg>
                   </div>
                   <div class="overview-text">
-                    <h4>{{ jitAnalysisResult.overallCompatible ? 'Fully JIT Compatible' : 'Partial JIT Compatibility' }}</h4>
-                    <p>{{ jitAnalysisResult.compatibleCount }} of {{ jitAnalysisResult.totalExpressions }} expressions can be JIT compiled</p>
+                    <h4>
+                      {{
+                        jitAnalysisResult.overallCompatible
+                          ? 'Fully JIT Compatible'
+                          : 'Partial JIT Compatibility'
+                      }}
+                    </h4>
+                    <p>
+                      {{ jitAnalysisResult.compatibleCount }} of
+                      {{ jitAnalysisResult.totalExpressions }} expressions can be JIT compiled
+                    </p>
                   </div>
                   <div class="speedup-badge">
-                    <span class="speedup-value">{{ (jitAnalysisResult.estimatedSpeedup || 1).toFixed(1) }}x</span>
+                    <span class="speedup-value"
+                      >{{ (jitAnalysisResult.estimatedSpeedup || 1).toFixed(1) }}x</span
+                    >
                     <span class="speedup-label">Est. Speedup</span>
                   </div>
                 </div>
@@ -1510,7 +1528,11 @@ watch(
                 <div v-if="jitAnalysisResult.requiredFields?.length" class="required-fields">
                   <h4>Required Schema Fields</h4>
                   <div class="fields-list">
-                    <div v-for="field in jitAnalysisResult.requiredFields" :key="field.path" class="field-item">
+                    <div
+                      v-for="field in jitAnalysisResult.requiredFields"
+                      :key="field.path"
+                      class="field-item"
+                    >
                       <code>$.{{ field.path }}</code>
                       <span class="field-type">{{ field.inferredType }}</span>
                     </div>

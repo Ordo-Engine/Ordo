@@ -4,8 +4,18 @@
  */
 
 import type { Node, Edge } from '@vue-flow/core';
-import type { RuleSet, Step, DecisionStep, RuleSetConfig, StepGroup } from '@ordo-engine/editor-core';
-import { conditionToString, StepGroup as StepGroupFactory, generateId } from '@ordo-engine/editor-core';
+import type {
+  RuleSet,
+  Step,
+  DecisionStep,
+  RuleSetConfig,
+  StepGroup,
+} from '@ordo-engine/editor-core';
+import {
+  conditionToString,
+  StepGroup as StepGroupFactory,
+  generateId,
+} from '@ordo-engine/editor-core';
 import { EDGE_COLORS } from '../types';
 
 /** Node types for Vue Flow */

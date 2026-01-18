@@ -1,7 +1,7 @@
 {
   "name": "ordo-editor",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Ordo Rule Engine Visual Editor Components",
   "type": "module",
   "scripts": {

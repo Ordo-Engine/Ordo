@@ -84,7 +84,9 @@ const rulesetJson = ref('');
 const rulesetInputJson = ref('{\n  "user": {\n    "age": 25,\n    "level": "vip"\n  }\n}');
 const rulesetResult = ref<any>(null);
 const isExecutingRuleset = ref(false);
-const activeRulesetTab = ref<'overview' | 'steps' | 'variables' | 'expressions' | 'jit'>('overview');
+const activeRulesetTab = ref<'overview' | 'steps' | 'variables' | 'expressions' | 'jit'>(
+  'overview'
+);
 const availableRulesets = ref<any[]>([]);
 const selectedRulesetName = ref('');
 
@@ -341,7 +343,7 @@ function formatDuration(ns: number): string {
 // JIT Analysis functions
 async function analyzeExpressionJit() {
   if (!expression.value.trim()) return;
-  
+
   try {
     isAnalyzingJit.value = true;
     const response = await fetch(`${serverEndpoint.value}/api/v1/debug/jit/analyze`, {
@@ -349,7 +351,7 @@ async function analyzeExpressionJit() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expression: expression.value }),
     });
-    
+
     if (response.ok) {
       exprJitResult.value = await response.json();
     } else {
@@ -366,10 +368,10 @@ async function analyzeExpressionJit() {
 
 async function analyzeRulesetJit() {
   if (!rulesetJson.value.trim()) return;
-  
+
   try {
     isAnalyzingJit.value = true;
-    
+
     // Parse the ruleset JSON
     let ruleset: RuleSet;
     try {
@@ -379,7 +381,7 @@ async function analyzeRulesetJit() {
       jitAnalysisResult.value = analyzeRulesetJitClient(rulesetJson.value) as any;
       return;
     }
-    
+
     // Try WASM-based analysis first (most reliable)
     try {
       const analysis = await ruleExecutor.analyzeJitCompatibility(ruleset, { mode: 'wasm' });
@@ -388,7 +390,7 @@ async function analyzeRulesetJit() {
     } catch (wasmError) {
       console.warn('[JIT] WASM analysis failed, trying HTTP:', wasmError);
     }
-    
+
     // Try HTTP-based analysis if WASM fails
     if (isDebugMode.value) {
       try {
@@ -402,7 +404,7 @@ async function analyzeRulesetJit() {
         console.warn('[JIT] HTTP analysis failed, using client fallback:', httpError);
       }
     }
-    
+
     // Final fallback to client-side heuristic analysis
     jitAnalysisResult.value = analyzeRulesetJitClient(rulesetJson.value) as any;
   } catch (e) {
@@ -418,7 +420,7 @@ async function analyzeRulesetJit() {
 function analyzeJitClient(expr: string): any {
   const unsupportedFeatures: string[] = [];
   const supportedFeatures: string[] = [];
-  
+
   // Check for unsupported features
   if (expr.includes(' in ') || expr.includes(' contains ')) {
     unsupportedFeatures.push('set_operations');
@@ -426,16 +428,17 @@ function analyzeJitClient(expr: string): any {
   if (/["'][^"']*["']/.test(expr)) {
     unsupportedFeatures.push('string_comparison');
   }
-  
+
   // Check for supported features
   if (/[<>]=?|==|!=/.test(expr)) supportedFeatures.push('comparison');
   if (/&&|\|\|/.test(expr)) supportedFeatures.push('logical');
   if (/[+\-*/]/.test(expr)) supportedFeatures.push('arithmetic');
   if (/\$\.\w+/.test(expr)) supportedFeatures.push('field_access');
-  
+
   return {
     jit_compatible: unsupportedFeatures.length === 0,
-    reason: unsupportedFeatures.length > 0 ? `Unsupported: ${unsupportedFeatures.join(', ')}` : null,
+    reason:
+      unsupportedFeatures.length > 0 ? `Unsupported: ${unsupportedFeatures.join(', ')}` : null,
     accessed_fields: extractFields(expr),
     unsupported_features: unsupportedFeatures,
     supported_features: supportedFeatures,
@@ -449,7 +452,7 @@ function analyzeRulesetJitClient(json: string): any {
     let compatibleCount = 0;
     let incompatibleCount = 0;
     const requiredFields: Map<string, string[]> = new Map();
-    
+
     // Analyze each step
     if (ruleset.steps) {
       for (const [stepId, step] of Object.entries(ruleset.steps) as any) {
@@ -459,14 +462,14 @@ function analyzeRulesetJitClient(json: string): any {
               const analysis = analyzeJitClient(branch.condition);
               if (analysis.jit_compatible) compatibleCount++;
               else incompatibleCount++;
-              
+
               for (const field of analysis.accessed_fields) {
                 if (!requiredFields.has(field)) {
                   requiredFields.set(field, []);
                 }
                 requiredFields.get(field)!.push(stepId);
               }
-              
+
               expressions.push({
                 step_id: stepId,
                 step_name: step.name || stepId,
@@ -479,7 +482,7 @@ function analyzeRulesetJitClient(json: string): any {
         }
       }
     }
-    
+
     const total = compatibleCount + incompatibleCount;
     return {
       overall_compatible: incompatibleCount === 0 && total > 0,
@@ -487,7 +490,8 @@ function analyzeRulesetJitClient(json: string): any {
       incompatible_count: incompatibleCount,
       total_expressions: total,
       expressions,
-      estimated_speedup: incompatibleCount === 0 ? 20.0 : 1.0 + (compatibleCount / Math.max(total, 1)) * 19.0,
+      estimated_speedup:
+        incompatibleCount === 0 ? 20.0 : 1.0 + (compatibleCount / Math.max(total, 1)) * 19.0,
       required_fields: Array.from(requiredFields.entries()).map(([path, steps]) => ({
         path,
         inferred_type: 'numeric',
@@ -501,7 +505,7 @@ function analyzeRulesetJitClient(json: string): any {
 
 function extractFields(expr: string): string[] {
   const matches = expr.match(/\$\.[\w.]+/g) || [];
-  return [...new Set(matches.map(m => m.slice(2)))]; // Remove "$." prefix
+  return [...new Set(matches.map((m) => m.slice(2)))]; // Remove "$." prefix
 }
 
 // Status color
@@ -890,7 +894,10 @@ onUnmounted(() => {
         <div
           class="tab jit-tab"
           :class="{ active: activeRulesetTab === 'jit' }"
-          @click="activeRulesetTab = 'jit'; analyzeRulesetJit()"
+          @click="
+            activeRulesetTab = 'jit';
+            analyzeRulesetJit();
+          "
         >
           <svg
             width="12"
@@ -903,8 +910,19 @@ onUnmounted(() => {
             <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
           </svg>
           JIT Analysis
-          <span v-if="jitAnalysisResult" class="tab-badge" :class="{ 'jit-ok': jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible, 'jit-warn': !(jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible) }">
-            {{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }}/{{ jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions }}
+          <span
+            v-if="jitAnalysisResult"
+            class="tab-badge"
+            :class="{
+              'jit-ok': jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible,
+              'jit-warn': !(
+                jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible
+              ),
+            }"
+          >
+            {{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }}/{{
+              jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions
+            }}
           </span>
         </div>
       </div>
@@ -1073,23 +1091,61 @@ onUnmounted(() => {
           </div>
           <div v-else-if="jitAnalysisResult" class="jit-content">
             <!-- Overall Status -->
-            <div class="jit-overview" :class="{ compatible: jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible }">
+            <div
+              class="jit-overview"
+              :class="{
+                compatible:
+                  jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible,
+              }"
+            >
               <div class="jit-status-icon">
-                <svg v-if="jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <svg
+                  v-if="jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
                   <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
                 </svg>
-                <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  v-else
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="12" y1="8" x2="12" y2="12"></line>
                   <line x1="12" y1="16" x2="12.01" y2="16"></line>
                 </svg>
               </div>
               <div class="jit-status-text">
-                <h3>{{ (jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible) ? 'Fully JIT Compatible' : 'Partial JIT Compatibility' }}</h3>
-                <p>{{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }} of {{ jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions }} expressions can be JIT compiled</p>
+                <h3>
+                  {{
+                    jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible
+                      ? 'Fully JIT Compatible'
+                      : 'Partial JIT Compatibility'
+                  }}
+                </h3>
+                <p>
+                  {{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }} of
+                  {{
+                    jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions
+                  }}
+                  expressions can be JIT compiled
+                </p>
               </div>
               <div class="jit-speedup">
-                <span class="speedup-value">{{ (jitAnalysisResult.estimatedSpeedup ?? jitAnalysisResult.estimated_speedup)?.toFixed(1) || '1.0' }}x</span>
+                <span class="speedup-value"
+                  >{{
+                    (
+                      jitAnalysisResult.estimatedSpeedup ?? jitAnalysisResult.estimated_speedup
+                    )?.toFixed(1) || '1.0'
+                  }}x</span
+                >
                 <span class="speedup-label">Est. Speedup</span>
               </div>
             </div>
@@ -1102,21 +1158,53 @@ onUnmounted(() => {
                   v-for="entry in jitAnalysisResult.expressions"
                   :key="`${entry.stepId || entry.step_id}-${entry.location}`"
                   class="jit-expr-item"
-                  :class="{ compatible: entry.analysis?.jitCompatible || entry.analysis?.jit_compatible, incompatible: !(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) }"
+                  :class="{
+                    compatible: entry.analysis?.jitCompatible || entry.analysis?.jit_compatible,
+                    incompatible: !(
+                      entry.analysis?.jitCompatible || entry.analysis?.jit_compatible
+                    ),
+                  }"
                 >
                   <div class="expr-header">
                     <span class="expr-step">{{ entry.stepName || entry.step_name }}</span>
                     <span class="expr-location">{{ entry.location }}</span>
-                    <span class="expr-status" :class="{ ok: entry.analysis?.jitCompatible || entry.analysis?.jit_compatible, warn: !(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) }">
-                      {{ (entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) ? 'JIT Ready' : 'Not JIT' }}
+                    <span
+                      class="expr-status"
+                      :class="{
+                        ok: entry.analysis?.jitCompatible || entry.analysis?.jit_compatible,
+                        warn: !(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible),
+                      }"
+                    >
+                      {{
+                        entry.analysis?.jitCompatible || entry.analysis?.jit_compatible
+                          ? 'JIT Ready'
+                          : 'Not JIT'
+                      }}
                     </span>
                   </div>
                   <code class="expr-code">{{ entry.expression }}</code>
-                  <div v-if="!(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) && entry.analysis?.reason" class="expr-reason">
+                  <div
+                    v-if="
+                      !(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) &&
+                      entry.analysis?.reason
+                    "
+                    class="expr-reason"
+                  >
                     {{ entry.analysis.reason }}
                   </div>
-                  <div v-if="(entry.analysis?.unsupportedFeatures || entry.analysis?.unsupported_features)?.length" class="expr-features">
-                    <span v-for="feat in (entry.analysis?.unsupportedFeatures || entry.analysis?.unsupported_features)" :key="feat" class="feature-tag unsupported">
+                  <div
+                    v-if="
+                      (entry.analysis?.unsupportedFeatures || entry.analysis?.unsupported_features)
+                        ?.length
+                    "
+                    class="expr-features"
+                  >
+                    <span
+                      v-for="feat in entry.analysis?.unsupportedFeatures ||
+                      entry.analysis?.unsupported_features"
+                      :key="feat"
+                      class="feature-tag unsupported"
+                    >
                       {{ feat }}
                     </span>
                   </div>
@@ -1125,19 +1213,36 @@ onUnmounted(() => {
             </div>
 
             <!-- Required Fields -->
-            <div v-if="(jitAnalysisResult.requiredFields || jitAnalysisResult.required_fields)?.length" class="jit-fields">
+            <div
+              v-if="(jitAnalysisResult.requiredFields || jitAnalysisResult.required_fields)?.length"
+              class="jit-fields"
+            >
               <h4>Required Schema Fields</h4>
               <div class="field-list">
-                <div v-for="field in (jitAnalysisResult.requiredFields || jitAnalysisResult.required_fields)" :key="field.path" class="field-item">
+                <div
+                  v-for="field in jitAnalysisResult.requiredFields ||
+                  jitAnalysisResult.required_fields"
+                  :key="field.path"
+                  class="field-item"
+                >
                   <code class="field-path">$.{{ field.path }}</code>
                   <span class="field-type">{{ field.inferredType || field.inferred_type }}</span>
-                  <span class="field-usage">Used in {{ (field.usedInSteps || field.used_in_steps)?.length || 0 }} steps</span>
+                  <span class="field-usage"
+                    >Used in
+                    {{ (field.usedInSteps || field.used_in_steps)?.length || 0 }} steps</span
+                  >
                 </div>
               </div>
             </div>
           </div>
           <div v-else class="empty-state">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" class="jit-empty-icon">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="jit-empty-icon"
+            >
               <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
             </svg>
             <p>Load a ruleset and click "JIT Analysis" to analyze JIT compatibility</p>
@@ -2314,7 +2419,9 @@ onUnmounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .jit-empty-icon {

@@ -152,7 +152,7 @@ pub struct DynamicTypedContext<'a> {
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> DynamicTypedContext<'a> {
+impl DynamicTypedContext<'_> {
     /// Create a new dynamic typed context
     ///
     /// # Safety
@@ -174,6 +174,11 @@ impl<'a> DynamicTypedContext<'a> {
     }
 
     /// Read a field as f64
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `data_ptr` points to valid memory
+    /// that matches the schema layout for the requested field.
     pub unsafe fn read_field_as_f64(&self, field_name: &str) -> Option<f64> {
         let resolved = self.schema.resolve_field_path(field_name)?;
         let ptr = self.data_ptr.add(resolved.offset);

@@ -92,6 +92,11 @@ impl SchemaCompiledFunction {
     }
 
     /// Execute and return as Value
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `ctx` is a valid typed context matching
+    /// the schema this function was compiled for.
     #[inline]
     pub unsafe fn call_typed_value<T>(&self, ctx: &T) -> Result<Value> {
         self.call_typed(ctx).map(Value::Float)

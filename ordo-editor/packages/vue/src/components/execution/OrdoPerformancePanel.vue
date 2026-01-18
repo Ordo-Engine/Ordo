@@ -42,7 +42,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'run-benchmark': [];
-  'result': [metrics: PerformanceMetric[]];
+  result: [metrics: PerformanceMetric[]];
 }>();
 
 // State
@@ -126,7 +126,7 @@ async function benchmarkMode(
         mode,
         httpEndpoint: props.httpEndpoint,
         includeTrace: false,
-        jitSchema: mode === 'jit' ? (props.schema ?? undefined) : undefined,
+        jitSchema: mode === 'jit' ? props.schema ?? undefined : undefined,
       });
     }
 
@@ -200,11 +200,7 @@ function getModeColor(mode: string): string {
             class="iterations-input"
           />
         </label>
-        <button
-          class="run-btn"
-          :disabled="!ruleset || isRunning"
-          @click="runBenchmark"
-        >
+        <button class="run-btn" :disabled="!ruleset || isRunning" @click="runBenchmark">
           <span v-if="isRunning" class="spinner"></span>
           <span v-else>Run Benchmark</span>
         </button>
@@ -213,7 +209,14 @@ function getModeColor(mode: string): string {
 
     <!-- JIT Compatibility Notice -->
     <div v-if="jitAnalysis && !jitAnalysis.overallCompatible" class="jit-notice warning">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <circle cx="12" cy="12" r="10"></circle>
         <line x1="12" y1="8" x2="12" y2="12"></line>
         <line x1="12" y1="16" x2="12.01" y2="16"></line>
@@ -229,8 +232,8 @@ function getModeColor(mode: string): string {
         <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
       </svg>
       <span>
-        All {{ jitAnalysis.totalExpressions }} expressions are JIT-compatible
-        (Est. {{ jitAnalysis.estimatedSpeedup?.toFixed(0) || '20' }}x speedup)
+        All {{ jitAnalysis.totalExpressions }} expressions are JIT-compatible (Est.
+        {{ jitAnalysis.estimatedSpeedup?.toFixed(0) || '20' }}x speedup)
       </span>
     </div>
 
@@ -396,7 +399,9 @@ function getModeColor(mode: string): string {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .jit-notice {

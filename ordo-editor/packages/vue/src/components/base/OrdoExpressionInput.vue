@@ -370,24 +370,23 @@ onUnmounted(() => {
       />
 
       <!-- Indicators container -->
-      <div v-if="(showValidation || showJitIndicator) && modelValue" class="ordo-expression-input__indicators">
+      <div
+        v-if="(showValidation || showJitIndicator) && modelValue"
+        class="ordo-expression-input__indicators"
+      >
         <!-- JIT compatibility indicator -->
         <span
           v-if="showJitIndicator && jitResult"
           class="ordo-expression-input__status jit"
           :class="{ compatible: jitResult.jitCompatible, incompatible: !jitResult.jitCompatible }"
-          :title="jitResult.jitCompatible 
-            ? 'JIT Compatible - Can be compiled for ~20x faster execution' 
-            : `Not JIT Compatible: ${jitResult.reason || 'Unknown reason'}`"
+          :title="
+            jitResult.jitCompatible
+              ? 'JIT Compatible - Can be compiled for ~20x faster execution'
+              : `Not JIT Compatible: ${jitResult.reason || 'Unknown reason'}`
+          "
         >
           <!-- Lightning bolt icon for JIT -->
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            stroke="none"
-          >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
             <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
           </svg>
         </span>

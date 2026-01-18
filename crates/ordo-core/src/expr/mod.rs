@@ -8,12 +8,13 @@
 //! - Expression optimizer (constant folding, dead code elimination)
 //! - High-performance bytecode compiler and VM with superinstructions
 //! - Vectorized batch execution
-//! - JIT compilation for hot expressions
+//! - JIT compilation for hot expressions (requires `jit` feature)
 
 mod ast;
 mod compiler;
 mod eval;
 mod functions;
+#[cfg(feature = "jit")]
 pub mod jit;
 mod optimizer;
 mod parser;
@@ -26,7 +27,8 @@ pub use compiler::ExprCompiler;
 pub use eval::Evaluator;
 pub use functions::FunctionRegistry;
 
-// Schema-Aware JIT exports
+// Schema-Aware JIT exports (only available with `jit` feature)
+#[cfg(feature = "jit")]
 pub use jit::{
     DynamicTypedContext, FieldAccessInfo, SchemaCompiledFunction, SchemaJITCompiler,
     SchemaJITErrorCode, SchemaJITEvaluator, SchemaJITEvaluatorConfig, SchemaJITEvaluatorStats,

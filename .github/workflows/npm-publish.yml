@@ -13,10 +13,6 @@ on:
         required: false
         type: string
 
-defaults:
-  run:
-    working-directory: ordo-editor
-
 jobs:
   publish:
     name: Publish to NPM
@@ -40,6 +36,35 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
+      # Setup Rust for WASM build
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
+
+      # Build WASM module
+      - name: Build WASM
+        run: |
+          cd crates/ordo-wasm
+          wasm-pack build --target web --out-dir ../../ordo-editor/packages/wasm/dist
+          echo "WASM build completed"
+          ls -la ../../ordo-editor/packages/wasm/dist/
+
+      # Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -65,9 +90,11 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
+        working-directory: ordo-editor
         run: pnpm install --no-frozen-lockfile
 
       - name: Update package versions
+        working-directory: ordo-editor
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           echo "Updating packages to version $VERSION"
@@ -85,12 +112,14 @@ jobs:
           sed -i "s/VERSION = '[^']*'/VERSION = '$VERSION'/" packages/vue/src/index.ts || true
 
       - name: Build packages
+        working-directory: ordo-editor
         run: |
           pnpm build:core
           pnpm build:vue
           pnpm build:react
 
       - name: Publish to NPM
+        working-directory: ordo-editor
         run: |
           # Publish packages in order (dependencies first)
           cd packages/wasm && npm publish --access public || echo "wasm already published or failed"

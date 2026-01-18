@@ -17,12 +17,12 @@ smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-# JIT compilation
-cranelift.workspace = true
-cranelift-jit.workspace = true
-cranelift-module.workspace = true
-cranelift-native.workspace = true
-cranelift-codegen.workspace = true
+# JIT compilation (optional, not available on wasm32)
+cranelift = { workspace = true, optional = true }
+cranelift-jit = { workspace = true, optional = true }
+cranelift-module = { workspace = true, optional = true }
+cranelift-native = { workspace = true, optional = true }
+cranelift-codegen = { workspace = true, optional = true }
 
 # Concurrent data structures
 dashmap.workspace = true
@@ -33,8 +33,9 @@ lru.workspace = true
 ordo-derive = { workspace = true, optional = true }
 
 [features]
-default = ["derive"]
+default = ["derive", "jit"]
 derive = ["ordo-derive"]
+jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native", "cranelift-codegen"]
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }

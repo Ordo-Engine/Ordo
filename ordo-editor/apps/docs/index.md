@@ -15,15 +15,16 @@ hero:
 
 <script setup>
 import { onMounted } from 'vue'
+import { useData } from 'vitepress'
 
 onMounted(() => {
   if (typeof window !== 'undefined') {
-    // Avoid redirecting if we are already coming from a back button or if user explicitly navigated here
-    // But this is the root.
+    const { site } = useData()
     const lang = navigator.language.toLowerCase()
-    const base = '/Ordo/docs'
+    // Use VitePress base path (already includes trailing slash handling)
+    const base = site.value.base.replace(/\/$/, '')
     
-    // Simple redirect
+    // Simple redirect based on browser language
     if (lang.startsWith('zh')) {
         window.location.replace(`${base}/zh/`)
     } else {

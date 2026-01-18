@@ -1,5 +1,5 @@
 {
-  "name": "@ordo/playground",
+  "name": "@ordo-engine/playground",
   "version": "0.1.0",
   "private": true,
   "description": "Ordo Editor Playground and Documentation",
@@ -10,8 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ordo/editor-core": "workspace:*",
-    "@ordo/editor-vue": "workspace:*",
+    "@ordo-engine/editor-core": "workspace:*",
+    "@ordo-engine/editor-vue": "workspace:*",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
     "@vue-flow/core": "^1.48.1",

@@ -10,7 +10,7 @@
  */
 
 import type { FlowNode, FlowEdge } from './converter';
-import type { StepGroup } from '@ordo/editor-core';
+import type { StepGroup } from '@ordo-engine/editor-core';
 
 /** Layout direction */
 export type LayoutDirection = 'TB' | 'LR' | 'BT' | 'RL';

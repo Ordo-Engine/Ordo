@@ -1,5 +1,5 @@
 {
-  "name": "@ordo/editor-react",
+  "name": "@ordo-engine/editor-react",
   "version": "0.1.0",
   "description": "React components for Ordo Rule Editor",
   "type": "module",
@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ordo/editor-core": "workspace:*"
+    "@ordo-engine/editor-core": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -52,5 +52,8 @@
     "type": "git",
     "url": "https://github.com/Pama-Lee/Ordo.git",
     "directory": "ordo-editor/packages/react"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

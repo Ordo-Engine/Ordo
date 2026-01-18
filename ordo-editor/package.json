@@ -5,18 +5,22 @@
   "description": "Ordo Rule Engine Visual Editor Components",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @ordo/playground dev",
+    "dev": "pnpm --filter @ordo-engine/playground dev",
     "build": "pnpm -r build",
-    "build:core": "pnpm --filter @ordo/editor-core build",
-    "build:vue": "pnpm --filter @ordo/editor-vue build",
-    "build:react": "pnpm --filter @ordo/editor-react build",
+    "build:core": "pnpm --filter @ordo-engine/editor-core build",
+    "build:vue": "pnpm --filter @ordo-engine/editor-vue build",
+    "build:react": "pnpm --filter @ordo-engine/editor-react build",
     "test": "pnpm -r test",
     "lint": "eslint . --ext .ts,.tsx,.vue",
     "lint:fix": "eslint . --ext .ts,.tsx,.vue --fix",
     "format": "prettier --write \"**/*.{ts,tsx,vue,json,md}\"",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build:core && pnpm build:vue && pnpm build:react && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",

@@ -5,8 +5,8 @@
  */
 import { computed } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import type { TerminalStep, OutputField } from '@ordo/editor-core';
-import { exprToString } from '@ordo/editor-core';
+import type { TerminalStep, OutputField } from '@ordo-engine/editor-core';
+import { exprToString } from '@ordo-engine/editor-core';
 import OrdoIcon from '../../icons/OrdoIcon.vue';
 import { PIN_COLORS } from '../types';
 import { useI18n } from '../../../locale';

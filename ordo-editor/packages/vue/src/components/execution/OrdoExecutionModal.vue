@@ -4,8 +4,8 @@
  * 规则执行调试模态窗口
  */
 import { ref, computed, watch } from 'vue';
-import type { RuleSet } from '@ordo/editor-core';
-import { RuleExecutor, type ExecutionResult, type ExecutionOptions } from '@ordo/editor-core';
+import type { RuleSet } from '@ordo-engine/editor-core';
+import { RuleExecutor, type ExecutionResult, type ExecutionOptions } from '@ordo-engine/editor-core';
 import { useI18n } from '../../locale';
 
 export interface Props {

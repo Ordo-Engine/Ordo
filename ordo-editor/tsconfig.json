@@ -19,9 +19,9 @@
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
     "paths": {
-      "@ordo/editor-core": ["./packages/core/src"],
-      "@ordo/editor-vue": ["./packages/vue/src"],
-      "@ordo/editor-react": ["./packages/react/src"]
+      "@ordo-engine/editor-core": ["./packages/core/src"],
+      "@ordo-engine/editor-vue": ["./packages/vue/src"],
+      "@ordo-engine/editor-react": ["./packages/react/src"]
     }
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

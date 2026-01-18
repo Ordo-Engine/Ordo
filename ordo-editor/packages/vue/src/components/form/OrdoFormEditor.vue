@@ -4,8 +4,8 @@
  * 表单模式规则集编辑器
  */
 import { computed, ref, provide, watch, type Ref } from 'vue';
-import type { RuleSet, SchemaField } from '@ordo/editor-core';
-import { validateRuleSet, type ValidationResult } from '@ordo/editor-core';
+import type { RuleSet, SchemaField } from '@ordo-engine/editor-core';
+import { validateRuleSet, type ValidationResult } from '@ordo-engine/editor-core';
 import OrdoStepList from './OrdoStepList.vue';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
 import { useI18n, type Lang, LOCALE_KEY } from '../../locale';

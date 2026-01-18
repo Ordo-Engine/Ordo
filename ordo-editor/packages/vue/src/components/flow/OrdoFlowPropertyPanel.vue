@@ -4,7 +4,7 @@
  * 选中节点的属性面板
  */
 import { computed } from 'vue';
-import type { Step } from '@ordo/editor-core';
+import type { Step } from '@ordo-engine/editor-core';
 import OrdoStepEditor from '../step/OrdoStepEditor.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';

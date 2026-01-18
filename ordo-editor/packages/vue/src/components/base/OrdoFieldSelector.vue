@@ -4,7 +4,7 @@
  * 字段路径选择器，支持嵌套结构
  */
 import { computed, ref } from 'vue';
-import type { SchemaField } from '@ordo/editor-core';
+import type { SchemaField } from '@ordo-engine/editor-core';
 
 export interface Props {
   /** Selected field path */

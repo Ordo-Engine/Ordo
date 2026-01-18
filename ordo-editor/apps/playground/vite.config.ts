@@ -12,8 +12,8 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       // In dev mode, point to source files for hot reload
-      '@ordo/editor-core': resolve(packagesPath, 'core/src/index.ts'),
-      '@ordo/editor-vue': resolve(packagesPath, 'vue/src/index.ts'),
+      '@ordo-engine/editor-core': resolve(packagesPath, 'core/src/index.ts'),
+      '@ordo-engine/editor-vue': resolve(packagesPath, 'vue/src/index.ts'),
     },
   },
   server: {

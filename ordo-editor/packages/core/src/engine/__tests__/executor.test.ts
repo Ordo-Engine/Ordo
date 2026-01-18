@@ -8,7 +8,7 @@ import { RuleExecutor } from '../executor';
 import type { RuleSet, TerminalStep } from '../../model';
 
 // Mock the WASM module
-vi.mock('@ordo/wasm/dist/ordo_wasm', () => ({
+vi.mock('@ordo-engine/wasm/dist/ordo_wasm', () => ({
   default: vi.fn().mockResolvedValue(undefined),
   execute_ruleset: vi.fn(),
   validate_ruleset: vi.fn(),
@@ -23,7 +23,7 @@ describe('RuleExecutor', () => {
     executor = new RuleExecutor();
 
     // Get mock module
-    mockWasm = await import('@ordo/wasm/dist/ordo_wasm');
+    mockWasm = await import('@ordo-engine/wasm/dist/ordo_wasm');
   });
 
   describe('WASM Execution', () => {

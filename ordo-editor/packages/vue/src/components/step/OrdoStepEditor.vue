@@ -4,7 +4,7 @@
  * 统一步骤编辑器，根据步骤类型渲染
  */
 import { computed } from 'vue';
-import type { Step, DecisionStep, ActionStep, TerminalStep } from '@ordo/editor-core';
+import type { Step, DecisionStep, ActionStep, TerminalStep } from '@ordo-engine/editor-core';
 import OrdoDecisionEditor from './OrdoDecisionEditor.vue';
 import OrdoActionEditor from './OrdoActionEditor.vue';
 import OrdoTerminalEditor from './OrdoTerminalEditor.vue';

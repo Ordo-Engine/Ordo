@@ -3,8 +3,8 @@
  * OrdoTerminalEditor - Terminal step editor (Refactored)
  * 终结步骤编辑器
  */
-import type { TerminalStep, OutputField } from '@ordo/editor-core';
-import { Expr, generateId } from '@ordo/editor-core';
+import type { TerminalStep, OutputField } from '@ordo-engine/editor-core';
+import { Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoExpressionInput from '../base/OrdoExpressionInput.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';

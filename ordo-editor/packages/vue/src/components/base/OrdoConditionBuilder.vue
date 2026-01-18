@@ -4,8 +4,8 @@
  * 可视化条件构建器
  */
 import { computed } from 'vue';
-import type { Condition, SimpleCondition, LogicalCondition } from '@ordo/editor-core';
-import { Condition as ConditionFactory, Expr } from '@ordo/editor-core';
+import type { Condition, SimpleCondition, LogicalCondition } from '@ordo-engine/editor-core';
+import { Condition as ConditionFactory, Expr } from '@ordo-engine/editor-core';
 import OrdoExpressionInput from './OrdoExpressionInput.vue';
 import type { FieldSuggestion } from './OrdoExpressionInput.vue';
 

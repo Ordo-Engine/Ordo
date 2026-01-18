@@ -4,8 +4,8 @@
  * 决策步骤编辑器
  */
 import { computed } from 'vue';
-import type { DecisionStep, Branch, Condition, Step } from '@ordo/editor-core';
-import { Condition as ConditionFactory, Expr, generateId } from '@ordo/editor-core';
+import type { DecisionStep, Branch, Condition, Step } from '@ordo-engine/editor-core';
+import { Condition as ConditionFactory, Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoConditionBuilder from '../base/OrdoConditionBuilder.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';

@@ -19,12 +19,12 @@ export default defineConfig({
       fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
-      external: ['react', 'react-dom', '@ordo/editor-core'],
+      external: ['react', 'react-dom', '@ordo-engine/editor-core'],
       output: {
         globals: {
           react: 'React',
           'react-dom': 'ReactDOM',
-          '@ordo/editor-core': 'OrdoEditorCore',
+          '@ordo-engine/editor-core': 'OrdoEditorCore',
         },
         assetFileNames: (assetInfo) => {
           if (assetInfo.name === 'style.css') {

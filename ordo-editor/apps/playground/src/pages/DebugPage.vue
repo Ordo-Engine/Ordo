@@ -4,8 +4,56 @@
  * VS Code style integrated debugger
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { OrdoIcon, convertToEngineFormat } from '@ordo/editor-vue';
-import type { RuleSet } from '@ordo/editor-core';
+import { OrdoIcon, convertToEngineFormat } from '@ordo-engine/editor-vue';
+import type { RuleSet } from '@ordo-engine/editor-core';
+import { RuleExecutor } from '@ordo-engine/editor-core';
+
+// JIT Analysis result - supports both camelCase and snake_case for compatibility
+interface JITAnalysisResult {
+  overallCompatible?: boolean;
+  overall_compatible?: boolean;
+  compatibleCount?: number;
+  compatible_count?: number;
+  incompatibleCount?: number;
+  incompatible_count?: number;
+  totalExpressions?: number;
+  total_expressions?: number;
+  estimatedSpeedup?: number;
+  estimated_speedup?: number;
+  expressions?: Array<{
+    stepId?: string;
+    step_id?: string;
+    stepName?: string;
+    step_name?: string;
+    location: string;
+    expression: string;
+    analysis?: {
+      jitCompatible?: boolean;
+      jit_compatible?: boolean;
+      reason?: string;
+      accessedFields?: string[];
+      accessed_fields?: string[];
+      unsupportedFeatures?: string[];
+      unsupported_features?: string[];
+      supportedFeatures?: string[];
+      supported_features?: string[];
+    };
+  }>;
+  requiredFields?: Array<{
+    path: string;
+    inferredType?: string;
+    inferred_type?: string;
+    usedInSteps?: string[];
+    used_in_steps?: string[];
+  }>;
+  required_fields?: Array<{
+    path: string;
+    inferredType?: string;
+    inferred_type?: string;
+    usedInSteps?: string[];
+    used_in_steps?: string[];
+  }>;
+}
 
 // Props
 const props = defineProps<{
@@ -36,9 +84,17 @@ const rulesetJson = ref('');
 const rulesetInputJson = ref('{\n  "user": {\n    "age": 25,\n    "level": "vip"\n  }\n}');
 const rulesetResult = ref<any>(null);
 const isExecutingRuleset = ref(false);
-const activeRulesetTab = ref<'overview' | 'steps' | 'variables' | 'expressions'>('overview');
+const activeRulesetTab = ref<'overview' | 'steps' | 'variables' | 'expressions' | 'jit'>('overview');
 const availableRulesets = ref<any[]>([]);
 const selectedRulesetName = ref('');
+
+// JIT Analysis state
+const jitAnalysisResult = ref<JITAnalysisResult | null>(null);
+const isAnalyzingJit = ref(false);
+const exprJitResult = ref<any>(null);
+
+// Rule executor for JIT analysis
+const ruleExecutor = new RuleExecutor();
 
 // Function to load ruleset from external source
 function loadExternalRuleset(ruleset: RuleSet) {
@@ -280,6 +336,172 @@ function formatDuration(ns: number): string {
   if (ns < 1000) return `${ns}ns`;
   if (ns < 1000000) return `${(ns / 1000).toFixed(2)}µs`;
   return `${(ns / 1000000).toFixed(2)}ms`;
+}
+
+// JIT Analysis functions
+async function analyzeExpressionJit() {
+  if (!expression.value.trim()) return;
+  
+  try {
+    isAnalyzingJit.value = true;
+    const response = await fetch(`${serverEndpoint.value}/api/v1/debug/jit/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expression: expression.value }),
+    });
+    
+    if (response.ok) {
+      exprJitResult.value = await response.json();
+    } else {
+      // Fallback to client-side analysis
+      exprJitResult.value = analyzeJitClient(expression.value);
+    }
+  } catch (e) {
+    // Fallback to client-side analysis if server is unavailable
+    exprJitResult.value = analyzeJitClient(expression.value);
+  } finally {
+    isAnalyzingJit.value = false;
+  }
+}
+
+async function analyzeRulesetJit() {
+  if (!rulesetJson.value.trim()) return;
+  
+  try {
+    isAnalyzingJit.value = true;
+    
+    // Parse the ruleset JSON
+    let ruleset: RuleSet;
+    try {
+      ruleset = JSON.parse(rulesetJson.value);
+    } catch {
+      // If parsing fails, use client-side heuristic analysis
+      jitAnalysisResult.value = analyzeRulesetJitClient(rulesetJson.value) as any;
+      return;
+    }
+    
+    // Try WASM-based analysis first (most reliable)
+    try {
+      const analysis = await ruleExecutor.analyzeJitCompatibility(ruleset, { mode: 'wasm' });
+      jitAnalysisResult.value = analysis;
+      return;
+    } catch (wasmError) {
+      console.warn('[JIT] WASM analysis failed, trying HTTP:', wasmError);
+    }
+    
+    // Try HTTP-based analysis if WASM fails
+    if (isDebugMode.value) {
+      try {
+        const analysis = await ruleExecutor.analyzeJitCompatibility(ruleset, {
+          mode: 'http',
+          httpEndpoint: serverEndpoint.value,
+        });
+        jitAnalysisResult.value = analysis;
+        return;
+      } catch (httpError) {
+        console.warn('[JIT] HTTP analysis failed, using client fallback:', httpError);
+      }
+    }
+    
+    // Final fallback to client-side heuristic analysis
+    jitAnalysisResult.value = analyzeRulesetJitClient(rulesetJson.value) as any;
+  } catch (e) {
+    console.error('[JIT] Analysis failed:', e);
+    // Fallback to client-side analysis
+    jitAnalysisResult.value = analyzeRulesetJitClient(rulesetJson.value) as any;
+  } finally {
+    isAnalyzingJit.value = false;
+  }
+}
+
+// Client-side JIT analysis (heuristic-based fallback)
+function analyzeJitClient(expr: string): any {
+  const unsupportedFeatures: string[] = [];
+  const supportedFeatures: string[] = [];
+  
+  // Check for unsupported features
+  if (expr.includes(' in ') || expr.includes(' contains ')) {
+    unsupportedFeatures.push('set_operations');
+  }
+  if (/["'][^"']*["']/.test(expr)) {
+    unsupportedFeatures.push('string_comparison');
+  }
+  
+  // Check for supported features
+  if (/[<>]=?|==|!=/.test(expr)) supportedFeatures.push('comparison');
+  if (/&&|\|\|/.test(expr)) supportedFeatures.push('logical');
+  if (/[+\-*/]/.test(expr)) supportedFeatures.push('arithmetic');
+  if (/\$\.\w+/.test(expr)) supportedFeatures.push('field_access');
+  
+  return {
+    jit_compatible: unsupportedFeatures.length === 0,
+    reason: unsupportedFeatures.length > 0 ? `Unsupported: ${unsupportedFeatures.join(', ')}` : null,
+    accessed_fields: extractFields(expr),
+    unsupported_features: unsupportedFeatures,
+    supported_features: supportedFeatures,
+  };
+}
+
+function analyzeRulesetJitClient(json: string): any {
+  try {
+    const ruleset = JSON.parse(json);
+    const expressions: any[] = [];
+    let compatibleCount = 0;
+    let incompatibleCount = 0;
+    const requiredFields: Map<string, string[]> = new Map();
+    
+    // Analyze each step
+    if (ruleset.steps) {
+      for (const [stepId, step] of Object.entries(ruleset.steps) as any) {
+        if (step.type === 'decision' && step.branches) {
+          for (const branch of step.branches) {
+            if (branch.condition && typeof branch.condition === 'string') {
+              const analysis = analyzeJitClient(branch.condition);
+              if (analysis.jit_compatible) compatibleCount++;
+              else incompatibleCount++;
+              
+              for (const field of analysis.accessed_fields) {
+                if (!requiredFields.has(field)) {
+                  requiredFields.set(field, []);
+                }
+                requiredFields.get(field)!.push(stepId);
+              }
+              
+              expressions.push({
+                step_id: stepId,
+                step_name: step.name || stepId,
+                location: 'condition',
+                expression: branch.condition,
+                analysis,
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    const total = compatibleCount + incompatibleCount;
+    return {
+      overall_compatible: incompatibleCount === 0 && total > 0,
+      compatible_count: compatibleCount,
+      incompatible_count: incompatibleCount,
+      total_expressions: total,
+      expressions,
+      estimated_speedup: incompatibleCount === 0 ? 20.0 : 1.0 + (compatibleCount / Math.max(total, 1)) * 19.0,
+      required_fields: Array.from(requiredFields.entries()).map(([path, steps]) => ({
+        path,
+        inferred_type: 'numeric',
+        used_in_steps: steps,
+      })),
+    };
+  } catch {
+    return { overall_compatible: false, error: 'Failed to parse ruleset' };
+  }
+}
+
+function extractFields(expr: string): string[] {
+  const matches = expr.match(/\$\.[\w.]+/g) || [];
+  return [...new Set(matches.map(m => m.slice(2)))]; // Remove "$." prefix
 }
 
 // Status color
@@ -665,6 +887,26 @@ onUnmounted(() => {
         >
           Expressions
         </div>
+        <div
+          class="tab jit-tab"
+          :class="{ active: activeRulesetTab === 'jit' }"
+          @click="activeRulesetTab = 'jit'; analyzeRulesetJit()"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            stroke="none"
+            class="jit-icon"
+          >
+            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+          </svg>
+          JIT Analysis
+          <span v-if="jitAnalysisResult" class="tab-badge" :class="{ 'jit-ok': jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible, 'jit-warn': !(jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible) }">
+            {{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }}/{{ jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions }}
+          </span>
+        </div>
       </div>
 
       <!-- Tab Content - Expression Mode -->
@@ -820,6 +1062,88 @@ onUnmounted(() => {
           <div v-else class="empty-state">
             <OrdoIcon name="terminal" :size="32" />
             <p>Expression traces will appear here</p>
+          </div>
+        </div>
+
+        <!-- JIT Analysis Tab -->
+        <div v-if="activeRulesetTab === 'jit'" class="ruleset-panel jit-panel">
+          <div v-if="isAnalyzingJit" class="loading-state">
+            <div class="spinner"></div>
+            <p>Analyzing JIT compatibility...</p>
+          </div>
+          <div v-else-if="jitAnalysisResult" class="jit-content">
+            <!-- Overall Status -->
+            <div class="jit-overview" :class="{ compatible: jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible }">
+              <div class="jit-status-icon">
+                <svg v-if="jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+                </svg>
+                <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+              </div>
+              <div class="jit-status-text">
+                <h3>{{ (jitAnalysisResult.overallCompatible || jitAnalysisResult.overall_compatible) ? 'Fully JIT Compatible' : 'Partial JIT Compatibility' }}</h3>
+                <p>{{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }} of {{ jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions }} expressions can be JIT compiled</p>
+              </div>
+              <div class="jit-speedup">
+                <span class="speedup-value">{{ (jitAnalysisResult.estimatedSpeedup ?? jitAnalysisResult.estimated_speedup)?.toFixed(1) || '1.0' }}x</span>
+                <span class="speedup-label">Est. Speedup</span>
+              </div>
+            </div>
+
+            <!-- Expression List -->
+            <div class="jit-expressions">
+              <h4>Expression Analysis</h4>
+              <div class="expr-list">
+                <div
+                  v-for="entry in jitAnalysisResult.expressions"
+                  :key="`${entry.stepId || entry.step_id}-${entry.location}`"
+                  class="jit-expr-item"
+                  :class="{ compatible: entry.analysis?.jitCompatible || entry.analysis?.jit_compatible, incompatible: !(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) }"
+                >
+                  <div class="expr-header">
+                    <span class="expr-step">{{ entry.stepName || entry.step_name }}</span>
+                    <span class="expr-location">{{ entry.location }}</span>
+                    <span class="expr-status" :class="{ ok: entry.analysis?.jitCompatible || entry.analysis?.jit_compatible, warn: !(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) }">
+                      {{ (entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) ? 'JIT Ready' : 'Not JIT' }}
+                    </span>
+                  </div>
+                  <code class="expr-code">{{ entry.expression }}</code>
+                  <div v-if="!(entry.analysis?.jitCompatible || entry.analysis?.jit_compatible) && entry.analysis?.reason" class="expr-reason">
+                    {{ entry.analysis.reason }}
+                  </div>
+                  <div v-if="(entry.analysis?.unsupportedFeatures || entry.analysis?.unsupported_features)?.length" class="expr-features">
+                    <span v-for="feat in (entry.analysis?.unsupportedFeatures || entry.analysis?.unsupported_features)" :key="feat" class="feature-tag unsupported">
+                      {{ feat }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Required Fields -->
+            <div v-if="(jitAnalysisResult.requiredFields || jitAnalysisResult.required_fields)?.length" class="jit-fields">
+              <h4>Required Schema Fields</h4>
+              <div class="field-list">
+                <div v-for="field in (jitAnalysisResult.requiredFields || jitAnalysisResult.required_fields)" :key="field.path" class="field-item">
+                  <code class="field-path">$.{{ field.path }}</code>
+                  <span class="field-type">{{ field.inferredType || field.inferred_type }}</span>
+                  <span class="field-usage">Used in {{ (field.usedInSteps || field.used_in_steps)?.length || 0 }} steps</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-state">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" class="jit-empty-icon">
+              <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+            </svg>
+            <p>Load a ruleset and click "JIT Analysis" to analyze JIT compatibility</p>
+            <button v-if="rulesetJson" class="analyze-btn" @click="analyzeRulesetJit">
+              Analyze Ruleset
+            </button>
           </div>
         </div>
       </div>
@@ -1732,5 +2056,286 @@ onUnmounted(() => {
   line-height: 1.5;
   color: var(--ordo-text-primary);
   white-space: pre-wrap;
+}
+
+/* JIT Analysis Tab Styles */
+.jit-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jit-icon {
+  color: #f59e0b;
+}
+
+.tab-badge.jit-ok {
+  background: var(--ordo-success, #22c55e);
+}
+
+.tab-badge.jit-warn {
+  background: var(--ordo-warning, #f59e0b);
+}
+
+.jit-panel {
+  padding: 16px;
+}
+
+.jit-overview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--ordo-bg-item);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-md);
+  margin-bottom: 20px;
+}
+
+.jit-overview.compatible {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.jit-status-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ordo-bg-tertiary);
+}
+
+.jit-overview.compatible .jit-status-icon {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.jit-status-text {
+  flex: 1;
+}
+
+.jit-status-text h3 {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.jit-status-text p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
+}
+
+.jit-speedup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--ordo-bg-tertiary);
+  border-radius: var(--ordo-radius-sm);
+}
+
+.speedup-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.speedup-label {
+  font-size: 10px;
+  color: var(--ordo-text-tertiary);
+}
+
+.jit-expressions h4,
+.jit-fields h4 {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-secondary);
+}
+
+.jit-expressions {
+  margin-bottom: 20px;
+}
+
+.expr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jit-expr-item {
+  padding: 12px;
+  background: var(--ordo-bg-item);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-sm);
+  border-left: 3px solid var(--ordo-border-color);
+}
+
+.jit-expr-item.compatible {
+  border-left-color: #f59e0b;
+}
+
+.jit-expr-item.incompatible {
+  border-left-color: var(--ordo-text-tertiary);
+  opacity: 0.8;
+}
+
+.expr-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.expr-step {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.expr-location {
+  font-size: 11px;
+  color: var(--ordo-text-tertiary);
+  padding: 2px 6px;
+  background: var(--ordo-bg-tertiary);
+  border-radius: var(--ordo-radius-xs);
+}
+
+.expr-status {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.expr-status.ok {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.expr-status.warn {
+  background: var(--ordo-bg-tertiary);
+  color: var(--ordo-text-tertiary);
+}
+
+.expr-code {
+  display: block;
+  font-family: var(--ordo-font-mono);
+  font-size: 12px;
+  padding: 8px;
+  background: var(--ordo-bg-editor);
+  border-radius: var(--ordo-radius-xs);
+  color: var(--ordo-text-primary);
+  word-break: break-all;
+}
+
+.expr-reason {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ordo-text-tertiary);
+}
+
+.expr-features {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.feature-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--ordo-radius-xs);
+}
+
+.feature-tag.unsupported {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.jit-fields {
+  margin-top: 20px;
+}
+
+.field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--ordo-bg-item);
+  border-radius: var(--ordo-radius-sm);
+}
+
+.field-path {
+  font-family: var(--ordo-font-mono);
+  font-size: 12px;
+  color: var(--ordo-primary-500);
+}
+
+.field-type {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--ordo-bg-tertiary);
+  border-radius: var(--ordo-radius-xs);
+  color: var(--ordo-text-secondary);
+}
+
+.field-usage {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ordo-text-tertiary);
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 12px;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ordo-border-color);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.jit-empty-icon {
+  color: var(--ordo-text-tertiary);
+  opacity: 0.5;
+}
+
+.analyze-btn {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: #f59e0b;
+  color: #000;
+  border: none;
+  border-radius: var(--ordo-radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.analyze-btn:hover {
+  background: #d97706;
 }
 </style>

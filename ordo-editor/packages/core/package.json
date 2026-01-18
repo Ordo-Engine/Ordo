@@ -1,5 +1,5 @@
 {
-  "name": "@ordo/editor-core",
+  "name": "@ordo-engine/editor-core",
   "version": "0.1.0",
   "description": "Core logic for Ordo Rule Editor (framework-agnostic)",
   "type": "module",
@@ -23,7 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ordo/wasm": "workspace:*"
+    "@ordo-engine/wasm": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.3.0",
@@ -42,5 +42,8 @@
     "type": "git",
     "url": "https://github.com/Pama-Lee/Ordo.git",
     "directory": "ordo-editor/packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

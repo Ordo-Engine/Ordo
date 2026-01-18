@@ -1,5 +1,5 @@
 /**
- * @ordo/editor-core
+ * @ordo-engine/editor-core
  *
  * Core logic for Ordo Rule Editor (framework-agnostic)
  * 规则编辑器核心逻辑（框架无关）
@@ -22,6 +22,9 @@ export * from './utils';
 
 // Engine integration exports
 export * from './engine';
+
+// Schema exports (Protobuf parsing, JIT schema utilities)
+export * from './schema';
 
 // Version
 export const VERSION = '0.1.0';

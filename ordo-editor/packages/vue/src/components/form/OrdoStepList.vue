@@ -7,13 +7,13 @@
  * 步骤按照业务阶段（分组）组织
  */
 import { ref, computed } from 'vue';
-import type { Step, RuleSet, StepGroup } from '@ordo/editor-core';
+import type { Step, RuleSet, StepGroup } from '@ordo-engine/editor-core';
 import {
   Step as StepFactory,
   StepGroup as StepGroupFactory,
   generateId,
   GROUP_COLORS,
-} from '@ordo/editor-core';
+} from '@ordo-engine/editor-core';
 import OrdoStepEditor from '../step/OrdoStepEditor.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';

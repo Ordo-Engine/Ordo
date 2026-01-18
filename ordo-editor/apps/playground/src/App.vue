@@ -11,7 +11,12 @@ import {
   type RuleSet,
   type SchemaField,
 } from '@ordo-engine/editor-vue';
-import { RuleExecutor, type JITSchema, type JITRulesetAnalysis } from '@ordo-engine/editor-core';
+import {
+  RuleExecutor,
+  VERSION,
+  type JITSchema,
+  type JITRulesetAnalysis,
+} from '@ordo-engine/editor-core';
 import { Step, Condition, Expr, generateId } from '@ordo-engine/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
 import DebugPage from './pages/DebugPage.vue';
@@ -1588,7 +1593,7 @@ watch(
 
       <!-- Status Bar -->
       <footer class="ide-status-bar">
-        <div class="status-item">Ordo v0.1.0</div>
+        <div class="status-item">Ordo v{{ VERSION }}</div>
         <div class="status-item"><OrdoIcon name="check" :size="12" /> Ready</div>
         <div class="spacer"></div>
         <div

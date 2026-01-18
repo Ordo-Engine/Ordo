@@ -3,5 +3,10 @@
   "buildCommand": "pnpm build",
   "outputDirectory": ".vitepress/dist",
   "framework": null,
-  "installCommand": "pnpm install"
+  "installCommand": "pnpm install",
+  "build": {
+    "env": {
+      "CUSTOM_DOMAIN": "true"
+    }
+  }
 }

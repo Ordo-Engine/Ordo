@@ -1132,9 +1132,7 @@ onUnmounted(() => {
                 </h3>
                 <p>
                   {{ jitAnalysisResult.compatibleCount ?? jitAnalysisResult.compatible_count }} of
-                  {{
-                    jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions
-                  }}
+                  {{ jitAnalysisResult.totalExpressions ?? jitAnalysisResult.total_expressions }}
                   expressions can be JIT compiled
                 </p>
               </div>

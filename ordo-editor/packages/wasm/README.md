@@ -1,4 +1,4 @@
-# @ordo/wasm
+# @ordo-engine/wasm
 
 WebAssembly bindings for Ordo Rule Engine.
 
@@ -20,7 +20,7 @@ This will compile the Rust code to WebAssembly and generate TypeScript bindings 
 ## Usage
 
 ```typescript
-import init, { execute_ruleset, validate_ruleset, eval_expression } from '@ordo/wasm';
+import init, { execute_ruleset, validate_ruleset, eval_expression } from '@ordo-engine/wasm';
 
 // Initialize WASM module
 await init();

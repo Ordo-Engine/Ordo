@@ -1,22 +1,24 @@
 /**
- * Rule Executor - Dual-mode execution (WASM + HTTP)
- * 规则执行器 - 双模式执行（WASM + HTTP）
+ * Rule Executor - Multi-mode execution (WASM + HTTP + JIT)
+ * 规则执行器 - 多模式执行（WASM + HTTP + JIT）
  */
 
-import type { RuleSet } from '../model';
+import type { RuleSet, JITSchema, JITRulesetAnalysis } from '../model';
 import type { ExecutionResult, ValidationResult, EvalResult } from './types';
 import { convertToEngineFormat, validateEngineCompatibility } from './adapter';
 
 /** Execution options */
 export interface ExecutionOptions {
-  /** Execution mode */
-  mode?: 'wasm' | 'http';
-  /** HTTP endpoint (for HTTP mode) */
+  /** Execution mode: wasm (local), http (server), jit (server with JIT compilation) */
+  mode?: 'wasm' | 'http' | 'jit';
+  /** HTTP endpoint (for HTTP and JIT modes) */
   httpEndpoint?: string;
   /** Whether to include execution trace */
   includeTrace?: boolean;
   /** Execution timeout in milliseconds */
   timeout?: number;
+  /** JIT Schema for JIT mode */
+  jitSchema?: JITSchema;
 }
 
 /** Expression evaluation options */
@@ -25,6 +27,21 @@ export interface EvalOptions {
   mode?: 'wasm' | 'http';
   /** HTTP endpoint (for HTTP mode) */
   httpEndpoint?: string;
+}
+
+/** JIT execution result with performance metrics */
+export interface JITExecutionResult extends ExecutionResult {
+  /** JIT-specific metrics */
+  jit_metrics?: {
+    /** Whether JIT compilation was used */
+    jit_enabled: boolean;
+    /** Number of JIT-compiled expressions */
+    compiled_expressions: number;
+    /** JIT compilation time in microseconds */
+    compilation_time_us: number;
+    /** Estimated speedup factor */
+    speedup_factor: number;
+  };
 }
 
 /**
@@ -44,7 +61,7 @@ export class RuleExecutor {
 
     try {
       // Dynamic import of WASM module
-      const wasm = await import('@ordo/wasm');
+      const wasm = await import('@ordo-engine/wasm');
       // Initialize WASM - the default export is the init function
       if (typeof wasm.default === 'function') {
         await wasm.default();
@@ -80,10 +97,80 @@ export class RuleExecutor {
 
     // Choose execution mode
     const mode = options.mode || 'wasm';
-    if (mode === 'http' || options.httpEndpoint) {
+    if (mode === 'jit') {
+      return this.executeViaJit(engineRuleset, input, options);
+    } else if (mode === 'http' || options.httpEndpoint) {
       return this.executeViaHttp(engineRuleset, input, options);
     } else {
       return this.executeViaWasm(engineRuleset, input, options);
+    }
+  }
+
+  /**
+   * Execute via JIT-enabled HTTP API
+   * Uses Schema-Aware JIT compilation for maximum performance
+   */
+  private async executeViaJit(
+    ruleset: any,
+    input: any,
+    options: ExecutionOptions
+  ): Promise<JITExecutionResult> {
+    const endpoint = options.httpEndpoint || 'http://localhost:8080';
+
+    try {
+      // Build JIT execution request
+      const requestBody: any = {
+        ruleset,
+        input,
+        trace: options.includeTrace ?? true,
+        jit_enabled: true,
+      };
+
+      // Include schema if provided
+      if (options.jitSchema) {
+        requestBody.schema = options.jitSchema;
+      }
+
+      const response = await fetch(`${endpoint}/api/v1/execute/jit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        // Fall back to regular HTTP execution if JIT endpoint not available
+        if (response.status === 404) {
+          console.warn('[JIT] JIT endpoint not available, falling back to regular HTTP');
+          const httpResult = await this.executeViaHttp(ruleset, input, options);
+          return {
+            ...httpResult,
+            jit_metrics: {
+              jit_enabled: false,
+              compiled_expressions: 0,
+              compilation_time_us: 0,
+              speedup_factor: 1.0,
+            },
+          };
+        }
+        throw new Error(
+          `JIT execution failed: ${response.status} ${await response.text()}`
+        );
+      }
+
+      return response.json();
+    } catch (error) {
+      // Fall back to HTTP if JIT fails
+      console.warn('[JIT] JIT execution failed, falling back to HTTP:', error);
+      const httpResult = await this.executeViaHttp(ruleset, input, options);
+      return {
+        ...httpResult,
+        jit_metrics: {
+          jit_enabled: false,
+          compiled_expressions: 0,
+          compilation_time_us: 0,
+          speedup_factor: 1.0,
+        },
+      };
     }
   }
 
@@ -329,6 +416,129 @@ export class RuleExecutor {
     } catch (error) {
       throw new Error(
         `HTTP eval failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Analyze JIT compatibility for a ruleset
+   * 分析规则集的 JIT 兼容性
+   */
+  async analyzeJitCompatibility(
+    ruleset: RuleSet,
+    options: Pick<ExecutionOptions, 'mode' | 'httpEndpoint'> = {}
+  ): Promise<JITRulesetAnalysis> {
+    const engineRuleset = convertToEngineFormat(ruleset);
+    const mode = options.mode || 'wasm';
+
+    if (mode === 'wasm') {
+      return this.analyzeJitViaWasm(engineRuleset);
+    } else {
+      return this.analyzeJitViaHttp(engineRuleset, options);
+    }
+  }
+
+  /**
+   * Analyze JIT compatibility via WASM
+   */
+  private async analyzeJitViaWasm(ruleset: any): Promise<JITRulesetAnalysis> {
+    await this.initWasm();
+
+    if (!this.wasmModule) {
+      throw new Error('WASM module not initialized');
+    }
+
+    try {
+      const rulesetJson = JSON.stringify(ruleset);
+      const resultJson = await Promise.resolve(
+        this.wasmModule.analyze_ruleset_jit(rulesetJson)
+      );
+      const result = JSON.parse(resultJson);
+      
+      // Convert snake_case to camelCase for frontend
+      return {
+        overallCompatible: result.overall_compatible,
+        compatibleCount: result.compatible_count,
+        incompatibleCount: result.incompatible_count,
+        totalExpressions: result.total_expressions,
+        expressions: result.expressions.map((e: any) => ({
+          stepId: e.step_id,
+          stepName: e.step_name,
+          location: e.location,
+          expression: e.expression,
+          analysis: {
+            jitCompatible: e.analysis.jit_compatible,
+            reason: e.analysis.reason,
+            accessedFields: e.analysis.accessed_fields,
+            unsupportedFeatures: e.analysis.unsupported_features,
+            supportedFeatures: e.analysis.supported_features,
+          },
+        })),
+        estimatedSpeedup: result.estimated_speedup,
+        requiredFields: result.required_fields.map((f: any) => ({
+          path: f.path,
+          inferredType: f.inferred_type,
+          usedInSteps: f.used_in_steps,
+        })),
+      };
+    } catch (error) {
+      throw new Error(
+        `WASM JIT analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
+   * Analyze JIT compatibility via HTTP API
+   */
+  private async analyzeJitViaHttp(
+    ruleset: any,
+    options: Pick<ExecutionOptions, 'httpEndpoint'>
+  ): Promise<JITRulesetAnalysis> {
+    const endpoint = options.httpEndpoint || 'http://localhost:8080';
+
+    try {
+      const response = await fetch(`${endpoint}/api/v1/debug/jit/analyze-ruleset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ruleset),
+      });
+
+      if (!response.ok) {
+        throw new Error(`JIT analysis failed: ${response.status} ${await response.text()}`);
+      }
+
+      const result = await response.json();
+      
+      // Convert snake_case to camelCase for frontend
+      return {
+        overallCompatible: result.overall_compatible,
+        compatibleCount: result.compatible_count,
+        incompatibleCount: result.incompatible_count,
+        totalExpressions: result.total_expressions,
+        expressions: result.expressions?.map((e: any) => ({
+          stepId: e.step_id,
+          stepName: e.step_name,
+          location: e.location,
+          expression: e.expression,
+          analysis: {
+            jitCompatible: e.analysis?.jit_compatible,
+            reason: e.analysis?.reason,
+            accessedFields: e.analysis?.accessed_fields,
+            unsupportedFeatures: e.analysis?.unsupported_features,
+            supportedFeatures: e.analysis?.supported_features,
+          },
+        })) || [],
+        estimatedSpeedup: result.estimated_speedup || 1.0,
+        requiredFields: result.required_fields?.map((f: any) => ({
+          path: f.path,
+          inferredType: f.inferred_type,
+          usedInSteps: f.used_in_steps,
+        })) || [],
+      };
+    } catch (error) {
+      throw new Error(
+        `HTTP JIT analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }

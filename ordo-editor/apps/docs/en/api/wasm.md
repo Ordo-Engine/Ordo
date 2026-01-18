@@ -7,9 +7,9 @@ Ordo can run directly in the browser via WebAssembly, enabling client-side rule 
 ### NPM Package
 
 ```bash
-npm install @ordo/wasm
+npm install @ordo-engine/wasm
 # or
-pnpm add @ordo/wasm
+pnpm add @ordo-engine/wasm
 ```
 
 ### CDN
@@ -20,7 +20,7 @@ pnpm add @ordo/wasm
     execute,
     validate,
     parse_expression,
-  } from 'https://unpkg.com/@ordo/wasm/ordo_wasm.js';
+  } from 'https://unpkg.com/@ordo-engine/wasm/ordo_wasm.js';
 
   await init();
 </script>
@@ -33,7 +33,7 @@ pnpm add @ordo/wasm
 Initialize the WASM module. Must be called before using other functions.
 
 ```typescript
-import init from '@ordo/wasm';
+import init from '@ordo-engine/wasm';
 
 await init();
 ```
@@ -43,7 +43,7 @@ await init();
 Execute a rule with input data.
 
 ```typescript
-import { execute } from '@ordo/wasm';
+import { execute } from '@ordo-engine/wasm';
 
 const ruleset = {
   config: {
@@ -85,7 +85,7 @@ console.log(JSON.parse(result));
 Execute with execution trace for debugging.
 
 ```typescript
-import { execute_with_trace } from '@ordo/wasm';
+import { execute_with_trace } from '@ordo-engine/wasm';
 
 const result = execute_with_trace(JSON.stringify(ruleset), JSON.stringify(input));
 
@@ -99,7 +99,7 @@ console.log(parsed.trace);
 Validate a rule definition without executing.
 
 ```typescript
-import { validate } from '@ordo/wasm';
+import { validate } from '@ordo-engine/wasm';
 
 const result = validate(JSON.stringify(ruleset));
 const validation = JSON.parse(result);
@@ -116,7 +116,7 @@ if (validation.valid) {
 Parse and validate an expression.
 
 ```typescript
-import { parse_expression } from '@ordo/wasm';
+import { parse_expression } from '@ordo-engine/wasm';
 
 const result = parse_expression('user.age >= 18 && user.vip == true');
 const parsed = JSON.parse(result);
@@ -134,7 +134,7 @@ if (parsed.valid) {
 Evaluate an expression with context.
 
 ```typescript
-import { eval_expression } from '@ordo/wasm';
+import { eval_expression } from '@ordo-engine/wasm';
 
 const result = eval_expression('user.age >= 18', JSON.stringify({ user: { age: 25 } }));
 
@@ -143,12 +143,12 @@ console.log(JSON.parse(result)); // true
 
 ## Vue Integration
 
-### Using with @ordo/editor-vue
+### Using with @ordo-engine/editor-vue
 
 ```vue
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import init, { execute } from '@ordo/wasm';
+import init, { execute } from '@ordo-engine/wasm';
 
 const result = ref(null);
 const loading = ref(true);
@@ -171,7 +171,7 @@ const runRule = async (ruleset, input) => {
 // vite.config.ts
 export default defineConfig({
   optimizeDeps: {
-    exclude: ['@ordo/wasm'],
+    exclude: ['@ordo-engine/wasm'],
   },
   build: {
     target: 'esnext',
@@ -183,7 +183,7 @@ export default defineConfig({
 
 ```tsx
 import { useState, useEffect } from 'react';
-import init, { execute } from '@ordo/wasm';
+import init, { execute } from '@ordo-engine/wasm';
 
 function RuleExecutor({ ruleset, input }) {
   const [result, setResult] = useState(null);

@@ -1,5 +1,5 @@
 /**
- * @ordo/editor-vue
+ * @ordo-engine/editor-vue
  *
  * Vue components for Ordo Rule Editor
  * Vue 规则编辑器组件库
@@ -25,6 +25,9 @@ export * from './components/execution';
 
 // Debug components
 export * from './components/debug';
+
+// Schema components (JIT Schema Editor, Protobuf import)
+export * from './components/schema';
 
 // Icons
 export { default as OrdoIcon } from './components/icons/OrdoIcon.vue';
@@ -68,11 +71,11 @@ export type {
   ValueType,
   ValidationResult,
   ValidationError,
-} from '@ordo/editor-core';
+} from '@ordo-engine/editor-core';
 
 // Re-export type aliases that have same-name values
 // These need explicit type/value separation for isolatedModules
-export type { Step, Condition, Expr } from '@ordo/editor-core';
+export type { Step, Condition, Expr } from '@ordo-engine/editor-core';
 
 // Re-export values (factory objects and functions)
 import {
@@ -90,7 +93,7 @@ import {
   exprToString,
   conditionToString,
   convertToEngineFormat,
-} from '@ordo/editor-core';
+} from '@ordo-engine/editor-core';
 
 // Export factory objects with their original names
 export const Step = StepFactory;

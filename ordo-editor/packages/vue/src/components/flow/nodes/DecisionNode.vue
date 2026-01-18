@@ -5,8 +5,8 @@
  */
 import { computed } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import type { DecisionStep } from '@ordo/editor-core';
-import { conditionToString } from '@ordo/editor-core';
+import type { DecisionStep } from '@ordo-engine/editor-core';
+import { conditionToString } from '@ordo-engine/editor-core';
 import OrdoIcon from '../../icons/OrdoIcon.vue';
 import { PIN_COLORS } from '../types';
 import { useI18n } from '../../../locale';

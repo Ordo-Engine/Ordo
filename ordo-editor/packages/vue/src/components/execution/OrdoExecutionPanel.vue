@@ -4,9 +4,10 @@
  * 规则执行底部面板（类似终端）
  */
 import { ref, computed, watch } from 'vue';
-import type { RuleSet } from '@ordo/editor-core';
-import { RuleExecutor, type ExecutionResult, type ExecutionOptions } from '@ordo/editor-core';
+import type { RuleSet, JITSchema, JITRulesetAnalysis } from '@ordo-engine/editor-core';
+import { RuleExecutor, type ExecutionResult, type ExecutionOptions, type JITExecutionResult } from '@ordo-engine/editor-core';
 import { useI18n } from '../../locale';
+import OrdoPerformancePanel from './OrdoPerformancePanel.vue';
 
 export interface Props {
   /** RuleSet to execute */
@@ -55,12 +56,21 @@ const executionHistory = ref<
 const inputJson = ref(props.sampleInput);
 
 // Execution options
-const executionMode = ref<'wasm' | 'http'>('wasm');
+const executionMode = ref<'wasm' | 'http' | 'jit'>('wasm');
 const httpEndpoint = ref('http://localhost:8080');
 const includeTrace = ref(true);
 
+// JIT state
+const jitAnalysis = ref<JITRulesetAnalysis | null>(null);
+const isAnalyzingJit = ref(false);
+const jitMetrics = ref<JITExecutionResult['jit_metrics'] | null>(null);
+
+// Connection state
+const connectionStatus = ref<'idle' | 'testing' | 'connected' | 'error'>('idle');
+const isTestingConnection = ref(false);
+
 // Panel state
-const activeTab = ref<'input' | 'output' | 'trace' | 'history'>('input');
+const activeTab = ref<'input' | 'output' | 'trace' | 'history' | 'performance'>('input');
 const panelHeight = ref(props.height);
 const isResizing = ref(false);
 const startY = ref(0);
@@ -134,11 +144,18 @@ async function execute() {
   try {
     const options: ExecutionOptions = {
       mode: executionMode.value,
-      httpEndpoint: executionMode.value === 'http' ? httpEndpoint.value : undefined,
+      httpEndpoint: executionMode.value !== 'wasm' ? httpEndpoint.value : undefined,
       includeTrace: includeTrace.value,
     };
 
-    result.value = await executor.execute(props.ruleset, input, options);
+    const execResult = await executor.execute(props.ruleset, input, options) as JITExecutionResult;
+    result.value = execResult;
+    
+    // Store JIT metrics if available
+    if (execResult.jit_metrics) {
+      jitMetrics.value = execResult.jit_metrics;
+    }
+    
     activeTab.value = 'output';
 
     // Add to history
@@ -209,6 +226,62 @@ function clearFlowTrace() {
   emit('clear-flow-trace');
   isShowingInFlow.value = false;
 }
+
+// JIT Analysis
+async function analyzeJit() {
+  if (isAnalyzingJit.value) return;
+  
+  isAnalyzingJit.value = true;
+  try {
+    jitAnalysis.value = await executor.analyzeJitCompatibility(props.ruleset, {
+      mode: 'wasm',
+    });
+  } catch (e) {
+    console.error('JIT analysis failed:', e);
+    jitAnalysis.value = null;
+  } finally {
+    isAnalyzingJit.value = false;
+  }
+}
+
+// Parse input for performance panel
+const parsedInput = computed(() => {
+  try {
+    return JSON.parse(inputJson.value);
+  } catch {
+    return {};
+  }
+});
+
+// Test connection to HTTP/JIT server
+async function testConnection() {
+  if (isTestingConnection.value) return;
+  
+  isTestingConnection.value = true;
+  connectionStatus.value = 'testing';
+  
+  try {
+    const response = await fetch(`${httpEndpoint.value}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    if (response.ok) {
+      connectionStatus.value = 'connected';
+    } else {
+      connectionStatus.value = 'error';
+    }
+  } catch (e) {
+    connectionStatus.value = 'error';
+  } finally {
+    isTestingConnection.value = false;
+  }
+}
+
+// Reset connection status when endpoint changes
+watch(httpEndpoint, () => {
+  connectionStatus.value = 'idle';
+});
 
 // Resize handlers
 function startResize(e: MouseEvent) {
@@ -324,13 +397,66 @@ function stopResize() {
               executionHistory.length
             }}</span>
           </button>
+          <button
+            class="tab-btn jit-tab"
+            :class="{ active: activeTab === 'performance' }"
+            @click="activeTab = 'performance'; analyzeJit()"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="jit-icon"
+            >
+              <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+            </svg>
+            JIT
+            <span v-if="jitAnalysis" class="jit-badge" :class="{ compatible: jitAnalysis.overallCompatible }">
+              {{ jitAnalysis.compatibleCount }}/{{ jitAnalysis.totalExpressions }}
+            </span>
+          </button>
         </div>
 
         <div class="panel-actions">
           <select v-model="executionMode" class="mode-select" :title="t('execution.mode')">
             <option value="wasm">WASM</option>
             <option value="http">HTTP</option>
+            <option value="jit" :disabled="jitAnalysis && !jitAnalysis.overallCompatible">JIT</option>
           </select>
+
+          <!-- Server endpoint input for HTTP/JIT modes -->
+          <div v-if="executionMode !== 'wasm'" class="endpoint-input-wrapper">
+            <input
+              v-model="httpEndpoint"
+              type="text"
+              class="endpoint-input"
+              placeholder="http://localhost:8080"
+              :title="t('execution.serverEndpoint')"
+            />
+            <button 
+              class="endpoint-test-btn"
+              :class="{ testing: isTestingConnection, connected: connectionStatus === 'connected', error: connectionStatus === 'error' }"
+              @click="testConnection"
+              :title="connectionStatus === 'connected' ? 'Connected' : connectionStatus === 'error' ? 'Connection failed' : 'Test connection'"
+            >
+              <svg v-if="isTestingConnection" class="spinner" width="12" height="12" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25"/>
+                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" fill="none"/>
+              </svg>
+              <svg v-else-if="connectionStatus === 'connected'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <svg v-else-if="connectionStatus === 'error'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+            </button>
+          </div>
 
           <label class="trace-checkbox" :title="t('execution.includeTrace')">
             <input type="checkbox" v-model="includeTrace" />
@@ -542,6 +668,41 @@ function stopResize() {
             <p>{{ t('execution.noHistory') }}</p>
           </div>
         </div>
+
+        <!-- Performance Tab -->
+        <div v-show="activeTab === 'performance'" class="tab-content performance-tab">
+          <OrdoPerformancePanel
+            :ruleset="ruleset"
+            :input="parsedInput"
+            :http-endpoint="httpEndpoint"
+            :jit-analysis="jitAnalysis"
+          />
+          
+          <!-- JIT Metrics from last execution -->
+          <div v-if="jitMetrics" class="jit-metrics-display">
+            <h4>Last JIT Execution Metrics</h4>
+            <div class="metrics-grid">
+              <div class="metric-item">
+                <span class="metric-label">JIT Enabled</span>
+                <span class="metric-value" :class="{ success: jitMetrics.jit_enabled }">
+                  {{ jitMetrics.jit_enabled ? 'Yes' : 'No' }}
+                </span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Compiled Expressions</span>
+                <span class="metric-value">{{ jitMetrics.compiled_expressions }}</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Compilation Time</span>
+                <span class="metric-value">{{ jitMetrics.compilation_time_us }}µs</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Speedup Factor</span>
+                <span class="metric-value speedup">{{ jitMetrics.speedup_factor.toFixed(1) }}x</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </Transition>
@@ -679,6 +840,73 @@ function stopResize() {
   background: var(--ordo-bg-editor);
   border: 1px solid var(--ordo-border-color);
   border-radius: var(--ordo-radius-sm);
+}
+
+/* Endpoint Input */
+.endpoint-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.endpoint-input {
+  width: 180px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--ordo-font-mono);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-editor);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-sm);
+}
+
+.endpoint-input:focus {
+  outline: none;
+  border-color: var(--ordo-accent);
+}
+
+.endpoint-input::placeholder {
+  color: var(--ordo-text-tertiary);
+}
+
+.endpoint-test-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--ordo-bg-item);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-sm);
+  color: var(--ordo-text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.endpoint-test-btn:hover {
+  background: var(--ordo-bg-item-hover);
+  color: var(--ordo-text-primary);
+}
+
+.endpoint-test-btn.testing {
+  cursor: wait;
+}
+
+.endpoint-test-btn.connected {
+  background: var(--ordo-success-bg, rgba(78, 201, 105, 0.15));
+  border-color: var(--ordo-success, #4ec969);
+  color: var(--ordo-success, #4ec969);
+}
+
+.endpoint-test-btn.error {
+  background: var(--ordo-error-bg, rgba(231, 76, 60, 0.15));
+  border-color: var(--ordo-error, #e74c3c);
+  color: var(--ordo-error, #e74c3c);
+}
+
+.endpoint-test-btn .spinner {
+  animation: spin 1s linear infinite;
 }
 
 .trace-checkbox {
@@ -1105,5 +1333,81 @@ function stopResize() {
   height: 100%;
   color: var(--ordo-text-tertiary);
   font-size: 12px;
+}
+
+/* JIT Tab Styles */
+.jit-tab .jit-icon {
+  color: #f59e0b;
+}
+
+.jit-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--ordo-bg-item);
+  color: var(--ordo-text-tertiary);
+}
+
+.jit-badge.compatible {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+/* Performance Tab */
+.performance-tab {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* JIT Metrics Display */
+.jit-metrics-display {
+  background: var(--ordo-bg-item);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-sm);
+  padding: 12px;
+}
+
+.jit-metrics-display h4 {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-secondary);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--ordo-bg-editor);
+  border-radius: var(--ordo-radius-xs);
+}
+
+.metric-label {
+  font-size: 10px;
+  color: var(--ordo-text-tertiary);
+}
+
+.metric-value {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--ordo-font-mono);
+}
+
+.metric-value.success {
+  color: var(--ordo-success, #4ec969);
+}
+
+.metric-value.speedup {
+  color: #f59e0b;
 }
 </style>

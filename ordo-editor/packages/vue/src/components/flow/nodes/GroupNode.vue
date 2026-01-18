@@ -11,9 +11,9 @@
  */
 import { ref, computed, watch } from 'vue';
 import { NodeResizer } from '@vue-flow/node-resizer';
-import type { StepGroup } from '@ordo/editor-core';
+import type { StepGroup } from '@ordo-engine/editor-core';
 import OrdoIcon from '../../icons/OrdoIcon.vue';
-import { GROUP_COLORS } from '@ordo/editor-core';
+import { GROUP_COLORS } from '@ordo-engine/editor-core';
 import { useI18n } from '../../../locale';
 
 export interface Props {

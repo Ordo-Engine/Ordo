@@ -21,11 +21,11 @@ export default defineConfig({
       fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
-      external: ['vue', '@ordo/editor-core'],
+      external: ['vue', '@ordo-engine/editor-core'],
       output: {
         globals: {
           vue: 'Vue',
-          '@ordo/editor-core': 'OrdoEditorCore',
+          '@ordo-engine/editor-core': 'OrdoEditorCore',
         },
         assetFileNames: (assetInfo) => {
           if (assetInfo.name === 'style.css') {

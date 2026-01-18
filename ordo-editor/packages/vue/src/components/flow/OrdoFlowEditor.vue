@@ -8,8 +8,8 @@ import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { MiniMap } from '@vue-flow/minimap';
-import type { RuleSet, Step } from '@ordo/editor-core';
-import { Step as StepFactory, generateId } from '@ordo/editor-core';
+import type { RuleSet, Step } from '@ordo-engine/editor-core';
+import { Step as StepFactory, generateId } from '@ordo-engine/editor-core';
 
 import { DecisionNode, ActionNode, TerminalNode, GroupNode, type StepTraceInfo } from './nodes';
 import { OrdoEdge } from './edges';

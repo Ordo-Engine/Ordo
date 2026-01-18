@@ -4,13 +4,15 @@ import {
   OrdoFormEditor,
   OrdoFlowEditor,
   OrdoExecutionPanel,
+  OrdoSchemaEditor,
+  OrdoPerformancePanel,
   serializeRuleSet,
   OrdoIcon,
   type RuleSet,
   type SchemaField,
-  type Lang,
-} from '@ordo/editor-vue';
-import { Step, Condition, Expr, generateId } from '@ordo/editor-core';
+} from '@ordo-engine/editor-vue';
+import { RuleExecutor, type JITSchema, type JITRulesetAnalysis } from '@ordo-engine/editor-core';
+import { Step, Condition, Expr, generateId } from '@ordo-engine/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
 import DebugPage from './pages/DebugPage.vue';
 import { useTour } from './composables/useTour';
@@ -21,8 +23,26 @@ const showDebugPage = ref(false);
 const debugRuleset = ref<RuleSet | null>(null);
 const debugTrigger = ref(0); // Used to trigger watch in DebugPage
 
+// Schema Editor page toggle
+const showSchemaPage = ref(false);
+const currentJitSchema = ref<JITSchema | null>(null);
+const jitAnalysisResult = ref<JITRulesetAnalysis | null>(null);
+
+// Server endpoint for HTTP/JIT modes
+const serverEndpoint = ref('http://localhost:8080');
+
 function toggleDebugPage() {
   showDebugPage.value = !showDebugPage.value;
+  if (showDebugPage.value) {
+    showSchemaPage.value = false;
+  }
+}
+
+function toggleSchemaPage() {
+  showSchemaPage.value = !showSchemaPage.value;
+  if (showSchemaPage.value) {
+    showDebugPage.value = false;
+  }
 }
 
 function debugCurrentRuleset() {
@@ -30,6 +50,28 @@ function debugCurrentRuleset() {
   debugRuleset.value = JSON.parse(JSON.stringify(ruleset.value));
   debugTrigger.value++; // Increment trigger to force update
   showDebugPage.value = true;
+  showSchemaPage.value = false;
+}
+
+// JIT Analysis
+const ruleExecutor = new RuleExecutor();
+
+async function analyzeJitCompatibility() {
+  if (!activeFile.value) return;
+  
+  try {
+    jitAnalysisResult.value = await ruleExecutor.analyzeJitCompatibility(
+      activeFile.value.ruleset,
+      { mode: 'wasm' }
+    );
+  } catch (e) {
+    console.error('JIT analysis failed:', e);
+    jitAnalysisResult.value = null;
+  }
+}
+
+function handleSchemaChange(schema: JITSchema) {
+  currentJitSchema.value = schema;
 }
 
 // Tour - with callback to switch to flow mode
@@ -1139,6 +1181,24 @@ watch(
         </svg>
       </a>
 
+      <!-- Schema Editor -->
+      <div
+        class="activity-icon"
+        :class="{ active: showSchemaPage }"
+        @click="toggleSchemaPage"
+        title="JIT Schema Editor"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          class="jit-icon"
+        >
+          <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+        </svg>
+      </div>
+
       <!-- Debug Page -->
       <div
         class="activity-icon"
@@ -1370,6 +1430,95 @@ watch(
       <div v-if="showDebugPage" class="ide-editor-wrapper">
         <div class="ide-editor-content">
           <DebugPage :external-ruleset="debugRuleset" :trigger="debugTrigger" />
+        </div>
+      </div>
+
+      <!-- Schema Editor Page -->
+      <div v-else-if="showSchemaPage" class="ide-editor-wrapper">
+        <div class="ide-editor-content schema-page">
+          <div class="schema-page-layout">
+            <!-- Left: Schema Editor -->
+            <div class="schema-editor-section">
+              <OrdoSchemaEditor
+                v-model="currentJitSchema"
+                @change="handleSchemaChange"
+              />
+            </div>
+            
+            <!-- Right: Performance Panel & JIT Analysis -->
+            <div class="schema-analysis-section">
+              <!-- Server Endpoint Configuration -->
+              <div class="server-config">
+                <label class="server-label">Server Endpoint:</label>
+                <input
+                  v-model="serverEndpoint"
+                  type="text"
+                  class="server-input"
+                  placeholder="http://localhost:8080"
+                />
+              </div>
+
+              <!-- JIT Analysis Button -->
+              <div class="analysis-header">
+                <h3>JIT Performance Analysis</h3>
+                <button
+                  class="analyze-btn"
+                  :disabled="!activeFile"
+                  @click="analyzeJitCompatibility"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+                  </svg>
+                  Analyze Current Ruleset
+                </button>
+              </div>
+
+              <!-- Performance Comparison Panel -->
+              <OrdoPerformancePanel
+                v-if="activeFile"
+                :ruleset="activeFile.ruleset"
+                :input="JSON.parse(currentSampleInput)"
+                :schema="currentJitSchema"
+                :http-endpoint="serverEndpoint"
+                :jit-analysis="jitAnalysisResult"
+              />
+
+              <!-- JIT Analysis Result -->
+              <div v-if="jitAnalysisResult" class="jit-analysis-result">
+                <div class="analysis-overview" :class="{ compatible: jitAnalysisResult.overallCompatible }">
+                  <div class="overview-icon">
+                    <svg v-if="jitAnalysisResult.overallCompatible" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+                    </svg>
+                    <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="8" x2="12" y2="12"></line>
+                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                  </div>
+                  <div class="overview-text">
+                    <h4>{{ jitAnalysisResult.overallCompatible ? 'Fully JIT Compatible' : 'Partial JIT Compatibility' }}</h4>
+                    <p>{{ jitAnalysisResult.compatibleCount }} of {{ jitAnalysisResult.totalExpressions }} expressions can be JIT compiled</p>
+                  </div>
+                  <div class="speedup-badge">
+                    <span class="speedup-value">{{ (jitAnalysisResult.estimatedSpeedup || 1).toFixed(1) }}x</span>
+                    <span class="speedup-label">Est. Speedup</span>
+                  </div>
+                </div>
+
+                <!-- Required Fields for Schema -->
+                <div v-if="jitAnalysisResult.requiredFields?.length" class="required-fields">
+                  <h4>Required Schema Fields</h4>
+                  <div class="fields-list">
+                    <div v-for="field in jitAnalysisResult.requiredFields" :key="field.path" class="field-item">
+                      <code>$.{{ field.path }}</code>
+                      <span class="field-type">{{ field.inferredType }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2012,5 +2161,231 @@ watch(
 
 .status-item:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* JIT Icon in Activity Bar */
+.activity-icon .jit-icon {
+  color: #f59e0b;
+}
+
+.activity-icon.active .jit-icon {
+  color: #f59e0b;
+}
+
+/* Schema Page Layout */
+.schema-page {
+  background: var(--ordo-bg-editor);
+}
+
+.schema-page-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  height: 100%;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.schema-editor-section {
+  height: 100%;
+  overflow: hidden;
+}
+
+.schema-analysis-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* Server Config */
+.server-config {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--ordo-bg-panel);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-md);
+  margin-bottom: 12px;
+}
+
+.server-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ordo-text-secondary);
+  white-space: nowrap;
+}
+
+.server-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--ordo-font-mono);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-editor);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-sm);
+}
+
+.server-input:focus {
+  outline: none;
+  border-color: var(--ordo-accent);
+}
+
+.analysis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--ordo-bg-panel);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-md);
+}
+
+.analysis-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.analyze-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #f59e0b;
+  color: #000;
+  border: none;
+  border-radius: var(--ordo-radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.analyze-btn:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.analyze-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* JIT Analysis Result */
+.jit-analysis-result {
+  background: var(--ordo-bg-panel);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: var(--ordo-radius-md);
+  padding: 16px;
+}
+
+.analysis-overview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--ordo-bg-item);
+  border-radius: var(--ordo-radius-sm);
+  margin-bottom: 16px;
+}
+
+.analysis-overview.compatible {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.overview-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ordo-bg-tertiary);
+  color: var(--ordo-text-tertiary);
+}
+
+.analysis-overview.compatible .overview-icon {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.overview-text {
+  flex: 1;
+}
+
+.overview-text h4 {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.overview-text p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
+}
+
+.speedup-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--ordo-bg-tertiary);
+  border-radius: var(--ordo-radius-sm);
+}
+
+.speedup-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.speedup-label {
+  font-size: 10px;
+  color: var(--ordo-text-tertiary);
+}
+
+/* Required Fields */
+.required-fields h4 {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-secondary);
+}
+
+.fields-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--ordo-bg-item);
+  border-radius: var(--ordo-radius-sm);
+}
+
+.field-item code {
+  font-family: var(--ordo-font-mono);
+  font-size: 12px;
+  color: var(--ordo-primary-500);
+}
+
+.field-type {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--ordo-bg-tertiary);
+  border-radius: var(--ordo-radius-xs);
+  color: var(--ordo-text-secondary);
 }
 </style>

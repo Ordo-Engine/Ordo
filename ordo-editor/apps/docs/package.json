@@ -1,5 +1,5 @@
 {
-  "name": "@ordo/docs",
+  "name": "@ordo-engine/docs",
   "version": "0.1.0",
   "private": true,
   "description": "Ordo Rule Engine Documentation",

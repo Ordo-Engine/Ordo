@@ -1,0 +1,97 @@
+name: Deploy Docs to Custom Domain
+
+# This workflow deploys documentation to docs.ordoengine.com
+# It can be triggered manually or when docs are updated
+
+on:
+  # Manual trigger with optional version input
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deploy target (vercel, netlify, cloudflare)'
+        required: false
+        default: 'vercel'
+        type: choice
+        options:
+          - vercel
+          - netlify
+          - cloudflare
+  # Optionally trigger on release tags
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - 'ordo-editor/apps/docs/**'
+
+jobs:
+  build:
+    name: Build Docs for Custom Domain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: ordo-editor/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: ordo-editor
+        run: pnpm install
+
+      - name: Build docs for custom domain
+        working-directory: ordo-editor/apps/docs
+        run: pnpm build
+        env:
+          # Use root path for custom domain
+          CUSTOM_DOMAIN: 'true'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-custom-domain
+          path: ordo-editor/apps/docs/.vitepress/dist
+          retention-days: 7
+
+  # Deploy to Vercel (if configured)
+  deploy-vercel:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event.inputs.deploy_target == 'vercel' || github.event_name == 'push'
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-custom-domain
+          path: dist
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: dist
+          vercel-args: '--prod'
+        if: env.VERCEL_TOKEN != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## Docs Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation built for custom domain (docs.ordoengine.com)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To deploy manually:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the artifact from this workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Upload to your hosting provider (Vercel, Netlify, Cloudflare Pages)" >> $GITHUB_STEP_SUMMARY

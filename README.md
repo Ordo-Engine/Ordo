@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/rust-1.83%2B-orange?logo=rust" alt="Rust Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <a href="https://pama-lee.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
+  <a href="https://www.npmjs.com/package/@ordo/editor-core"><img src="https://img.shields.io/npm/v/@ordo/editor-core?label=npm&color=cb3837" alt="npm" /></a>
 </p>
 
 <p align="center">
@@ -57,10 +58,12 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 
 ### 🚀 Blazing Fast
 
-- **1.63 µs** average rule execution time
+- **1.63 µs** average rule execution time (interpreter)
+- **50-80 ns** with JIT compilation (20-30x faster)
 - **600x faster** than the 1ms target
 - Zero-allocation hot path
 - Pre-compiled expression evaluation
+- Schema-aware JIT compilation with Cranelift
 
 ### 🔧 Flexible Rule Definition
 
@@ -80,6 +83,7 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 - **HTTP REST API**: Simple JSON-based interface
 - **WebAssembly**: Run rules directly in browser
 - **gRPC Support**: High-performance binary protocol
+- **npm Packages**: `@ordo/editor-core`, `@ordo/editor-vue`, `@ordo/editor-react`
 
 ---
 
@@ -89,10 +93,28 @@ Benchmarked on Apple Silicon (M-series), single thread:
 
 | Metric | Result |
 |--------|--------|
-| Single rule execution | **1.63 µs** |
+| Single rule execution (interpreter) | **1.63 µs** |
+| Single rule execution (JIT) | **50-80 ns** |
 | Expression evaluation | **79-211 ns** |
 | HTTP API throughput | **54,000 QPS** |
 | Projected multi-thread | **500,000+ QPS** |
+
+### JIT Compilation
+
+Ordo features a Schema-aware JIT compiler powered by Cranelift that provides **20-30x speedup** for numeric expressions:
+
+```rust
+// Define schema with derive macro
+#[derive(TypedContext)]
+struct UserContext {
+    age: i64,
+    balance: f64,
+    vip_level: i64,
+}
+
+// JIT-compiled expressions run at native speed
+let result = jit_evaluator.evaluate("age >= 18 && balance > 1000.0", &context);
+```
 
 See [benchmark/](benchmark/) for detailed reports with graphs.
 
@@ -282,18 +304,37 @@ if exists(discount) then price * (1 - discount) else price
 ```
 ordo/
 ├── crates/
-│   ├── ordo-core/       # Core rule engine library
+│   ├── ordo-core/       # Core rule engine library (with JIT)
+│   ├── ordo-derive/     # Derive macros for TypedContext
 │   ├── ordo-server/     # HTTP/gRPC API server
 │   ├── ordo-wasm/       # WebAssembly bindings
 │   └── ordo-proto/      # Protocol definitions
-├── ordo-editor/         # Visual rule editor (Vue 3)
+├── ordo-editor/         # Visual rule editor
 │   ├── packages/
-│   │   ├── core/        # Framework-agnostic editor core
-│   │   ├── vue/         # Vue components
-│   │   └── wasm/        # WASM integration
+│   │   ├── core/        # @ordo/editor-core (framework-agnostic)
+│   │   ├── vue/         # @ordo/editor-vue (Vue 3 components)
+│   │   ├── react/       # @ordo/editor-react (React components)
+│   │   └── wasm/        # @ordo/wasm (WASM bindings)
 │   └── apps/
-│       └── playground/  # Demo application
+│       ├── playground/  # Live demo application
+│       └── docs/        # Documentation (VitePress)
+├── scripts/             # Build & release scripts
 └── benchmark/           # Performance reports
+```
+
+## npm Packages
+
+Install the visual editor components in your project:
+
+```bash
+# Vue 3
+npm install @ordo/editor-vue
+
+# React
+npm install @ordo/editor-react
+
+# Core (framework-agnostic)
+npm install @ordo/editor-core
 ```
 
 ---
@@ -308,6 +349,9 @@ ordo/
 - [x] WebAssembly support
 - [x] Rule versioning & history
 - [x] Audit logging
+- [x] JIT compilation (Cranelift)
+- [x] Schema-aware typed contexts
+- [x] npm packages (Vue, React, Core)
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 

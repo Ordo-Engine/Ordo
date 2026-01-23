@@ -52,6 +52,10 @@ pub struct RuleStore {
     executor: RuleExecutor,
     /// Rules directory for persistence (None = pure in-memory mode)
     rules_dir: Option<PathBuf>,
+    /// Multi-tenancy enabled
+    multi_tenancy_enabled: bool,
+    /// Default tenant id (used when tenant is not specified)
+    default_tenant: String,
     /// Default format for new rules
     default_format: FileFormat,
     /// Maximum number of historical versions to keep per rule
@@ -87,6 +91,8 @@ impl RuleStore {
             rulesets: HashMap::new(),
             executor: RuleExecutor::with_trace(TraceConfig::minimal()),
             rules_dir: None,
+            multi_tenancy_enabled: false,
+            default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions: 10,
         }
@@ -98,6 +104,8 @@ impl RuleStore {
             rulesets: HashMap::new(),
             executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
             rules_dir: None,
+            multi_tenancy_enabled: false,
+            default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions: 10,
         }
@@ -115,6 +123,8 @@ impl RuleStore {
             rulesets: HashMap::new(),
             executor: RuleExecutor::with_trace(TraceConfig::minimal()),
             rules_dir: Some(rules_dir),
+            multi_tenancy_enabled: false,
+            default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions,
         }
@@ -130,9 +140,17 @@ impl RuleStore {
             rulesets: HashMap::new(),
             executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
             rules_dir: Some(rules_dir),
+            multi_tenancy_enabled: false,
+            default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions,
         }
+    }
+
+    /// Enable multi-tenancy support and set default tenant
+    pub fn enable_multi_tenancy(&mut self, default_tenant: String) {
+        self.multi_tenancy_enabled = true;
+        self.default_tenant = default_tenant;
     }
 
     /// Set the maximum number of versions to keep
@@ -144,6 +162,29 @@ impl RuleStore {
     /// Check if persistence is enabled
     pub fn persistence_enabled(&self) -> bool {
         self.rules_dir.is_some()
+    }
+
+    fn normalize_tenant<'a>(&'a self, tenant_id: Option<&'a str>) -> &'a str {
+        tenant_id
+            .filter(|id| !id.is_empty())
+            .unwrap_or(&self.default_tenant)
+    }
+
+    fn make_key(&self, tenant_id: &str, name: &str) -> String {
+        if self.multi_tenancy_enabled {
+            format!("{}/{}", tenant_id, name)
+        } else {
+            name.to_string()
+        }
+    }
+
+    fn tenant_rules_dir(&self, tenant_id: &str) -> Option<PathBuf> {
+        let base = self.rules_dir.as_ref()?;
+        if self.multi_tenancy_enabled {
+            Some(base.join(tenant_id))
+        } else {
+            Some(base.clone())
+        }
     }
 
     /// Load all rules from the configured directory
@@ -160,7 +201,6 @@ impl RuleStore {
             }
         };
 
-        // Create directory if it doesn't exist
         if !rules_dir.exists() {
             info!("Creating rules directory: {:?}", rules_dir);
             fs::create_dir_all(&rules_dir)?;
@@ -170,59 +210,75 @@ impl RuleStore {
         let mut loaded = 0;
         let mut seen_names: HashMap<String, PathBuf> = HashMap::new();
 
-        // Collect all rule files
-        let entries: Vec<_> = fs::read_dir(&rules_dir)?
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_file())
-            .filter(|e| FileFormat::from_path(&e.path()).is_some())
-            .collect();
+        let tenant_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
+            fs::read_dir(&rules_dir)?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    (name, e.path())
+                })
+                .collect()
+        } else {
+            vec![(self.default_tenant.clone(), rules_dir.clone())]
+        };
 
-        // Sort to ensure JSON files are processed first (priority)
-        let mut entries: Vec<_> = entries.into_iter().map(|e| e.path()).collect();
-        entries.sort_by(|a, b| {
-            let a_is_json = a.extension().map(|e| e == "json").unwrap_or(false);
-            let b_is_json = b.extension().map(|e| e == "json").unwrap_or(false);
-            b_is_json.cmp(&a_is_json) // JSON first
-        });
+        for (tenant_id, tenant_dir) in tenant_dirs {
+            let entries: Vec<_> = fs::read_dir(&tenant_dir)?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .filter(|e| FileFormat::from_path(&e.path()).is_some())
+                .collect();
 
-        for path in entries {
-            let file_stem = match path.file_stem().and_then(|s| s.to_str()) {
-                Some(name) => name.to_string(),
-                None => continue,
-            };
+            let mut entries: Vec<_> = entries.into_iter().map(|e| e.path()).collect();
+            entries.sort_by(|a, b| {
+                let a_is_json = a.extension().map(|e| e == "json").unwrap_or(false);
+                let b_is_json = b.extension().map(|e| e == "json").unwrap_or(false);
+                b_is_json.cmp(&a_is_json)
+            });
 
-            // Skip version files (e.g., payment-check.v1.json)
-            if Self::is_version_file(&file_stem) {
-                debug!("Skipping version file {:?}", path);
-                continue;
-            }
+            for path in entries {
+                let file_stem = match path.file_stem().and_then(|s| s.to_str()) {
+                    Some(name) => name.to_string(),
+                    None => continue,
+                };
 
-            // Skip if we already loaded this rule (from a higher priority format)
-            if seen_names.contains_key(&file_stem) {
-                debug!(
-                    "Skipping {:?} (already loaded from {:?})",
-                    path,
-                    seen_names.get(&file_stem)
-                );
-                continue;
-            }
+                if Self::is_version_file(&file_stem) {
+                    debug!("Skipping version file {:?}", path);
+                    continue;
+                }
 
-            match self.load_ruleset_file(&path) {
-                Ok(ruleset) => {
-                    let name = ruleset.config.name.clone();
-                    if name != file_stem {
-                        warn!(
-                            "Rule name '{}' doesn't match filename '{}', using filename",
-                            name, file_stem
+                let key = self.make_key(&tenant_id, &file_stem);
+                if seen_names.contains_key(&key) {
+                    debug!(
+                        "Skipping {:?} (already loaded from {:?})",
+                        path,
+                        seen_names.get(&key)
+                    );
+                    continue;
+                }
+
+                match self.load_ruleset_file(&path) {
+                    Ok(mut ruleset) => {
+                        let name = ruleset.config.name.clone();
+                        if name != file_stem {
+                            warn!(
+                                "Rule name '{}' doesn't match filename '{}', using filename",
+                                name, file_stem
+                            );
+                        }
+                        ruleset.config.tenant_id = Some(tenant_id.clone());
+                        self.rulesets.insert(key.clone(), Arc::new(ruleset));
+                        seen_names.insert(key.clone(), path.clone());
+                        loaded += 1;
+                        info!(
+                            "Loaded rule '{}' for tenant '{}' from {:?}",
+                            file_stem, tenant_id, path
                         );
                     }
-                    self.rulesets.insert(file_stem.clone(), Arc::new(ruleset));
-                    seen_names.insert(file_stem.clone(), path.clone());
-                    loaded += 1;
-                    info!("Loaded rule '{}' from {:?}", file_stem, path);
-                }
-                Err(e) => {
-                    error!("Failed to load {:?}: {}", path, e);
+                    Err(e) => {
+                        error!("Failed to load {:?}: {}", path, e);
+                    }
                 }
             }
         }
@@ -265,15 +321,15 @@ impl RuleStore {
     }
 
     /// Persist a ruleset to disk
-    fn persist_ruleset(&self, name: &str, ruleset: &RuleSet) -> io::Result<()> {
-        let rules_dir = match &self.rules_dir {
+    fn persist_ruleset(&self, tenant_id: &str, name: &str, ruleset: &RuleSet) -> io::Result<()> {
+        let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
         };
 
         // Ensure directory exists
         if !rules_dir.exists() {
-            fs::create_dir_all(rules_dir)?;
+            fs::create_dir_all(&rules_dir)?;
         }
 
         let filename = format!("{}.{}", name, self.default_format.extension());
@@ -296,8 +352,8 @@ impl RuleStore {
     }
 
     /// Delete a ruleset file from disk
-    fn delete_file(&self, name: &str) -> io::Result<()> {
-        let rules_dir = match &self.rules_dir {
+    fn delete_file(&self, tenant_id: &str, name: &str) -> io::Result<()> {
+        let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
         };
@@ -345,14 +401,14 @@ impl RuleStore {
     }
 
     /// Get the next version sequence number for a rule
-    fn get_next_version_seq(&self, name: &str) -> io::Result<u32> {
-        let versions = self.list_version_files(name)?;
+    fn get_next_version_seq(&self, tenant_id: &str, name: &str) -> io::Result<u32> {
+        let versions = self.list_version_files(tenant_id, name)?;
         Ok(versions.iter().map(|(seq, _)| *seq).max().unwrap_or(0) + 1)
     }
 
     /// List all version files for a rule, returns (seq, path) sorted by seq descending
-    fn list_version_files(&self, name: &str) -> io::Result<Vec<(u32, PathBuf)>> {
-        let rules_dir = match &self.rules_dir {
+    fn list_version_files(&self, tenant_id: &str, name: &str) -> io::Result<Vec<(u32, PathBuf)>> {
+        let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(vec![]),
         };
@@ -392,8 +448,8 @@ impl RuleStore {
     }
 
     /// Backup the current version before updating
-    fn backup_current_version(&self, name: &str) -> io::Result<()> {
-        let rules_dir = match &self.rules_dir {
+    fn backup_current_version(&self, tenant_id: &str, name: &str) -> io::Result<()> {
+        let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()),
         };
@@ -405,28 +461,28 @@ impl RuleStore {
             for format in [FileFormat::Json, FileFormat::Yaml] {
                 let path = rules_dir.join(format!("{}.{}", name, format.extension()));
                 if path.exists() {
-                    return self.backup_file(&path, name);
+                    return self.backup_file(tenant_id, &path, name);
                 }
             }
             // Also try .yml
             let yml_path = rules_dir.join(format!("{}.yml", name));
             if yml_path.exists() {
-                return self.backup_file(&yml_path, name);
+                return self.backup_file(tenant_id, &yml_path, name);
             }
             return Ok(()); // No current file to backup
         }
 
-        self.backup_file(&current_path, name)
+        self.backup_file(tenant_id, &current_path, name)
     }
 
     /// Backup a specific file as a version
-    fn backup_file(&self, current_path: &Path, name: &str) -> io::Result<()> {
-        let rules_dir = match &self.rules_dir {
+    fn backup_file(&self, tenant_id: &str, current_path: &Path, name: &str) -> io::Result<()> {
+        let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()),
         };
 
-        let next_seq = self.get_next_version_seq(name)?;
+        let next_seq = self.get_next_version_seq(tenant_id, name)?;
         let ext = current_path
             .extension()
             .and_then(|e| e.to_str())
@@ -444,12 +500,12 @@ impl RuleStore {
     }
 
     /// Clean up old versions beyond the limit
-    fn cleanup_old_versions(&self, name: &str) -> io::Result<()> {
+    fn cleanup_old_versions(&self, tenant_id: &str, name: &str) -> io::Result<()> {
         if self.max_versions == 0 {
             return Ok(()); // Keep all versions
         }
 
-        let versions = self.list_version_files(name)?;
+        let versions = self.list_version_files(tenant_id, name)?;
 
         // Delete versions beyond the limit
         for (seq, path) in versions.iter().skip(self.max_versions) {
@@ -461,8 +517,8 @@ impl RuleStore {
     }
 
     /// Delete all version files for a rule
-    fn delete_all_versions(&self, name: &str) -> io::Result<()> {
-        let versions = self.list_version_files(name)?;
+    fn delete_all_versions(&self, tenant_id: &str, name: &str) -> io::Result<()> {
+        let versions = self.list_version_files(tenant_id, name)?;
 
         for (seq, path) in versions {
             fs::remove_file(&path)?;
@@ -473,14 +529,18 @@ impl RuleStore {
     }
 
     /// List all versions of a rule
-    pub fn list_versions(&self, name: &str) -> io::Result<VersionListResponse> {
-        let current = self.get(name);
+    pub fn list_versions_for_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> io::Result<VersionListResponse> {
+        let current = self.get_for_tenant(tenant_id, name);
         let current_version = current
             .as_ref()
             .map(|r| r.config.version.clone())
             .unwrap_or_default();
 
-        let version_files = self.list_version_files(name)?;
+        let version_files = self.list_version_files(tenant_id, name)?;
         let mut versions = Vec::new();
 
         for (seq, path) in version_files {
@@ -510,9 +570,18 @@ impl RuleStore {
         })
     }
 
+    pub fn list_versions(&self, name: &str) -> io::Result<VersionListResponse> {
+        self.list_versions_for_tenant(&self.default_tenant, name)
+    }
+
     /// Get a specific version of a rule
-    pub fn get_version(&self, name: &str, seq: u32) -> io::Result<Option<RuleSet>> {
-        let versions = self.list_version_files(name)?;
+    pub fn get_version_for_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        seq: u32,
+    ) -> io::Result<Option<RuleSet>> {
+        let versions = self.list_version_files(tenant_id, name)?;
 
         for (v_seq, path) in versions {
             if v_seq == seq {
@@ -524,44 +593,58 @@ impl RuleStore {
         Ok(None)
     }
 
+    pub fn get_version(&self, name: &str, seq: u32) -> io::Result<Option<RuleSet>> {
+        self.get_version_for_tenant(&self.default_tenant, name, seq)
+    }
+
     /// Rollback to a specific version
-    pub fn rollback_to_version(
+    pub fn rollback_to_version_for_tenant(
         &mut self,
+        tenant_id: &str,
         name: &str,
         seq: u32,
     ) -> io::Result<Option<(String, String)>> {
         // Get the version to rollback to
-        let version_ruleset = match self.get_version(name, seq)? {
+        let version_ruleset = match self.get_version_for_tenant(tenant_id, name, seq)? {
             Some(r) => r,
             None => return Ok(None),
         };
 
         // Get current version for response
         let from_version = self
-            .get(name)
+            .get_for_tenant(tenant_id, name)
             .map(|r| r.config.version.clone())
             .unwrap_or_default();
         let to_version = version_ruleset.config.version.clone();
 
         // Backup current version first
-        self.backup_current_version(name)?;
+        self.backup_current_version(tenant_id, name)?;
 
         // Persist the rolled-back version as current
-        self.persist_ruleset(name, &version_ruleset)?;
+        self.persist_ruleset(tenant_id, name, &version_ruleset)?;
 
         // Update memory cache
-        self.rulesets
-            .insert(name.to_string(), Arc::new(version_ruleset));
+        let key = self.make_key(tenant_id, name);
+        self.rulesets.insert(key, Arc::new(version_ruleset));
 
         // Cleanup old versions
-        self.cleanup_old_versions(name)?;
+        self.cleanup_old_versions(tenant_id, name)?;
 
         info!(
-            "Rolled back '{}' from {} to {} (seq {})",
-            name, from_version, to_version, seq
+            "Rolled back '{}' for tenant '{}' from {} to {} (seq {})",
+            name, tenant_id, from_version, to_version, seq
         );
 
         Ok(Some((from_version, to_version)))
+    }
+
+    pub fn rollback_to_version(
+        &mut self,
+        name: &str,
+        seq: u32,
+    ) -> io::Result<Option<(String, String)>> {
+        let tenant_id = self.default_tenant.clone();
+        self.rollback_to_version_for_tenant(&tenant_id, name, seq)
     }
 
     /// Add or update a ruleset
@@ -569,7 +652,18 @@ impl RuleStore {
     /// If persistence is enabled, the ruleset is also written to disk.
     /// If the rule already exists, the current version is backed up first.
     /// Expressions are automatically compiled for faster execution.
-    pub fn put(&mut self, mut ruleset: RuleSet) -> Result<(), Vec<String>> {
+    pub fn put(&mut self, ruleset: RuleSet) -> Result<(), Vec<String>> {
+        let tenant_id = self
+            .normalize_tenant(ruleset.config.tenant_id.as_deref())
+            .to_string();
+        self.put_for_tenant(&tenant_id, ruleset)
+    }
+
+    pub fn put_for_tenant(
+        &mut self,
+        tenant_id: &str,
+        mut ruleset: RuleSet,
+    ) -> Result<(), Vec<String>> {
         // Validate before storing
         ruleset.validate()?;
 
@@ -579,29 +673,31 @@ impl RuleStore {
         }
 
         let name = ruleset.config.name.clone();
+        ruleset.config.tenant_id = Some(tenant_id.to_string());
 
         // Backup current version if it exists (for version history)
-        if self.rules_dir.is_some() && self.exists(&name) {
-            if let Err(e) = self.backup_current_version(&name) {
+        if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
+            if let Err(e) = self.backup_current_version(tenant_id, &name) {
                 warn!("Failed to backup current version of '{}': {}", name, e);
                 // Continue anyway - backup failure shouldn't block update
             }
         }
 
         // Persist to disk if enabled
-        if let Err(e) = self.persist_ruleset(&name, &ruleset) {
+        if let Err(e) = self.persist_ruleset(tenant_id, &name, &ruleset) {
             error!("Failed to persist rule '{}': {}", name, e);
             return Err(vec![format!("Persistence error: {}", e)]);
         }
 
         // Cleanup old versions beyond the limit
         if self.rules_dir.is_some() {
-            if let Err(e) = self.cleanup_old_versions(&name) {
+            if let Err(e) = self.cleanup_old_versions(tenant_id, &name) {
                 warn!("Failed to cleanup old versions of '{}': {}", name, e);
             }
         }
 
-        self.rulesets.insert(name, Arc::new(ruleset));
+        let key = self.make_key(tenant_id, &name);
+        self.rulesets.insert(key, Arc::new(ruleset));
 
         // Record store operation metric
         metrics::record_store_operation("put");
@@ -611,27 +707,38 @@ impl RuleStore {
 
     /// Get a ruleset by name
     pub fn get(&self, name: &str) -> Option<Arc<RuleSet>> {
+        self.get_for_tenant(&self.default_tenant, name)
+    }
+
+    pub fn get_for_tenant(&self, tenant_id: &str, name: &str) -> Option<Arc<RuleSet>> {
         metrics::record_store_operation("get");
-        self.rulesets.get(name).cloned()
+        let key = self.make_key(tenant_id, name);
+        self.rulesets.get(&key).cloned()
     }
 
     /// Delete a ruleset
     ///
     /// If persistence is enabled, the ruleset file and all version files are deleted from disk.
     pub fn delete(&mut self, name: &str) -> bool {
-        let existed = self.rulesets.remove(name).is_some();
+        let tenant_id = self.default_tenant.clone();
+        self.delete_for_tenant(&tenant_id, name)
+    }
+
+    pub fn delete_for_tenant(&mut self, tenant_id: &str, name: &str) -> bool {
+        let key = self.make_key(tenant_id, name);
+        let existed = self.rulesets.remove(&key).is_some();
 
         if existed {
             // Record store operation metric
             metrics::record_store_operation("delete");
 
             // Delete current file
-            if let Err(e) = self.delete_file(name) {
+            if let Err(e) = self.delete_file(tenant_id, name) {
                 error!("Failed to delete rule file for '{}': {}", name, e);
             }
 
             // Delete all version files
-            if let Err(e) = self.delete_all_versions(name) {
+            if let Err(e) = self.delete_all_versions(tenant_id, name) {
                 error!("Failed to delete version files for '{}': {}", name, e);
             }
         }
@@ -641,9 +748,22 @@ impl RuleStore {
 
     /// List all ruleset names
     pub fn list(&self) -> Vec<RuleSetInfo> {
+        self.list_for_tenant(&self.default_tenant)
+    }
+
+    pub fn list_for_tenant(&self, tenant_id: &str) -> Vec<RuleSetInfo> {
         metrics::record_store_operation("list");
         self.rulesets
             .values()
+            .filter(|rs| {
+                if self.multi_tenancy_enabled {
+                    rs.config.tenant_id.as_deref() == Some(tenant_id)
+                } else {
+                    // In non-multi-tenancy mode, match rules with no tenant or default tenant
+                    rs.config.tenant_id.is_none()
+                        || rs.config.tenant_id.as_deref() == Some(tenant_id)
+                }
+            })
             .map(|rs| RuleSetInfo {
                 name: rs.config.name.clone(),
                 version: rs.config.version.clone(),
@@ -655,7 +775,12 @@ impl RuleStore {
 
     /// Check if a ruleset exists
     pub fn exists(&self, name: &str) -> bool {
-        self.rulesets.contains_key(name)
+        self.exists_for_tenant(&self.default_tenant, name)
+    }
+
+    pub fn exists_for_tenant(&self, tenant_id: &str, name: &str) -> bool {
+        let key = self.make_key(tenant_id, name);
+        self.rulesets.contains_key(&key)
     }
 
     /// Get executor reference
@@ -1008,5 +1133,67 @@ steps:
         assert_eq!(loaded, 1);
         assert!(store2.exists("load-test"));
         assert!(!store2.exists("load-test.v1")); // Version files should not be loaded as rules
+    }
+
+    // ==================== Multi-Tenancy Tests ====================
+
+    #[test]
+    fn test_multi_tenant_isolation() {
+        let mut store = RuleStore::new();
+        store.enable_multi_tenancy("default".to_string());
+
+        // Create rules for different tenants
+        let mut rule_a = create_test_ruleset("payment-check");
+        rule_a.config.tenant_id = Some("tenant-a".to_string());
+        store.put_for_tenant("tenant-a", rule_a).unwrap();
+
+        let mut rule_b = create_test_ruleset("payment-check");
+        rule_b.config.tenant_id = Some("tenant-b".to_string());
+        store.put_for_tenant("tenant-b", rule_b).unwrap();
+
+        // Each tenant should only see their own rules
+        let tenant_a_rules = store.list_for_tenant("tenant-a");
+        assert_eq!(tenant_a_rules.len(), 1);
+        assert_eq!(tenant_a_rules[0].name, "payment-check");
+
+        let tenant_b_rules = store.list_for_tenant("tenant-b");
+        assert_eq!(tenant_b_rules.len(), 1);
+        assert_eq!(tenant_b_rules[0].name, "payment-check");
+
+        // Tenant A should not see tenant B's rules
+        assert!(store.get_for_tenant("tenant-a", "payment-check").is_some());
+        assert!(store.get_for_tenant("tenant-b", "payment-check").is_some());
+    }
+
+    #[test]
+    fn test_multi_tenant_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("tenants");
+
+        let mut store = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        store.enable_multi_tenancy("default".to_string());
+
+        // Create rules for different tenants
+        let mut rule_a = create_test_ruleset("rule-a");
+        rule_a.config.tenant_id = Some("tenant-a".to_string());
+        store.put_for_tenant("tenant-a", rule_a).unwrap();
+
+        let mut rule_b = create_test_ruleset("rule-b");
+        rule_b.config.tenant_id = Some("tenant-b".to_string());
+        store.put_for_tenant("tenant-b", rule_b).unwrap();
+
+        // Verify files are in tenant-specific directories
+        assert!(rules_dir.join("tenant-a").join("rule-a.json").exists());
+        assert!(rules_dir.join("tenant-b").join("rule-b.json").exists());
+
+        // Create new store and load
+        let mut store2 = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        store2.enable_multi_tenancy("default".to_string());
+        let loaded = store2.load_from_dir().unwrap();
+        assert_eq!(loaded, 2);
+
+        // Verify tenant isolation after reload
+        assert_eq!(store2.list_for_tenant("tenant-a").len(), 1);
+        assert_eq!(store2.list_for_tenant("tenant-b").len(), 1);
     }
 }

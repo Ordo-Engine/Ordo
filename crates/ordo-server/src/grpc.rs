@@ -18,14 +18,16 @@ use crate::store::RuleStore;
 pub struct OrdoGrpcService {
     store: Arc<RwLock<RuleStore>>,
     start_time: Instant,
+    default_tenant: String,
 }
 
 impl OrdoGrpcService {
     /// Create a new gRPC service
-    pub fn new(store: Arc<RwLock<RuleStore>>) -> Self {
+    pub fn new(store: Arc<RwLock<RuleStore>>, default_tenant: String) -> Self {
         Self {
             store,
             start_time: Instant::now(),
+            default_tenant,
         }
     }
 }
@@ -45,9 +47,11 @@ impl OrdoService for OrdoGrpcService {
 
         // Get ruleset
         let store = self.store.read().await;
-        let ruleset = store.get(&req.ruleset_name).ok_or_else(|| {
-            Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
-        })?;
+        let ruleset = store
+            .get_for_tenant(&self.default_tenant, &req.ruleset_name)
+            .ok_or_else(|| {
+                Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
+            })?;
 
         // Execute
         let result = store
@@ -100,7 +104,7 @@ impl OrdoService for OrdoGrpcService {
 
         let store = self.store.read().await;
         let ruleset = store
-            .get(&req.name)
+            .get_for_tenant(&self.default_tenant, &req.name)
             .ok_or_else(|| Status::not_found(format!("RuleSet '{}' not found", req.name)))?;
 
         let ruleset_json = serde_json::to_string(&*ruleset)
@@ -122,7 +126,7 @@ impl OrdoService for OrdoGrpcService {
         let req = request.into_inner();
 
         let store = self.store.read().await;
-        let all_rulesets = store.list();
+        let all_rulesets = store.list_for_tenant(&self.default_tenant);
 
         // Filter by prefix if specified
         let filtered: Vec<_> = if req.name_prefix.is_empty() {
@@ -200,7 +204,7 @@ impl OrdoService for OrdoGrpcService {
         _request: Request<HealthRequest>,
     ) -> std::result::Result<Response<HealthResponse>, Status> {
         let store = self.store.read().await;
-        let ruleset_count = store.list().len() as u32;
+        let ruleset_count = store.list_for_tenant(&self.default_tenant).len() as u32;
 
         Ok(Response::new(HealthResponse {
             status: health_response::Status::Serving as i32,
@@ -239,7 +243,7 @@ mod tests {
 
         store.write().await.put(ruleset).unwrap();
 
-        OrdoGrpcService::new(store)
+        OrdoGrpcService::new(store, "default".to_string())
     }
 
     #[tokio::test]

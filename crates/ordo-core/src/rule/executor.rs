@@ -122,6 +122,15 @@ impl RuleExecutor {
         let mut depth = 0;
 
         loop {
+            if ruleset.config.timeout_ms > 0 {
+                let elapsed_ms = start_time.elapsed().as_millis() as u64;
+                if elapsed_ms >= ruleset.config.timeout_ms {
+                    return Err(OrdoError::Timeout {
+                        timeout_ms: ruleset.config.timeout_ms,
+                    });
+                }
+            }
+
             // Check depth limit
             if depth >= ruleset.config.max_depth {
                 return Err(OrdoError::MaxDepthExceeded {

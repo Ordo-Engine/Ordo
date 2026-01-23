@@ -13,6 +13,10 @@ pub struct RuleSetConfig {
     /// RuleSet name
     pub name: String,
 
+    /// Tenant ID (optional, for multi-tenancy)
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+
     /// RuleSet version
     #[serde(default = "default_version")]
     pub version: String,
@@ -82,6 +86,7 @@ impl RuleSet {
         Self {
             config: RuleSetConfig {
                 name: name.into(),
+                tenant_id: None,
                 version: default_version(),
                 description: String::new(),
                 entry_step: entry_step.into(),

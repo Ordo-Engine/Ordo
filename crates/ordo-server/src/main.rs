@@ -51,7 +51,10 @@ pub mod debug;
 mod error;
 mod grpc;
 mod metrics;
+mod middleware;
+mod rate_limiter;
 mod store;
+mod tenant;
 #[cfg(unix)]
 mod uds;
 
@@ -60,7 +63,9 @@ use config::ServerConfig;
 use grpc::OrdoGrpcService;
 use metrics::PrometheusMetricSink;
 use ordo_core::prelude::{RuleExecutor, TraceConfig};
+use rate_limiter::RateLimiter;
 use store::RuleStore;
+use tenant::{default_tenant_store_path, TenantDefaults, TenantManager, TenantStore};
 
 /// Application state shared between HTTP handlers
 #[derive(Clone)]
@@ -74,13 +79,16 @@ pub struct AppState {
     pub config: Arc<ServerConfig>,
     /// Debug session manager (only active in debug mode)
     pub debug_sessions: Arc<debug::DebugSessionManager>,
+    /// Tenant manager
+    pub tenant_manager: Arc<TenantManager>,
+    /// Tenant rate limiter
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Parse command line arguments (also reads from environment variables)
-    let config = ServerConfig::parse();
-    let config = Arc::new(config);
+    let config = Arc::new(ServerConfig::parse());
 
     // Initialize logging
     let log_level = match config.log_level.as_str() {
@@ -114,15 +122,23 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
+        let store_dir = if config.multi_tenancy_enabled {
+            rules_dir.join("tenants")
+        } else {
+            rules_dir.clone()
+        };
         info!(
             "Initializing store with persistence at {:?} (max {} versions)",
-            rules_dir, config.max_versions
+            store_dir, config.max_versions
         );
         let mut store = RuleStore::new_with_persistence_and_metrics(
-            rules_dir.clone(),
+            store_dir,
             config.max_versions,
             metric_sink.clone(),
         );
+        if config.multi_tenancy_enabled {
+            store.enable_multi_tenancy(config.default_tenant.clone());
+        }
 
         // Load existing rules from directory
         match store.load_from_dir() {
@@ -148,9 +164,11 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(RwLock::new(store))
     } else {
         info!("Initializing in-memory store (no persistence)");
-        Arc::new(RwLock::new(RuleStore::new_with_metrics(
-            metric_sink.clone(),
-        )))
+        let mut store = RuleStore::new_with_metrics(metric_sink.clone());
+        if config.multi_tenancy_enabled {
+            store.enable_multi_tenancy(config.default_tenant.clone());
+        }
+        Arc::new(RwLock::new(store))
     };
 
     // Initialize metrics
@@ -158,6 +176,10 @@ async fn main() -> anyhow::Result<()> {
     {
         let store_guard = store.read().await;
         metrics::set_rules_count(store_guard.len() as i64);
+        metrics::set_tenant_rules_count(
+            &config.default_tenant,
+            store_guard.list_for_tenant(&config.default_tenant).len() as i64,
+        );
     }
 
     // Initialize audit logger
@@ -181,7 +203,25 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize debug session manager
     let debug_sessions = Arc::new(debug::DebugSessionManager::new());
+    // Initialize tenant manager
+    let tenant_defaults = TenantDefaults {
+        default_qps_limit: config.default_tenant_qps,
+        default_burst_limit: config.default_tenant_burst,
+        default_timeout_ms: config.default_tenant_timeout_ms,
+    };
+    let tenant_store = config.tenants_dir.clone().or_else(|| {
+        config
+            .rules_dir
+            .as_ref()
+            .map(|dir| default_tenant_store_path(dir))
+    });
+    let tenant_store = tenant_store.map(TenantStore::new);
+    let tenant_manager = Arc::new(TenantManager::new(tenant_store, tenant_defaults).await?);
+    tenant_manager
+        .ensure_default(&config.default_tenant)
+        .await?;
 
+    let rate_limiter = Arc::new(RateLimiter::new());
     // Log server started event
     {
         let store_guard = store.read().await;
@@ -199,6 +239,8 @@ async fn main() -> anyhow::Result<()> {
         let http_executor = executor.clone();
         let http_config = config.clone();
         let http_debug_sessions = debug_sessions.clone();
+        let http_tenant_manager = tenant_manager.clone();
+        let http_rate_limiter = rate_limiter.clone();
         let http_addr = config.http_addr;
         tasks.push(tokio::spawn(async move {
             start_http_server(
@@ -209,6 +251,8 @@ async fn main() -> anyhow::Result<()> {
                 http_executor,
                 http_config,
                 http_debug_sessions,
+                http_tenant_manager,
+                http_rate_limiter,
             )
             .await
         }));
@@ -218,8 +262,9 @@ async fn main() -> anyhow::Result<()> {
     if config.grpc_enabled() {
         let grpc_store = store.clone();
         let grpc_addr = config.grpc_addr;
+        let default_tenant = config.default_tenant.clone();
         tasks.push(tokio::spawn(async move {
-            start_grpc_server(grpc_addr, grpc_store).await
+            start_grpc_server(grpc_addr, grpc_store, default_tenant).await
         }));
     }
 
@@ -228,8 +273,9 @@ async fn main() -> anyhow::Result<()> {
     if config.uds_enabled() {
         let uds_store = store.clone();
         let uds_path = config.uds_path.clone().unwrap();
+        let default_tenant = config.default_tenant.clone();
         tasks.push(tokio::spawn(async move {
-            uds::start_uds_server(&uds_path, uds_store)
+            uds::start_uds_server(&uds_path, uds_store, default_tenant)
                 .await
                 .map_err(|e| anyhow::anyhow!("UDS server error: {}", e))
         }));
@@ -271,6 +317,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Start the HTTP server
+#[allow(clippy::too_many_arguments)]
 async fn start_http_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
@@ -279,6 +326,8 @@ async fn start_http_server(
     executor: Arc<RuleExecutor>,
     config: Arc<ServerConfig>,
     debug_sessions: Arc<debug::DebugSessionManager>,
+    tenant_manager: Arc<TenantManager>,
+    rate_limiter: Arc<RateLimiter>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
 
@@ -289,6 +338,8 @@ async fn start_http_server(
         executor,
         config,
         debug_sessions,
+        tenant_manager,
+        rate_limiter,
     };
 
     // Build base router
@@ -328,7 +379,18 @@ async fn start_http_server(
             get(api::get_audit_sample_rate).put(api::set_audit_sample_rate),
         )
         // Metrics
-        .route("/metrics", get(prometheus_metrics));
+        .route("/metrics", get(prometheus_metrics))
+        // Tenant management
+        .route(
+            "/api/v1/tenants",
+            get(api::list_tenants).post(api::create_tenant),
+        )
+        .route(
+            "/api/v1/tenants/:id",
+            get(api::get_tenant)
+                .put(api::update_tenant)
+                .delete(api::delete_tenant),
+        );
 
     // Register debug routes only in debug mode
     if debug_enabled {
@@ -387,6 +449,10 @@ async fn start_http_server(
     let app = app
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::tenant::tenant_middleware,
+        ))
         .with_state(state);
 
     info!("HTTP server listening on {}", addr);
@@ -401,8 +467,9 @@ async fn start_http_server(
 async fn start_grpc_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
+    default_tenant: String,
 ) -> anyhow::Result<()> {
-    let grpc_service = OrdoGrpcService::new(store);
+    let grpc_service = OrdoGrpcService::new(store, default_tenant);
 
     info!("gRPC server listening on {}", addr);
 

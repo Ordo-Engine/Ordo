@@ -61,6 +61,21 @@ lazy_static! {
         vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
     ).unwrap();
 
+    /// Tenant rule executions counter
+    pub static ref TENANT_EXECUTIONS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_tenant_executions_total",
+        "Tenant rule executions",
+        &["tenant_id", "ruleset", "result"]
+    ).unwrap();
+
+    /// Tenant execution duration histogram
+    pub static ref TENANT_EXECUTION_DURATION: HistogramVec = register_histogram_vec!(
+        "ordo_tenant_execution_duration_seconds",
+        "Tenant rule execution duration in seconds",
+        &["tenant_id", "ruleset"],
+        vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    ).unwrap();
+
     // ==================== Expression Evaluation Metrics ====================
 
     /// Total expression evaluations counter
@@ -112,6 +127,19 @@ lazy_static! {
         "ordo_store_operations_total",
         "Total number of store operations",
         &["operation"]
+    ).unwrap();
+    /// Tenant rule count
+    pub static ref TENANT_RULES_TOTAL: GaugeVec = register_gauge_vec!(
+        "ordo_tenant_rules_total",
+        "Total number of rules per tenant",
+        &["tenant_id"]
+    ).unwrap();
+
+    /// Tenant rate limit counter
+    pub static ref TENANT_RATE_LIMITED_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_tenant_rate_limited_total",
+        "Total number of tenant rate limited requests",
+        &["tenant_id"]
     ).unwrap();
 
     // ==================== Batch Execution Metrics ====================
@@ -179,6 +207,16 @@ pub fn record_execution_success(ruleset: &str, duration_secs: f64) {
         .observe(duration_secs);
 }
 
+/// Record a successful tenant rule execution
+pub fn record_tenant_execution_success(tenant_id: &str, ruleset: &str, duration_secs: f64) {
+    TENANT_EXECUTIONS_TOTAL
+        .with_label_values(&[tenant_id, ruleset, "success"])
+        .inc();
+    TENANT_EXECUTION_DURATION
+        .with_label_values(&[tenant_id, ruleset])
+        .observe(duration_secs);
+}
+
 /// Record a failed rule execution
 pub fn record_execution_error(ruleset: &str, duration_secs: f64) {
     EXECUTIONS_TOTAL
@@ -187,6 +225,30 @@ pub fn record_execution_error(ruleset: &str, duration_secs: f64) {
     EXECUTION_DURATION
         .with_label_values(&[ruleset])
         .observe(duration_secs);
+}
+
+/// Record a failed tenant rule execution
+pub fn record_tenant_execution_error(tenant_id: &str, ruleset: &str, duration_secs: f64) {
+    TENANT_EXECUTIONS_TOTAL
+        .with_label_values(&[tenant_id, ruleset, "error"])
+        .inc();
+    TENANT_EXECUTION_DURATION
+        .with_label_values(&[tenant_id, ruleset])
+        .observe(duration_secs);
+}
+
+/// Record tenant batch results without duration aggregation
+pub fn record_tenant_batch_results(tenant_id: &str, ruleset: &str, success: usize, failed: usize) {
+    if success > 0 {
+        TENANT_EXECUTIONS_TOTAL
+            .with_label_values(&[tenant_id, ruleset, "success"])
+            .inc_by(success as f64);
+    }
+    if failed > 0 {
+        TENANT_EXECUTIONS_TOTAL
+            .with_label_values(&[tenant_id, ruleset, "error"])
+            .inc_by(failed as f64);
+    }
 }
 
 /// Record a successful expression evaluation
@@ -234,6 +296,19 @@ pub fn record_store_operation(operation: &str) {
     STORE_OPERATIONS_TOTAL.with_label_values(&[operation]).inc();
 }
 
+/// Record tenant rate limited request
+pub fn record_tenant_rate_limited(tenant_id: &str) {
+    TENANT_RATE_LIMITED_TOTAL
+        .with_label_values(&[tenant_id])
+        .inc();
+}
+
+/// Update tenant rule count metric
+pub fn set_tenant_rules_count(tenant_id: &str, count: i64) {
+    TENANT_RULES_TOTAL
+        .with_label_values(&[tenant_id])
+        .set(count as f64);
+}
 /// Record batch execution metrics
 pub fn record_batch_execution(
     ruleset: &str,
@@ -263,7 +338,6 @@ pub fn record_batch_execution(
         .with_label_values(&[ruleset, "failed"])
         .inc_by(failed_count as f64);
 }
-
 /// Encode all metrics to Prometheus text format
 pub fn encode_metrics() -> String {
     // Update dynamic metrics before encoding

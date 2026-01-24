@@ -19,6 +19,12 @@
 //! | `ORDO_AUDIT_DIR` | Audit log directory | - |
 //! | `ORDO_AUDIT_SAMPLE_RATE` | Audit sampling rate (0-100) | `10` |
 //! | `ORDO_DEBUG_MODE` | Enable debug mode | `false` |
+//! | `ORDO_MULTI_TENANCY_ENABLED` | Enable multi-tenancy | `false` |
+//! | `ORDO_DEFAULT_TENANT` | Default tenant id | `default` |
+//! | `ORDO_DEFAULT_TENANT_QPS` | Default tenant QPS limit | `-` |
+//! | `ORDO_DEFAULT_TENANT_BURST` | Default tenant burst limit | `-` |
+//! | `ORDO_DEFAULT_TENANT_TIMEOUT_MS` | Default tenant timeout ms | `100` |
+//! | `ORDO_TENANTS_DIR` | Tenant config directory | `-` |
 
 use clap::Parser;
 use std::net::SocketAddr;
@@ -97,6 +103,30 @@ pub struct ServerConfig {
     /// Debug mode exposes internal execution details and may impact performance.
     #[arg(long, default_value = "false", env = "ORDO_DEBUG_MODE")]
     pub debug_mode: bool,
+
+    /// Enable multi-tenancy
+    #[arg(long, default_value = "false", env = "ORDO_MULTI_TENANCY_ENABLED")]
+    pub multi_tenancy_enabled: bool,
+
+    /// Default tenant ID
+    #[arg(long, default_value = "default", env = "ORDO_DEFAULT_TENANT")]
+    pub default_tenant: String,
+
+    /// Default tenant QPS limit (optional)
+    #[arg(long, env = "ORDO_DEFAULT_TENANT_QPS")]
+    pub default_tenant_qps: Option<u32>,
+
+    /// Default tenant burst limit (optional)
+    #[arg(long, env = "ORDO_DEFAULT_TENANT_BURST")]
+    pub default_tenant_burst: Option<u32>,
+
+    /// Default tenant execution timeout in ms
+    #[arg(long, default_value = "100", env = "ORDO_DEFAULT_TENANT_TIMEOUT_MS")]
+    pub default_tenant_timeout_ms: u64,
+
+    /// Tenant configuration directory (optional)
+    #[arg(long, env = "ORDO_TENANTS_DIR")]
+    pub tenants_dir: Option<PathBuf>,
 }
 
 impl ServerConfig {
@@ -135,6 +165,12 @@ impl Default for ServerConfig {
             audit_dir: None,
             audit_sample_rate: 10,
             debug_mode: false,
+            multi_tenancy_enabled: false,
+            default_tenant: "default".to_string(),
+            default_tenant_qps: None,
+            default_tenant_burst: None,
+            default_tenant_timeout_ms: 100,
+            tenants_dir: None,
         }
     }
 }

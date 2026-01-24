@@ -17,6 +17,7 @@ use crate::store::RuleStore;
 pub async fn start_uds_server(
     uds_path: &Path,
     store: Arc<tokio::sync::RwLock<RuleStore>>,
+    default_tenant: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Remove existing socket file if it exists
     if uds_path.exists() {
@@ -35,7 +36,7 @@ pub async fn start_uds_server(
     info!("UDS server listening on {:?}", uds_path);
 
     // Create gRPC service
-    let grpc_service = OrdoGrpcService::new(store);
+    let grpc_service = OrdoGrpcService::new(store, default_tenant);
 
     // Start server
     Server::builder()
@@ -72,8 +73,9 @@ mod tests {
         // Start server in background
         let socket_path_clone = socket_path.clone();
         let store_clone = store.clone();
-        let server_handle =
-            tokio::spawn(async move { start_uds_server(&socket_path_clone, store_clone).await });
+        let server_handle = tokio::spawn(async move {
+            start_uds_server(&socket_path_clone, store_clone, "default".to_string()).await
+        });
 
         // Give server time to start
         tokio::time::sleep(Duration::from_millis(100)).await;

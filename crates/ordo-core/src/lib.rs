@@ -66,9 +66,11 @@ pub mod prelude {
         UnaryOp, VectorizedEvaluator,
     };
     pub use crate::rule::{
-        Action, ActionKind, BatchExecutionResult, Branch, Condition, ExecutionResult,
-        LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink, RuleExecutor, RuleSet,
-        RuleSetConfig, SingleExecutionResult, Step, StepKind, TerminalResult,
+        Action, ActionKind, BatchExecutionResult, Branch, CompiledAction, CompiledBranch,
+        CompiledCondition, CompiledMetadata, CompiledOutput, CompiledRuleExecutor, CompiledRuleSet,
+        CompiledStep, Condition, ExecutionResult, LoggingMetricSink, MetricSink, MetricType,
+        NoOpMetricSink, RuleExecutor, RuleSet, RuleSetCompiler, RuleSetConfig,
+        SingleExecutionResult, Step, StepKind, TerminalResult,
     };
     pub use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
 }

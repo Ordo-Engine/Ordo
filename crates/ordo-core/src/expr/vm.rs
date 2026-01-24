@@ -139,6 +139,80 @@ impl CompiledExpr {
         }
     }
 
+    /// Serialize compiled expression into a binary blob.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_u32(&mut out, self.instructions.len() as u32);
+        for inst in &self.instructions {
+            write_u8(&mut out, inst.op as u8);
+            write_u8(&mut out, inst.a);
+            write_u8(&mut out, inst.b);
+            write_u8(&mut out, inst.c);
+        }
+
+        write_u32(&mut out, self.constants.len() as u32);
+        for value in &self.constants {
+            write_value(&mut out, value);
+        }
+
+        write_u32(&mut out, self.fields.len() as u32);
+        for field in &self.fields {
+            write_string(&mut out, field);
+        }
+
+        write_u32(&mut out, self.functions.len() as u32);
+        for func in &self.functions {
+            write_string(&mut out, func);
+        }
+
+        write_u8(&mut out, self.register_count);
+        out
+    }
+
+    /// Deserialize compiled expression from a binary blob.
+    pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+        let mut cursor = Cursor::new(bytes);
+
+        let instruction_count = read_u32(&mut cursor)? as usize;
+        let mut instructions = Vec::with_capacity(instruction_count);
+        for _ in 0..instruction_count {
+            let op = read_u8(&mut cursor)?;
+            let a = read_u8(&mut cursor)?;
+            let b = read_u8(&mut cursor)?;
+            let c = read_u8(&mut cursor)?;
+            let opcode = opcode_from_u8(op)?;
+            instructions.push(Instruction::new(opcode, a, b, c));
+        }
+
+        let constant_count = read_u32(&mut cursor)? as usize;
+        let mut constants = Vec::with_capacity(constant_count);
+        for _ in 0..constant_count {
+            constants.push(read_value(&mut cursor)?);
+        }
+
+        let field_count = read_u32(&mut cursor)? as usize;
+        let mut fields = Vec::with_capacity(field_count);
+        for _ in 0..field_count {
+            fields.push(read_string(&mut cursor)?);
+        }
+
+        let function_count = read_u32(&mut cursor)? as usize;
+        let mut functions = Vec::with_capacity(function_count);
+        for _ in 0..function_count {
+            functions.push(read_string(&mut cursor)?);
+        }
+
+        let register_count = read_u8(&mut cursor)?;
+
+        Ok(Self {
+            instructions,
+            constants,
+            fields,
+            functions,
+            register_count,
+        })
+    }
+
     /// Get statistics about the compiled expression
     pub fn stats(&self) -> CompiledExprStats {
         CompiledExprStats {
@@ -153,6 +227,191 @@ impl CompiledExpr {
 impl Default for CompiledExpr {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+struct Cursor<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+}
+
+fn read_u8(cursor: &mut Cursor<'_>) -> Result<u8> {
+    if cursor.pos >= cursor.bytes.len() {
+        return Err(OrdoError::parse_error("Unexpected end of data"));
+    }
+    let value = cursor.bytes[cursor.pos];
+    cursor.pos += 1;
+    Ok(value)
+}
+
+fn read_u32(cursor: &mut Cursor<'_>) -> Result<u32> {
+    let mut buf = [0u8; 4];
+    for slot in &mut buf {
+        *slot = read_u8(cursor)?;
+    }
+    Ok(u32::from_le_bytes(buf))
+}
+
+fn read_i64(cursor: &mut Cursor<'_>) -> Result<i64> {
+    let mut buf = [0u8; 8];
+    for slot in &mut buf {
+        *slot = read_u8(cursor)?;
+    }
+    Ok(i64::from_le_bytes(buf))
+}
+
+fn read_f64(cursor: &mut Cursor<'_>) -> Result<f64> {
+    let mut buf = [0u8; 8];
+    for slot in &mut buf {
+        *slot = read_u8(cursor)?;
+    }
+    Ok(f64::from_le_bytes(buf))
+}
+
+fn read_string(cursor: &mut Cursor<'_>) -> Result<String> {
+    let len = read_u32(cursor)? as usize;
+    if cursor.pos + len > cursor.bytes.len() {
+        return Err(OrdoError::parse_error("Invalid string length"));
+    }
+    let value = std::str::from_utf8(&cursor.bytes[cursor.pos..cursor.pos + len])
+        .map_err(|_| OrdoError::parse_error("Invalid UTF-8 string"))?
+        .to_string();
+    cursor.pos += len;
+    Ok(value)
+}
+
+fn read_value(cursor: &mut Cursor<'_>) -> Result<Value> {
+    let tag = read_u8(cursor)?;
+    match tag {
+        0 => Ok(Value::Null),
+        1 => Ok(Value::Bool(read_u8(cursor)? != 0)),
+        2 => Ok(Value::Int(read_i64(cursor)?)),
+        3 => Ok(Value::Float(read_f64(cursor)?)),
+        4 => Ok(Value::string(read_string(cursor)?)),
+        5 => {
+            let len = read_u32(cursor)? as usize;
+            let mut values = Vec::with_capacity(len);
+            for _ in 0..len {
+                values.push(read_value(cursor)?);
+            }
+            Ok(Value::Array(values))
+        }
+        6 => {
+            let len = read_u32(cursor)? as usize;
+            let mut map = hashbrown::HashMap::with_capacity(len);
+            for _ in 0..len {
+                let key = read_string(cursor)?;
+                let value = read_value(cursor)?;
+                map.insert(std::sync::Arc::from(key.as_str()), value);
+            }
+            Ok(Value::Object(map))
+        }
+        _ => Err(OrdoError::parse_error("Unknown value tag")),
+    }
+}
+
+fn write_u8(out: &mut Vec<u8>, value: u8) {
+    out.push(value);
+}
+
+fn write_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_i64(out: &mut Vec<u8>, value: i64) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_f64(out: &mut Vec<u8>, value: f64) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_string(out: &mut Vec<u8>, value: &str) {
+    write_u32(out, value.len() as u32);
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn write_value(out: &mut Vec<u8>, value: &Value) {
+    match value {
+        Value::Null => write_u8(out, 0),
+        Value::Bool(v) => {
+            write_u8(out, 1);
+            write_u8(out, if *v { 1 } else { 0 });
+        }
+        Value::Int(v) => {
+            write_u8(out, 2);
+            write_i64(out, *v);
+        }
+        Value::Float(v) => {
+            write_u8(out, 3);
+            write_f64(out, *v);
+        }
+        Value::String(v) => {
+            write_u8(out, 4);
+            write_string(out, v.as_ref());
+        }
+        Value::Array(values) => {
+            write_u8(out, 5);
+            write_u32(out, values.len() as u32);
+            for item in values {
+                write_value(out, item);
+            }
+        }
+        Value::Object(map) => {
+            write_u8(out, 6);
+            write_u32(out, map.len() as u32);
+            for (key, val) in map {
+                write_string(out, key.as_ref());
+                write_value(out, val);
+            }
+        }
+    }
+}
+
+fn opcode_from_u8(opcode: u8) -> Result<Opcode> {
+    match opcode {
+        0 => Ok(Opcode::LoadConst),
+        1 => Ok(Opcode::LoadField),
+        2 => Ok(Opcode::Move),
+        10 => Ok(Opcode::Add),
+        11 => Ok(Opcode::Sub),
+        12 => Ok(Opcode::Mul),
+        13 => Ok(Opcode::Div),
+        14 => Ok(Opcode::Mod),
+        15 => Ok(Opcode::Eq),
+        16 => Ok(Opcode::Ne),
+        17 => Ok(Opcode::Lt),
+        18 => Ok(Opcode::Le),
+        19 => Ok(Opcode::Gt),
+        20 => Ok(Opcode::Ge),
+        21 => Ok(Opcode::And),
+        22 => Ok(Opcode::Or),
+        23 => Ok(Opcode::In),
+        24 => Ok(Opcode::NotIn),
+        25 => Ok(Opcode::Contains),
+        30 => Ok(Opcode::Not),
+        31 => Ok(Opcode::Neg),
+        40 => Ok(Opcode::JumpIfFalse),
+        41 => Ok(Opcode::JumpIfTrue),
+        42 => Ok(Opcode::Jump),
+        50 => Ok(Opcode::Call),
+        60 => Ok(Opcode::Exists),
+        70 => Ok(Opcode::Return),
+        100 => Ok(Opcode::FieldGtConst),
+        101 => Ok(Opcode::FieldLtConst),
+        102 => Ok(Opcode::FieldEqConst),
+        103 => Ok(Opcode::FieldNeConst),
+        104 => Ok(Opcode::FieldGeConst),
+        105 => Ok(Opcode::FieldLeConst),
+        110 => Ok(Opcode::FieldCmpAndFieldCmp),
+        120 => Ok(Opcode::FieldTestJump),
+        _ => Err(OrdoError::parse_error("Unknown opcode")),
     }
 }
 

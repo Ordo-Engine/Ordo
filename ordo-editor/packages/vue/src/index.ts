@@ -93,6 +93,14 @@ import {
   exprToString,
   conditionToString,
   convertToEngineFormat,
+  // File operations
+  detectFileFormat,
+  importRuleSetFromFile,
+  exportRuleSetToFile,
+  downloadFile,
+  downloadBinaryFile,
+  readFileAsText,
+  readFileAsArrayBuffer,
 } from '@ordo-engine/editor-core';
 
 // Export factory objects with their original names
@@ -113,6 +121,14 @@ export {
   exprToString,
   conditionToString,
   convertToEngineFormat,
+  // File operations
+  detectFileFormat,
+  importRuleSetFromFile,
+  exportRuleSetToFile,
+  downloadFile,
+  downloadBinaryFile,
+  readFileAsText,
+  readFileAsArrayBuffer,
 };
 
 // Version

@@ -107,3 +107,41 @@ export declare function analyze_jit_compatibility(expression: string): Promise<s
  * @returns JSON string containing JITRulesetAnalysis
  */
 export declare function analyze_ruleset_jit(ruleset_json: string): Promise<string>;
+
+// ============================================================================
+// Compiled RuleSet Functions
+// ============================================================================
+
+/**
+ * Compile a ruleset to binary format (.ordo)
+ * @param ruleset_json - RuleSet definition as JSON string
+ * @returns Binary data as Uint8Array
+ */
+export declare function compile_ruleset(ruleset_json: string): Promise<Uint8Array>;
+
+/**
+ * Execute a compiled ruleset (binary format)
+ * @param compiled_bytes - Compiled ruleset binary data
+ * @param input_json - Input data as JSON string
+ * @returns JSON string containing the execution result
+ */
+export declare function execute_compiled_ruleset(compiled_bytes: Uint8Array, input_json: string): Promise<string>;
+
+/**
+ * Get compiled ruleset info (metadata)
+ * @param compiled_bytes - Compiled ruleset binary data
+ * @returns JSON string containing metadata
+ */
+export declare function get_compiled_ruleset_info(compiled_bytes: Uint8Array): Promise<string>;
+
+/**
+ * Compiled ruleset metadata info
+ */
+export interface CompiledRuleSetInfo {
+  name: string;
+  version: string;
+  description: string;
+  steps_count: number;
+  expressions_count: number;
+  string_pool_size: number;
+}

@@ -4,7 +4,7 @@
 
 use ordo_core::expr::{BinaryOp, Expr};
 use ordo_core::prelude::*;
-use ordo_core::rule::{ActionKind, Condition};
+use ordo_core::rule::{ActionKind, CompiledRuleExecutor, Condition, RuleSetCompiler};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -628,6 +628,115 @@ fn analyze_ruleset_jit_compatibility(ruleset: &RuleSet) -> JITRulesetAnalysis {
         estimated_speedup,
         required_fields,
     }
+}
+
+// ============================================================================
+// Compiled RuleSet Functions
+// ============================================================================
+
+/// Compile a ruleset to binary format (.ordo)
+///
+/// # Arguments
+/// * `ruleset_json` - RuleSet definition as JSON string
+///
+/// # Returns
+/// Binary data as Uint8Array
+#[wasm_bindgen]
+pub fn compile_ruleset(ruleset_json: &str) -> std::result::Result<Vec<u8>, JsValue> {
+    // Parse ruleset
+    let ruleset: RuleSet = serde_json::from_str(ruleset_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse ruleset: {}", e)))?;
+
+    // Compile to binary format
+    let compiled = RuleSetCompiler::compile(&ruleset)
+        .map_err(|e| JsValue::from_str(&format!("Failed to compile ruleset: {}", e)))?;
+
+    // Serialize to bytes
+    let bytes = compiled.serialize();
+
+    Ok(bytes)
+}
+
+/// Execute a compiled ruleset (binary format)
+///
+/// # Arguments
+/// * `compiled_bytes` - Compiled ruleset binary data
+/// * `input_json` - Input data as JSON string
+/// * `include_trace` - Whether to include execution trace (not supported for compiled, ignored)
+///
+/// # Returns
+/// JSON string containing the execution result
+#[wasm_bindgen]
+pub fn execute_compiled_ruleset(
+    compiled_bytes: &[u8],
+    input_json: &str,
+) -> std::result::Result<String, JsValue> {
+    use ordo_core::rule::CompiledRuleSet;
+
+    // Deserialize compiled ruleset
+    let compiled = CompiledRuleSet::deserialize(compiled_bytes).map_err(|e| {
+        JsValue::from_str(&format!("Failed to deserialize compiled ruleset: {}", e))
+    })?;
+
+    // Parse input
+    let input: Value = serde_json::from_str(input_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse input: {}", e)))?;
+
+    // Create executor
+    let executor = CompiledRuleExecutor::new();
+
+    // Execute
+    let start = now();
+    let result = executor
+        .execute(&compiled, input)
+        .map_err(|e| JsValue::from_str(&format!("Execution failed: {}", e)))?;
+    let duration_us = ((now() - start) * 1000.0) as u64;
+
+    // Convert output to serde_json::Value
+    let output_json: serde_json::Value = serde_json::to_value(&result.output)
+        .map_err(|e| JsValue::from_str(&format!("Failed to convert output: {}", e)))?;
+
+    // Build response (no trace for compiled execution)
+    let wasm_result = WasmExecutionResult {
+        code: result.code,
+        message: result.message,
+        output: output_json,
+        duration_us,
+        trace: None,
+    };
+
+    // Serialize to JSON
+    serde_json::to_string(&wasm_result)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {}", e)))
+}
+
+/// Get compiled ruleset info (metadata)
+///
+/// # Arguments
+/// * `compiled_bytes` - Compiled ruleset binary data
+///
+/// # Returns
+/// JSON string containing metadata
+#[wasm_bindgen]
+pub fn get_compiled_ruleset_info(compiled_bytes: &[u8]) -> std::result::Result<String, JsValue> {
+    use ordo_core::rule::CompiledRuleSet;
+
+    // Deserialize compiled ruleset
+    let compiled = CompiledRuleSet::deserialize(compiled_bytes).map_err(|e| {
+        JsValue::from_str(&format!("Failed to deserialize compiled ruleset: {}", e))
+    })?;
+
+    // Build info response
+    let info = serde_json::json!({
+        "name": compiled.get_string(compiled.metadata.name).unwrap_or_default(),
+        "version": compiled.get_string(compiled.metadata.version).unwrap_or_default(),
+        "description": compiled.get_string(compiled.metadata.description).unwrap_or_default(),
+        "steps_count": compiled.steps.len(),
+        "expressions_count": compiled.expressions.len(),
+        "string_pool_size": compiled.string_pool.len(),
+    });
+
+    Ok(info.to_string())
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]

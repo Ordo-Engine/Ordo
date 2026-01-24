@@ -8,6 +8,9 @@ import { RuleSet, Expr, Condition, Step } from '../model';
 /** Serialization format */
 export type SerializationFormat = 'json' | 'yaml';
 
+/** File format for .ordo files */
+export type OrdoFileFormat = 'json' | 'yaml' | 'binary' | 'unknown';
+
 /** Serialization options */
 export interface SerializationOptions {
   /** Whether to pretty-print */
@@ -16,6 +19,12 @@ export interface SerializationOptions {
   indent?: number;
   /** Whether to include metadata */
   includeMetadata?: boolean;
+}
+
+/** File export options */
+export interface FileExportOptions extends SerializationOptions {
+  /** File format */
+  format?: 'json' | 'yaml';
 }
 
 const DEFAULT_OPTIONS: SerializationOptions = {
@@ -204,4 +213,177 @@ export function mergeRuleSets(base: RuleSet, patch: Partial<RuleSet>): RuleSet {
       updatedAt: new Date().toISOString(),
     },
   };
+}
+
+/**
+ * Detect file format from filename or content
+ */
+export function detectFileFormat(filename: string, content?: string | ArrayBuffer): OrdoFileFormat {
+  const ext = filename.split('.').pop()?.toLowerCase();
+
+  // Check by extension first
+  if (ext === 'json' || filename.endsWith('.ordo.json')) {
+    return 'json';
+  }
+  if (ext === 'yaml' || ext === 'yml' || filename.endsWith('.ordo.yaml')) {
+    return 'yaml';
+  }
+
+  // For .ordo files, check content
+  if (ext === 'ordo' && content) {
+    // Check if it's binary (starts with "ORDO" magic number)
+    if (content instanceof ArrayBuffer) {
+      const view = new Uint8Array(content);
+      if (view[0] === 0x4f && view[1] === 0x52 && view[2] === 0x44 && view[3] === 0x4f) {
+        return 'binary';
+      }
+    } else if (typeof content === 'string') {
+      const trimmed = content.trim();
+      if (trimmed.startsWith('{')) {
+        return 'json';
+      }
+      // YAML typically starts with key: or ---
+      if (trimmed.startsWith('---') || /^[a-zA-Z_][a-zA-Z0-9_]*:/.test(trimmed)) {
+        return 'yaml';
+      }
+    }
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Parse YAML content to object (simple parser for basic YAML)
+ * Note: For full YAML support, consider using js-yaml library
+ */
+function parseSimpleYaml(content: string): unknown {
+  // This is a simplified YAML parser for basic structures
+  // For production, use a proper YAML library like js-yaml
+  try {
+    // Try JSON first (YAML is a superset of JSON)
+    return JSON.parse(content);
+  } catch {
+    // Basic YAML parsing - convert to JSON-like structure
+    throw new Error('YAML parsing requires js-yaml library. Please use JSON format or install js-yaml.');
+  }
+}
+
+/**
+ * Import ruleset from file (supports JSON, YAML, and detects format)
+ */
+export function importRuleSetFromFile(
+  content: string | ArrayBuffer,
+  filename: string
+): { ruleset: RuleSet; format: OrdoFileFormat } {
+  const format = detectFileFormat(filename, content);
+
+  if (format === 'binary') {
+    throw new Error('Binary .ordo files cannot be imported in the browser. Use the compiled executor on the server.');
+  }
+
+  if (content instanceof ArrayBuffer) {
+    content = new TextDecoder().decode(content);
+  }
+
+  let ruleset: RuleSet;
+
+  if (format === 'yaml') {
+    const data = parseSimpleYaml(content);
+    ruleset = deserializeRuleSet(JSON.stringify(data));
+  } else {
+    ruleset = deserializeRuleSet(content);
+  }
+
+  // Update name from filename if not set
+  if (!ruleset.config.name && filename) {
+    const nameMatch = filename.match(/^(.+?)(?:\.ordo)?(?:\.(json|yaml|yml))?$/i);
+    if (nameMatch) {
+      ruleset.config.name = nameMatch[1];
+    }
+  }
+
+  return { ruleset, format };
+}
+
+/**
+ * Export ruleset to file with specified format
+ */
+export function exportRuleSetToFile(
+  ruleset: RuleSet,
+  options: FileExportOptions = {}
+): { content: string; filename: string; mimeType: string } {
+  const format = options.format || 'json';
+  const content = serializeRuleSet(ruleset, options);
+  const baseName = ruleset.config.name || 'ruleset';
+  const version = ruleset.config.version || '1.0.0';
+
+  if (format === 'yaml') {
+    // For YAML, we'd need a proper YAML serializer
+    // For now, output JSON with .yaml extension as a placeholder
+    return {
+      content,
+      filename: `${baseName}-${version}.ordo.yaml`,
+      mimeType: 'application/x-yaml',
+    };
+  }
+
+  return {
+    content,
+    filename: `${baseName}-${version}.ordo.json`,
+    mimeType: 'application/json',
+  };
+}
+
+/**
+ * Download file in browser
+ */
+export function downloadFile(content: string | Blob, filename: string, mimeType: string): void {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Read file from input element
+ */
+export function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}
+
+/**
+ * Read file as ArrayBuffer (for binary files)
+ */
+export function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
+ * Download binary file (Uint8Array)
+ */
+export function downloadBinaryFile(data: Uint8Array, filename: string): void {
+  const blob = new Blob([data], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

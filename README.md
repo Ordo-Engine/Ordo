@@ -72,6 +72,31 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 - **Built-in Functions**: `len()`, `sum()`, `avg()`, `upper()`, `lower()`, `abs()`, `min()`, `max()`
 - **Field Coalescing**: `coalesce(field, fallback, default)` for missing field handling
 
+### 🔒 Compiled Rules (Rule Protection)
+
+Protect your business logic by compiling rules into binary format:
+
+```rust
+use ordo_core::prelude::*;
+
+// Compile ruleset to binary format
+let compiled = RuleSetCompiler::compile(&ruleset)?;
+
+// Save as .ordo binary file
+compiled.save_to_file("rules.ordo")?;
+
+// Load and execute
+let loaded = CompiledRuleSet::load_from_file("rules.ordo")?;
+let executor = CompiledRuleExecutor::new();
+let result = executor.execute(&loaded, input)?;
+```
+
+**Features:**
+- **Binary Format**: Rules compiled to bytecode, not human-readable
+- **Integrity Check**: CRC32 checksum prevents tampering
+- **Fast Loading**: Direct binary deserialization
+- **Enterprise Plugin**: Extensible encryption support (Enterprise Edition)
+
 ### 🛡️ Production Ready
 
 - **Deterministic Execution**: Same input → Same path → Same result
@@ -304,7 +329,11 @@ if exists(discount) then price * (1 - discount) else price
 ```
 ordo/
 ├── crates/
-│   ├── ordo-core/       # Core rule engine library (with JIT)
+│   ├── ordo-core/       # Core rule engine library
+│   │   └── rule/
+│   │       ├── compiled.rs      # CompiledRuleSet (.ordo binary format)
+│   │       ├── compiler.rs      # RuleSetCompiler
+│   │       └── compiled_executor.rs  # CompiledRuleExecutor
 │   ├── ordo-derive/     # Derive macros for TypedContext
 │   ├── ordo-server/     # HTTP/gRPC API server
 │   ├── ordo-wasm/       # WebAssembly bindings
@@ -352,6 +381,9 @@ npm install @ordo/editor-core
 - [x] JIT compilation (Cranelift)
 - [x] Schema-aware typed contexts
 - [x] npm packages (Vue, React, Core)
+- [x] Compiled ruleset (binary .ordo format)
+- [x] Enterprise plugin system
+- [ ] .ordo file import/export in Playground
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 

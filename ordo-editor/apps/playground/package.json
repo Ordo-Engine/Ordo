@@ -12,6 +12,7 @@
   "dependencies": {
     "@ordo-engine/editor-core": "workspace:*",
     "@ordo-engine/editor-vue": "workspace:*",
+    "@ordo-engine/wasm": "workspace:*",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
     "@vue-flow/core": "^1.48.1",

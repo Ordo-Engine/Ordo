@@ -68,3 +68,19 @@ export async function analyze_ruleset_jit(ruleset_json) {
   await ensureLoaded();
   return wasmModule.analyze_ruleset_jit(ruleset_json);
 }
+
+// Compiled RuleSet Functions
+export async function compile_ruleset(ruleset_json) {
+  await ensureLoaded();
+  return wasmModule.compile_ruleset(ruleset_json);
+}
+
+export async function execute_compiled_ruleset(compiled_bytes, input_json) {
+  await ensureLoaded();
+  return wasmModule.execute_compiled_ruleset(compiled_bytes, input_json);
+}
+
+export async function get_compiled_ruleset_info(compiled_bytes) {
+  await ensureLoaded();
+  return wasmModule.get_compiled_ruleset_info(compiled_bytes);
+}

@@ -10,14 +10,22 @@ import {
   OrdoIcon,
   type RuleSet,
   type SchemaField,
+  // File operations
+  importRuleSetFromFile,
+  exportRuleSetToFile,
+  downloadFile,
+  downloadBinaryFile,
+  readFileAsText,
+  detectFileFormat,
 } from '@ordo-engine/editor-vue';
+import { compile_ruleset } from '@ordo-engine/wasm';
 import {
   RuleExecutor,
   VERSION,
   type JITSchema,
   type JITRulesetAnalysis,
 } from '@ordo-engine/editor-core';
-import { Step, Condition, Expr, generateId } from '@ordo-engine/editor-core';
+import { Step, Condition, Expr, generateId, convertToEngineFormat } from '@ordo-engine/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
 import DebugPage from './pages/DebugPage.vue';
 import { useTour } from './composables/useTour';
@@ -1061,6 +1069,123 @@ async function copyJson() {
   }
 }
 
+// ============ File Import/Export ============
+
+// Hidden file input ref
+const fileInputRef = ref<HTMLInputElement | null>(null);
+
+// Trigger file open dialog
+function openFileDialog() {
+  fileInputRef.value?.click();
+}
+
+// Handle file selection
+async function handleFileSelect(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+
+  try {
+    const content = await readFileAsText(file);
+    const format = detectFileFormat(file.name, content);
+
+    if (format === 'binary') {
+      alert('Binary .ordo files are not supported in the browser playground. Please use JSON or YAML format.');
+      return;
+    }
+
+    const { ruleset: importedRuleset } = importRuleSetFromFile(content, file.name);
+
+    // Create new file entry
+    const id = `file_${generateId()}`;
+    const newFile: OrdoFile = {
+      id,
+      name: file.name.replace(/\.(json|yaml|yml)$/i, '.ordo'),
+      ruleset: importedRuleset,
+      modified: false,
+    };
+
+    files.value.push(newFile);
+    selectFile(id);
+
+    // Clear input for re-selection of same file
+    input.value = '';
+  } catch (error) {
+    console.error('Failed to import file:', error);
+    alert(`Failed to import file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// Export current file as JSON
+function exportAsJson() {
+  if (!activeFile.value) return;
+
+  const { content, filename, mimeType } = exportRuleSetToFile(activeFile.value.ruleset, {
+    format: 'json',
+    pretty: true,
+  });
+
+  downloadFile(content, filename, mimeType);
+
+  // Mark as saved
+  activeFile.value.modified = false;
+}
+
+// Export current file as YAML (placeholder - outputs JSON with .yaml extension)
+function exportAsYaml() {
+  if (!activeFile.value) return;
+
+  const { content, filename, mimeType } = exportRuleSetToFile(activeFile.value.ruleset, {
+    format: 'yaml',
+    pretty: true,
+  });
+
+  downloadFile(content, filename, mimeType);
+
+  // Mark as saved
+  activeFile.value.modified = false;
+}
+
+// Export current file as compiled binary (.ordo)
+const isCompiling = ref(false);
+
+async function exportAsCompiled() {
+  if (!activeFile.value) return;
+
+  isCompiling.value = true;
+  try {
+    // Convert ruleset to engine format for compilation
+    const engineRuleset = convertToEngineFormat(activeFile.value.ruleset);
+    const rulesetJson = JSON.stringify(engineRuleset);
+
+    // Compile using WASM
+    const compiledBytes = await compile_ruleset(rulesetJson);
+
+    // Generate filename
+    const baseName = activeFile.value.ruleset.config.name || 'ruleset';
+    const version = activeFile.value.ruleset.config.version || '1.0.0';
+    const filename = `${baseName}-${version}.ordo`;
+
+    // Download binary file
+    downloadBinaryFile(compiledBytes, filename);
+
+    // Mark as saved
+    activeFile.value.modified = false;
+  } catch (error) {
+    console.error('Failed to compile ruleset:', error);
+    alert(`Failed to compile ruleset: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  } finally {
+    isCompiling.value = false;
+  }
+}
+
+// Show export menu
+const showExportMenu = ref(false);
+
+function toggleExportMenu() {
+  showExportMenu.value = !showExportMenu.value;
+}
+
 function handleChange(newRuleset: RuleSet) {
   ruleset.value = newRuleset;
 }
@@ -1281,6 +1406,20 @@ watch(
       <div class="sidebar-header">
         <span>EXPLORER</span>
         <div class="header-actions">
+          <!-- Open File -->
+          <button class="icon-btn" @click="openFileDialog" title="Open .ordo File">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
+          <!-- New File -->
           <button class="icon-btn" @click="createNewFile" title="New File">
             <svg
               width="14"
@@ -1294,6 +1433,31 @@ watch(
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
           </button>
+          <!-- Export Menu -->
+          <div class="export-menu-wrapper">
+            <button class="icon-btn" @click="toggleExportMenu" title="Export File">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </button>
+            <div v-if="showExportMenu" class="export-dropdown">
+              <button @click="exportAsJson(); showExportMenu = false">Export as JSON</button>
+              <button @click="exportAsYaml(); showExportMenu = false">Export as YAML</button>
+              <div class="export-divider"></div>
+              <button @click="exportAsCompiled(); showExportMenu = false" :disabled="isCompiling">
+                {{ isCompiling ? 'Compiling...' : 'Export as .ordo (Binary)' }}
+              </button>
+            </div>
+          </div>
           <button class="sidebar-close" @click="toggleLeftSidebar" title="Close">
             <svg
               width="14"
@@ -1309,6 +1473,14 @@ watch(
           </button>
         </div>
       </div>
+      <!-- Hidden file input -->
+      <input
+        ref="fileInputRef"
+        type="file"
+        accept=".ordo,.json,.yaml,.yml,.ordo.json,.ordo.yaml"
+        style="display: none"
+        @change="handleFileSelect"
+      />
       <div class="sidebar-content">
         <div class="sidebar-section">
           <div class="section-title">RULE FILES</div>
@@ -1798,6 +1970,60 @@ watch(
 .header-actions {
   display: flex;
   gap: 4px;
+}
+
+/* Export menu */
+.export-menu-wrapper {
+  position: relative;
+}
+
+.export-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--ordo-bg-panel);
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  min-width: 140px;
+}
+
+.export-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--ordo-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.export-dropdown button:hover {
+  background: var(--ordo-bg-item-hover);
+}
+
+.export-dropdown button:first-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.export-dropdown button:last-child {
+  border-radius: 0 0 4px 4px;
+}
+
+.export-dropdown button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-divider {
+  height: 1px;
+  background: var(--ordo-border-color);
+  margin: 4px 0;
 }
 
 .sidebar-close,

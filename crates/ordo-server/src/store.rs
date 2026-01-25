@@ -6,6 +6,7 @@
 
 use crate::metrics;
 use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
+use ordo_core::signature::{strip_signature, RuleVerifier};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,6 +61,10 @@ pub struct RuleStore {
     default_format: FileFormat,
     /// Maximum number of historical versions to keep per rule
     max_versions: usize,
+    /// Optional signature verifier for rule loading
+    signature_verifier: Option<RuleVerifier>,
+    /// Allow unsigned local rules when signature verification is enabled
+    allow_unsigned_local: bool,
 }
 
 /// Version information for a rule
@@ -95,6 +100,8 @@ impl RuleStore {
             default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions: 10,
+            signature_verifier: None,
+            allow_unsigned_local: true,
         }
     }
 
@@ -108,6 +115,8 @@ impl RuleStore {
             default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions: 10,
+            signature_verifier: None,
+            allow_unsigned_local: true,
         }
     }
 
@@ -127,6 +136,8 @@ impl RuleStore {
             default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions,
+            signature_verifier: None,
+            allow_unsigned_local: true,
         }
     }
 
@@ -144,6 +155,8 @@ impl RuleStore {
             default_tenant: "default".to_string(),
             default_format: FileFormat::Json,
             max_versions,
+            signature_verifier: None,
+            allow_unsigned_local: true,
         }
     }
 
@@ -157,6 +170,12 @@ impl RuleStore {
     #[allow(dead_code)]
     pub fn set_max_versions(&mut self, max_versions: usize) {
         self.max_versions = max_versions;
+    }
+
+    /// Configure signature verification for local rule loading
+    pub fn set_signature_verifier(&mut self, verifier: RuleVerifier, allow_unsigned_local: bool) {
+        self.signature_verifier = Some(verifier);
+        self.allow_unsigned_local = allow_unsigned_local;
     }
 
     /// Check if persistence is enabled
@@ -294,12 +313,32 @@ impl RuleStore {
 
         let content = fs::read_to_string(path)?;
 
-        let mut ruleset: RuleSet = match format {
+        let mut json_value: serde_json::Value = match format {
             FileFormat::Json => serde_json::from_str(&content)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
             FileFormat::Yaml => serde_yaml::from_str(&content)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
         };
+
+        let signature = strip_signature(&mut json_value)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(verifier) = &self.signature_verifier {
+            let should_verify = signature.is_some() || !self.allow_unsigned_local;
+            if should_verify {
+                verifier
+                    .verify_json_value(&json_value, signature.as_ref())
+                    .map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Signature verification failed: {}", e),
+                        )
+                    })?;
+            }
+        }
+
+        let mut ruleset: RuleSet = serde_json::from_value(json_value)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         // Validate the loaded ruleset
         ruleset.validate().map_err(|errors| {

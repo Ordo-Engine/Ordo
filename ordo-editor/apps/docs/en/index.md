@@ -31,7 +31,7 @@ features:
     details: Step flow model, rich expressions, built-in functions, and field coalescing. Compiled binary format for rule protection.
   - icon: 🛡️
     title: Production Ready
-    details: Deterministic execution, full tracing, hot reload, audit logging, and multi-tenancy support.
+    details: Deterministic execution, full tracing, hot reload, Ed25519 rule signing, audit logging, and multi-tenancy support.
   - icon: 🔌
     title: Easy Integration
     details: HTTP REST API, gRPC support, WebAssembly for browser, and npm packages (@ordo/editor-vue, @ordo/editor-core).

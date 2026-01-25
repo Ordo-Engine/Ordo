@@ -54,6 +54,7 @@ pub mod context;
 pub mod error;
 pub mod expr;
 pub mod rule;
+pub mod signature;
 pub mod trace;
 
 /// Prelude module for convenient imports
@@ -72,6 +73,9 @@ pub mod prelude {
         NoOpMetricSink, RuleExecutor, RuleSet, RuleSetCompiler, RuleSetConfig,
         SingleExecutionResult, Step, StepKind, TerminalResult,
     };
+    pub use crate::signature::signer::RuleSigner;
+    pub use crate::signature::verifier::RuleVerifier;
+    pub use crate::signature::{SignatureAlgorithm, SignatureConfig, SIGNATURE_FIELD};
     pub use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
 }
 

@@ -27,6 +27,16 @@
 | 审计目录 | `--audit-dir`         | 无     | 审计日志目录        |
 | 采样率   | `--audit-sample-rate` | `10`   | 执行采样率 (0-100%) |
 
+## 签名配置
+
+| 选项           | CLI 标志                           | 默认值  | 描述                        |
+| -------------- | ---------------------------------- | ------- | --------------------------- |
+| 启用签名验证   | `--signature-enabled`              | `false` | 启用规则签名验证            |
+| 强制签名       | `--signature-require`              | `false` | API 更新时拒绝未签名规则    |
+| 信任公钥列表   | `--signature-trusted-keys`         | 无      | 逗号分隔的 base64 公钥      |
+| 公钥文件       | `--signature-trusted-keys-file`    | 无      | 公钥文件（每行一个 base64） |
+| 允许本地无签名 | `--signature-allow-unsigned-local` | `true`  | 启动时允许本地规则无签名    |
+
 ## 运行时配置
 
 某些设置可以通过 API 在运行时更改：
@@ -55,6 +65,8 @@ ENV ORDO_GRPC_ADDR=0.0.0.0:50051
 ENV ORDO_RULES_DIR=/data/rules
 ENV ORDO_AUDIT_DIR=/data/audit
 ENV ORDO_LOG_LEVEL=info
+ENV ORDO_SIGNATURE_ENABLED=true
+ENV ORDO_SIGNATURE_TRUSTED_KEYS_FILE=/data/keys/trusted_keys.txt
 ```
 
 ### Docker Compose

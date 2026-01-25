@@ -16,6 +16,9 @@ serde_yaml.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+base64.workspace = true
 
 # JIT compilation (optional, not available on wasm32)
 cranelift = { workspace = true, optional = true }

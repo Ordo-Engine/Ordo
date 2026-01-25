@@ -63,7 +63,10 @@ use config::ServerConfig;
 use grpc::OrdoGrpcService;
 use metrics::PrometheusMetricSink;
 use ordo_core::prelude::{RuleExecutor, TraceConfig};
+use ordo_core::signature::ed25519::decode_public_key;
+use ordo_core::signature::RuleVerifier;
 use rate_limiter::RateLimiter;
+use std::fs;
 use store::RuleStore;
 use tenant::{default_tenant_store_path, TenantDefaults, TenantManager, TenantStore};
 
@@ -77,12 +80,39 @@ pub struct AppState {
     pub executor: Arc<RuleExecutor>,
     /// Server configuration
     pub config: Arc<ServerConfig>,
+    /// Signature verifier (if enabled)
+    pub signature_verifier: Option<RuleVerifier>,
     /// Debug session manager (only active in debug mode)
     pub debug_sessions: Arc<debug::DebugSessionManager>,
     /// Tenant manager
     pub tenant_manager: Arc<TenantManager>,
     /// Tenant rate limiter
     pub rate_limiter: Arc<RateLimiter>,
+}
+
+fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<RuleVerifier>> {
+    if !config.signature_enabled {
+        return Ok(None);
+    }
+
+    let mut keys = Vec::new();
+    for encoded in &config.signature_trusted_keys {
+        keys.push(decode_public_key(encoded).map_err(|e| anyhow::anyhow!(e))?);
+    }
+
+    if let Some(path) = &config.signature_trusted_keys_file {
+        let content = fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("Failed to read trusted keys file {:?}: {}", path, e))?;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            keys.push(decode_public_key(trimmed).map_err(|e| anyhow::anyhow!(e))?);
+        }
+    }
+
+    Ok(Some(RuleVerifier::new(keys, config.signature_require)))
 }
 
 #[tokio::main]
@@ -120,6 +150,8 @@ async fn main() -> anyhow::Result<()> {
         metric_sink.clone(),
     ));
 
+    let signature_verifier = build_signature_verifier(&config)?;
+
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
         let store_dir = if config.multi_tenancy_enabled {
@@ -136,6 +168,9 @@ async fn main() -> anyhow::Result<()> {
             config.max_versions,
             metric_sink.clone(),
         );
+        if let Some(verifier) = signature_verifier.clone() {
+            store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
+        }
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
         }
@@ -165,6 +200,9 @@ async fn main() -> anyhow::Result<()> {
     } else {
         info!("Initializing in-memory store (no persistence)");
         let mut store = RuleStore::new_with_metrics(metric_sink.clone());
+        if let Some(verifier) = signature_verifier.clone() {
+            store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
+        }
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
         }
@@ -238,6 +276,7 @@ async fn main() -> anyhow::Result<()> {
         let http_metric_sink = metric_sink.clone();
         let http_executor = executor.clone();
         let http_config = config.clone();
+        let http_signature_verifier = signature_verifier.clone();
         let http_debug_sessions = debug_sessions.clone();
         let http_tenant_manager = tenant_manager.clone();
         let http_rate_limiter = rate_limiter.clone();
@@ -250,6 +289,7 @@ async fn main() -> anyhow::Result<()> {
                 http_metric_sink,
                 http_executor,
                 http_config,
+                http_signature_verifier,
                 http_debug_sessions,
                 http_tenant_manager,
                 http_rate_limiter,
@@ -325,6 +365,7 @@ async fn start_http_server(
     metric_sink: Arc<PrometheusMetricSink>,
     executor: Arc<RuleExecutor>,
     config: Arc<ServerConfig>,
+    signature_verifier: Option<RuleVerifier>,
     debug_sessions: Arc<debug::DebugSessionManager>,
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
@@ -337,6 +378,7 @@ async fn start_http_server(
         metric_sink,
         executor,
         config,
+        signature_verifier,
         debug_sessions,
         tenant_manager,
         rate_limiter,

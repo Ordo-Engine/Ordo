@@ -27,6 +27,16 @@ This page documents all configuration options for Ordo server.
 | Audit Directory | `--audit-dir`         | None    | Directory for audit logs    |
 | Sample Rate     | `--audit-sample-rate` | `10`    | Execution sampling (0-100%) |
 
+## Signature Configuration
+
+| Option               | CLI Flag                           | Default | Description                                 |
+| -------------------- | ---------------------------------- | ------- | ------------------------------------------- |
+| Signature Enabled    | `--signature-enabled`              | `false` | Enable rule signature verification          |
+| Require Signature    | `--signature-require`              | `false` | Reject unsigned rules on API updates        |
+| Trusted Public Keys  | `--signature-trusted-keys`         | None    | Comma-separated base64 public keys          |
+| Trusted Keys File    | `--signature-trusted-keys-file`    | None    | File with base64 public keys (one per line) |
+| Allow Unsigned Local | `--signature-allow-unsigned-local` | `true`  | Allow unsigned local files on startup       |
+
 ## Runtime Configuration
 
 Some settings can be changed at runtime via API:
@@ -55,6 +65,8 @@ ENV ORDO_GRPC_ADDR=0.0.0.0:50051
 ENV ORDO_RULES_DIR=/data/rules
 ENV ORDO_AUDIT_DIR=/data/audit
 ENV ORDO_LOG_LEVEL=info
+ENV ORDO_SIGNATURE_ENABLED=true
+ENV ORDO_SIGNATURE_TRUSTED_KEYS_FILE=/data/keys/trusted_keys.txt
 ```
 
 ### Docker Compose

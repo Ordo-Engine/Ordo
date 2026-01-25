@@ -16,9 +16,11 @@ serde_yaml.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-ed25519-dalek.workspace = true
-rand.workspace = true
-base64.workspace = true
+# Signature support (optional, requires getrandom which needs special config for wasm)
+ed25519-dalek = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+getrandom = { version = "0.2", features = ["js"], optional = true }
 
 # JIT compilation (optional, not available on wasm32)
 cranelift = { workspace = true, optional = true }
@@ -36,9 +38,10 @@ lru.workspace = true
 ordo-derive = { workspace = true, optional = true }
 
 [features]
-default = ["derive", "jit"]
+default = ["derive", "jit", "signature"]
 derive = ["ordo-derive"]
 jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native", "cranelift-codegen"]
+signature = ["ed25519-dalek", "rand", "base64", "getrandom"]
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }

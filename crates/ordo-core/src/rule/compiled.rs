@@ -5,10 +5,20 @@
 use crate::context::Value;
 use crate::error::{OrdoError, Result};
 use crate::expr::CompiledExpr;
+#[cfg(feature = "signature")]
 use crate::signature::ed25519::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
+#[cfg(feature = "signature")]
 use crate::signature::{SignatureAlgorithm, SignatureConfig};
+#[cfg(feature = "signature")]
 use base64::engine::general_purpose::STANDARD;
+#[cfg(feature = "signature")]
 use base64::Engine;
+
+// Constants for non-signature builds
+#[cfg(not(feature = "signature"))]
+const PUBLIC_KEY_LEN: usize = 32;
+#[cfg(not(feature = "signature"))]
+const SIGNATURE_LEN: usize = 64;
 use hashbrown::HashMap as HbMap;
 use std::collections::HashMap;
 use std::fs;
@@ -322,6 +332,7 @@ impl CompiledRuleSet {
         Ok(ruleset)
     }
 
+    #[cfg(feature = "signature")]
     pub fn deserialize_with_verifier(
         bytes: &[u8],
         verifier: &crate::signature::verifier::RuleVerifier,
@@ -340,6 +351,7 @@ impl CompiledRuleSet {
         Self::deserialize(&bytes)
     }
 
+    #[cfg(feature = "signature")]
     pub fn load_from_file_with_verifier(
         path: impl AsRef<Path>,
         verifier: &crate::signature::verifier::RuleVerifier,
@@ -348,6 +360,7 @@ impl CompiledRuleSet {
         Self::deserialize_with_verifier(&bytes, verifier)
     }
 
+    #[cfg(feature = "signature")]
     pub fn sign_with_signer(
         &mut self,
         signer: &crate::signature::signer::RuleSigner,
@@ -395,6 +408,7 @@ impl CompiledRuleSet {
     }
 }
 
+#[cfg(feature = "signature")]
 fn verify_compiled_signature_bytes(
     bytes: &[u8],
     verifier: &crate::signature::verifier::RuleVerifier,
@@ -995,8 +1009,11 @@ mod tests {
         Action, ActionKind, CompiledRuleExecutor, Condition, RuleSet, RuleSetCompiler, Step,
         TerminalResult,
     };
+    #[cfg(feature = "signature")]
     use crate::signature::ed25519::decode_public_key;
+    #[cfg(feature = "signature")]
     use crate::signature::signer::RuleSigner;
+    #[cfg(feature = "signature")]
     use crate::signature::verifier::RuleVerifier;
 
     fn build_ruleset() -> RuleSet {
@@ -1333,6 +1350,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "signature")]
     fn test_compiled_ruleset_signature_verification() {
         let ruleset = build_ruleset();
         let mut compiled = RuleSetCompiler::compile(&ruleset).unwrap();
@@ -1351,6 +1369,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "signature")]
     fn test_compiled_ruleset_signature_tamper_detected() {
         let ruleset = build_ruleset();
         let mut compiled = RuleSetCompiler::compile(&ruleset).unwrap();

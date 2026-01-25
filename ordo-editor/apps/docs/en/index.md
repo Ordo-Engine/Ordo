@@ -22,22 +22,22 @@ hero:
 features:
   - icon: ⚡
     title: Blazing Fast
-    details: 1.63µs average execution time. 600x faster than 1ms target. Zero-allocation hot path.
+    details: 1.63µs average execution time (50-80ns with JIT). 600x faster than 1ms target. Zero-allocation hot path.
   - icon: 🎨
     title: Visual Editor
-    details: Design complex rules with drag-and-drop flow editor. Real-time execution with WASM.
+    details: Design complex rules with drag-and-drop flow editor. Real-time execution with WASM. Import/export .ordo files.
   - icon: 🔧
     title: Flexible Rules
-    details: Step flow model, rich expressions, built-in functions, and field coalescing.
+    details: Step flow model, rich expressions, built-in functions, and field coalescing. Compiled binary format for rule protection.
   - icon: 🛡️
     title: Production Ready
-    details: Deterministic execution, full tracing, hot reload, and audit logging.
+    details: Deterministic execution, full tracing, hot reload, audit logging, and multi-tenancy support.
   - icon: 🔌
     title: Easy Integration
-    details: HTTP REST API, gRPC support, and WebAssembly for browser execution.
+    details: HTTP REST API, gRPC support, WebAssembly for browser, and npm packages (@ordo/editor-vue, @ordo/editor-core).
   - icon: 📊
     title: Observable
-    details: Prometheus metrics, health checks, and structured audit logs.
+    details: Prometheus metrics, health checks, structured audit logs, and rule versioning with rollback.
 ---
 
 ## Quick Example
@@ -73,9 +73,10 @@ features:
 
 ## Performance
 
-| Metric                 | Result           |
-| ---------------------- | ---------------- |
-| Single rule execution  | **1.63 µs**      |
-| Expression evaluation  | **79-211 ns**    |
-| HTTP API throughput    | **54,000 QPS**   |
-| Projected multi-thread | **500,000+ QPS** |
+| Metric                              | Result           |
+| ----------------------------------- | ---------------- |
+| Single rule execution (interpreter) | **1.63 µs**      |
+| Single rule execution (JIT)         | **50-80 ns**     |
+| Expression evaluation               | **79-211 ns**    |
+| HTTP API throughput                 | **54,000 QPS**   |
+| Projected multi-thread              | **500,000+ QPS** |

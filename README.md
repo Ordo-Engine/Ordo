@@ -383,7 +383,7 @@ npm install @ordo/editor-core
 - [x] npm packages (Vue, React, Core)
 - [x] Compiled ruleset (binary .ordo format)
 - [x] Enterprise plugin system
-- [ ] .ordo file import/export in Playground
+- [x] .ordo file import/export in Playground
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 

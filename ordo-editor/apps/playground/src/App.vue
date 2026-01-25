@@ -1090,7 +1090,9 @@ async function handleFileSelect(event: Event) {
     const format = detectFileFormat(file.name, content);
 
     if (format === 'binary') {
-      alert('Binary .ordo files are not supported in the browser playground. Please use JSON or YAML format.');
+      alert(
+        'Binary .ordo files are not supported in the browser playground. Please use JSON or YAML format.'
+      );
       return;
     }
 
@@ -1416,7 +1418,9 @@ watch(
               stroke="currentColor"
               stroke-width="2"
             >
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              <path
+                d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+              ></path>
             </svg>
           </button>
           <!-- New File -->
@@ -1450,10 +1454,30 @@ watch(
               </svg>
             </button>
             <div v-if="showExportMenu" class="export-dropdown">
-              <button @click="exportAsJson(); showExportMenu = false">Export as JSON</button>
-              <button @click="exportAsYaml(); showExportMenu = false">Export as YAML</button>
+              <button
+                @click="
+                  exportAsJson();
+                  showExportMenu = false;
+                "
+              >
+                Export as JSON
+              </button>
+              <button
+                @click="
+                  exportAsYaml();
+                  showExportMenu = false;
+                "
+              >
+                Export as YAML
+              </button>
               <div class="export-divider"></div>
-              <button @click="exportAsCompiled(); showExportMenu = false" :disabled="isCompiling">
+              <button
+                @click="
+                  exportAsCompiled();
+                  showExportMenu = false;
+                "
+                :disabled="isCompiling"
+              >
                 {{ isCompiling ? 'Compiling...' : 'Export as .ordo (Binary)' }}
               </button>
             </div>

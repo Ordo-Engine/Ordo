@@ -264,7 +264,9 @@ function parseSimpleYaml(content: string): unknown {
     return JSON.parse(content);
   } catch {
     // Basic YAML parsing - convert to JSON-like structure
-    throw new Error('YAML parsing requires js-yaml library. Please use JSON format or install js-yaml.');
+    throw new Error(
+      'YAML parsing requires js-yaml library. Please use JSON format or install js-yaml.'
+    );
   }
 }
 
@@ -278,7 +280,9 @@ export function importRuleSetFromFile(
   const format = detectFileFormat(filename, content);
 
   if (format === 'binary') {
-    throw new Error('Binary .ordo files cannot be imported in the browser. Use the compiled executor on the server.');
+    throw new Error(
+      'Binary .ordo files cannot be imported in the browser. Use the compiled executor on the server.'
+    );
   }
 
   if (content instanceof ArrayBuffer) {

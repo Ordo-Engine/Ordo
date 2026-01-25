@@ -125,7 +125,10 @@ export declare function compile_ruleset(ruleset_json: string): Promise<Uint8Arra
  * @param input_json - Input data as JSON string
  * @returns JSON string containing the execution result
  */
-export declare function execute_compiled_ruleset(compiled_bytes: Uint8Array, input_json: string): Promise<string>;
+export declare function execute_compiled_ruleset(
+  compiled_bytes: Uint8Array,
+  input_json: string
+): Promise<string>;
 
 /**
  * Get compiled ruleset info (metadata)

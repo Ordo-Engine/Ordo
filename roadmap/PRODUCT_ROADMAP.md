@@ -1,7 +1,7 @@
 # Ordo 商业化产品 Roadmap
 
-> 版本: 1.0  
-> 更新时间: 2026-01-09  
+> 版本: 1.1  
+> 更新时间: 2026-01-25  
 > 目标客户: 金融/支付、电商/营销、大型互联网企业  
 > 部署模式: 私有化部署优先，支持 SaaS
 
@@ -34,13 +34,22 @@
 - [x] 可视化规则编辑器 (Vue)
 - [x] Flow 图执行追踪可视化
 - [x] 多语言支持 (i18n)
+- [x] 规则持久化 (文件系统，`--rules-dir` 参数)
+- [x] 规则版本管理与回滚
+- [x] 审计日志 (Audit Logging)
+- [x] JIT 编译 (Cranelift, 20-30x 加速)
+- [x] Schema-aware 类型上下文
+- [x] Compiled RuleSet (.ordo 二进制格式)
+- [x] Enterprise Plugin System (加密、审计)
+- [x] 多租户隔离 (Multi-tenancy)
+- [x] npm 包发布 (@ordo/editor-vue, @ordo/editor-core)
+- [x] Playground 文件导入/导出 (.ordo, JSON, YAML)
 
 ### 待完善
 
-- [ ] 规则仅存内存，重启丢失
-- [ ] 无本地持久化
-- [ ] 无离线运行能力
-- [ ] 无崩溃恢复机制
+- [ ] SQLite 嵌入式存储 (当前为文件系统)
+- [ ] WAL 日志与崩溃恢复
+- [ ] 离线运行模式 (上游断开自治)
 
 ---
 
@@ -511,5 +520,5 @@ metrics:
 ---
 
 *文档维护: Ordo Team*  
-*最后更新: 2026-01-09*
+*最后更新: 2026-01-25*
 

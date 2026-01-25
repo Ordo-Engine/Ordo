@@ -54,6 +54,7 @@ pub mod context;
 pub mod error;
 pub mod expr;
 pub mod rule;
+#[cfg(feature = "signature")]
 pub mod signature;
 pub mod trace;
 
@@ -73,8 +74,11 @@ pub mod prelude {
         NoOpMetricSink, RuleExecutor, RuleSet, RuleSetCompiler, RuleSetConfig,
         SingleExecutionResult, Step, StepKind, TerminalResult,
     };
+    #[cfg(feature = "signature")]
     pub use crate::signature::signer::RuleSigner;
+    #[cfg(feature = "signature")]
     pub use crate::signature::verifier::RuleVerifier;
+    #[cfg(feature = "signature")]
     pub use crate::signature::{SignatureAlgorithm, SignatureConfig, SIGNATURE_FIELD};
     pub use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
 }

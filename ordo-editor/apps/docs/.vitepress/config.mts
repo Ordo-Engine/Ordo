@@ -83,6 +83,7 @@ export default defineConfig({
                 { text: 'Rule Persistence', link: '/en/guide/persistence' },
                 { text: 'Version Management', link: '/en/guide/versioning' },
                 { text: 'Audit Logging', link: '/en/guide/audit-logging' },
+                { text: 'Rule Signing', link: '/en/guide/rule-signing' },
               ]
             }
           ],
@@ -161,6 +162,7 @@ export default defineConfig({
               items: [
                 { text: '规则持久化', link: '/zh/guide/persistence' },
                 { text: '版本管理', link: '/zh/guide/versioning' },
+                { text: '规则签名', link: '/zh/guide/rule-signing' },
                 { text: '审计日志', link: '/zh/guide/audit-logging' },
               ]
             }

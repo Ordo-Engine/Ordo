@@ -38,6 +38,11 @@ parking_lot = "0.12"
 regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 
+# 签名与编码
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+base64 = "0.22"
+
 # 异步运行时
 tokio = { version = "1", features = ["full"] }
 

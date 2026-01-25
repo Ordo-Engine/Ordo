@@ -5,6 +5,10 @@
 use crate::context::Value;
 use crate::error::{OrdoError, Result};
 use crate::expr::CompiledExpr;
+use crate::signature::ed25519::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
+use crate::signature::{SignatureAlgorithm, SignatureConfig};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use hashbrown::HashMap as HbMap;
 use std::collections::HashMap;
 use std::fs;
@@ -13,6 +17,7 @@ use std::sync::Arc;
 
 const MAGIC: &[u8; 4] = b"ORDO";
 const VERSION: u16 = 1;
+const FLAG_HAS_SIGNATURE: u16 = 0b0001;
 
 /// Maximum allowed size for collections during deserialization (prevent DoS attacks)
 const MAX_COLLECTION_SIZE: usize = 1_000_000;
@@ -123,7 +128,14 @@ pub struct CompiledRuleSet {
     pub steps: Vec<CompiledStep>,
     pub expressions: Vec<CompiledExpr>,
     pub string_pool: Vec<String>,
+    pub signature: Option<CompiledSignature>,
     step_index: HashMap<u32, usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledSignature {
+    pub public_key: [u8; PUBLIC_KEY_LEN],
+    pub signature: [u8; SIGNATURE_LEN],
 }
 
 impl CompiledRuleSet {
@@ -140,6 +152,7 @@ impl CompiledRuleSet {
             steps,
             expressions,
             string_pool,
+            signature: None,
             step_index: HashMap::new(),
         };
         ruleset.rebuild_index();
@@ -179,32 +192,24 @@ impl CompiledRuleSet {
         let mut out = Vec::new();
         out.extend_from_slice(MAGIC);
         write_u16(&mut out, VERSION);
-        write_u16(&mut out, 0); // flags
-                                // Reserve space for checksum (will be filled later)
+        let mut flags = 0u16;
+        if self.signature.is_some() {
+            flags |= FLAG_HAS_SIGNATURE;
+        }
+        write_u16(&mut out, flags);
+        // Reserve space for checksum (will be filled later)
         let checksum_pos = out.len();
         write_u32(&mut out, 0); // placeholder for checksum
         write_u32(&mut out, 0); // reserved
 
-        write_u32(&mut out, self.string_pool.len() as u32);
-        for value in &self.string_pool {
-            write_string(&mut out, value);
+        if let Some(signature) = &self.signature {
+            let length = (PUBLIC_KEY_LEN + SIGNATURE_LEN) as u16;
+            write_u16(&mut out, length);
+            out.extend_from_slice(&signature.public_key);
+            out.extend_from_slice(&signature.signature);
         }
 
-        write_metadata(&mut out, &self.metadata);
-
-        write_u32(&mut out, self.expressions.len() as u32);
-        for expr in &self.expressions {
-            let bytes = expr.serialize();
-            write_u32(&mut out, bytes.len() as u32);
-            out.extend_from_slice(&bytes);
-        }
-
-        write_u32(&mut out, self.steps.len() as u32);
-        for step in &self.steps {
-            step.serialize(&mut out);
-        }
-
-        write_u32(&mut out, self.entry_step);
+        self.serialize_payload(&mut out);
 
         // Calculate and write checksum (CRC32 of data after header)
         let checksum = crc32_hash(&out[16..]);
@@ -232,7 +237,7 @@ impl CompiledRuleSet {
             )));
         }
 
-        let _flags = read_u16(&mut cursor)?;
+        let flags = read_u16(&mut cursor)?;
         let stored_checksum = read_u32(&mut cursor)?;
         let _reserved = read_u32(&mut cursor)?;
 
@@ -244,6 +249,31 @@ impl CompiledRuleSet {
                 stored_checksum, computed_checksum
             )));
         }
+
+        let signature = if flags & FLAG_HAS_SIGNATURE != 0 {
+            let length = read_u16(&mut cursor)? as usize;
+            if length != PUBLIC_KEY_LEN + SIGNATURE_LEN {
+                return Err(OrdoError::parse_error(format!(
+                    "Invalid signature length: expected {}, got {}",
+                    PUBLIC_KEY_LEN + SIGNATURE_LEN,
+                    length
+                )));
+            }
+            let public_key = read_bytes(&mut cursor, PUBLIC_KEY_LEN)?;
+            let signature = read_bytes(&mut cursor, SIGNATURE_LEN)?;
+            Some(CompiledSignature {
+                public_key: public_key
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| OrdoError::parse_error("Invalid public key length"))?,
+                signature: signature
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| OrdoError::parse_error("Invalid signature length"))?,
+            })
+        } else {
+            None
+        };
 
         let string_count = read_u32(&mut cursor)? as usize;
         if string_count > MAX_COLLECTION_SIZE {
@@ -287,13 +317,17 @@ impl CompiledRuleSet {
 
         let entry_step = read_u32(&mut cursor)?;
 
-        Ok(Self::new(
-            metadata,
-            entry_step,
-            steps,
-            expressions,
-            string_pool,
-        ))
+        let mut ruleset = Self::new(metadata, entry_step, steps, expressions, string_pool);
+        ruleset.signature = signature;
+        Ok(ruleset)
+    }
+
+    pub fn deserialize_with_verifier(
+        bytes: &[u8],
+        verifier: &crate::signature::verifier::RuleVerifier,
+    ) -> Result<Self> {
+        verify_compiled_signature_bytes(bytes, verifier)?;
+        Self::deserialize(bytes)
     }
 
     pub fn save_to_file(&self, path: impl AsRef<Path>) -> Result<()> {
@@ -305,6 +339,111 @@ impl CompiledRuleSet {
         let bytes = fs::read(path).map_err(|e| OrdoError::parse_error(e.to_string()))?;
         Self::deserialize(&bytes)
     }
+
+    pub fn load_from_file_with_verifier(
+        path: impl AsRef<Path>,
+        verifier: &crate::signature::verifier::RuleVerifier,
+    ) -> Result<Self> {
+        let bytes = fs::read(path).map_err(|e| OrdoError::parse_error(e.to_string()))?;
+        Self::deserialize_with_verifier(&bytes, verifier)
+    }
+
+    pub fn sign_with_signer(
+        &mut self,
+        signer: &crate::signature::signer::RuleSigner,
+    ) -> Result<()> {
+        use ed25519_dalek::Signer;
+
+        let payload = self.serialize_payload_bytes();
+        let signature = signer.signing_key().sign(&payload);
+        let public_key = signer.signing_key().verifying_key();
+
+        self.signature = Some(CompiledSignature {
+            public_key: public_key.to_bytes(),
+            signature: signature.to_bytes(),
+        });
+        Ok(())
+    }
+
+    fn serialize_payload_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.serialize_payload(&mut out);
+        out
+    }
+
+    fn serialize_payload(&self, out: &mut Vec<u8>) {
+        write_u32(out, self.string_pool.len() as u32);
+        for value in &self.string_pool {
+            write_string(out, value);
+        }
+
+        write_metadata(out, &self.metadata);
+
+        write_u32(out, self.expressions.len() as u32);
+        for expr in &self.expressions {
+            let bytes = expr.serialize();
+            write_u32(out, bytes.len() as u32);
+            out.extend_from_slice(&bytes);
+        }
+
+        write_u32(out, self.steps.len() as u32);
+        for step in &self.steps {
+            step.serialize(out);
+        }
+
+        write_u32(out, self.entry_step);
+    }
+}
+
+fn verify_compiled_signature_bytes(
+    bytes: &[u8],
+    verifier: &crate::signature::verifier::RuleVerifier,
+) -> Result<()> {
+    if bytes.len() < 16 {
+        return Err(OrdoError::parse_error("Compiled ruleset too short"));
+    }
+
+    let mut cursor = Cursor::new(bytes);
+    let magic = read_bytes(&mut cursor, 4)?;
+    if magic.as_slice() != MAGIC {
+        return Err(OrdoError::parse_error("Invalid compiled ruleset header"));
+    }
+
+    let version = read_u16(&mut cursor)?;
+    if version > VERSION {
+        return Err(OrdoError::parse_error(format!(
+            "Unsupported compiled ruleset version: {} (max supported: {})",
+            version, VERSION
+        )));
+    }
+
+    let flags = read_u16(&mut cursor)?;
+    let _checksum = read_u32(&mut cursor)?;
+    let _reserved = read_u32(&mut cursor)?;
+
+    if flags & FLAG_HAS_SIGNATURE == 0 {
+        if verifier.require_signature() {
+            return Err(OrdoError::parse_error("Missing compiled ruleset signature"));
+        }
+        return Ok(());
+    }
+
+    let length = read_u16(&mut cursor)? as usize;
+    if length != PUBLIC_KEY_LEN + SIGNATURE_LEN {
+        return Err(OrdoError::parse_error("Invalid compiled signature length"));
+    }
+    let public_key = read_bytes(&mut cursor, PUBLIC_KEY_LEN)?;
+    let signature = read_bytes(&mut cursor, SIGNATURE_LEN)?;
+
+    let signature_config = SignatureConfig {
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: STANDARD.encode(public_key),
+        signature: STANDARD.encode(signature),
+        signed_at: None,
+    };
+
+    let payload = &bytes[cursor.pos..];
+    verifier.verify_bytes(payload, &signature_config)
 }
 
 #[derive(Debug, Clone)]
@@ -856,6 +995,9 @@ mod tests {
         Action, ActionKind, CompiledRuleExecutor, Condition, RuleSet, RuleSetCompiler, Step,
         TerminalResult,
     };
+    use crate::signature::ed25519::decode_public_key;
+    use crate::signature::signer::RuleSigner;
+    use crate::signature::verifier::RuleVerifier;
 
     fn build_ruleset() -> RuleSet {
         let mut ruleset = RuleSet::new("compiled_test", "start");
@@ -1188,5 +1330,42 @@ mod tests {
             "First 64 bytes (hex): {:02x?}",
             &bytes[..64.min(bytes.len())]
         );
+    }
+
+    #[test]
+    fn test_compiled_ruleset_signature_verification() {
+        let ruleset = build_ruleset();
+        let mut compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+
+        let (public_key, private_key) = RuleSigner::generate_keypair();
+        let signer = RuleSigner::from_private_key_base64(&private_key).unwrap();
+        compiled.sign_with_signer(&signer).unwrap();
+        let bytes = compiled.serialize();
+
+        let verifier = RuleVerifier::new(vec![decode_public_key(&public_key).unwrap()], true);
+        let verified = CompiledRuleSet::deserialize_with_verifier(&bytes, &verifier).unwrap();
+        let executor = CompiledRuleExecutor::new();
+        let input = serde_json::from_str(r#"{"age": 20}"#).unwrap();
+        let result = executor.execute(&verified, input).unwrap();
+        assert_eq!(result.code, "ADULT");
+    }
+
+    #[test]
+    fn test_compiled_ruleset_signature_tamper_detected() {
+        let ruleset = build_ruleset();
+        let mut compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+
+        let (public_key, private_key) = RuleSigner::generate_keypair();
+        let signer = RuleSigner::from_private_key_base64(&private_key).unwrap();
+        compiled.sign_with_signer(&signer).unwrap();
+        let mut bytes = compiled.serialize();
+
+        if bytes.len() > 32 {
+            bytes[32] ^= 0xFF;
+        }
+
+        let verifier = RuleVerifier::new(vec![decode_public_key(&public_key).unwrap()], true);
+        let result = CompiledRuleSet::deserialize_with_verifier(&bytes, &verifier);
+        assert!(result.is_err());
     }
 }

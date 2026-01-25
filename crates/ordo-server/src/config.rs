@@ -25,6 +25,11 @@
 //! | `ORDO_DEFAULT_TENANT_BURST` | Default tenant burst limit | `-` |
 //! | `ORDO_DEFAULT_TENANT_TIMEOUT_MS` | Default tenant timeout ms | `100` |
 //! | `ORDO_TENANTS_DIR` | Tenant config directory | `-` |
+//! | `ORDO_SIGNATURE_ENABLED` | Enable signature verification | `false` |
+//! | `ORDO_SIGNATURE_REQUIRE` | Reject unsigned rules | `false` |
+//! | `ORDO_SIGNATURE_TRUSTED_KEYS` | Comma-separated public keys | `-` |
+//! | `ORDO_SIGNATURE_TRUSTED_KEYS_FILE` | Public key file path | `-` |
+//! | `ORDO_SIGNATURE_ALLOW_UNSIGNED_LOCAL` | Allow unsigned local files | `true` |
 
 use clap::Parser;
 use std::net::SocketAddr;
@@ -127,6 +132,30 @@ pub struct ServerConfig {
     /// Tenant configuration directory (optional)
     #[arg(long, env = "ORDO_TENANTS_DIR")]
     pub tenants_dir: Option<PathBuf>,
+
+    /// Enable signature verification for rule updates and loads
+    #[arg(long, default_value = "false", env = "ORDO_SIGNATURE_ENABLED")]
+    pub signature_enabled: bool,
+
+    /// Require signatures on rule updates (API)
+    #[arg(long, default_value = "false", env = "ORDO_SIGNATURE_REQUIRE")]
+    pub signature_require: bool,
+
+    /// Trusted public keys (base64, comma-separated)
+    #[arg(long, env = "ORDO_SIGNATURE_TRUSTED_KEYS", value_delimiter = ',')]
+    pub signature_trusted_keys: Vec<String>,
+
+    /// Trusted public keys file (one base64 key per line)
+    #[arg(long, env = "ORDO_SIGNATURE_TRUSTED_KEYS_FILE")]
+    pub signature_trusted_keys_file: Option<PathBuf>,
+
+    /// Allow unsigned local rules when signature verification is enabled
+    #[arg(
+        long,
+        default_value = "true",
+        env = "ORDO_SIGNATURE_ALLOW_UNSIGNED_LOCAL"
+    )]
+    pub signature_allow_unsigned_local: bool,
 }
 
 impl ServerConfig {
@@ -171,6 +200,11 @@ impl Default for ServerConfig {
             default_tenant_burst: None,
             default_tenant_timeout_ms: 100,
             tenants_dir: None,
+            signature_enabled: false,
+            signature_require: false,
+            signature_trusted_keys: Vec::new(),
+            signature_trusted_keys_file: None,
+            signature_allow_unsigned_local: true,
         }
     }
 }

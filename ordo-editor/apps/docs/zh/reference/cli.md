@@ -147,6 +147,60 @@ ordo-server --audit-sample-rate 10
 - `100` = 记录所有执行
 - 可通过 API 在运行时更改
 
+## 签名选项
+
+### --signature-enabled
+
+启用规则签名验证。
+
+```bash
+ordo-server --signature-enabled
+```
+
+|            |         |
+| ---------- | ------- |
+| **默认值** | `false` |
+
+### --signature-require
+
+API 更新时拒绝未签名规则。
+
+```bash
+ordo-server --signature-enabled --signature-require
+```
+
+|            |         |
+| ---------- | ------- |
+| **默认值** | `false` |
+
+### --signature-trusted-keys
+
+逗号分隔的 base64 公钥。
+
+```bash
+ordo-server --signature-enabled --signature-trusted-keys "BASE64_KEY_1,BASE64_KEY_2"
+```
+
+### --signature-trusted-keys-file
+
+公钥文件（每行一个 base64 公钥）。
+
+```bash
+ordo-server --signature-enabled --signature-trusted-keys-file /etc/ordo/trusted_keys.txt
+```
+
+### --signature-allow-unsigned-local
+
+启动时允许本地规则无签名。
+
+```bash
+ordo-server --signature-enabled --signature-allow-unsigned-local false
+```
+
+|            |        |
+| ---------- | ------ |
+| **默认值** | `true` |
+
 ## 日志选项
 
 ### --log-level
@@ -208,7 +262,33 @@ ordo-server --uds-path /var/run/ordo.sock --disable-http --disable-grpc
 
 ## 环境变量
 
-目前 Ordo 仅使用命令行参数。计划未来支持环境变量。
+Ordo 支持 `ORDO_*` 前缀的环境变量配置，完整列表见配置文档。
+
+## 签名 CLI 工具
+
+### ordo-keygen
+
+生成 Ed25519 密钥对：
+
+```bash
+ordo-keygen --output ./keys
+```
+
+### ordo-sign
+
+签名 JSON/YAML/.ordo 文件：
+
+```bash
+ordo-sign --key ./keys/private.key --input rule.json
+```
+
+### ordo-verify
+
+验证 JSON/YAML/.ordo 文件签名：
+
+```bash
+ordo-verify --key ./keys/public.key --input rule.signed.json
+```
 
 ## 帮助
 

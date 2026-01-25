@@ -31,7 +31,7 @@ features:
     details: 步骤流模型，丰富的表达式，内置函数和字段合并。编译二进制格式保护规则逻辑。
   - icon: 🛡️
     title: 生产就绪
-    details: 确定性执行，完整追踪，热重载，审计日志和多租户支持。
+    details: 确定性执行，完整追踪，热重载，Ed25519 规则签名，审计日志和多租户支持。
   - icon: 🔌
     title: 易于集成
     details: HTTP REST API，gRPC 支持，浏览器 WebAssembly，以及 npm 包（@ordo/editor-vue, @ordo/editor-core）。

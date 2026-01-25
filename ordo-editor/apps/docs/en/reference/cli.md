@@ -147,6 +147,60 @@ ordo-server --audit-sample-rate 10
 - `100` = Log all executions
 - Can be changed at runtime via API
 
+## Signature Options
+
+### --signature-enabled
+
+Enable signature verification for rule updates and loads.
+
+```bash
+ordo-server --signature-enabled
+```
+
+|             |         |
+| ----------- | ------- |
+| **Default** | `false` |
+
+### --signature-require
+
+Reject unsigned rules on API updates.
+
+```bash
+ordo-server --signature-enabled --signature-require
+```
+
+|             |         |
+| ----------- | ------- |
+| **Default** | `false` |
+
+### --signature-trusted-keys
+
+Comma-separated base64 public keys.
+
+```bash
+ordo-server --signature-enabled --signature-trusted-keys "BASE64_KEY_1,BASE64_KEY_2"
+```
+
+### --signature-trusted-keys-file
+
+File with one base64 public key per line.
+
+```bash
+ordo-server --signature-enabled --signature-trusted-keys-file /etc/ordo/trusted_keys.txt
+```
+
+### --signature-allow-unsigned-local
+
+Allow unsigned local files on startup.
+
+```bash
+ordo-server --signature-enabled --signature-allow-unsigned-local false
+```
+
+|             |        |
+| ----------- | ------ |
+| **Default** | `true` |
+
 ## Logging Options
 
 ### --log-level
@@ -208,7 +262,33 @@ ordo-server --uds-path /var/run/ordo.sock --disable-http --disable-grpc
 
 ## Environment Variables
 
-Currently, Ordo uses command-line arguments only. Environment variable support is planned.
+Ordo supports environment variables using the `ORDO_*` prefix. See the configuration reference for the full list.
+
+## Signature CLI Tools
+
+### ordo-keygen
+
+Generate an Ed25519 keypair:
+
+```bash
+ordo-keygen --output ./keys
+```
+
+### ordo-sign
+
+Sign JSON/YAML/.ordo files:
+
+```bash
+ordo-sign --key ./keys/private.key --input rule.json
+```
+
+### ordo-verify
+
+Verify signatures for JSON/YAML/.ordo files:
+
+```bash
+ordo-verify --key ./keys/public.key --input rule.signed.json
+```
 
 ## Help
 

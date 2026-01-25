@@ -2,11 +2,13 @@
 
 use axum::{
     extract::{ConnectInfo, Extension, Path, State},
+    http::HeaderMap,
     http::StatusCode,
     Json,
 };
 use futures::future::join_all;
 use ordo_core::prelude::*;
+use ordo_core::signature::{strip_signature, SignatureAlgorithm, SignatureConfig};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -19,6 +21,70 @@ use crate::AppState;
 
 /// API Result type
 type ApiResult<T> = std::result::Result<T, ApiError>;
+
+const HEADER_SIGNATURE: &str = "x-ordo-signature";
+const HEADER_PUBLIC_KEY: &str = "x-ordo-public-key";
+
+fn parse_header_signature(headers: &HeaderMap) -> ApiResult<Option<SignatureConfig>> {
+    let signature_header = headers
+        .get(HEADER_SIGNATURE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim);
+    let Some(signature_header) = signature_header else {
+        return Ok(None);
+    };
+
+    let public_key = headers
+        .get(HEADER_PUBLIC_KEY)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .ok_or_else(|| ApiError::bad_request("Missing X-Ordo-Public-Key header"))?;
+
+    let (algorithm, signature) = if let Some((algo, sig)) = signature_header.split_once(':') {
+        (algo.trim(), sig.trim())
+    } else {
+        ("ed25519", signature_header)
+    };
+
+    let algorithm = match algorithm.to_lowercase().as_str() {
+        "ed25519" => SignatureAlgorithm::Ed25519,
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "Unsupported signature algorithm: {}",
+                algorithm
+            )))
+        }
+    };
+
+    Ok(Some(SignatureConfig {
+        algorithm,
+        public_key: public_key.to_string(),
+        signature: signature.to_string(),
+        signed_at: None,
+    }))
+}
+
+fn resolve_signature(
+    header_signature: Option<SignatureConfig>,
+    body_signature: Option<SignatureConfig>,
+) -> ApiResult<Option<SignatureConfig>> {
+    match (header_signature, body_signature) {
+        (Some(header), Some(body)) => {
+            if header.algorithm != body.algorithm
+                || header.public_key != body.public_key
+                || header.signature != body.signature
+            {
+                return Err(ApiError::bad_request(
+                    "Signature mismatch between headers and body",
+                ));
+            }
+            Ok(Some(header))
+        }
+        (Some(header), None) => Ok(Some(header)),
+        (None, Some(body)) => Ok(Some(body)),
+        (None, None) => Ok(None),
+    }
+}
 
 // ==================== Request/Response types ====================
 
@@ -80,14 +146,6 @@ pub struct EvalResponse {
     pub result: Value,
     /// Parsed expression (for debugging)
     pub parsed: String,
-}
-
-/// Create ruleset request
-#[derive(Deserialize)]
-pub struct CreateRuleSetRequest {
-    /// RuleSet definition (JSON)
-    #[serde(flatten)]
-    pub ruleset: RuleSet,
 }
 
 // ==================== Batch Execution Types ====================
@@ -197,13 +255,26 @@ pub async fn create_ruleset(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
-    Json(request): Json<CreateRuleSetRequest>,
+    headers: HeaderMap,
+    Json(mut payload): Json<serde_json::Value>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    let header_signature = parse_header_signature(&headers)?;
+    let body_signature =
+        strip_signature(&mut payload).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let signature = resolve_signature(header_signature, body_signature)?;
+
+    let mut ruleset: RuleSet = serde_json::from_value(payload.clone())?;
+
     let mut store = state.store.write().await;
-    let mut ruleset = request.ruleset;
     let name = ruleset.config.name.clone();
     let new_version = ruleset.config.version.clone();
     let exists = store.exists_for_tenant(&tenant.id, &name);
+
+    if let Some(verifier) = &state.signature_verifier {
+        verifier
+            .verify_json_value(&payload, signature.as_ref())
+            .map_err(|e| ApiError::forbidden(format!("Signature verification failed: {}", e)))?;
+    }
 
     if let Some(config_tenant) = ruleset.config.tenant_id.as_deref() {
         if config_tenant != tenant.id {

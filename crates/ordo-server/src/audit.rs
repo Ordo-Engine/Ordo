@@ -158,7 +158,10 @@ impl AuditLogger {
     fn write_to_file(&self, audit_dir: &PathBuf, json: &str) -> std::io::Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
 
-        let mut guard = self.file_writer.lock().unwrap();
+        let mut guard = self
+            .file_writer
+            .lock()
+            .map_err(|_| std::io::Error::other("Mutex poisoned"))?;
 
         // Check if we need to rotate or create a new file
         let needs_new_file = match &*guard {

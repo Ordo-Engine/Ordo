@@ -5,6 +5,7 @@
 //! Supports version management with automatic backup of previous versions.
 
 use crate::metrics;
+use once_cell::sync::Lazy;
 use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use ordo_core::signature::{strip_signature, RuleVerifier};
 use regex::Regex;
@@ -16,6 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::{debug, error, info, warn};
+
+/// Pre-compiled regex for version file detection
+static VERSION_FILE_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\.v\d+$").expect("Invalid version file regex pattern"));
 
 /// Supported file formats for rule persistence
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -422,8 +427,7 @@ impl RuleStore {
     /// Check if a filename is a version file (e.g., "payment-check.v1")
     fn is_version_file(file_stem: &str) -> bool {
         // Match pattern: name.v{number}
-        let re = Regex::new(r"\.v\d+$").unwrap();
-        re.is_match(file_stem)
+        VERSION_FILE_REGEX.is_match(file_stem)
     }
 
     /// Extract the base name from a version filename

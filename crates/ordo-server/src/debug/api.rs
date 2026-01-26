@@ -536,7 +536,7 @@ pub async fn debug_stream(
                 "session_id": session_id,
                 "timestamp": SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_millis()
             }).to_string()));
 
@@ -567,7 +567,7 @@ pub async fn debug_stream(
                     // Send heartbeat
                     let timestamp = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_default()
                         .as_millis() as u64;
                     yield Ok(Event::default()
                         .event("heartbeat")

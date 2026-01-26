@@ -9,6 +9,7 @@ async-stream = "0.3"
 axum.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
+once_cell = "1.19"
 ordo-core = { version = "0.2.0", path = "../ordo-core" }
 ordo-proto = { version = "0.2.0", path = "../ordo-proto" }
 parking_lot.workspace = true

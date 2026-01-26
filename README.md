@@ -20,7 +20,8 @@
   <img src="https://img.shields.io/badge/rust-1.83%2B-orange?logo=rust" alt="Rust Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <a href="https://pama-lee.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
-  <a href="https://www.npmjs.com/package/@ordo/editor-core"><img src="https://img.shields.io/npm/v/@ordo/editor-core?label=npm&color=cb3837" alt="npm" /></a>
+  <a href="https://www.npmjs.com/package/@ordo-engine/editor-core"><img src="https://img.shields.io/npm/v/@ordo-engine/editor-core?label=npm&color=cb3837" alt="npm" /></a>
+  <a href="https://discord.gg/Y529FkArhh"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 <p align="center">

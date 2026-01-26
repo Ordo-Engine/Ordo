@@ -18,7 +18,7 @@ fn generate_session_id() -> String {
     let counter = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64;
     format!("dbg_{:x}_{:04x}", timestamp, counter)
 }
@@ -146,8 +146,10 @@ impl DebugSessionManager {
     ) -> Option<impl std::ops::Deref<Target = DebugSession> + '_> {
         let sessions = self.sessions.read();
         if sessions.contains_key(session_id) {
+            // Safe: we just checked contains_key above
             Some(parking_lot::RwLockReadGuard::map(sessions, |s| {
-                s.get(session_id).unwrap()
+                s.get(session_id)
+                    .expect("session should exist after contains_key check")
             }))
         } else {
             None

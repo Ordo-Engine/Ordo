@@ -136,8 +136,12 @@ impl SchemaJITCompiler {
     /// Create a new Schema-Aware JIT compiler
     pub fn new() -> Result<Self> {
         let mut flag_builder = settings::builder();
-        flag_builder.set("use_colocated_libcalls", "false").unwrap();
-        flag_builder.set("is_pic", "false").unwrap();
+        flag_builder
+            .set("use_colocated_libcalls", "false")
+            .map_err(|e| OrdoError::eval_error(format!("Failed to set JIT flag: {}", e)))?;
+        flag_builder
+            .set("is_pic", "false")
+            .map_err(|e| OrdoError::eval_error(format!("Failed to set JIT flag: {}", e)))?;
 
         let isa_builder = cranelift_native::builder()
             .map_err(|e| OrdoError::eval_error(format!("Failed to create ISA builder: {}", e)))?;
@@ -278,7 +282,8 @@ impl SchemaJITCompiler {
     ) -> Result<&SchemaCompiledFunction> {
         let key = (hash, schema.name.clone());
         if self.functions.contains_key(&key) {
-            return Ok(self.functions.get(&key).unwrap());
+            // Safe: we just checked contains_key
+            return Ok(self.functions.get(&key).expect("key should exist"));
         }
 
         let start = std::time::Instant::now();
@@ -388,13 +393,21 @@ impl SchemaJITCompiler {
         self.stats.schema_compiles += 1;
         self.stats.total_compile_time_ns += duration.as_nanos() as u64;
 
-        Ok(self.functions.get(&key).unwrap())
+        // Safe: we just inserted the key above
+        self.functions
+            .get(&key)
+            .ok_or_else(|| OrdoError::eval_error("Internal error: compiled function not found"))
     }
 }
 
 impl Default for SchemaJITCompiler {
     fn default() -> Self {
-        Self::new().expect("Failed to create default Schema JIT compiler")
+        Self::new().unwrap_or_else(|e| {
+            // This should not happen in normal circumstances
+            // Log the error and create a minimal compiler that will fail on use
+            eprintln!("Failed to create default Schema JIT compiler: {}", e);
+            panic!("Cannot create JIT compiler: {}", e)
+        })
     }
 }
 

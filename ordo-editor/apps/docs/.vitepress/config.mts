@@ -85,6 +85,13 @@ export default defineConfig({
                 { text: 'Audit Logging', link: '/en/guide/audit-logging' },
                 { text: 'Rule Signing', link: '/en/guide/rule-signing' },
               ]
+            },
+            {
+              text: 'Integration',
+              items: [
+                { text: 'HashiCorp Nomad', link: '/en/guide/integration/nomad' },
+                { text: 'Kubernetes', link: '/en/guide/integration/kubernetes' },
+              ]
             }
           ],
           '/en/api/': [
@@ -164,6 +171,13 @@ export default defineConfig({
                 { text: '版本管理', link: '/zh/guide/versioning' },
                 { text: '规则签名', link: '/zh/guide/rule-signing' },
                 { text: '审计日志', link: '/zh/guide/audit-logging' },
+              ]
+            },
+            {
+              text: '集成',
+              items: [
+                { text: 'HashiCorp Nomad', link: '/zh/guide/integration/nomad' },
+                { text: 'Kubernetes', link: '/zh/guide/integration/kubernetes' },
               ]
             }
           ],

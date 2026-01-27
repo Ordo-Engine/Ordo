@@ -1,18 +1,42 @@
 //! Built-in functions
 //!
-//! Provides built-in functions for expressions
+//! Provides built-in functions for expressions.
+//!
+//! # Performance Optimization
+//!
+//! The default built-in functions are stored in a global singleton (`GLOBAL_BUILTIN_REGISTRY`)
+//! to avoid repeated registration overhead. Custom functions can still be added per-registry.
 
 use crate::context::Value;
 use crate::error::{OrdoError, Result};
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Function signature type
 pub type FunctionFn = Arc<dyn Fn(&[Value]) -> Result<Value> + Send + Sync>;
 
+/// Global singleton for built-in function registry (shared across all evaluators)
+static GLOBAL_BUILTIN_REGISTRY: OnceLock<Arc<FunctionRegistry>> = OnceLock::new();
+
+/// Get the global built-in function registry (lazily initialized)
+#[inline]
+pub fn global_builtin_registry() -> &'static Arc<FunctionRegistry> {
+    GLOBAL_BUILTIN_REGISTRY.get_or_init(|| {
+        let mut registry = FunctionRegistry {
+            functions: HashMap::new(),
+            custom_only: false,
+        };
+        registry.register_builtins();
+        Arc::new(registry)
+    })
+}
+
 /// Function registry
 pub struct FunctionRegistry {
     functions: HashMap<String, FunctionFn>,
+    /// If true, this registry only contains custom functions (uses global for builtins)
+    custom_only: bool,
 }
 
 impl Default for FunctionRegistry {
@@ -22,10 +46,23 @@ impl Default for FunctionRegistry {
 }
 
 impl FunctionRegistry {
-    /// Create a new function registry with built-in functions
+    /// Create a new function registry.
+    ///
+    /// This creates a lightweight registry that delegates built-in function
+    /// lookups to the global singleton, avoiding repeated registration overhead.
     pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+            custom_only: true, // Use global registry for builtins
+        }
+    }
+
+    /// Create a new standalone registry with all built-in functions registered locally.
+    /// Use this if you need to modify built-in function behavior.
+    pub fn new_standalone() -> Self {
         let mut registry = Self {
             functions: HashMap::new(),
+            custom_only: false,
         };
         registry.register_builtins();
         registry
@@ -89,8 +126,8 @@ impl FunctionRegistry {
         self.register("substring", |args| {
             if args.len() < 2 || args.len() > 3 {
                 return Err(OrdoError::FunctionArgError {
-                    name: "substring".to_string(),
-                    message: "expected 2 or 3 arguments".to_string(),
+                    name: "substring".into(),
+                    message: "expected 2 or 3 arguments".into(),
                 });
             }
             let s = require_string("substring", &args[0])?;
@@ -120,8 +157,8 @@ impl FunctionRegistry {
         self.register("min", |args| {
             if args.is_empty() {
                 return Err(OrdoError::FunctionArgError {
-                    name: "min".to_string(),
-                    message: "expected at least 1 argument".to_string(),
+                    name: "min".into(),
+                    message: "expected at least 1 argument".into(),
                 });
             }
             let mut result = &args[0];
@@ -136,8 +173,8 @@ impl FunctionRegistry {
         self.register("max", |args| {
             if args.is_empty() {
                 return Err(OrdoError::FunctionArgError {
-                    name: "max".to_string(),
-                    message: "expected at least 1 argument".to_string(),
+                    name: "max".into(),
+                    message: "expected at least 1 argument".into(),
                 });
             }
             let mut result = &args[0];
@@ -323,34 +360,42 @@ impl FunctionRegistry {
     /// Uses fast path for common built-in functions to avoid HashMap lookup overhead.
     #[inline]
     pub fn call(&self, name: &str, args: &[Value]) -> Result<Value> {
-        // Fast path for most common functions - avoids HashMap lookup
+        // Fast path for most common functions - avoids HashMap lookup entirely
         match name {
-            "len" => return self.builtin_len(args),
-            "sum" => return self.builtin_sum(args),
-            "max" => return self.builtin_max(args),
-            "min" => return self.builtin_min(args),
-            "abs" => return self.builtin_abs(args),
-            "count" => return self.builtin_count(args),
-            "is_null" => return self.builtin_is_null(args),
+            "len" => return Self::builtin_len_static(args),
+            "sum" => return Self::builtin_sum_static(args),
+            "max" => return Self::builtin_max_static(args),
+            "min" => return Self::builtin_min_static(args),
+            "abs" => return Self::builtin_abs_static(args),
+            "count" => return Self::builtin_count_static(args),
+            "is_null" => return Self::builtin_is_null_static(args),
             _ => {}
         }
 
-        // Slow path for other functions
-        let func = self
-            .functions
-            .get(name)
-            .ok_or_else(|| OrdoError::function_not_found(name))?;
-        func(args)
+        // Check custom functions first (local registry)
+        if let Some(func) = self.functions.get(name) {
+            return func(args);
+        }
+
+        // Fall back to global registry for other built-in functions
+        if self.custom_only {
+            if let Some(func) = global_builtin_registry().functions.get(name) {
+                return func(args);
+            }
+        }
+
+        Err(OrdoError::function_not_found(name.to_string()))
     }
 
-    // ==================== Fast path implementations ====================
+    // ==================== Fast path implementations (static methods) ====================
+    // These are static methods to avoid any self reference overhead in the hot path
 
     #[inline]
-    fn builtin_len(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_len_static(args: &[Value]) -> Result<Value> {
         if args.len() != 1 {
             return Err(OrdoError::FunctionArgError {
-                name: "len".to_string(),
-                message: format!("expected 1 argument(s), got {}", args.len()),
+                name: "len".into(),
+                message: Cow::Owned(format!("expected 1 argument(s), got {}", args.len())),
             });
         }
         match &args[0] {
@@ -365,11 +410,11 @@ impl FunctionRegistry {
     }
 
     #[inline]
-    fn builtin_sum(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_sum_static(args: &[Value]) -> Result<Value> {
         if args.len() != 1 {
             return Err(OrdoError::FunctionArgError {
-                name: "sum".to_string(),
-                message: format!("expected 1 argument(s), got {}", args.len()),
+                name: "sum".into(),
+                message: Cow::Owned(format!("expected 1 argument(s), got {}", args.len())),
             });
         }
         let arr = args[0]
@@ -399,11 +444,11 @@ impl FunctionRegistry {
     }
 
     #[inline]
-    fn builtin_max(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_max_static(args: &[Value]) -> Result<Value> {
         if args.is_empty() {
             return Err(OrdoError::FunctionArgError {
-                name: "max".to_string(),
-                message: "expected at least 1 argument".to_string(),
+                name: "max".into(),
+                message: "expected at least 1 argument".into(),
             });
         }
         let mut result = &args[0];
@@ -416,11 +461,11 @@ impl FunctionRegistry {
     }
 
     #[inline]
-    fn builtin_min(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_min_static(args: &[Value]) -> Result<Value> {
         if args.is_empty() {
             return Err(OrdoError::FunctionArgError {
-                name: "min".to_string(),
-                message: "expected at least 1 argument".to_string(),
+                name: "min".into(),
+                message: "expected at least 1 argument".into(),
             });
         }
         let mut result = &args[0];
@@ -433,11 +478,11 @@ impl FunctionRegistry {
     }
 
     #[inline]
-    fn builtin_abs(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_abs_static(args: &[Value]) -> Result<Value> {
         if args.len() != 1 {
             return Err(OrdoError::FunctionArgError {
-                name: "abs".to_string(),
-                message: format!("expected 1 argument(s), got {}", args.len()),
+                name: "abs".into(),
+                message: Cow::Owned(format!("expected 1 argument(s), got {}", args.len())),
             });
         }
         match &args[0] {
@@ -451,11 +496,11 @@ impl FunctionRegistry {
     }
 
     #[inline]
-    fn builtin_count(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_count_static(args: &[Value]) -> Result<Value> {
         if args.len() != 1 {
             return Err(OrdoError::FunctionArgError {
-                name: "count".to_string(),
-                message: format!("expected 1 argument(s), got {}", args.len()),
+                name: "count".into(),
+                message: Cow::Owned(format!("expected 1 argument(s), got {}", args.len())),
             });
         }
         let arr = args[0]
@@ -465,11 +510,11 @@ impl FunctionRegistry {
     }
 
     #[inline]
-    fn builtin_is_null(&self, args: &[Value]) -> Result<Value> {
+    fn builtin_is_null_static(args: &[Value]) -> Result<Value> {
         if args.len() != 1 {
             return Err(OrdoError::FunctionArgError {
-                name: "is_null".to_string(),
-                message: format!("expected 1 argument(s), got {}", args.len()),
+                name: "is_null".into(),
+                message: Cow::Owned(format!("expected 1 argument(s), got {}", args.len())),
             });
         }
         Ok(Value::bool(args[0].is_null()))
@@ -481,8 +526,12 @@ impl FunctionRegistry {
 fn require_args(name: &str, args: &[Value], count: usize) -> Result<()> {
     if args.len() != count {
         Err(OrdoError::FunctionArgError {
-            name: name.to_string(),
-            message: format!("expected {} argument(s), got {}", count, args.len()),
+            name: Cow::Owned(name.to_string()),
+            message: Cow::Owned(format!(
+                "expected {} argument(s), got {}",
+                count,
+                args.len()
+            )),
         })
     } else {
         Ok(())

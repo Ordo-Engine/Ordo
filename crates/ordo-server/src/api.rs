@@ -8,6 +8,7 @@ use axum::{
 };
 use futures::future::join_all;
 use ordo_core::prelude::*;
+use ordo_core::rule::ExecutionOptions;
 use ordo_core::signature::{strip_signature, SignatureAlgorithm, SignatureConfig};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -224,6 +225,28 @@ pub struct BatchExecuteResponse {
 /// Maximum batch size limit
 const MAX_BATCH_SIZE: usize = 1000;
 
+// ==================== Helper Functions ====================
+
+/// Build trace info from execution trace (extracted to avoid code duplication)
+#[inline]
+fn build_trace_info(trace: Option<&ExecutionTrace>, enabled: bool) -> Option<TraceInfo> {
+    if !enabled {
+        return None;
+    }
+    trace.map(|t| TraceInfo {
+        path: t.path_string(),
+        steps: t
+            .steps
+            .iter()
+            .map(|s| StepInfo {
+                id: s.step_id.clone(),
+                name: s.step_name.clone(),
+                duration_us: s.duration_us,
+            })
+            .collect(),
+    })
+}
+
 // ==================== Handlers ====================
 
 /// List all rulesets
@@ -377,74 +400,77 @@ pub async fn execute_ruleset(
         // Lock is released here when store goes out of scope
     };
 
-    // Execute without holding the lock (uses shared executor from AppState)
-    let mut ruleset = (*ruleset).clone();
-    if tenant.config.execution_timeout_ms > 0 {
-        ruleset.config.timeout_ms = tenant.config.execution_timeout_ms;
-    }
-    let result = match state.executor.execute(&ruleset, request.input) {
-        Ok(result) => {
-            // Record success metrics
-            let duration_secs = start.elapsed().as_secs_f64();
-            metrics::record_execution_success(&name, duration_secs);
-            metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
-
-            // Record terminal result distribution
-            metrics::record_terminal_result(&name, &result.code);
-
-            // Log audit event (with sampling)
-            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-            let rule_id = format!("{}/{}", tenant.id, name);
-            state
-                .audit_logger
-                .log_execution(&rule_id, result.duration_us, &result.code, source_ip);
-
-            result
-        }
-        Err(e) => {
-            // Record error metrics
-            let duration_secs = start.elapsed().as_secs_f64();
-            metrics::record_execution_error(&name, duration_secs);
-            metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
-
-            // Record terminal result for errors
-            metrics::record_terminal_result(&name, "error");
-
-            // Log audit event for errors (with sampling)
-            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-            let rule_id = format!("{}/{}", tenant.id, name);
-            state.audit_logger.log_execution(
-                &rule_id,
-                start.elapsed().as_micros() as u64,
-                "error",
-                source_ip,
-            );
-
-            metrics::dec_active_executions();
-            return Err(e.into());
-        }
-    };
-
-    // Decrement active executions
-    metrics::dec_active_executions();
-
-    // Build response
-    let trace = if request.trace {
-        result.trace.as_ref().map(|t| TraceInfo {
-            path: t.path_string(),
-            steps: t
-                .steps
-                .iter()
-                .map(|s| StepInfo {
-                    id: s.step_id.clone(),
-                    name: s.step_name.clone(),
-                    duration_us: s.duration_us,
-                })
-                .collect(),
+    // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
+    let exec_options = if tenant.config.execution_timeout_ms > 0 || request.trace {
+        Some(ExecutionOptions {
+            timeout_ms: if tenant.config.execution_timeout_ms > 0 {
+                Some(tenant.config.execution_timeout_ms)
+            } else {
+                None
+            },
+            enable_trace: if request.trace { Some(true) } else { None },
+            max_depth: None,
         })
     } else {
         None
     };
+
+    // Execute without holding the lock and without cloning RuleSet
+    let result =
+        match state
+            .executor
+            .execute_with_options(&ruleset, request.input, exec_options.as_ref())
+        {
+            Ok(result) => {
+                // Record success metrics
+                let duration_secs = start.elapsed().as_secs_f64();
+                metrics::record_execution_success(&name, duration_secs);
+                metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
+
+                // Record terminal result distribution
+                metrics::record_terminal_result(&name, &result.code);
+
+                // Log audit event (with sampling)
+                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+                let rule_id = format!("{}/{}", tenant.id, name);
+                state.audit_logger.log_execution(
+                    &rule_id,
+                    result.duration_us,
+                    &result.code,
+                    source_ip,
+                );
+
+                result
+            }
+            Err(e) => {
+                // Record error metrics
+                let duration_secs = start.elapsed().as_secs_f64();
+                metrics::record_execution_error(&name, duration_secs);
+                metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
+
+                // Record terminal result for errors
+                metrics::record_terminal_result(&name, "error");
+
+                // Log audit event for errors (with sampling)
+                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+                let rule_id = format!("{}/{}", tenant.id, name);
+                state.audit_logger.log_execution(
+                    &rule_id,
+                    start.elapsed().as_micros() as u64,
+                    "error",
+                    source_ip,
+                );
+
+                metrics::dec_active_executions();
+                return Err(e.into());
+            }
+        };
+
+    // Decrement active executions
+    metrics::dec_active_executions();
+
+    // Build response using helper function
+    let trace = build_trace_info(result.trace.as_ref(), request.trace);
 
     Ok(Json(ExecuteResponse {
         code: result.code,
@@ -461,6 +487,7 @@ pub async fn execute_ruleset(
 /// - Single HTTP request for all inputs
 /// - Single lock acquisition for ruleset lookup
 /// - Optional parallel execution
+/// - No RuleSet cloning (uses ExecutionOptions for runtime overrides)
 pub async fn execute_ruleset_batch(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
@@ -489,6 +516,7 @@ pub async fn execute_ruleset_batch(
     metrics::inc_active_executions();
 
     // Get ruleset with minimal lock hold time (only once for the entire batch)
+    // No cloning needed - we use ExecutionOptions for runtime overrides
     let ruleset = {
         let store = state.store.read().await;
         store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
@@ -496,34 +524,30 @@ pub async fn execute_ruleset_batch(
             ApiError::not_found(format!("RuleSet '{}' not found", name))
         })?
     };
-    let mut ruleset = (*ruleset).clone();
-    if tenant.config.execution_timeout_ms > 0 {
-        ruleset.config.timeout_ms = tenant.config.execution_timeout_ms;
-    }
-    let ruleset = Arc::new(ruleset);
+
+    // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
+    let exec_options = Arc::new(ExecutionOptions {
+        timeout_ms: if tenant.config.execution_timeout_ms > 0 {
+            Some(tenant.config.execution_timeout_ms)
+        } else {
+            None
+        },
+        enable_trace: if request.options.trace {
+            Some(true)
+        } else {
+            None
+        },
+        max_depth: None,
+    });
+
     let executor = state.executor.clone();
     let trace_enabled = request.options.trace;
 
-    let run_one = |input: Value| {
+    let run_one = |input: Value, exec_opts: &ExecutionOptions| {
         let start_one = Instant::now();
-        match executor.execute(&ruleset, input) {
+        match executor.execute_with_options(&ruleset, input, Some(exec_opts)) {
             Ok(result) => {
-                let trace = if trace_enabled {
-                    result.trace.as_ref().map(|t| TraceInfo {
-                        path: t.path_string(),
-                        steps: t
-                            .steps
-                            .iter()
-                            .map(|s| StepInfo {
-                                id: s.step_id.clone(),
-                                name: s.step_name.clone(),
-                                duration_us: s.duration_us,
-                            })
-                            .collect(),
-                    })
-                } else {
-                    None
-                };
+                let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
                 BatchExecuteResultItem {
                     code: result.code,
                     message: result.message,
@@ -548,26 +572,12 @@ pub async fn execute_ruleset_batch(
         let futures = request.inputs.into_iter().map(|input| {
             let ruleset = Arc::clone(&ruleset);
             let executor = executor.clone();
+            let exec_options = Arc::clone(&exec_options);
             tokio::task::spawn_blocking(move || {
                 let start_one = Instant::now();
-                match executor.execute(&ruleset, input) {
+                match executor.execute_with_options(&ruleset, input, Some(&exec_options)) {
                     Ok(result) => {
-                        let trace = if trace_enabled {
-                            result.trace.as_ref().map(|t| TraceInfo {
-                                path: t.path_string(),
-                                steps: t
-                                    .steps
-                                    .iter()
-                                    .map(|s| StepInfo {
-                                        id: s.step_id.clone(),
-                                        name: s.step_name.clone(),
-                                        duration_us: s.duration_us,
-                                    })
-                                    .collect(),
-                            })
-                        } else {
-                            None
-                        };
+                        let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
                         BatchExecuteResultItem {
                             code: result.code,
                             message: result.message,
@@ -605,7 +615,11 @@ pub async fn execute_ruleset_batch(
             })
             .collect()
     } else {
-        request.inputs.into_iter().map(run_one).collect()
+        request
+            .inputs
+            .into_iter()
+            .map(|input| run_one(input, &exec_options))
+            .collect()
     };
 
     let mut success = 0;

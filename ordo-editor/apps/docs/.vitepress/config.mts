@@ -111,6 +111,7 @@ export default defineConfig({
                 { text: 'CLI Options', link: '/en/reference/cli' },
                 { text: 'Configuration', link: '/en/reference/configuration' },
                 { text: 'Metrics', link: '/en/reference/metrics' },
+                { text: 'Benchmarks', link: '/en/reference/benchmarks' },
               ]
             }
           ]
@@ -198,6 +199,7 @@ export default defineConfig({
                 { text: 'CLI 选项', link: '/zh/reference/cli' },
                 { text: '配置', link: '/zh/reference/configuration' },
                 { text: '指标', link: '/zh/reference/metrics' },
+                { text: '性能基准', link: '/zh/reference/benchmarks' },
               ]
             }
           ]

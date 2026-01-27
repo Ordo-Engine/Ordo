@@ -42,6 +42,44 @@ mod wasm_time {
 #[cfg(target_arch = "wasm32")]
 use wasm_time::Instant;
 
+/// Runtime execution options that can override RuleSet config.
+///
+/// This allows passing execution-specific options without cloning the entire RuleSet.
+#[derive(Debug, Clone, Default)]
+pub struct ExecutionOptions {
+    /// Override timeout in milliseconds (0 = use RuleSet config)
+    pub timeout_ms: Option<u64>,
+    /// Override trace enabled flag
+    pub enable_trace: Option<bool>,
+    /// Override max execution depth
+    pub max_depth: Option<usize>,
+}
+
+impl ExecutionOptions {
+    /// Create new execution options with timeout override
+    #[inline]
+    pub fn with_timeout(timeout_ms: u64) -> Self {
+        Self {
+            timeout_ms: Some(timeout_ms),
+            ..Default::default()
+        }
+    }
+
+    /// Set timeout override
+    #[inline]
+    pub fn timeout(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    /// Set trace enabled override
+    #[inline]
+    pub fn trace(mut self, enabled: bool) -> Self {
+        self.enable_trace = Some(enabled);
+        self
+    }
+}
+
 /// Rule executor
 pub struct RuleExecutor {
     /// Expression evaluator
@@ -109,10 +147,56 @@ impl RuleExecutor {
     }
 
     /// Execute a rule set
+    #[inline]
     pub fn execute(&self, ruleset: &RuleSet, input: Value) -> Result<ExecutionResult> {
+        self.execute_with_options(ruleset, input, None)
+    }
+
+    /// Execute a rule set with runtime options override.
+    ///
+    /// This method allows overriding RuleSet config at runtime without cloning the RuleSet,
+    /// which is more efficient for batch execution with tenant-specific timeouts.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let executor = RuleExecutor::new();
+    /// let options = ExecutionOptions::with_timeout(5000); // 5 second timeout
+    /// let result = executor.execute_with_options(&ruleset, input, Some(&options))?;
+    /// ```
+    pub fn execute_with_options(
+        &self,
+        ruleset: &RuleSet,
+        input: Value,
+        options: Option<&ExecutionOptions>,
+    ) -> Result<ExecutionResult> {
+        // Resolve effective config values (options override ruleset config)
+        let timeout_ms = options
+            .and_then(|o| o.timeout_ms)
+            .filter(|&t| t > 0)
+            .unwrap_or(ruleset.config.timeout_ms);
+        let max_depth = options
+            .and_then(|o| o.max_depth)
+            .unwrap_or(ruleset.config.max_depth);
+        let enable_trace = options
+            .and_then(|o| o.enable_trace)
+            .unwrap_or(ruleset.config.enable_trace);
+
+        self.execute_internal(ruleset, input, timeout_ms, max_depth, enable_trace)
+    }
+
+    /// Internal execute implementation with explicit config parameters
+    fn execute_internal(
+        &self,
+        ruleset: &RuleSet,
+        input: Value,
+        timeout_ms: u64,
+        max_depth: usize,
+        enable_trace: bool,
+    ) -> Result<ExecutionResult> {
         let start_time = Instant::now();
         let mut ctx = Context::new(input);
-        let mut trace = if self.trace_config.enabled || ruleset.config.enable_trace {
+        let mut trace = if self.trace_config.enabled || enable_trace {
             Some(ExecutionTrace::new(&ruleset.config.name))
         } else {
             None
@@ -122,20 +206,16 @@ impl RuleExecutor {
         let mut depth = 0;
 
         loop {
-            if ruleset.config.timeout_ms > 0 {
+            if timeout_ms > 0 {
                 let elapsed_ms = start_time.elapsed().as_millis() as u64;
-                if elapsed_ms >= ruleset.config.timeout_ms {
-                    return Err(OrdoError::Timeout {
-                        timeout_ms: ruleset.config.timeout_ms,
-                    });
+                if elapsed_ms >= timeout_ms {
+                    return Err(OrdoError::Timeout { timeout_ms });
                 }
             }
 
             // Check depth limit
-            if depth >= ruleset.config.max_depth {
-                return Err(OrdoError::MaxDepthExceeded {
-                    max_depth: ruleset.config.max_depth,
-                });
+            if depth >= max_depth {
+                return Err(OrdoError::MaxDepthExceeded { max_depth });
             }
 
             // Get current step
@@ -331,6 +411,9 @@ impl RuleExecutor {
     }
 
     /// Evaluate a condition
+    ///
+    /// NOTE: For best performance, call `RuleSet::compile()` after loading to pre-compile
+    /// all expression strings. If not compiled, expressions will be parsed on each evaluation.
     fn evaluate_condition(
         &self,
         condition: &Condition,
@@ -340,28 +423,34 @@ impl RuleExecutor {
         match condition {
             Condition::Always => Ok(true),
 
-            Condition::Expression(expr) => match self.evaluator.eval(expr, ctx) {
-                Ok(value) => Ok(value.is_truthy()),
-                Err(OrdoError::FieldNotFound { .. })
-                    if *field_missing == FieldMissingBehavior::Lenient =>
-                {
-                    Ok(false)
-                }
-                Err(e) => Err(e),
-            },
+            Condition::Expression(expr) => {
+                self.eval_expr_with_field_missing(expr, ctx, field_missing)
+            }
 
             Condition::ExpressionString(s) => {
+                // Parse and evaluate - consider calling RuleSet::compile() for better performance
                 let expr = ExprParser::parse(s)?;
-                match self.evaluator.eval(&expr, ctx) {
-                    Ok(value) => Ok(value.is_truthy()),
-                    Err(OrdoError::FieldNotFound { .. })
-                        if *field_missing == FieldMissingBehavior::Lenient =>
-                    {
-                        Ok(false)
-                    }
-                    Err(e) => Err(e),
-                }
+                self.eval_expr_with_field_missing(&expr, ctx, field_missing)
             }
+        }
+    }
+
+    /// Helper to evaluate expression with field missing behavior
+    #[inline]
+    fn eval_expr_with_field_missing(
+        &self,
+        expr: &crate::expr::Expr,
+        ctx: &Context,
+        field_missing: &FieldMissingBehavior,
+    ) -> Result<bool> {
+        match self.evaluator.eval(expr, ctx) {
+            Ok(value) => Ok(value.is_truthy()),
+            Err(OrdoError::FieldNotFound { .. })
+                if *field_missing == FieldMissingBehavior::Lenient =>
+            {
+                Ok(false)
+            }
+            Err(e) => Err(e),
         }
     }
 

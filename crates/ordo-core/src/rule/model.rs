@@ -144,12 +144,18 @@ impl RuleSet {
         }
     }
 
-    /// Load from JSON string
+    /// Load from JSON string (raw, without compilation)
+    ///
+    /// **Note**: For production use, prefer `from_json_compiled()` which pre-compiles
+    /// expression strings for better runtime performance.
     pub fn from_json(json: &str) -> std::result::Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
-    /// Load from YAML string
+    /// Load from YAML string (raw, without compilation)
+    ///
+    /// **Note**: For production use, prefer `from_yaml_compiled()` which pre-compiles
+    /// expression strings for better runtime performance.
     pub fn from_yaml(yaml: &str) -> std::result::Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
     }
@@ -167,8 +173,13 @@ impl RuleSet {
     /// Compile all expression strings in this ruleset to expression ASTs.
     ///
     /// This pre-parses all condition expressions for faster evaluation at runtime.
-    /// Call this after loading a ruleset from JSON/YAML to avoid repeated parsing
-    /// during rule execution.
+    /// **Strongly recommended** to call this after loading a ruleset from JSON/YAML
+    /// to avoid repeated parsing during rule execution.
+    ///
+    /// # Performance Impact
+    ///
+    /// Without compilation: Each execution parses expression strings on every evaluation.
+    /// With compilation: Expressions are parsed once and reused for all executions.
     ///
     /// # Example
     /// ```
@@ -186,8 +197,8 @@ impl RuleSet {
     ///     }
     /// }"#;
     ///
-    /// let mut ruleset = RuleSet::from_json(json).unwrap();
-    /// ruleset.compile().unwrap(); // Pre-compile all expressions
+    /// // Recommended: use from_json_compiled() instead
+    /// let ruleset = RuleSet::from_json_compiled(json).unwrap();
     /// ```
     pub fn compile(&mut self) -> Result<()> {
         for step in self.steps.values_mut() {
@@ -196,7 +207,10 @@ impl RuleSet {
         Ok(())
     }
 
-    /// Load from JSON string and compile expressions
+    /// Load from JSON string and compile expressions.
+    ///
+    /// **Recommended** for production use. This method automatically pre-compiles
+    /// all expression strings for optimal runtime performance.
     pub fn from_json_compiled(json: &str) -> Result<Self> {
         let mut ruleset: Self = serde_json::from_str(json)
             .map_err(|e| crate::error::OrdoError::parse_error(e.to_string()))?;
@@ -204,7 +218,10 @@ impl RuleSet {
         Ok(ruleset)
     }
 
-    /// Load from YAML string and compile expressions
+    /// Load from YAML string and compile expressions.
+    ///
+    /// **Recommended** for production use. This method automatically pre-compiles
+    /// all expression strings for optimal runtime performance.
     pub fn from_yaml_compiled(yaml: &str) -> Result<Self> {
         let mut ruleset: Self = serde_yaml::from_str(yaml)
             .map_err(|e| crate::error::OrdoError::parse_error(e.to_string()))?;

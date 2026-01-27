@@ -7,18 +7,20 @@
 //!
 //! # Performance Optimizations
 //!
-//! - Uses `Arc<str>` for strings to reduce clone overhead
-//! - Uses `SmallVec` for small arrays (up to 4 elements inline)
-//! - Uses `hashbrown::HashMap` for faster object access
+//! - Uses `Arc<str>` for strings to reduce clone overhead (cheap cloning)
+//! - Uses `hashbrown::HashMap` for faster object access (~20% faster than std HashMap)
+//! - Arrays use standard `Vec` (SmallVec causes recursive type issues with Value enum)
 
 use hashbrown::HashMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::sync::Arc;
 
-/// Small array type - uses Box to avoid recursive type issues
-/// Note: We use Vec here because SmallVec<[Value; N]> causes recursive type issues
-/// The optimization comes from using hashbrown and Arc<str> instead
+/// Array type for Value.
+///
+/// Uses standard `Vec` because `SmallVec<[Value; N]>` causes recursive type sizing issues.
+/// The main performance optimizations come from `Arc<str>` for strings and
+/// `hashbrown::HashMap` for objects instead.
 pub type SmallArray = Vec<Value>;
 
 /// Interned string type for efficient cloning

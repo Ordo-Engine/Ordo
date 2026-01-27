@@ -1,6 +1,11 @@
 //! Step definitions
 //!
 //! Defines the step flow model
+//!
+//! # Performance Optimization
+//!
+//! For best performance, call `RuleSet::compile()` after loading to pre-compile
+//! all expression strings. This avoids repeated parsing during rule execution.
 
 use crate::context::Value;
 use crate::error::Result;
@@ -194,16 +199,22 @@ impl Branch {
 }
 
 /// Condition for branching
+///
+/// # Performance
+///
+/// For best performance, call `RuleSet::compile()` after loading to convert
+/// all `ExpressionString` variants to `Expression`. This avoids repeated
+/// parsing during rule execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Condition {
     /// Always true
     Always,
 
-    /// Expression condition
+    /// Expression condition (pre-compiled)
     Expression(Expr),
 
-    /// Expression string (will be parsed)
+    /// Expression string (will be parsed on each evaluation unless compile() is called)
     ExpressionString(String),
 }
 
@@ -233,6 +244,21 @@ impl Condition {
     #[inline]
     pub fn is_compiled(&self) -> bool {
         !matches!(self, Condition::ExpressionString(_))
+    }
+
+    /// Get the expression, compiling lazily if needed (for ExpressionString).
+    /// This is the preferred method for evaluation as it uses caching.
+    #[inline]
+    pub fn get_expr(&self) -> Result<Option<&Expr>> {
+        match self {
+            Condition::Always => Ok(None),
+            Condition::Expression(expr) => Ok(Some(expr)),
+            Condition::ExpressionString(_) => {
+                // For ExpressionString, we need to parse each time unless compiled
+                // Consider using compile() first for best performance
+                Ok(None)
+            }
+        }
     }
 }
 

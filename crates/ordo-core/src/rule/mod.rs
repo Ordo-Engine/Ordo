@@ -33,7 +33,9 @@ pub use compiled::{
 };
 pub use compiled_executor::CompiledRuleExecutor;
 pub use compiler::RuleSetCompiler;
-pub use executor::{BatchExecutionResult, ExecutionResult, RuleExecutor, SingleExecutionResult};
+pub use executor::{
+    BatchExecutionResult, ExecutionOptions, ExecutionResult, RuleExecutor, SingleExecutionResult,
+};
 pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
 pub use model::{RuleSet, RuleSetConfig};
 pub use step::{Action, ActionKind, Branch, Condition, Step, StepKind, TerminalResult};

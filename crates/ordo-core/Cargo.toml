@@ -70,3 +70,11 @@ harness = false
 [[bench]]
 name = "jit_stress_bench"
 harness = false
+
+[[bench]]
+name = "unified_bench"
+harness = false
+
+[[bench]]
+name = "init_bench"
+harness = false

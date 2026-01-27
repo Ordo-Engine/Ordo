@@ -280,7 +280,7 @@ async fn main() -> anyhow::Result<()> {
         let http_debug_sessions = debug_sessions.clone();
         let http_tenant_manager = tenant_manager.clone();
         let http_rate_limiter = rate_limiter.clone();
-        let http_addr = config.http_addr;
+        let http_addr = config.http_addr();
         tasks.push(tokio::spawn(async move {
             start_http_server(
                 http_addr,
@@ -301,7 +301,7 @@ async fn main() -> anyhow::Result<()> {
     // gRPC Server
     if config.grpc_enabled() {
         let grpc_store = store.clone();
-        let grpc_addr = config.grpc_addr;
+        let grpc_addr = config.grpc_addr();
         let default_tenant = config.default_tenant.clone();
         tasks.push(tokio::spawn(async move {
             start_grpc_server(grpc_addr, grpc_store, default_tenant).await

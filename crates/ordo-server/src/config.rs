@@ -8,6 +8,8 @@
 //!
 //! | Variable | Description | Default |
 //! |----------|-------------|---------|
+//! | `ORDO_PORT` | HTTP server port (shorthand) | `8080` |
+//! | `ORDO_GRPC_PORT` | gRPC server port (shorthand) | `50051` |
 //! | `ORDO_HTTP_ADDR` | HTTP server address | `0.0.0.0:8080` |
 //! | `ORDO_GRPC_ADDR` | gRPC server address | `0.0.0.0:50051` |
 //! | `ORDO_UDS_PATH` | Unix Domain Socket path | - |
@@ -40,13 +42,23 @@ use std::path::PathBuf;
 #[command(name = "ordo-server")]
 #[command(author, version, about, long_about = None)]
 pub struct ServerConfig {
+    /// HTTP server port (shorthand for --http-addr 0.0.0.0:<port>).
+    /// If both --port and --http-addr are specified, --http-addr takes precedence.
+    #[arg(short = 'p', long, env = "ORDO_PORT")]
+    pub port: Option<u16>,
+
+    /// gRPC server port (shorthand for --grpc-addr 0.0.0.0:<port>).
+    /// If both --grpc-port and --grpc-addr are specified, --grpc-addr takes precedence.
+    #[arg(long, env = "ORDO_GRPC_PORT")]
+    pub grpc_port: Option<u16>,
+
     /// HTTP server address (e.g., 0.0.0.0:8080)
-    #[arg(long, default_value = "0.0.0.0:8080", env = "ORDO_HTTP_ADDR")]
-    pub http_addr: SocketAddr,
+    #[arg(long = "http-addr", env = "ORDO_HTTP_ADDR")]
+    http_addr_opt: Option<SocketAddr>,
 
     /// gRPC server address (e.g., 0.0.0.0:50051)
-    #[arg(long, default_value = "0.0.0.0:50051", env = "ORDO_GRPC_ADDR")]
-    pub grpc_addr: SocketAddr,
+    #[arg(long = "grpc-addr", env = "ORDO_GRPC_ADDR")]
+    grpc_addr_opt: Option<SocketAddr>,
 
     /// Unix Domain Socket path (optional)
     #[arg(long, env = "ORDO_UDS_PATH")]
@@ -159,6 +171,30 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
+    /// Get the HTTP server address.
+    /// Priority: --http-addr > --port > default (0.0.0.0:8080)
+    pub fn http_addr(&self) -> SocketAddr {
+        if let Some(addr) = self.http_addr_opt {
+            return addr;
+        }
+        if let Some(port) = self.port {
+            return format!("0.0.0.0:{}", port).parse().unwrap();
+        }
+        "0.0.0.0:8080".parse().unwrap()
+    }
+
+    /// Get the gRPC server address.
+    /// Priority: --grpc-addr > --grpc-port > default (0.0.0.0:50051)
+    pub fn grpc_addr(&self) -> SocketAddr {
+        if let Some(addr) = self.grpc_addr_opt {
+            return addr;
+        }
+        if let Some(port) = self.grpc_port {
+            return format!("0.0.0.0:{}", port).parse().unwrap();
+        }
+        "0.0.0.0:50051".parse().unwrap()
+    }
+
     /// Check if HTTP server is enabled
     pub fn http_enabled(&self) -> bool {
         !self.disable_http
@@ -183,8 +219,10 @@ impl ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            http_addr: "0.0.0.0:8080".parse().unwrap(),
-            grpc_addr: "0.0.0.0:50051".parse().unwrap(),
+            port: None,
+            grpc_port: None,
+            http_addr_opt: None,
+            grpc_addr_opt: None,
             uds_path: None,
             disable_http: false,
             disable_grpc: false,

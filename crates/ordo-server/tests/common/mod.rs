@@ -105,9 +105,11 @@ impl OrdoGrpcServiceImpl {
 }
 
 use ordo_proto::{
-    health_response, ordo_service_server::OrdoService, EvalRequest, EvalResponse, ExecuteRequest,
-    ExecuteResponse, ExecutionTrace, GetRuleSetRequest, GetRuleSetResponse, HealthRequest,
-    HealthResponse, ListRuleSetsRequest, ListRuleSetsResponse, RuleSetSummary, StepTrace,
+    health_response, ordo_service_server::OrdoService, BatchExecuteOptions, BatchExecuteRequest,
+    BatchExecuteResponse, BatchExecuteResultItem, BatchExecuteSummary, EvalRequest, EvalResponse,
+    ExecuteRequest, ExecuteResponse, ExecutionTrace, GetRuleSetRequest, GetRuleSetResponse,
+    HealthRequest, HealthResponse, ListRuleSetsRequest, ListRuleSetsResponse, RuleSetSummary,
+    StepTrace,
 };
 use tonic::{Request, Response, Status};
 
@@ -257,6 +259,116 @@ impl OrdoService for OrdoGrpcServiceImpl {
         Ok(Response::new(EvalResponse {
             result_json,
             parsed_expression: format!("{:?}", expr),
+        }))
+    }
+
+    async fn batch_execute(
+        &self,
+        request: Request<BatchExecuteRequest>,
+    ) -> std::result::Result<Response<BatchExecuteResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.inputs_json.is_empty() {
+            return Err(Status::invalid_argument(
+                "inputs_json array cannot be empty",
+            ));
+        }
+
+        let options = req.options.unwrap_or(BatchExecuteOptions {
+            parallel: true,
+            include_trace: false,
+        });
+
+        let store = self.store.read().await;
+        let ruleset = store.get(&req.ruleset_name).ok_or_else(|| {
+            Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
+        })?;
+
+        let trace_enabled = options.include_trace;
+        let mut results = Vec::new();
+        let mut success: u32 = 0;
+        let mut failed: u32 = 0;
+        let mut total_duration_us: u64 = 0;
+
+        for input_json in req.inputs_json {
+            let start_one = std::time::Instant::now();
+
+            let input: Value = match serde_json::from_str(&input_json) {
+                Ok(v) => v,
+                Err(e) => {
+                    failed += 1;
+                    results.push(BatchExecuteResultItem {
+                        code: "error".to_string(),
+                        message: "Invalid input JSON".to_string(),
+                        output_json: "null".to_string(),
+                        duration_us: start_one.elapsed().as_micros() as u64,
+                        trace: None,
+                        error: format!("Invalid input JSON: {}", e),
+                    });
+                    continue;
+                }
+            };
+
+            match store.executor().execute(&ruleset, input) {
+                Ok(result) => {
+                    let trace = if trace_enabled {
+                        result.trace.as_ref().map(|t| ExecutionTrace {
+                            path: t.path_string(),
+                            steps: t
+                                .steps
+                                .iter()
+                                .map(|s| StepTrace {
+                                    step_id: s.step_id.clone(),
+                                    step_name: s.step_name.clone(),
+                                    duration_us: s.duration_us,
+                                    result: if s.is_terminal {
+                                        "terminal".to_string()
+                                    } else {
+                                        s.next_step.clone().unwrap_or_default()
+                                    },
+                                })
+                                .collect(),
+                        })
+                    } else {
+                        None
+                    };
+                    let output_json = serde_json::to_string(&result.output)
+                        .unwrap_or_else(|_| "null".to_string());
+                    total_duration_us += result.duration_us;
+                    success += 1;
+                    results.push(BatchExecuteResultItem {
+                        code: result.code,
+                        message: result.message,
+                        output_json,
+                        duration_us: result.duration_us,
+                        trace,
+                        error: String::new(),
+                    });
+                }
+                Err(e) => {
+                    failed += 1;
+                    let duration = start_one.elapsed().as_micros() as u64;
+                    total_duration_us += duration;
+                    results.push(BatchExecuteResultItem {
+                        code: "error".to_string(),
+                        message: e.to_string(),
+                        output_json: "null".to_string(),
+                        duration_us: duration,
+                        trace: None,
+                        error: e.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(Response::new(BatchExecuteResponse {
+            results,
+            summary: Some(BatchExecuteSummary {
+                total: (success + failed),
+                success,
+                failed,
+                total_duration_us,
+            }),
         }))
     }
 

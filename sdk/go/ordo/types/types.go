@@ -48,12 +48,12 @@ type StepTrace struct {
 
 // BatchResult is the result of a batch execution
 type BatchResult struct {
-	Results []BatchItem  `json:"results"`
-	Summary BatchSummary `json:"summary"`
+	Results []ExecuteResultItem `json:"results"`
+	Summary BatchSummary        `json:"summary"`
 }
 
-// BatchItem is a single item in batch results
-type BatchItem struct {
+// ExecuteResultItem is a single item in batch results (used by both HTTP and gRPC)
+type ExecuteResultItem struct {
 	Code       string          `json:"code"`
 	Message    string          `json:"message"`
 	Output     json.RawMessage `json:"output"`
@@ -62,11 +62,14 @@ type BatchItem struct {
 	Error      *string         `json:"error,omitempty"`
 }
 
+// BatchItem is an alias for ExecuteResultItem (for backward compatibility)
+type BatchItem = ExecuteResultItem
+
 // BatchSummary is the summary of a batch execution
 type BatchSummary struct {
-	Total           int    `json:"total"`
-	Success         int    `json:"success"`
-	Failed          int    `json:"failed"`
+	Total           uint32 `json:"total"`
+	Success         uint32 `json:"success"`
+	Failed          uint32 `json:"failed"`
 	TotalDurationUs uint64 `json:"total_duration_us"`
 }
 

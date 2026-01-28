@@ -90,6 +90,10 @@ func NewClient(opts ...ClientOption) (Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 		}
+		// Set tenant ID if configured
+		if options.TenantID != "" {
+			grpcCli.SetTenantID(options.TenantID)
+		}
 		c.grpcClient = grpcCli
 	}
 
@@ -102,6 +106,12 @@ func NewClient(opts ...ClientOption) (Client, error) {
 	c.batchExec = batch.NewExecutor(options.BatchConcurrency)
 
 	return c, nil
+}
+
+// GRPCClient returns the underlying gRPC client for advanced configuration
+// Returns nil if gRPC is not enabled
+func (c *client) GRPCClient() *grpcClient.Client {
+	return c.grpcClient
 }
 
 // Execute executes a ruleset
@@ -230,9 +240,9 @@ func convertBatchResult(br *batch.BatchResult) *types.BatchResult {
 	return &types.BatchResult{
 		Results: items,
 		Summary: types.BatchSummary{
-			Total:           br.Summary.Total,
-			Success:         br.Summary.Success,
-			Failed:          br.Summary.Failed,
+			Total:           uint32(br.Summary.Total),
+			Success:         uint32(br.Summary.Success),
+			Failed:          uint32(br.Summary.Failed),
 			TotalDurationUs: br.Summary.TotalDurationUs,
 		},
 	}

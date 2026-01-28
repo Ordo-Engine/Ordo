@@ -9,12 +9,19 @@ import (
 	pb "github.com/pama-lee/ordo-go/proto/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
-// Client implements gRPC-based Ordo client
+// Metadata keys for multi-tenancy
+const (
+	MetadataTenantID = "x-tenant-id"
+)
+
+// Client implements gRPC-based Ordo client with multi-tenancy support
 type Client struct {
-	conn   *grpc.ClientConn
-	client pb.OrdoServiceClient
+	conn     *grpc.ClientConn
+	client   pb.OrdoServiceClient
+	tenantID string // Default tenant ID for all requests
 }
 
 // NewClient creates a new gRPC client
@@ -34,6 +41,19 @@ func NewClient(address string, opts ...grpc.DialOption) (*Client, error) {
 	}, nil
 }
 
+// SetTenantID sets the default tenant ID for all requests
+func (c *Client) SetTenantID(tenantID string) {
+	c.tenantID = tenantID
+}
+
+// withTenantContext adds tenant metadata to context if configured
+func (c *Client) withTenantContext(ctx context.Context) context.Context {
+	if c.tenantID == "" {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, MetadataTenantID, c.tenantID)
+}
+
 // Execute executes a ruleset via gRPC
 func (c *Client) Execute(ctx context.Context, name string, input any, includeTrace bool) (*types.ExecuteResult, error) {
 	inputJSON, err := json.Marshal(input)
@@ -46,6 +66,9 @@ func (c *Client) Execute(ctx context.Context, name string, input any, includeTra
 		InputJson:    string(inputJSON),
 		IncludeTrace: includeTrace,
 	}
+
+	// Add tenant context
+	ctx = c.withTenantContext(ctx)
 
 	resp, err := c.client.Execute(ctx, req)
 	if err != nil {
@@ -77,9 +100,105 @@ func (c *Client) Execute(ctx context.Context, name string, input any, includeTra
 	return result, nil
 }
 
+// BatchExecuteOptions configures batch execution
+type BatchExecuteOptions struct {
+	Parallel     bool // Execute in parallel (default: true)
+	IncludeTrace bool // Include execution traces
+}
+
+// BatchExecute executes a ruleset with multiple inputs via gRPC
+func (c *Client) BatchExecute(ctx context.Context, name string, inputs []any, opts *BatchExecuteOptions) (*types.BatchResult, error) {
+	if len(inputs) == 0 {
+		return nil, fmt.Errorf("inputs array cannot be empty")
+	}
+
+	// Marshal all inputs to JSON
+	inputsJSON := make([]string, len(inputs))
+	for i, input := range inputs {
+		inputJSON, err := json.Marshal(input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal input at index %d: %w", i, err)
+		}
+		inputsJSON[i] = string(inputJSON)
+	}
+
+	// Build options
+	pbOpts := &pb.BatchExecuteOptions{
+		Parallel:     true, // default
+		IncludeTrace: false,
+	}
+	if opts != nil {
+		pbOpts.Parallel = opts.Parallel
+		pbOpts.IncludeTrace = opts.IncludeTrace
+	}
+
+	req := &pb.BatchExecuteRequest{
+		RulesetName: name,
+		InputsJson:  inputsJSON,
+		Options:     pbOpts,
+	}
+
+	// Add tenant context
+	ctx = c.withTenantContext(ctx)
+
+	resp, err := c.client.BatchExecute(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("batch execute failed: %w", err)
+	}
+
+	// Convert results
+	results := make([]types.ExecuteResultItem, len(resp.Results))
+	for i, r := range resp.Results {
+		item := types.ExecuteResultItem{
+			Code:       r.Code,
+			Message:    r.Message,
+			Output:     json.RawMessage(r.OutputJson),
+			DurationUs: r.DurationUs,
+		}
+		if r.Error != "" {
+			item.Error = &r.Error
+		}
+		if r.Trace != nil {
+			item.Trace = &types.ExecutionTrace{
+				Path:  r.Trace.Path,
+				Steps: make([]types.StepTrace, len(r.Trace.Steps)),
+			}
+			for j, step := range r.Trace.Steps {
+				item.Trace.Steps[j] = types.StepTrace{
+					StepID:     step.StepId,
+					StepName:   step.StepName,
+					DurationUs: step.DurationUs,
+					Result:     step.Result,
+				}
+			}
+		}
+		results[i] = item
+	}
+
+	// Build summary
+	var summary types.BatchSummary
+	if resp.Summary != nil {
+		summary = types.BatchSummary{
+			Total:           resp.Summary.Total,
+			Success:         resp.Summary.Success,
+			Failed:          resp.Summary.Failed,
+			TotalDurationUs: resp.Summary.TotalDurationUs,
+		}
+	}
+
+	return &types.BatchResult{
+		Results: results,
+		Summary: summary,
+	}, nil
+}
+
 // GetRuleSet retrieves a ruleset by name via gRPC
 func (c *Client) GetRuleSet(ctx context.Context, name string) (*types.RuleSet, error) {
 	req := &pb.GetRuleSetRequest{Name: name}
+
+	// Add tenant context
+	ctx = c.withTenantContext(ctx)
+
 	resp, err := c.client.GetRuleSet(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("get ruleset failed: %w", err)
@@ -99,6 +218,9 @@ func (c *Client) ListRuleSets(ctx context.Context, namePrefix string, limit uint
 		NamePrefix: namePrefix,
 		Limit:      limit,
 	}
+
+	// Add tenant context
+	ctx = c.withTenantContext(ctx)
 
 	resp, err := c.client.ListRuleSets(ctx, req)
 	if err != nil {
@@ -130,6 +252,9 @@ func (c *Client) Eval(ctx context.Context, expression string, contextData any) (
 		ContextJson: string(contextJSON),
 	}
 
+	// Add tenant context
+	ctx = c.withTenantContext(ctx)
+
 	resp, err := c.client.Eval(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("eval failed: %w", err)
@@ -144,6 +269,10 @@ func (c *Client) Eval(ctx context.Context, expression string, contextData any) (
 // Health checks server health via gRPC
 func (c *Client) Health(ctx context.Context) (*types.HealthStatus, error) {
 	req := &pb.HealthRequest{}
+
+	// Add tenant context (optional for health)
+	ctx = c.withTenantContext(ctx)
+
 	resp, err := c.client.Health(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("health check failed: %w", err)

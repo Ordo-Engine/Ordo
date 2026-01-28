@@ -103,7 +103,35 @@ grpcClient, _ := ordo.NewClient(
     ordo.WithGRPCAddress("localhost:50051"),
     ordo.WithGRPCOnly(),
 )
+
+// With multi-tenancy support
+client, _ := ordo.NewClient(
+    ordo.WithHTTPAddress("http://localhost:8080"),
+    ordo.WithGRPCAddress("localhost:50051"),
+    ordo.WithTenantID("my-tenant"), // Set default tenant ID
+)
 ```
+
+### Multi-Tenancy
+
+The SDK supports multi-tenancy for both HTTP and gRPC protocols:
+
+```go
+// Set tenant ID during client creation
+client, _ := ordo.NewClient(
+    ordo.WithHTTPAddress("http://localhost:8080"),
+    ordo.WithGRPCAddress("localhost:50051"),
+    ordo.WithTenantID("tenant-a"),
+)
+
+// Or set tenant ID at runtime (for gRPC client)
+if grpcClient := client.GRPCClient(); grpcClient != nil {
+    grpcClient.SetTenantID("tenant-b")
+}
+```
+
+For HTTP requests, the tenant ID is sent via the `X-Tenant-ID` header.
+For gRPC requests, the tenant ID is sent via gRPC metadata with key `x-tenant-id`.
 
 ### Execute Rules
 

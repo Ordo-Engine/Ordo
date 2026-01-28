@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	OrdoService_Execute_FullMethodName      = "/ordo.v1.OrdoService/Execute"
+	OrdoService_BatchExecute_FullMethodName = "/ordo.v1.OrdoService/BatchExecute"
 	OrdoService_GetRuleSet_FullMethodName   = "/ordo.v1.OrdoService/GetRuleSet"
 	OrdoService_ListRuleSets_FullMethodName = "/ordo.v1.OrdoService/ListRuleSets"
 	OrdoService_Eval_FullMethodName         = "/ordo.v1.OrdoService/Eval"
@@ -32,6 +33,12 @@ const (
 type OrdoServiceClient interface {
 	// Execute a ruleset with given input
 	Execute(ctx context.Context, in *ExecuteRequest, opts ...grpc.CallOption) (*ExecuteResponse, error)
+	// Execute a ruleset with multiple inputs (batch execution)
+	// More efficient than calling Execute multiple times:
+	// - Single RPC call for all inputs
+	// - Single lock acquisition for ruleset lookup
+	// - Optional parallel execution
+	BatchExecute(ctx context.Context, in *BatchExecuteRequest, opts ...grpc.CallOption) (*BatchExecuteResponse, error)
 	// Get a ruleset by name (read-only)
 	GetRuleSet(ctx context.Context, in *GetRuleSetRequest, opts ...grpc.CallOption) (*GetRuleSetResponse, error)
 	// List all available rulesets (read-only)
@@ -54,6 +61,16 @@ func (c *ordoServiceClient) Execute(ctx context.Context, in *ExecuteRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExecuteResponse)
 	err := c.cc.Invoke(ctx, OrdoService_Execute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *ordoServiceClient) BatchExecute(ctx context.Context, in *BatchExecuteRequest, opts ...grpc.CallOption) (*BatchExecuteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchExecuteResponse)
+	err := c.cc.Invoke(ctx, OrdoService_BatchExecute_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +123,12 @@ func (c *ordoServiceClient) Health(ctx context.Context, in *HealthRequest, opts 
 type OrdoServiceServer interface {
 	// Execute a ruleset with given input
 	Execute(context.Context, *ExecuteRequest) (*ExecuteResponse, error)
+	// Execute a ruleset with multiple inputs (batch execution)
+	// More efficient than calling Execute multiple times:
+	// - Single RPC call for all inputs
+	// - Single lock acquisition for ruleset lookup
+	// - Optional parallel execution
+	BatchExecute(context.Context, *BatchExecuteRequest) (*BatchExecuteResponse, error)
 	// Get a ruleset by name (read-only)
 	GetRuleSet(context.Context, *GetRuleSetRequest) (*GetRuleSetResponse, error)
 	// List all available rulesets (read-only)
@@ -126,6 +149,9 @@ type UnimplementedOrdoServiceServer struct{}
 
 func (UnimplementedOrdoServiceServer) Execute(context.Context, *ExecuteRequest) (*ExecuteResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
+}
+func (UnimplementedOrdoServiceServer) BatchExecute(context.Context, *BatchExecuteRequest) (*BatchExecuteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BatchExecute not implemented")
 }
 func (UnimplementedOrdoServiceServer) GetRuleSet(context.Context, *GetRuleSetRequest) (*GetRuleSetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRuleSet not implemented")
@@ -174,6 +200,24 @@ func _OrdoService_Execute_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OrdoServiceServer).Execute(ctx, req.(*ExecuteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OrdoService_BatchExecute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchExecuteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrdoServiceServer).BatchExecute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrdoService_BatchExecute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrdoServiceServer).BatchExecute(ctx, req.(*BatchExecuteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -260,6 +304,10 @@ var OrdoService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Execute",
 			Handler:    _OrdoService_Execute_Handler,
+		},
+		{
+			MethodName: "BatchExecute",
+			Handler:    _OrdoService_BatchExecute_Handler,
 		},
 		{
 			MethodName: "GetRuleSet",

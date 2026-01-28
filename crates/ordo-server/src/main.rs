@@ -301,10 +301,23 @@ async fn main() -> anyhow::Result<()> {
     // gRPC Server
     if config.grpc_enabled() {
         let grpc_store = store.clone();
+        let grpc_executor = executor.clone();
         let grpc_addr = config.grpc_addr();
         let default_tenant = config.default_tenant.clone();
+        let grpc_tenant_manager = tenant_manager.clone();
+        let grpc_rate_limiter = rate_limiter.clone();
+        let grpc_multi_tenancy_enabled = config.multi_tenancy_enabled;
         tasks.push(tokio::spawn(async move {
-            start_grpc_server(grpc_addr, grpc_store, default_tenant).await
+            start_grpc_server(
+                grpc_addr,
+                grpc_store,
+                grpc_executor,
+                default_tenant,
+                grpc_tenant_manager,
+                grpc_rate_limiter,
+                grpc_multi_tenancy_enabled,
+            )
+            .await
         }));
     }
 
@@ -312,12 +325,24 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(unix)]
     if config.uds_enabled() {
         let uds_store = store.clone();
+        let uds_executor = executor.clone();
         let uds_path = config.uds_path.clone().unwrap();
         let default_tenant = config.default_tenant.clone();
+        let uds_tenant_manager = tenant_manager.clone();
+        let uds_rate_limiter = rate_limiter.clone();
+        let uds_multi_tenancy_enabled = config.multi_tenancy_enabled;
         tasks.push(tokio::spawn(async move {
-            uds::start_uds_server(&uds_path, uds_store, default_tenant)
-                .await
-                .map_err(|e| anyhow::anyhow!("UDS server error: {}", e))
+            uds::start_uds_server(
+                &uds_path,
+                uds_store,
+                uds_executor,
+                default_tenant,
+                uds_tenant_manager,
+                uds_rate_limiter,
+                uds_multi_tenancy_enabled,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("UDS server error: {}", e))
         }));
     }
 
@@ -509,9 +534,20 @@ async fn start_http_server(
 async fn start_grpc_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
+    executor: Arc<RuleExecutor>,
     default_tenant: String,
+    tenant_manager: Arc<TenantManager>,
+    rate_limiter: Arc<RateLimiter>,
+    multi_tenancy_enabled: bool,
 ) -> anyhow::Result<()> {
-    let grpc_service = OrdoGrpcService::new(store, default_tenant);
+    let grpc_service = OrdoGrpcService::new(
+        store,
+        executor,
+        default_tenant,
+        tenant_manager,
+        rate_limiter,
+        multi_tenancy_enabled,
+    );
 
     info!("gRPC server listening on {}", addr);
 

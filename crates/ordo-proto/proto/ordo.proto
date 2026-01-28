@@ -11,10 +11,21 @@ option go_package = "github.com/pama-lee/ordo/proto/v1";
 // =============================================================================
 // This service is for business application callers.
 // Rule management (Create/Update/Delete) is handled via HTTP Admin API only.
+//
+// Multi-tenancy: All methods support multi-tenancy through gRPC metadata.
+// Pass "x-tenant-id" in the metadata to specify the tenant.
+// If not provided, the server's default tenant will be used.
 
 service OrdoService {
   // Execute a ruleset with given input
   rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  
+  // Execute a ruleset with multiple inputs (batch execution)
+  // More efficient than calling Execute multiple times:
+  // - Single RPC call for all inputs
+  // - Single lock acquisition for ruleset lookup
+  // - Optional parallel execution
+  rpc BatchExecute(BatchExecuteRequest) returns (BatchExecuteResponse);
   
   // Get a ruleset by name (read-only)
   rpc GetRuleSet(GetRuleSetRequest) returns (GetRuleSetResponse);
@@ -67,6 +78,71 @@ message ExecutionTrace {
   
   // Details of each step executed
   repeated StepTrace steps = 2;
+}
+
+// =============================================================================
+// Batch Execute Messages
+// =============================================================================
+
+message BatchExecuteRequest {
+  // Name of the ruleset to execute
+  string ruleset_name = 1;
+  
+  // List of inputs as JSON strings
+  repeated string inputs_json = 2;
+  
+  // Execution options
+  BatchExecuteOptions options = 3;
+}
+
+message BatchExecuteOptions {
+  // Whether to execute in parallel (default: true)
+  bool parallel = 1;
+  
+  // Whether to include execution trace in results (default: false)
+  bool include_trace = 2;
+}
+
+message BatchExecuteResponse {
+  // Results for each input (in same order as inputs)
+  repeated BatchExecuteResultItem results = 1;
+  
+  // Summary statistics
+  BatchExecuteSummary summary = 2;
+}
+
+message BatchExecuteResultItem {
+  // Execution result code (e.g., "APPROVED", "REJECTED", or "error" if failed)
+  string code = 1;
+  
+  // Human-readable result message
+  string message = 2;
+  
+  // Output data as JSON string
+  string output_json = 3;
+  
+  // Execution duration in microseconds
+  uint64 duration_us = 4;
+  
+  // Execution trace (if requested)
+  ExecutionTrace trace = 5;
+  
+  // Error message (if failed)
+  string error = 6;
+}
+
+message BatchExecuteSummary {
+  // Total number of inputs
+  uint32 total = 1;
+  
+  // Number of successful executions
+  uint32 success = 2;
+  
+  // Number of failed executions
+  uint32 failed = 3;
+  
+  // Total execution time in microseconds (sum of all individual durations)
+  uint64 total_duration_us = 4;
 }
 
 message StepTrace {

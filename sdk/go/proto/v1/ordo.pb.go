@@ -68,7 +68,7 @@ func (x HealthResponse_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use HealthResponse_Status.Descriptor instead.
 func (HealthResponse_Status) EnumDescriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{15, 0}
+	return file_ordo_proto_rawDescGZIP(), []int{20, 0}
 }
 
 type ExecuteRequest struct {
@@ -269,6 +269,339 @@ func (x *ExecutionTrace) GetSteps() []*StepTrace {
 	return nil
 }
 
+type BatchExecuteRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name of the ruleset to execute
+	RulesetName string `protobuf:"bytes,1,opt,name=ruleset_name,json=rulesetName,proto3" json:"ruleset_name,omitempty"`
+	// List of inputs as JSON strings
+	InputsJson []string `protobuf:"bytes,2,rep,name=inputs_json,json=inputsJson,proto3" json:"inputs_json,omitempty"`
+	// Execution options
+	Options       *BatchExecuteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchExecuteRequest) Reset() {
+	*x = BatchExecuteRequest{}
+	mi := &file_ordo_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchExecuteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchExecuteRequest) ProtoMessage() {}
+
+func (x *BatchExecuteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ordo_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchExecuteRequest.ProtoReflect.Descriptor instead.
+func (*BatchExecuteRequest) Descriptor() ([]byte, []int) {
+	return file_ordo_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *BatchExecuteRequest) GetRulesetName() string {
+	if x != nil {
+		return x.RulesetName
+	}
+	return ""
+}
+
+func (x *BatchExecuteRequest) GetInputsJson() []string {
+	if x != nil {
+		return x.InputsJson
+	}
+	return nil
+}
+
+func (x *BatchExecuteRequest) GetOptions() *BatchExecuteOptions {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
+type BatchExecuteOptions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether to execute in parallel (default: true)
+	Parallel bool `protobuf:"varint,1,opt,name=parallel,proto3" json:"parallel,omitempty"`
+	// Whether to include execution trace in results (default: false)
+	IncludeTrace  bool `protobuf:"varint,2,opt,name=include_trace,json=includeTrace,proto3" json:"include_trace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchExecuteOptions) Reset() {
+	*x = BatchExecuteOptions{}
+	mi := &file_ordo_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchExecuteOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchExecuteOptions) ProtoMessage() {}
+
+func (x *BatchExecuteOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_ordo_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchExecuteOptions.ProtoReflect.Descriptor instead.
+func (*BatchExecuteOptions) Descriptor() ([]byte, []int) {
+	return file_ordo_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *BatchExecuteOptions) GetParallel() bool {
+	if x != nil {
+		return x.Parallel
+	}
+	return false
+}
+
+func (x *BatchExecuteOptions) GetIncludeTrace() bool {
+	if x != nil {
+		return x.IncludeTrace
+	}
+	return false
+}
+
+type BatchExecuteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Results for each input (in same order as inputs)
+	Results []*BatchExecuteResultItem `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	// Summary statistics
+	Summary       *BatchExecuteSummary `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchExecuteResponse) Reset() {
+	*x = BatchExecuteResponse{}
+	mi := &file_ordo_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchExecuteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchExecuteResponse) ProtoMessage() {}
+
+func (x *BatchExecuteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ordo_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchExecuteResponse.ProtoReflect.Descriptor instead.
+func (*BatchExecuteResponse) Descriptor() ([]byte, []int) {
+	return file_ordo_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *BatchExecuteResponse) GetResults() []*BatchExecuteResultItem {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+func (x *BatchExecuteResponse) GetSummary() *BatchExecuteSummary {
+	if x != nil {
+		return x.Summary
+	}
+	return nil
+}
+
+type BatchExecuteResultItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Execution result code (e.g., "APPROVED", "REJECTED", or "error" if failed)
+	Code string `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	// Human-readable result message
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Output data as JSON string
+	OutputJson string `protobuf:"bytes,3,opt,name=output_json,json=outputJson,proto3" json:"output_json,omitempty"`
+	// Execution duration in microseconds
+	DurationUs uint64 `protobuf:"varint,4,opt,name=duration_us,json=durationUs,proto3" json:"duration_us,omitempty"`
+	// Execution trace (if requested)
+	Trace *ExecutionTrace `protobuf:"bytes,5,opt,name=trace,proto3" json:"trace,omitempty"`
+	// Error message (if failed)
+	Error         string `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchExecuteResultItem) Reset() {
+	*x = BatchExecuteResultItem{}
+	mi := &file_ordo_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchExecuteResultItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchExecuteResultItem) ProtoMessage() {}
+
+func (x *BatchExecuteResultItem) ProtoReflect() protoreflect.Message {
+	mi := &file_ordo_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchExecuteResultItem.ProtoReflect.Descriptor instead.
+func (*BatchExecuteResultItem) Descriptor() ([]byte, []int) {
+	return file_ordo_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *BatchExecuteResultItem) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *BatchExecuteResultItem) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *BatchExecuteResultItem) GetOutputJson() string {
+	if x != nil {
+		return x.OutputJson
+	}
+	return ""
+}
+
+func (x *BatchExecuteResultItem) GetDurationUs() uint64 {
+	if x != nil {
+		return x.DurationUs
+	}
+	return 0
+}
+
+func (x *BatchExecuteResultItem) GetTrace() *ExecutionTrace {
+	if x != nil {
+		return x.Trace
+	}
+	return nil
+}
+
+func (x *BatchExecuteResultItem) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type BatchExecuteSummary struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Total number of inputs
+	Total uint32 `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	// Number of successful executions
+	Success uint32 `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	// Number of failed executions
+	Failed uint32 `protobuf:"varint,3,opt,name=failed,proto3" json:"failed,omitempty"`
+	// Total execution time in microseconds (sum of all individual durations)
+	TotalDurationUs uint64 `protobuf:"varint,4,opt,name=total_duration_us,json=totalDurationUs,proto3" json:"total_duration_us,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BatchExecuteSummary) Reset() {
+	*x = BatchExecuteSummary{}
+	mi := &file_ordo_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchExecuteSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchExecuteSummary) ProtoMessage() {}
+
+func (x *BatchExecuteSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_ordo_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchExecuteSummary.ProtoReflect.Descriptor instead.
+func (*BatchExecuteSummary) Descriptor() ([]byte, []int) {
+	return file_ordo_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *BatchExecuteSummary) GetTotal() uint32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *BatchExecuteSummary) GetSuccess() uint32 {
+	if x != nil {
+		return x.Success
+	}
+	return 0
+}
+
+func (x *BatchExecuteSummary) GetFailed() uint32 {
+	if x != nil {
+		return x.Failed
+	}
+	return 0
+}
+
+func (x *BatchExecuteSummary) GetTotalDurationUs() uint64 {
+	if x != nil {
+		return x.TotalDurationUs
+	}
+	return 0
+}
+
 type StepTrace struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Step ID
@@ -285,7 +618,7 @@ type StepTrace struct {
 
 func (x *StepTrace) Reset() {
 	*x = StepTrace{}
-	mi := &file_ordo_proto_msgTypes[3]
+	mi := &file_ordo_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -297,7 +630,7 @@ func (x *StepTrace) String() string {
 func (*StepTrace) ProtoMessage() {}
 
 func (x *StepTrace) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[3]
+	mi := &file_ordo_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -310,7 +643,7 @@ func (x *StepTrace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepTrace.ProtoReflect.Descriptor instead.
 func (*StepTrace) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{3}
+	return file_ordo_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *StepTrace) GetStepId() string {
@@ -351,7 +684,7 @@ type GetRuleSetRequest struct {
 
 func (x *GetRuleSetRequest) Reset() {
 	*x = GetRuleSetRequest{}
-	mi := &file_ordo_proto_msgTypes[4]
+	mi := &file_ordo_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -363,7 +696,7 @@ func (x *GetRuleSetRequest) String() string {
 func (*GetRuleSetRequest) ProtoMessage() {}
 
 func (x *GetRuleSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[4]
+	mi := &file_ordo_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -376,7 +709,7 @@ func (x *GetRuleSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuleSetRequest.ProtoReflect.Descriptor instead.
 func (*GetRuleSetRequest) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{4}
+	return file_ordo_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetRuleSetRequest) GetName() string {
@@ -402,7 +735,7 @@ type GetRuleSetResponse struct {
 
 func (x *GetRuleSetResponse) Reset() {
 	*x = GetRuleSetResponse{}
-	mi := &file_ordo_proto_msgTypes[5]
+	mi := &file_ordo_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -414,7 +747,7 @@ func (x *GetRuleSetResponse) String() string {
 func (*GetRuleSetResponse) ProtoMessage() {}
 
 func (x *GetRuleSetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[5]
+	mi := &file_ordo_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,7 +760,7 @@ func (x *GetRuleSetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuleSetResponse.ProtoReflect.Descriptor instead.
 func (*GetRuleSetResponse) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{5}
+	return file_ordo_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetRuleSetResponse) GetRulesetJson() string {
@@ -470,7 +803,7 @@ type ListRuleSetsRequest struct {
 
 func (x *ListRuleSetsRequest) Reset() {
 	*x = ListRuleSetsRequest{}
-	mi := &file_ordo_proto_msgTypes[6]
+	mi := &file_ordo_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -482,7 +815,7 @@ func (x *ListRuleSetsRequest) String() string {
 func (*ListRuleSetsRequest) ProtoMessage() {}
 
 func (x *ListRuleSetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[6]
+	mi := &file_ordo_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -495,7 +828,7 @@ func (x *ListRuleSetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuleSetsRequest.ProtoReflect.Descriptor instead.
 func (*ListRuleSetsRequest) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{6}
+	return file_ordo_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListRuleSetsRequest) GetNamePrefix() string {
@@ -524,7 +857,7 @@ type ListRuleSetsResponse struct {
 
 func (x *ListRuleSetsResponse) Reset() {
 	*x = ListRuleSetsResponse{}
-	mi := &file_ordo_proto_msgTypes[7]
+	mi := &file_ordo_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -536,7 +869,7 @@ func (x *ListRuleSetsResponse) String() string {
 func (*ListRuleSetsResponse) ProtoMessage() {}
 
 func (x *ListRuleSetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[7]
+	mi := &file_ordo_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -549,7 +882,7 @@ func (x *ListRuleSetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuleSetsResponse.ProtoReflect.Descriptor instead.
 func (*ListRuleSetsResponse) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{7}
+	return file_ordo_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListRuleSetsResponse) GetRulesets() []*RuleSetSummary {
@@ -582,7 +915,7 @@ type RuleSetSummary struct {
 
 func (x *RuleSetSummary) Reset() {
 	*x = RuleSetSummary{}
-	mi := &file_ordo_proto_msgTypes[8]
+	mi := &file_ordo_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -594,7 +927,7 @@ func (x *RuleSetSummary) String() string {
 func (*RuleSetSummary) ProtoMessage() {}
 
 func (x *RuleSetSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[8]
+	mi := &file_ordo_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -607,7 +940,7 @@ func (x *RuleSetSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuleSetSummary.ProtoReflect.Descriptor instead.
 func (*RuleSetSummary) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{8}
+	return file_ordo_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RuleSetSummary) GetName() string {
@@ -650,7 +983,7 @@ type EvalRequest struct {
 
 func (x *EvalRequest) Reset() {
 	*x = EvalRequest{}
-	mi := &file_ordo_proto_msgTypes[9]
+	mi := &file_ordo_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -662,7 +995,7 @@ func (x *EvalRequest) String() string {
 func (*EvalRequest) ProtoMessage() {}
 
 func (x *EvalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[9]
+	mi := &file_ordo_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -675,7 +1008,7 @@ func (x *EvalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvalRequest.ProtoReflect.Descriptor instead.
 func (*EvalRequest) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{9}
+	return file_ordo_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *EvalRequest) GetExpression() string {
@@ -704,7 +1037,7 @@ type EvalResponse struct {
 
 func (x *EvalResponse) Reset() {
 	*x = EvalResponse{}
-	mi := &file_ordo_proto_msgTypes[10]
+	mi := &file_ordo_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -716,7 +1049,7 @@ func (x *EvalResponse) String() string {
 func (*EvalResponse) ProtoMessage() {}
 
 func (x *EvalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[10]
+	mi := &file_ordo_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -729,7 +1062,7 @@ func (x *EvalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvalResponse.ProtoReflect.Descriptor instead.
 func (*EvalResponse) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{10}
+	return file_ordo_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EvalResponse) GetResultJson() string {
@@ -763,7 +1096,7 @@ type TypedExecuteRequest struct {
 
 func (x *TypedExecuteRequest) Reset() {
 	*x = TypedExecuteRequest{}
-	mi := &file_ordo_proto_msgTypes[11]
+	mi := &file_ordo_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -775,7 +1108,7 @@ func (x *TypedExecuteRequest) String() string {
 func (*TypedExecuteRequest) ProtoMessage() {}
 
 func (x *TypedExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[11]
+	mi := &file_ordo_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -788,7 +1121,7 @@ func (x *TypedExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypedExecuteRequest.ProtoReflect.Descriptor instead.
 func (*TypedExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{11}
+	return file_ordo_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *TypedExecuteRequest) GetRulesetName() string {
@@ -833,7 +1166,7 @@ type TypedEvalRequest struct {
 
 func (x *TypedEvalRequest) Reset() {
 	*x = TypedEvalRequest{}
-	mi := &file_ordo_proto_msgTypes[12]
+	mi := &file_ordo_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -845,7 +1178,7 @@ func (x *TypedEvalRequest) String() string {
 func (*TypedEvalRequest) ProtoMessage() {}
 
 func (x *TypedEvalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[12]
+	mi := &file_ordo_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -858,7 +1191,7 @@ func (x *TypedEvalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypedEvalRequest.ProtoReflect.Descriptor instead.
 func (*TypedEvalRequest) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{12}
+	return file_ordo_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TypedEvalRequest) GetExpression() string {
@@ -896,7 +1229,7 @@ type TypedEvalResponse struct {
 
 func (x *TypedEvalResponse) Reset() {
 	*x = TypedEvalResponse{}
-	mi := &file_ordo_proto_msgTypes[13]
+	mi := &file_ordo_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -908,7 +1241,7 @@ func (x *TypedEvalResponse) String() string {
 func (*TypedEvalResponse) ProtoMessage() {}
 
 func (x *TypedEvalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[13]
+	mi := &file_ordo_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -921,7 +1254,7 @@ func (x *TypedEvalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TypedEvalResponse.ProtoReflect.Descriptor instead.
 func (*TypedEvalResponse) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{13}
+	return file_ordo_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TypedEvalResponse) GetResult() float64 {
@@ -955,7 +1288,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_ordo_proto_msgTypes[14]
+	mi := &file_ordo_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -967,7 +1300,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[14]
+	mi := &file_ordo_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -980,7 +1313,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{14}
+	return file_ordo_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *HealthRequest) GetService() string {
@@ -1005,7 +1338,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_ordo_proto_msgTypes[15]
+	mi := &file_ordo_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1350,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ordo_proto_msgTypes[15]
+	mi := &file_ordo_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1363,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_ordo_proto_rawDescGZIP(), []int{15}
+	return file_ordo_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *HealthResponse) GetStatus() HealthResponse_Status {
@@ -1082,7 +1415,32 @@ const file_ordo_proto_rawDesc = "" +
 	"\x05trace\x18\x05 \x01(\v2\x17.ordo.v1.ExecutionTraceR\x05trace\"N\n" +
 	"\x0eExecutionTrace\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12(\n" +
-	"\x05steps\x18\x02 \x03(\v2\x12.ordo.v1.StepTraceR\x05steps\"z\n" +
+	"\x05steps\x18\x02 \x03(\v2\x12.ordo.v1.StepTraceR\x05steps\"\x91\x01\n" +
+	"\x13BatchExecuteRequest\x12!\n" +
+	"\fruleset_name\x18\x01 \x01(\tR\vrulesetName\x12\x1f\n" +
+	"\vinputs_json\x18\x02 \x03(\tR\n" +
+	"inputsJson\x126\n" +
+	"\aoptions\x18\x03 \x01(\v2\x1c.ordo.v1.BatchExecuteOptionsR\aoptions\"V\n" +
+	"\x13BatchExecuteOptions\x12\x1a\n" +
+	"\bparallel\x18\x01 \x01(\bR\bparallel\x12#\n" +
+	"\rinclude_trace\x18\x02 \x01(\bR\fincludeTrace\"\x89\x01\n" +
+	"\x14BatchExecuteResponse\x129\n" +
+	"\aresults\x18\x01 \x03(\v2\x1f.ordo.v1.BatchExecuteResultItemR\aresults\x126\n" +
+	"\asummary\x18\x02 \x01(\v2\x1c.ordo.v1.BatchExecuteSummaryR\asummary\"\xcd\x01\n" +
+	"\x16BatchExecuteResultItem\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1f\n" +
+	"\voutput_json\x18\x03 \x01(\tR\n" +
+	"outputJson\x12\x1f\n" +
+	"\vduration_us\x18\x04 \x01(\x04R\n" +
+	"durationUs\x12-\n" +
+	"\x05trace\x18\x05 \x01(\v2\x17.ordo.v1.ExecutionTraceR\x05trace\x12\x14\n" +
+	"\x05error\x18\x06 \x01(\tR\x05error\"\x89\x01\n" +
+	"\x13BatchExecuteSummary\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\rR\x05total\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\rR\asuccess\x12\x16\n" +
+	"\x06failed\x18\x03 \x01(\rR\x06failed\x12*\n" +
+	"\x11total_duration_us\x18\x04 \x01(\x04R\x0ftotalDurationUs\"z\n" +
 	"\tStepTrace\x12\x17\n" +
 	"\astep_id\x18\x01 \x01(\tR\x06stepId\x12\x1b\n" +
 	"\tstep_name\x18\x02 \x01(\tR\bstepName\x12\x1f\n" +
@@ -1148,9 +1506,10 @@ const file_ordo_proto_rawDesc = "" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\v\n" +
 	"\aSERVING\x10\x01\x12\x0f\n" +
-	"\vNOT_SERVING\x10\x022\xcf\x02\n" +
+	"\vNOT_SERVING\x10\x022\x9c\x03\n" +
 	"\vOrdoService\x12<\n" +
-	"\aExecute\x12\x17.ordo.v1.ExecuteRequest\x1a\x18.ordo.v1.ExecuteResponse\x12E\n" +
+	"\aExecute\x12\x17.ordo.v1.ExecuteRequest\x1a\x18.ordo.v1.ExecuteResponse\x12K\n" +
+	"\fBatchExecute\x12\x1c.ordo.v1.BatchExecuteRequest\x1a\x1d.ordo.v1.BatchExecuteResponse\x12E\n" +
 	"\n" +
 	"GetRuleSet\x12\x1a.ordo.v1.GetRuleSetRequest\x1a\x1b.ordo.v1.GetRuleSetResponse\x12K\n" +
 	"\fListRuleSets\x12\x1c.ordo.v1.ListRuleSetsRequest\x1a\x1d.ordo.v1.ListRuleSetsResponse\x123\n" +
@@ -1171,46 +1530,57 @@ func file_ordo_proto_rawDescGZIP() []byte {
 }
 
 var file_ordo_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_ordo_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_ordo_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_ordo_proto_goTypes = []any{
-	(HealthResponse_Status)(0),   // 0: ordo.v1.HealthResponse.Status
-	(*ExecuteRequest)(nil),       // 1: ordo.v1.ExecuteRequest
-	(*ExecuteResponse)(nil),      // 2: ordo.v1.ExecuteResponse
-	(*ExecutionTrace)(nil),       // 3: ordo.v1.ExecutionTrace
-	(*StepTrace)(nil),            // 4: ordo.v1.StepTrace
-	(*GetRuleSetRequest)(nil),    // 5: ordo.v1.GetRuleSetRequest
-	(*GetRuleSetResponse)(nil),   // 6: ordo.v1.GetRuleSetResponse
-	(*ListRuleSetsRequest)(nil),  // 7: ordo.v1.ListRuleSetsRequest
-	(*ListRuleSetsResponse)(nil), // 8: ordo.v1.ListRuleSetsResponse
-	(*RuleSetSummary)(nil),       // 9: ordo.v1.RuleSetSummary
-	(*EvalRequest)(nil),          // 10: ordo.v1.EvalRequest
-	(*EvalResponse)(nil),         // 11: ordo.v1.EvalResponse
-	(*TypedExecuteRequest)(nil),  // 12: ordo.v1.TypedExecuteRequest
-	(*TypedEvalRequest)(nil),     // 13: ordo.v1.TypedEvalRequest
-	(*TypedEvalResponse)(nil),    // 14: ordo.v1.TypedEvalResponse
-	(*HealthRequest)(nil),        // 15: ordo.v1.HealthRequest
-	(*HealthResponse)(nil),       // 16: ordo.v1.HealthResponse
+	(HealthResponse_Status)(0),     // 0: ordo.v1.HealthResponse.Status
+	(*ExecuteRequest)(nil),         // 1: ordo.v1.ExecuteRequest
+	(*ExecuteResponse)(nil),        // 2: ordo.v1.ExecuteResponse
+	(*ExecutionTrace)(nil),         // 3: ordo.v1.ExecutionTrace
+	(*BatchExecuteRequest)(nil),    // 4: ordo.v1.BatchExecuteRequest
+	(*BatchExecuteOptions)(nil),    // 5: ordo.v1.BatchExecuteOptions
+	(*BatchExecuteResponse)(nil),   // 6: ordo.v1.BatchExecuteResponse
+	(*BatchExecuteResultItem)(nil), // 7: ordo.v1.BatchExecuteResultItem
+	(*BatchExecuteSummary)(nil),    // 8: ordo.v1.BatchExecuteSummary
+	(*StepTrace)(nil),              // 9: ordo.v1.StepTrace
+	(*GetRuleSetRequest)(nil),      // 10: ordo.v1.GetRuleSetRequest
+	(*GetRuleSetResponse)(nil),     // 11: ordo.v1.GetRuleSetResponse
+	(*ListRuleSetsRequest)(nil),    // 12: ordo.v1.ListRuleSetsRequest
+	(*ListRuleSetsResponse)(nil),   // 13: ordo.v1.ListRuleSetsResponse
+	(*RuleSetSummary)(nil),         // 14: ordo.v1.RuleSetSummary
+	(*EvalRequest)(nil),            // 15: ordo.v1.EvalRequest
+	(*EvalResponse)(nil),           // 16: ordo.v1.EvalResponse
+	(*TypedExecuteRequest)(nil),    // 17: ordo.v1.TypedExecuteRequest
+	(*TypedEvalRequest)(nil),       // 18: ordo.v1.TypedEvalRequest
+	(*TypedEvalResponse)(nil),      // 19: ordo.v1.TypedEvalResponse
+	(*HealthRequest)(nil),          // 20: ordo.v1.HealthRequest
+	(*HealthResponse)(nil),         // 21: ordo.v1.HealthResponse
 }
 var file_ordo_proto_depIdxs = []int32{
 	3,  // 0: ordo.v1.ExecuteResponse.trace:type_name -> ordo.v1.ExecutionTrace
-	4,  // 1: ordo.v1.ExecutionTrace.steps:type_name -> ordo.v1.StepTrace
-	9,  // 2: ordo.v1.ListRuleSetsResponse.rulesets:type_name -> ordo.v1.RuleSetSummary
-	0,  // 3: ordo.v1.HealthResponse.status:type_name -> ordo.v1.HealthResponse.Status
-	1,  // 4: ordo.v1.OrdoService.Execute:input_type -> ordo.v1.ExecuteRequest
-	5,  // 5: ordo.v1.OrdoService.GetRuleSet:input_type -> ordo.v1.GetRuleSetRequest
-	7,  // 6: ordo.v1.OrdoService.ListRuleSets:input_type -> ordo.v1.ListRuleSetsRequest
-	10, // 7: ordo.v1.OrdoService.Eval:input_type -> ordo.v1.EvalRequest
-	15, // 8: ordo.v1.OrdoService.Health:input_type -> ordo.v1.HealthRequest
-	2,  // 9: ordo.v1.OrdoService.Execute:output_type -> ordo.v1.ExecuteResponse
-	6,  // 10: ordo.v1.OrdoService.GetRuleSet:output_type -> ordo.v1.GetRuleSetResponse
-	8,  // 11: ordo.v1.OrdoService.ListRuleSets:output_type -> ordo.v1.ListRuleSetsResponse
-	11, // 12: ordo.v1.OrdoService.Eval:output_type -> ordo.v1.EvalResponse
-	16, // 13: ordo.v1.OrdoService.Health:output_type -> ordo.v1.HealthResponse
-	9,  // [9:14] is the sub-list for method output_type
-	4,  // [4:9] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	9,  // 1: ordo.v1.ExecutionTrace.steps:type_name -> ordo.v1.StepTrace
+	5,  // 2: ordo.v1.BatchExecuteRequest.options:type_name -> ordo.v1.BatchExecuteOptions
+	7,  // 3: ordo.v1.BatchExecuteResponse.results:type_name -> ordo.v1.BatchExecuteResultItem
+	8,  // 4: ordo.v1.BatchExecuteResponse.summary:type_name -> ordo.v1.BatchExecuteSummary
+	3,  // 5: ordo.v1.BatchExecuteResultItem.trace:type_name -> ordo.v1.ExecutionTrace
+	14, // 6: ordo.v1.ListRuleSetsResponse.rulesets:type_name -> ordo.v1.RuleSetSummary
+	0,  // 7: ordo.v1.HealthResponse.status:type_name -> ordo.v1.HealthResponse.Status
+	1,  // 8: ordo.v1.OrdoService.Execute:input_type -> ordo.v1.ExecuteRequest
+	4,  // 9: ordo.v1.OrdoService.BatchExecute:input_type -> ordo.v1.BatchExecuteRequest
+	10, // 10: ordo.v1.OrdoService.GetRuleSet:input_type -> ordo.v1.GetRuleSetRequest
+	12, // 11: ordo.v1.OrdoService.ListRuleSets:input_type -> ordo.v1.ListRuleSetsRequest
+	15, // 12: ordo.v1.OrdoService.Eval:input_type -> ordo.v1.EvalRequest
+	20, // 13: ordo.v1.OrdoService.Health:input_type -> ordo.v1.HealthRequest
+	2,  // 14: ordo.v1.OrdoService.Execute:output_type -> ordo.v1.ExecuteResponse
+	6,  // 15: ordo.v1.OrdoService.BatchExecute:output_type -> ordo.v1.BatchExecuteResponse
+	11, // 16: ordo.v1.OrdoService.GetRuleSet:output_type -> ordo.v1.GetRuleSetResponse
+	13, // 17: ordo.v1.OrdoService.ListRuleSets:output_type -> ordo.v1.ListRuleSetsResponse
+	16, // 18: ordo.v1.OrdoService.Eval:output_type -> ordo.v1.EvalResponse
+	21, // 19: ordo.v1.OrdoService.Health:output_type -> ordo.v1.HealthResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_ordo_proto_init() }
@@ -1224,7 +1594,7 @@ func file_ordo_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ordo_proto_rawDesc), len(file_ordo_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

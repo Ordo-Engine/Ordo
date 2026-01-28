@@ -3,6 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use ordo_core::rule::RuleExecutor;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
@@ -11,13 +12,19 @@ use tracing::info;
 use ordo_proto::ordo_service_server::OrdoServiceServer;
 
 use crate::grpc::OrdoGrpcService;
+use crate::rate_limiter::RateLimiter;
 use crate::store::RuleStore;
+use crate::tenant::TenantManager;
 
 /// Start the gRPC server over Unix Domain Socket
 pub async fn start_uds_server(
     uds_path: &Path,
     store: Arc<tokio::sync::RwLock<RuleStore>>,
+    executor: Arc<RuleExecutor>,
     default_tenant: String,
+    tenant_manager: Arc<TenantManager>,
+    rate_limiter: Arc<RateLimiter>,
+    multi_tenancy_enabled: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Remove existing socket file if it exists
     if uds_path.exists() {
@@ -36,7 +43,14 @@ pub async fn start_uds_server(
     info!("UDS server listening on {:?}", uds_path);
 
     // Create gRPC service
-    let grpc_service = OrdoGrpcService::new(store, default_tenant);
+    let grpc_service = OrdoGrpcService::new(
+        store,
+        executor,
+        default_tenant,
+        tenant_manager,
+        rate_limiter,
+        multi_tenancy_enabled,
+    );
 
     // Start server
     Server::builder()
@@ -60,6 +74,7 @@ pub fn cleanup_uds(uds_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tenant::{TenantDefaults, TenantManager};
     use std::time::Duration;
     use tempfile::tempdir;
 
@@ -69,12 +84,33 @@ mod tests {
         let socket_path = temp_dir.path().join("test.sock");
 
         let store = Arc::new(tokio::sync::RwLock::new(RuleStore::new()));
+        let executor = Arc::new(RuleExecutor::new());
+        let defaults = TenantDefaults {
+            default_qps_limit: Some(1000),
+            default_burst_limit: Some(100),
+            default_timeout_ms: 100,
+        };
+        let tenant_manager = Arc::new(TenantManager::new(None, defaults).await.unwrap());
+        tenant_manager.ensure_default("default").await.unwrap();
+        let rate_limiter = Arc::new(RateLimiter::new());
 
         // Start server in background
         let socket_path_clone = socket_path.clone();
         let store_clone = store.clone();
+        let executor_clone = executor.clone();
+        let tenant_manager_clone = tenant_manager.clone();
+        let rate_limiter_clone = rate_limiter.clone();
         let server_handle = tokio::spawn(async move {
-            start_uds_server(&socket_path_clone, store_clone, "default".to_string()).await
+            start_uds_server(
+                &socket_path_clone,
+                store_clone,
+                executor_clone,
+                "default".to_string(),
+                tenant_manager_clone,
+                rate_limiter_clone,
+                false,
+            )
+            .await
         });
 
         // Give server time to start

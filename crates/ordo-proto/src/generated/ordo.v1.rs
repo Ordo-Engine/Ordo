@@ -43,6 +43,77 @@ pub struct ExecutionTrace {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchExecuteRequest {
+    /// Name of the ruleset to execute
+    #[prost(string, tag = "1")]
+    pub ruleset_name: ::prost::alloc::string::String,
+    /// List of inputs as JSON strings
+    #[prost(string, repeated, tag = "2")]
+    pub inputs_json: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Execution options
+    #[prost(message, optional, tag = "3")]
+    pub options: ::core::option::Option<BatchExecuteOptions>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchExecuteOptions {
+    /// Whether to execute in parallel (default: true)
+    #[prost(bool, tag = "1")]
+    pub parallel: bool,
+    /// Whether to include execution trace in results (default: false)
+    #[prost(bool, tag = "2")]
+    pub include_trace: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchExecuteResponse {
+    /// Results for each input (in same order as inputs)
+    #[prost(message, repeated, tag = "1")]
+    pub results: ::prost::alloc::vec::Vec<BatchExecuteResultItem>,
+    /// Summary statistics
+    #[prost(message, optional, tag = "2")]
+    pub summary: ::core::option::Option<BatchExecuteSummary>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchExecuteResultItem {
+    /// Execution result code (e.g., "APPROVED", "REJECTED", or "error" if failed)
+    #[prost(string, tag = "1")]
+    pub code: ::prost::alloc::string::String,
+    /// Human-readable result message
+    #[prost(string, tag = "2")]
+    pub message: ::prost::alloc::string::String,
+    /// Output data as JSON string
+    #[prost(string, tag = "3")]
+    pub output_json: ::prost::alloc::string::String,
+    /// Execution duration in microseconds
+    #[prost(uint64, tag = "4")]
+    pub duration_us: u64,
+    /// Execution trace (if requested)
+    #[prost(message, optional, tag = "5")]
+    pub trace: ::core::option::Option<ExecutionTrace>,
+    /// Error message (if failed)
+    #[prost(string, tag = "6")]
+    pub error: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BatchExecuteSummary {
+    /// Total number of inputs
+    #[prost(uint32, tag = "1")]
+    pub total: u32,
+    /// Number of successful executions
+    #[prost(uint32, tag = "2")]
+    pub success: u32,
+    /// Number of failed executions
+    #[prost(uint32, tag = "3")]
+    pub failed: u32,
+    /// Total execution time in microseconds (sum of all individual durations)
+    #[prost(uint64, tag = "4")]
+    pub total_duration_us: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StepTrace {
     /// Step ID
     #[prost(string, tag = "1")]
@@ -355,6 +426,36 @@ pub mod ordo_service_client {
                 .insert(GrpcMethod::new("ordo.v1.OrdoService", "Execute"));
             self.inner.unary(req, path, codec).await
         }
+        /// Execute a ruleset with multiple inputs (batch execution)
+        /// More efficient than calling Execute multiple times:
+        /// - Single RPC call for all inputs
+        /// - Single lock acquisition for ruleset lookup
+        /// - Optional parallel execution
+        pub async fn batch_execute(
+            &mut self,
+            request: impl tonic::IntoRequest<super::BatchExecuteRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::BatchExecuteResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/ordo.v1.OrdoService/BatchExecute",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("ordo.v1.OrdoService", "BatchExecute"));
+            self.inner.unary(req, path, codec).await
+        }
         /// Get a ruleset by name (read-only)
         pub async fn get_rule_set(
             &mut self,
@@ -464,6 +565,18 @@ pub mod ordo_service_server {
             &self,
             request: tonic::Request<super::ExecuteRequest>,
         ) -> std::result::Result<tonic::Response<super::ExecuteResponse>, tonic::Status>;
+        /// Execute a ruleset with multiple inputs (batch execution)
+        /// More efficient than calling Execute multiple times:
+        /// - Single RPC call for all inputs
+        /// - Single lock acquisition for ruleset lookup
+        /// - Optional parallel execution
+        async fn batch_execute(
+            &self,
+            request: tonic::Request<super::BatchExecuteRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::BatchExecuteResponse>,
+            tonic::Status,
+        >;
         /// Get a ruleset by name (read-only)
         async fn get_rule_set(
             &self,
@@ -601,6 +714,52 @@ pub mod ordo_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ExecuteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/ordo.v1.OrdoService/BatchExecute" => {
+                    #[allow(non_camel_case_types)]
+                    struct BatchExecuteSvc<T: OrdoService>(pub Arc<T>);
+                    impl<
+                        T: OrdoService,
+                    > tonic::server::UnaryService<super::BatchExecuteRequest>
+                    for BatchExecuteSvc<T> {
+                        type Response = super::BatchExecuteResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::BatchExecuteRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as OrdoService>::batch_execute(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = BatchExecuteSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

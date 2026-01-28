@@ -21,6 +21,9 @@ type ClientOptions struct {
 	GRPCAddress  string
 	GRPCDialOpts []grpc.DialOption
 
+	// Multi-tenancy configuration
+	TenantID string
+
 	// Retry configuration
 	RetryConfig *retry.Config
 
@@ -127,6 +130,13 @@ func WithGRPCOnly() ClientOption {
 	return func(o *ClientOptions) {
 		o.GRPCOnly = true
 		o.HTTPOnly = false
+	}
+}
+
+// WithTenantID sets the default tenant ID for multi-tenancy support
+func WithTenantID(tenantID string) ClientOption {
+	return func(o *ClientOptions) {
+		o.TenantID = tenantID
 	}
 }
 

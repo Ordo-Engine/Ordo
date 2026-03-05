@@ -4,14 +4,15 @@ This page documents all configuration options for Ordo server.
 
 ## Server Configuration
 
-| Option       | CLI Flag         | Default         | Description              |
-| ------------ | ---------------- | --------------- | ------------------------ |
-| HTTP Address | `--http-addr`    | `0.0.0.0:8080`  | HTTP server bind address |
-| gRPC Address | `--grpc-addr`    | `0.0.0.0:50051` | gRPC server bind address |
-| UDS Path     | `--uds-path`     | None            | Unix Domain Socket path  |
-| Disable HTTP | `--disable-http` | `false`         | Disable HTTP server      |
-| Disable gRPC | `--disable-grpc` | `false`         | Disable gRPC server      |
-| Log Level    | `--log-level`    | `info`          | Logging verbosity        |
+| Option           | CLI Flag                  | Default         | Description                                                     |
+| ---------------- | ------------------------- | --------------- | --------------------------------------------------------------- |
+| HTTP Address     | `--http-addr`             | `0.0.0.0:8080`  | HTTP server bind address                                        |
+| gRPC Address     | `--grpc-addr`             | `0.0.0.0:50051` | gRPC server bind address                                        |
+| UDS Path         | `--uds-path`              | None            | Unix Domain Socket path                                         |
+| Disable HTTP     | `--disable-http`          | `false`         | Disable HTTP server                                             |
+| Disable gRPC     | `--disable-grpc`          | `false`         | Disable gRPC server                                             |
+| Log Level        | `--log-level`             | `info`          | Logging verbosity                                               |
+| Shutdown Timeout | `--shutdown-timeout-secs` | `30`            | Seconds to wait for in-flight requests during graceful shutdown |
 
 ## Storage Configuration
 
@@ -36,6 +37,22 @@ This page documents all configuration options for Ordo server.
 | Trusted Public Keys  | `--signature-trusted-keys`         | None    | Comma-separated base64 public keys          |
 | Trusted Keys File    | `--signature-trusted-keys-file`    | None    | File with base64 public keys (one per line) |
 | Allow Unsigned Local | `--signature-allow-unsigned-local` | `true`  | Allow unsigned local files on startup       |
+
+## Observability Configuration
+
+| Option        | CLI Flag          | Env Variable         | Default       | Description                                                                                                    |
+| ------------- | ----------------- | -------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| Service Name  | `--service-name`  | `ORDO_SERVICE_NAME`  | `ordo-server` | Service name reported in OpenTelemetry traces                                                                  |
+| OTLP Endpoint | `--otlp-endpoint` | `ORDO_OTLP_ENDPOINT` | None          | OTLP HTTP endpoint for exporting traces (e.g. `http://localhost:4318`). If not set, OpenTelemetry is disabled. |
+
+When `--otlp-endpoint` is set, traces are exported via OTLP HTTP (protobuf). This is compatible with OpenTelemetry Collector, Jaeger, Tempo, and other OTLP-compatible backends.
+
+```bash
+# Export traces to a local OpenTelemetry Collector
+ordo-server \
+  --service-name my-ordo \
+  --otlp-endpoint http://otel-collector:4318
+```
 
 ## Runtime Configuration
 
@@ -67,6 +84,9 @@ ENV ORDO_AUDIT_DIR=/data/audit
 ENV ORDO_LOG_LEVEL=info
 ENV ORDO_SIGNATURE_ENABLED=true
 ENV ORDO_SIGNATURE_TRUSTED_KEYS_FILE=/data/keys/trusted_keys.txt
+ENV ORDO_SERVICE_NAME=ordo-server
+ENV ORDO_OTLP_ENDPOINT=http://otel-collector:4318
+ENV ORDO_SHUTDOWN_TIMEOUT_SECS=30
 ```
 
 ### Docker Compose
@@ -102,10 +122,13 @@ kind: ConfigMap
 metadata:
   name: ordo-config
 data:
-  HTTP_ADDR: '0.0.0.0:8080'
-  GRPC_ADDR: '0.0.0.0:50051'
-  LOG_LEVEL: 'info'
-  AUDIT_SAMPLE_RATE: '10'
+  ORDO_HTTP_ADDR: '0.0.0.0:8080'
+  ORDO_GRPC_ADDR: '0.0.0.0:50051'
+  ORDO_LOG_LEVEL: 'info'
+  ORDO_AUDIT_SAMPLE_RATE: '10'
+  ORDO_SERVICE_NAME: 'ordo-server'
+  ORDO_OTLP_ENDPOINT: 'http://otel-collector:4318'
+  ORDO_SHUTDOWN_TIMEOUT_SECS: '30'
 ```
 
 ### Deployment

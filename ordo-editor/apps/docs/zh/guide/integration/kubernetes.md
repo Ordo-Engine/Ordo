@@ -84,7 +84,7 @@ spec:
 
 ## 配置说明
 
-- **健康检查**：配置了 Liveness 和 Readiness探针，均指向 `/health` 端点。
+- **健康检查**：配置了 Liveness 和 Readiness 探针，均指向 `/health` 端点。
 - **端口**：容器暴露 8080 (HTTP) 和 50051 (gRPC)。
 - **资源限制**：建议根据实际负载调整 CPU 和内存限制。
 - **水平扩展**：可以通过修改 `replicas` 数量轻松扩展服务实例。

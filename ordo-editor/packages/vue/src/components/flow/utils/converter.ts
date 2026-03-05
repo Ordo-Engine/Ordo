@@ -425,8 +425,8 @@ export function createEdge(
   const edgeId = options?.branchId
     ? `${sourceId}-${options.branchId}`
     : options?.isDefault
-      ? `${sourceId}-default`
-      : `${sourceId}-next`;
+    ? `${sourceId}-default`
+    : `${sourceId}-next`;
 
   // Determine edge type
   const edgeType: FlowEdgeType = options?.branchId ? 'exec-branch' : 'exec';

@@ -28,6 +28,7 @@
 //! ```
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     extract::State,
@@ -37,12 +38,12 @@ use axum::{
 };
 use clap::Parser;
 use ordo_proto::ordo_service_server::OrdoServiceServer;
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
 use tonic::transport::Server as TonicServer;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, warn, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::{info, warn};
 
 mod api;
 mod audit;
@@ -54,6 +55,7 @@ mod metrics;
 mod middleware;
 mod rate_limiter;
 mod store;
+mod telemetry;
 mod tenant;
 #[cfg(unix)]
 mod uds;
@@ -117,20 +119,32 @@ fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<Rule
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Install panic hook first — before any other setup — so panics are always logged.
+    std::panic::set_hook(Box::new(|info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("Box<dyn Any>");
+        // Use both tracing (may not be initialized yet) and stderr as fallback.
+        tracing::error!(location = %location, "PANIC: {}", payload);
+        eprintln!("PANIC at {location}: {payload}");
+    }));
+
     // Parse command line arguments (also reads from environment variables)
     let config = Arc::new(ServerConfig::parse());
 
-    // Initialize logging
-    let log_level = match config.log_level.as_str() {
-        "trace" => Level::TRACE,
-        "debug" => Level::DEBUG,
-        "info" => Level::INFO,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => Level::INFO,
-    };
-    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    // Initialize structured logging (+ optional OTLP tracing)
+    let otel_provider = telemetry::init(
+        &config.service_name,
+        &config.log_level,
+        config.otlp_endpoint.as_deref(),
+    );
 
     // Log debug mode warning
     if config.debug_enabled() {
@@ -260,6 +274,10 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let rate_limiter = Arc::new(RateLimiter::new());
+
+    // Shutdown broadcast channel — signal handlers and servers share this.
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
     // Log server started event
     {
         let store_guard = store.read().await;
@@ -281,6 +299,7 @@ async fn main() -> anyhow::Result<()> {
         let http_tenant_manager = tenant_manager.clone();
         let http_rate_limiter = rate_limiter.clone();
         let http_addr = config.http_addr();
+        let http_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             start_http_server(
                 http_addr,
@@ -293,6 +312,7 @@ async fn main() -> anyhow::Result<()> {
                 http_debug_sessions,
                 http_tenant_manager,
                 http_rate_limiter,
+                http_shutdown_rx,
             )
             .await
         }));
@@ -307,6 +327,7 @@ async fn main() -> anyhow::Result<()> {
         let grpc_tenant_manager = tenant_manager.clone();
         let grpc_rate_limiter = rate_limiter.clone();
         let grpc_multi_tenancy_enabled = config.multi_tenancy_enabled;
+        let grpc_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             start_grpc_server(
                 grpc_addr,
@@ -316,6 +337,7 @@ async fn main() -> anyhow::Result<()> {
                 grpc_tenant_manager,
                 grpc_rate_limiter,
                 grpc_multi_tenancy_enabled,
+                grpc_shutdown_rx,
             )
             .await
         }));
@@ -331,6 +353,7 @@ async fn main() -> anyhow::Result<()> {
         let uds_tenant_manager = tenant_manager.clone();
         let uds_rate_limiter = rate_limiter.clone();
         let uds_multi_tenancy_enabled = config.multi_tenancy_enabled;
+        let uds_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             uds::start_uds_server(
                 &uds_path,
@@ -340,16 +363,17 @@ async fn main() -> anyhow::Result<()> {
                 uds_tenant_manager,
                 uds_rate_limiter,
                 uds_multi_tenancy_enabled,
+                uds_shutdown_rx,
             )
             .await
             .map_err(|e| anyhow::anyhow!("UDS server error: {}", e))
         }));
     }
 
-    // Setup shutdown signal handler
+    // Signal handler: wait for SIGTERM/Ctrl-C, then begin graceful shutdown.
+    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
     let shutdown_audit_logger = audit_logger.clone();
     tokio::spawn(async move {
-        // Wait for Ctrl+C or SIGTERM
         let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
         let mut sigterm =
@@ -364,18 +388,40 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(not(unix))]
         ctrl_c.await.ok();
 
-        // Log server stopped event
         let uptime = metrics::START_TIME.elapsed().as_secs();
         shutdown_audit_logger.log_server_stopped(uptime);
-        info!("Server shutting down after {} seconds", uptime);
+        info!(
+            uptime_secs = uptime,
+            timeout_secs = shutdown_timeout.as_secs(),
+            "Shutdown signal received — draining connections"
+        );
+
+        // Notify all servers to begin graceful shutdown.
+        shutdown_tx.send(true).ok();
     });
 
-    // Wait for any server to finish (usually due to error)
+    // Wait for all servers to finish (graceful drain or unrecoverable error).
     if !tasks.is_empty() {
-        let (result, _, _) = futures::future::select_all(tasks).await;
-        result??;
+        match tokio::time::timeout(shutdown_timeout, futures::future::join_all(tasks)).await {
+            Ok(results) => {
+                for r in results {
+                    r??;
+                }
+            }
+            Err(_) => {
+                warn!(
+                    timeout_secs = shutdown_timeout.as_secs(),
+                    "Graceful shutdown timed out — forcing exit"
+                );
+            }
+        }
     } else {
         info!("No servers enabled. Exiting.");
+    }
+
+    // Flush and shut down OpenTelemetry spans before process exit.
+    if let Some(provider) = otel_provider {
+        telemetry::shutdown(provider);
     }
 
     Ok(())
@@ -394,6 +440,7 @@ async fn start_http_server(
     debug_sessions: Arc<debug::DebugSessionManager>,
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
 
@@ -520,17 +567,27 @@ async fn start_http_server(
             state.clone(),
             middleware::tenant::tenant_middleware,
         ))
+        // Outermost layer: catch panics in any handler or inner middleware and
+        // return 500 instead of crashing the server process.
+        .layer(CatchPanicLayer::new())
         .with_state(state);
 
     info!("HTTP server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_rx.changed().await.ok();
+            info!("HTTP server: draining in-flight requests");
+        })
+        .await?;
 
+    info!("HTTP server stopped");
     Ok(())
 }
 
 /// Start the gRPC server
+#[allow(clippy::too_many_arguments)]
 async fn start_grpc_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
@@ -539,6 +596,7 @@ async fn start_grpc_server(
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     multi_tenancy_enabled: bool,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let grpc_service = OrdoGrpcService::new(
         store,
@@ -553,9 +611,13 @@ async fn start_grpc_server(
 
     TonicServer::builder()
         .add_service(OrdoServiceServer::new(grpc_service))
-        .serve(addr)
+        .serve_with_shutdown(addr, async move {
+            shutdown_rx.changed().await.ok();
+            info!("gRPC server: draining in-flight requests");
+        })
         .await?;
 
+    info!("gRPC server stopped");
     Ok(())
 }
 

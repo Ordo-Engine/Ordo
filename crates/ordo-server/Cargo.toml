@@ -22,9 +22,13 @@ tokio = { workspace = true, features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic.workspace = true
 tower.workspace = true
-tower-http = { workspace = true, features = ["trace", "cors"] }
+tower-http = { workspace = true, features = ["trace", "cors", "catch-panic"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
 prometheus.workspace = true
 lazy_static = "1.4"
 chrono.workspace = true

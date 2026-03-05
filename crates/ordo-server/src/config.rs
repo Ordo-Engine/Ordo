@@ -32,6 +32,9 @@
 //! | `ORDO_SIGNATURE_TRUSTED_KEYS` | Comma-separated public keys | `-` |
 //! | `ORDO_SIGNATURE_TRUSTED_KEYS_FILE` | Public key file path | `-` |
 //! | `ORDO_SIGNATURE_ALLOW_UNSIGNED_LOCAL` | Allow unsigned local files | `true` |
+//! | `ORDO_SERVICE_NAME` | Service name for OTel traces | `ordo-server` |
+//! | `ORDO_OTLP_ENDPOINT` | OTLP HTTP endpoint for traces | - |
+//! | `ORDO_SHUTDOWN_TIMEOUT_SECS` | Graceful shutdown timeout | `30` |
 
 use clap::Parser;
 use std::net::SocketAddr;
@@ -168,6 +171,19 @@ pub struct ServerConfig {
         env = "ORDO_SIGNATURE_ALLOW_UNSIGNED_LOCAL"
     )]
     pub signature_allow_unsigned_local: bool,
+
+    /// Service name reported in OpenTelemetry traces and logs
+    #[arg(long, default_value = "ordo-server", env = "ORDO_SERVICE_NAME")]
+    pub service_name: String,
+
+    /// OTLP HTTP endpoint for exporting traces (e.g. http://localhost:4318).
+    /// If not set, OpenTelemetry is disabled.
+    #[arg(long, env = "ORDO_OTLP_ENDPOINT")]
+    pub otlp_endpoint: Option<String>,
+
+    /// Seconds to wait for in-flight requests to complete during graceful shutdown.
+    #[arg(long, default_value = "30", env = "ORDO_SHUTDOWN_TIMEOUT_SECS")]
+    pub shutdown_timeout_secs: u64,
 }
 
 impl ServerConfig {
@@ -243,6 +259,9 @@ impl Default for ServerConfig {
             signature_trusted_keys: Vec::new(),
             signature_trusted_keys_file: None,
             signature_allow_unsigned_local: true,
+            service_name: "ordo-server".to_string(),
+            otlp_endpoint: None,
+            shutdown_timeout_secs: 30,
         }
     }
 }

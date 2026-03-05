@@ -80,3 +80,9 @@ proc-macro2 = "1"
 
 # Internal crates
 ordo-derive = { path = "crates/ordo-derive" }
+
+# OpenTelemetry
+opentelemetry = "0.22"
+opentelemetry_sdk = { version = "0.22", features = ["rt-tokio", "trace"] }
+opentelemetry-otlp = { version = "0.15", default-features = false, features = ["http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.23"

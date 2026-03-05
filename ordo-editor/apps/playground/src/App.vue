@@ -1937,9 +1937,7 @@ watch(
   justify-content: center;
   cursor: pointer;
   opacity: 0.5;
-  transition:
-    opacity 0.2s,
-    background 0.2s;
+  transition: opacity 0.2s, background 0.2s;
   color: var(--ordo-text-secondary);
   border-radius: 6px;
   margin: 2px 4px;

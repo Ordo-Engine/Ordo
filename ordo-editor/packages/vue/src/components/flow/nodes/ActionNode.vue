@@ -152,9 +152,7 @@ function formatValue(assignment: VariableAssignment): string {
   max-width: 280px;
   font-family: var(--ordo-font-sans);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition:
-    box-shadow 0.15s,
-    border-color 0.15s;
+  transition: box-shadow 0.15s, border-color 0.15s;
   position: relative;
 }
 
@@ -338,9 +336,7 @@ function formatValue(assignment: VariableAssignment): string {
 }
 
 .pin-fill {
-  transition:
-    filter 0.15s ease,
-    fill 0.15s ease;
+  transition: filter 0.15s ease, fill 0.15s ease;
 }
 
 /* Hover effects - glow only, no size change */

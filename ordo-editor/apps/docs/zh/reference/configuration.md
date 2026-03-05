@@ -4,14 +4,15 @@
 
 ## 服务器配置
 
-| 选项      | CLI 标志         | 默认值          | 描述                |
-| --------- | ---------------- | --------------- | ------------------- |
-| HTTP 地址 | `--http-addr`    | `0.0.0.0:8080`  | HTTP 服务器绑定地址 |
-| gRPC 地址 | `--grpc-addr`    | `0.0.0.0:50051` | gRPC 服务器绑定地址 |
-| UDS 路径  | `--uds-path`     | 无              | Unix 域套接字路径   |
-| 禁用 HTTP | `--disable-http` | `false`         | 禁用 HTTP 服务器    |
-| 禁用 gRPC | `--disable-grpc` | `false`         | 禁用 gRPC 服务器    |
-| 日志级别  | `--log-level`    | `info`          | 日志详细程度        |
+| 选项         | CLI 标志                  | 默认值          | 描述                                 |
+| ------------ | ------------------------- | --------------- | ------------------------------------ |
+| HTTP 地址    | `--http-addr`             | `0.0.0.0:8080`  | HTTP 服务器绑定地址                  |
+| gRPC 地址    | `--grpc-addr`             | `0.0.0.0:50051` | gRPC 服务器绑定地址                  |
+| UDS 路径     | `--uds-path`              | 无              | Unix 域套接字路径                    |
+| 禁用 HTTP    | `--disable-http`          | `false`         | 禁用 HTTP 服务器                     |
+| 禁用 gRPC    | `--disable-grpc`          | `false`         | 禁用 gRPC 服务器                     |
+| 日志级别     | `--log-level`             | `info`          | 日志详细程度                         |
+| 优雅停机超时 | `--shutdown-timeout-secs` | `30`            | 优雅停机期间等待进行中请求完成的秒数 |
 
 ## 存储配置
 
@@ -36,6 +37,22 @@
 | 信任公钥列表   | `--signature-trusted-keys`         | 无      | 逗号分隔的 base64 公钥      |
 | 公钥文件       | `--signature-trusted-keys-file`    | 无      | 公钥文件（每行一个 base64） |
 | 允许本地无签名 | `--signature-allow-unsigned-local` | `true`  | 启动时允许本地规则无签名    |
+
+## 可观测性配置
+
+| 选项      | CLI 标志          | 环境变量             | 默认值        | 描述                                                                                        |
+| --------- | ----------------- | -------------------- | ------------- | ------------------------------------------------------------------------------------------- |
+| 服务名称  | `--service-name`  | `ORDO_SERVICE_NAME`  | `ordo-server` | OpenTelemetry 链路追踪中上报的服务名称                                                      |
+| OTLP 端点 | `--otlp-endpoint` | `ORDO_OTLP_ENDPOINT` | 无            | 导出链路追踪数据的 OTLP HTTP 端点（如 `http://localhost:4318`），未设置则禁用 OpenTelemetry |
+
+设置 `--otlp-endpoint` 后，链路数据通过 OTLP HTTP（protobuf）导出，兼容 OpenTelemetry Collector、Jaeger、Tempo 等后端。
+
+```bash
+# 将链路数据导出到本地 OpenTelemetry Collector
+ordo-server \
+  --service-name my-ordo \
+  --otlp-endpoint http://otel-collector:4318
+```
 
 ## 运行时配置
 
@@ -67,6 +84,9 @@ ENV ORDO_AUDIT_DIR=/data/audit
 ENV ORDO_LOG_LEVEL=info
 ENV ORDO_SIGNATURE_ENABLED=true
 ENV ORDO_SIGNATURE_TRUSTED_KEYS_FILE=/data/keys/trusted_keys.txt
+ENV ORDO_SERVICE_NAME=ordo-server
+ENV ORDO_OTLP_ENDPOINT=http://otel-collector:4318
+ENV ORDO_SHUTDOWN_TIMEOUT_SECS=30
 ```
 
 ### Docker Compose
@@ -102,10 +122,13 @@ kind: ConfigMap
 metadata:
   name: ordo-config
 data:
-  HTTP_ADDR: '0.0.0.0:8080'
-  GRPC_ADDR: '0.0.0.0:50051'
-  LOG_LEVEL: 'info'
-  AUDIT_SAMPLE_RATE: '10'
+  ORDO_HTTP_ADDR: '0.0.0.0:8080'
+  ORDO_GRPC_ADDR: '0.0.0.0:50051'
+  ORDO_LOG_LEVEL: 'info'
+  ORDO_AUDIT_SAMPLE_RATE: '10'
+  ORDO_SERVICE_NAME: 'ordo-server'
+  ORDO_OTLP_ENDPOINT: 'http://otel-collector:4318'
+  ORDO_SHUTDOWN_TIMEOUT_SECS: '30'
 ```
 
 ### Deployment

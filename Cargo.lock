@@ -1718,6 +1718,7 @@ dependencies = [
  "clap",
  "dashmap",
  "futures",
+ "http-body-util",
  "lazy_static",
  "once_cell",
  "opentelemetry",

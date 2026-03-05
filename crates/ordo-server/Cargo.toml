@@ -37,3 +37,4 @@ dashmap.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+http-body-util = "0.1"

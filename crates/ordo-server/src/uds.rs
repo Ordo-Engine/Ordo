@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use ordo_core::rule::RuleExecutor;
 use tokio::net::UnixListener;
+use tokio::sync::watch;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tracing::info;
@@ -17,6 +18,7 @@ use crate::store::RuleStore;
 use crate::tenant::TenantManager;
 
 /// Start the gRPC server over Unix Domain Socket
+#[allow(clippy::too_many_arguments)]
 pub async fn start_uds_server(
     uds_path: &Path,
     store: Arc<tokio::sync::RwLock<RuleStore>>,
@@ -25,6 +27,7 @@ pub async fn start_uds_server(
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     multi_tenancy_enabled: bool,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Remove existing socket file if it exists
     if uds_path.exists() {
@@ -52,12 +55,16 @@ pub async fn start_uds_server(
         multi_tenancy_enabled,
     );
 
-    // Start server
+    // Start server with graceful shutdown
     Server::builder()
         .add_service(OrdoServiceServer::new(grpc_service))
-        .serve_with_incoming(uds_stream)
+        .serve_with_incoming_shutdown(uds_stream, async move {
+            shutdown_rx.changed().await.ok();
+            info!("UDS server: draining in-flight requests");
+        })
         .await?;
 
+    info!("UDS server stopped");
     Ok(())
 }
 
@@ -100,6 +107,7 @@ mod tests {
         let executor_clone = executor.clone();
         let tenant_manager_clone = tenant_manager.clone();
         let rate_limiter_clone = rate_limiter.clone();
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let server_handle = tokio::spawn(async move {
             start_uds_server(
                 &socket_path_clone,
@@ -109,6 +117,7 @@ mod tests {
                 tenant_manager_clone,
                 rate_limiter_clone,
                 false,
+                shutdown_rx,
             )
             .await
         });

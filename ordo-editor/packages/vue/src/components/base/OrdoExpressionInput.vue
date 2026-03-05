@@ -651,9 +651,7 @@ onUnmounted(() => {
 /* Transitions */
 .ordo-fade-enter-active,
 .ordo-fade-leave-active {
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .ordo-fade-enter-from,

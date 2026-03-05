@@ -1725,9 +1725,7 @@ onMounted(() => {
 :deep(.vue-flow__node.path-dimmed) {
   opacity: 0.3;
   filter: grayscale(0.5);
-  transition:
-    opacity 0.2s ease,
-    filter 0.2s ease;
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 /* Highlighted edges - bright and visible */
@@ -1786,9 +1784,7 @@ onMounted(() => {
 :deep(.vue-flow__node.execution-dimmed) {
   opacity: 0.25;
   filter: grayscale(0.7);
-  transition:
-    opacity 0.3s ease,
-    filter 0.3s ease;
+  transition: opacity 0.3s ease, filter 0.3s ease;
 }
 
 /* Executed edges - green and animated with flowing dash */

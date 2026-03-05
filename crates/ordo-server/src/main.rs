@@ -685,3 +685,6 @@ mod tests {
         assert!(!config.debug_enabled());
     }
 }
+
+#[cfg(test)]
+mod api_tests;

@@ -6,10 +6,17 @@ use super::ast::{BinaryOp, Expr, UnaryOp};
 use crate::context::Value;
 use crate::error::{OrdoError, Result};
 
+/// Maximum expression length in bytes
+const MAX_EXPRESSION_LEN: usize = 4096;
+
+/// Maximum expression nesting depth (parentheses, unary chains, if-else)
+const MAX_NESTING_DEPTH: usize = 50;
+
 /// Expression parser
 pub struct ExprParser {
     input: Vec<char>,
     pos: usize,
+    depth: usize,
 }
 
 impl ExprParser {
@@ -18,11 +25,19 @@ impl ExprParser {
         Self {
             input: input.chars().collect(),
             pos: 0,
+            depth: 0,
         }
     }
 
     /// Parse the input into an expression
     pub fn parse(input: &str) -> Result<Expr> {
+        if input.len() > MAX_EXPRESSION_LEN {
+            return Err(OrdoError::parse_error(format!(
+                "Expression too long: {} bytes (max {})",
+                input.len(),
+                MAX_EXPRESSION_LEN
+            )));
+        }
         let mut parser = Self::new(input);
         let expr = parser.parse_expr()?;
         parser.skip_whitespace();
@@ -37,7 +52,17 @@ impl ExprParser {
 
     /// Parse an expression
     fn parse_expr(&mut self) -> Result<Expr> {
-        self.parse_or()
+        self.depth += 1;
+        if self.depth > MAX_NESTING_DEPTH {
+            self.depth -= 1;
+            return Err(OrdoError::parse_error(format!(
+                "Expression nesting depth exceeds maximum ({})",
+                MAX_NESTING_DEPTH
+            )));
+        }
+        let result = self.parse_or();
+        self.depth -= 1;
+        result
     }
 
     /// Parse OR expression (lowest precedence)
@@ -166,12 +191,30 @@ impl ExprParser {
         self.skip_whitespace();
 
         if self.match_char('!') || self.match_keyword("not") {
+            self.depth += 1;
+            if self.depth > MAX_NESTING_DEPTH {
+                self.depth -= 1;
+                return Err(OrdoError::parse_error(format!(
+                    "Expression nesting depth exceeds maximum ({})",
+                    MAX_NESTING_DEPTH
+                )));
+            }
             let operand = self.parse_unary()?;
+            self.depth -= 1;
             return Ok(Expr::unary(UnaryOp::Not, operand));
         }
 
         if self.match_char('-') {
+            self.depth += 1;
+            if self.depth > MAX_NESTING_DEPTH {
+                self.depth -= 1;
+                return Err(OrdoError::parse_error(format!(
+                    "Expression nesting depth exceeds maximum ({})",
+                    MAX_NESTING_DEPTH
+                )));
+            }
             let operand = self.parse_unary()?;
+            self.depth -= 1;
             return Ok(Expr::unary(UnaryOp::Neg, operand));
         }
 
@@ -634,5 +677,40 @@ mod tests {
             }
             _ => panic!("Expected Coalesce"),
         }
+    }
+
+    #[test]
+    fn test_expression_too_long() {
+        let long_expr = "a".repeat(MAX_EXPRESSION_LEN + 1);
+        let err = ExprParser::parse(&long_expr).unwrap_err();
+        assert!(err.to_string().contains("too long"));
+    }
+
+    #[test]
+    fn test_expression_at_max_length() {
+        // Just under the limit: a valid short expression padded with whitespace is fine;
+        // we test that exactly MAX_EXPRESSION_LEN bytes is accepted.
+        let expr = format!("{:>width$}", "x > 1", width = MAX_EXPRESSION_LEN);
+        // This is all whitespace + "x > 1" which is valid
+        assert!(ExprParser::parse(&expr).is_ok());
+    }
+
+    #[test]
+    fn test_nesting_depth_exceeded_parens() {
+        // Build deeply nested parentheses: (((...x...)))
+        let open = "(".repeat(MAX_NESTING_DEPTH + 1);
+        let close = ")".repeat(MAX_NESTING_DEPTH + 1);
+        let deep = format!("{}x{}", open, close);
+        let err = ExprParser::parse(&deep).unwrap_err();
+        assert!(err.to_string().contains("nesting depth"));
+    }
+
+    #[test]
+    fn test_nesting_depth_exceeded_unary() {
+        // Build deeply nested NOT: !!!...x
+        let nots = "!".repeat(MAX_NESTING_DEPTH + 1);
+        let deep = format!("{}true", nots);
+        let err = ExprParser::parse(&deep).unwrap_err();
+        assert!(err.to_string().contains("nesting depth"));
     }
 }

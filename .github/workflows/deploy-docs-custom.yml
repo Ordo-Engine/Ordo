@@ -16,8 +16,10 @@ on:
           - vercel
           - netlify
           - cloudflare
-  # Optionally trigger on release tags
+  # Trigger on push/merge to main (docs changes) or release tags
   push:
+    branches:
+      - main
     tags:
       - 'v*'
     paths:

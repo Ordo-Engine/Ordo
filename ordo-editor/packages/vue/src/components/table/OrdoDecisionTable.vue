@@ -436,10 +436,20 @@ function cellTypeClass(cell: CellValue): string {
 
             <!-- Result columns -->
             <th class="ordo-decision-table__th ordo-decision-table__th--result">
-              {{ t('table.resultCode') }}
+              <div class="ordo-decision-table__col-header">
+                <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--result"
+                  >CODE</span
+                >
+                <span class="ordo-decision-table__col-label">{{ t('table.resultCode') }}</span>
+              </div>
             </th>
             <th class="ordo-decision-table__th ordo-decision-table__th--result">
-              {{ t('table.resultMessage') }}
+              <div class="ordo-decision-table__col-header">
+                <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--result"
+                  >MSG</span
+                >
+                <span class="ordo-decision-table__col-label">{{ t('table.resultMessage') }}</span>
+              </div>
             </th>
 
             <!-- Actions -->
@@ -687,6 +697,8 @@ function cellTypeClass(cell: CellValue): string {
 
 .ordo-decision-table__th--result {
   min-width: 100px;
+  background: color-mix(in srgb, var(--ordo-info) 8%, var(--ordo-bg-secondary));
+  border-bottom-color: var(--ordo-info);
 }
 
 .ordo-decision-table__th--actions {
@@ -716,6 +728,11 @@ function cellTypeClass(cell: CellValue): string {
 .ordo-decision-table__col-badge--output {
   background: color-mix(in srgb, var(--ordo-success) 20%, transparent);
   color: var(--ordo-success);
+}
+
+.ordo-decision-table__col-badge--result {
+  background: color-mix(in srgb, var(--ordo-info) 20%, transparent);
+  color: var(--ordo-info);
 }
 
 .ordo-decision-table__col-label {

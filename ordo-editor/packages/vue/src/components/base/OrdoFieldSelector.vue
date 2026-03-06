@@ -353,7 +353,9 @@ if (typeof document !== 'undefined') {
 /* Transitions */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: opacity 0.15s, transform 0.15s;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
 }
 
 .dropdown-enter-from,

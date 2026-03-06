@@ -17,24 +17,24 @@
 
 所有规则变更以命令形式表达：
 
-| 命令                 | 描述                         |
-| -------------------- | ---------------------------- |
-| `AddStep`            | 向规则集添加新步骤           |
-| `RemoveStep`         | 删除步骤                     |
-| `UpdateStep`         | 修改步骤属性                 |
-| `MoveStep`           | 改变步骤位置                 |
-| `AddBranch`          | 向决策步骤添加分支           |
-| `RemoveBranch`       | 删除分支                     |
-| `UpdateBranch`       | 修改分支条件或目标           |
-| `ReorderBranch`      | 改变分支求值顺序             |
-| `ConnectSteps`       | 创建步骤间连接               |
-| `DisconnectSteps`    | 删除连接                     |
-| `SetStartStep`       | 设置入口步骤                 |
-| `UpdateConfig`       | 更新规则集配置               |
-| `SetSchema`          | 设置或更新规则集 Schema      |
-| `Batch`              | 原子性执行多个命令           |
-| `PasteStep`          | 粘贴复制的步骤               |
-| `ImportDecisionTable`| 导入决策表为步骤             |
+| 命令                  | 描述                    |
+| --------------------- | ----------------------- |
+| `AddStep`             | 向规则集添加新步骤      |
+| `RemoveStep`          | 删除步骤                |
+| `UpdateStep`          | 修改步骤属性            |
+| `MoveStep`            | 改变步骤位置            |
+| `AddBranch`           | 向决策步骤添加分支      |
+| `RemoveBranch`        | 删除分支                |
+| `UpdateBranch`        | 修改分支条件或目标      |
+| `ReorderBranch`       | 改变分支求值顺序        |
+| `ConnectSteps`        | 创建步骤间连接          |
+| `DisconnectSteps`     | 删除连接                |
+| `SetStartStep`        | 设置入口步骤            |
+| `UpdateConfig`        | 更新规则集配置          |
+| `SetSchema`           | 设置或更新规则集 Schema |
+| `Batch`               | 原子性执行多个命令      |
+| `PasteStep`           | 粘贴复制的步骤          |
+| `ImportDecisionTable` | 导入决策表为步骤        |
 
 ## Schema 感知编辑
 
@@ -65,6 +65,7 @@
 ### 增强建议
 
 动作和终止编辑器自动提供：
+
 - 基于 Schema 字段的变量名自动补全
 - 结合 Schema 字段和已有变量的表达式输入建议
 
@@ -74,28 +75,28 @@
 
 ```vue
 <script setup lang="ts">
-import { useEditorStore } from '@ordo-engine/editor-vue'
+import { useEditorStore } from '@ordo-engine/editor-vue';
 
-const store = useEditorStore(fileId, initialRuleset)
-const { state, dispatch, undo, redo, canUndo, canRedo, schemaContext } = store
+const store = useEditorStore(fileId, initialRuleset);
+const { state, dispatch, undo, redo, canUndo, canRedo, schemaContext } = store;
 </script>
 ```
 
 ## 编程 API
 
 ```typescript
-import { EditorStore } from '@ordo-engine/editor-core'
+import { EditorStore } from '@ordo-engine/editor-core';
 
-const store = new EditorStore(initialRuleset, { maxHistory: 80 })
+const store = new EditorStore(initialRuleset, { maxHistory: 80 });
 
 // 派发命令
-store.dispatch({ type: 'AddStep', payload: { step: newStep } })
+store.dispatch({ type: 'AddStep', payload: { step: newStep } });
 
 // 撤销/重做
-store.undo()
-store.redo()
+store.undo();
+store.redo();
 
 // 访问状态
-console.log(store.state.steps)
-console.log(store.canUndo)
+console.log(store.state.steps);
+console.log(store.canUndo);
 ```

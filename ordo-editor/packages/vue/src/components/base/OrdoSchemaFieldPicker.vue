@@ -95,7 +95,7 @@ const filteredGroups = computed((): FieldGroup[] => {
         (f) =>
           f.path.toLowerCase().includes(query) ||
           f.name.toLowerCase().includes(query) ||
-          f.description?.toLowerCase().includes(query),
+          f.description?.toLowerCase().includes(query)
       ),
     }))
     .filter((group) => group.fields.length > 0);
@@ -266,7 +266,14 @@ onBeforeUnmount(() => {
         {{ selectedField.type }}
       </span>
       <span class="ordo-schema-field-picker__arrow">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+        >
           <path d="M2 4 L5 7 L8 4" />
         </svg>
       </span>
@@ -326,9 +333,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <div v-else class="ordo-schema-field-picker__empty">
-            No fields found
-          </div>
+          <div v-else class="ordo-schema-field-picker__empty">No fields found</div>
         </div>
       </div>
     </Transition>
@@ -567,7 +572,9 @@ onBeforeUnmount(() => {
 /* Dropdown transition */
 .picker-dropdown-enter-active,
 .picker-dropdown-leave-active {
-  transition: opacity 0.15s, transform 0.15s;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
 }
 
 .picker-dropdown-enter-from,

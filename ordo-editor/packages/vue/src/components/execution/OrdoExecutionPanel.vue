@@ -41,7 +41,7 @@ const emit = defineEmits<{
       resultCode: string;
       resultMessage: string;
       output?: Record<string, any>;
-    }
+    },
   ];
   'clear-flow-trace': [];
 }>();
@@ -458,8 +458,8 @@ function stopResize() {
                 connectionStatus === 'connected'
                   ? 'Connected'
                   : connectionStatus === 'error'
-                  ? 'Connection failed'
-                  : 'Test connection'
+                    ? 'Connection failed'
+                    : 'Test connection'
               "
             >
               <svg
@@ -779,7 +779,9 @@ function stopResize() {
 /* Panel Transition */
 .panel-enter-active,
 .panel-leave-active {
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .panel-enter-from,

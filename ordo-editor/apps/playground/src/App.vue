@@ -27,7 +27,11 @@ import {
   type JITRulesetAnalysis,
 } from '@ordo-engine/editor-core';
 import {
-  Step, Condition, Expr, generateId, convertToEngineFormat,
+  Step,
+  Condition,
+  Expr,
+  generateId,
+  convertToEngineFormat,
   EditorStore,
   decompileStepsToTable,
   compileTableToSteps,
@@ -195,7 +199,8 @@ function setEditorMode(mode: 'form' | 'flow' | 'table') {
   if (mode === 'table') {
     const rs = ruleset.value;
     const table = decompileStepsToTable(rs.steps, rs.startStepId, rs.config.inputSchema);
-    decisionTables.value[activeFileId.value] = table ?? DTFactory.emptyTable(rs.config.name || 'Decision Table');
+    decisionTables.value[activeFileId.value] =
+      table ?? DTFactory.emptyTable(rs.config.name || 'Decision Table');
   }
 
   editorMode.value = mode;
@@ -1319,9 +1324,12 @@ function cycleEditorMode() {
 
 const editorModeLabel = computed(() => {
   switch (editorMode.value) {
-    case 'form': return 'Form';
-    case 'flow': return 'Flow';
-    case 'table': return 'Table';
+    case 'form':
+      return 'Form';
+    case 'flow':
+      return 'Flow';
+    case 'table':
+      return 'Table';
   }
 });
 
@@ -2102,7 +2110,9 @@ watch(
   justify-content: center;
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity 0.2s, background 0.2s;
+  transition:
+    opacity 0.2s,
+    background 0.2s;
   color: var(--ordo-text-secondary);
   border-radius: 6px;
   margin: 2px 4px;

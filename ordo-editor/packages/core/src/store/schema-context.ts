@@ -42,25 +42,25 @@ export interface ValueHint {
 // ---------------------------------------------------------------------------
 
 const OPERATORS: Record<string, OperatorInfo> = {
-  eq:         { value: 'eq',         label: 'equals',          symbol: '==' },
-  ne:         { value: 'ne',         label: 'not equals',      symbol: '!=' },
-  gt:         { value: 'gt',         label: 'greater than',    symbol: '>'  },
-  gte:        { value: 'gte',        label: 'greater or equal', symbol: '>=' },
-  lt:         { value: 'lt',         label: 'less than',       symbol: '<'  },
-  lte:        { value: 'lte',        label: 'less or equal',   symbol: '<=' },
-  in:         { value: 'in',         label: 'in',              symbol: 'in' },
-  contains:   { value: 'contains',   label: 'contains',        symbol: 'contains' },
-  startsWith: { value: 'startsWith', label: 'starts with',     symbol: 'startsWith' },
-  endsWith:   { value: 'endsWith',   label: 'ends with',       symbol: 'endsWith' },
+  eq: { value: 'eq', label: 'equals', symbol: '==' },
+  ne: { value: 'ne', label: 'not equals', symbol: '!=' },
+  gt: { value: 'gt', label: 'greater than', symbol: '>' },
+  gte: { value: 'gte', label: 'greater or equal', symbol: '>=' },
+  lt: { value: 'lt', label: 'less than', symbol: '<' },
+  lte: { value: 'lte', label: 'less or equal', symbol: '<=' },
+  in: { value: 'in', label: 'in', symbol: 'in' },
+  contains: { value: 'contains', label: 'contains', symbol: 'contains' },
+  startsWith: { value: 'startsWith', label: 'starts with', symbol: 'startsWith' },
+  endsWith: { value: 'endsWith', label: 'ends with', symbol: 'endsWith' },
 };
 
 const TYPE_OPERATORS: Record<SchemaFieldType, string[]> = {
-  string:  ['eq', 'ne', 'contains', 'startsWith', 'endsWith', 'in'],
-  number:  ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in'],
+  string: ['eq', 'ne', 'contains', 'startsWith', 'endsWith', 'in'],
+  number: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in'],
   boolean: ['eq', 'ne'],
-  array:   ['contains', 'in'],
-  object:  ['eq', 'ne'],
-  any:     ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'startsWith', 'endsWith'],
+  array: ['contains', 'in'],
+  object: ['eq', 'ne'],
+  any: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'startsWith', 'endsWith'],
 };
 
 // ---------------------------------------------------------------------------
@@ -85,10 +85,7 @@ export function createSchemaContext(schemaFields: SchemaField[]): SchemaContext 
   const byParent = new Map<string, ResolvedField[]>();
   const topLevelGroups: string[] = [];
 
-  function resolve(
-    fields: SchemaField[],
-    parentPath: string | undefined,
-  ): void {
+  function resolve(fields: SchemaField[], parentPath: string | undefined): void {
     for (const field of fields) {
       const path = parentPath ? `${parentPath}.${field.name}` : field.name;
       const resolved: ResolvedField = {
@@ -180,7 +177,7 @@ export function createSchemaContext(schemaFields: SchemaField[]): SchemaContext 
         (f) =>
           f.path.toLowerCase().includes(q) ||
           f.name.toLowerCase().includes(q) ||
-          (f.description && f.description.toLowerCase().includes(q)),
+          (f.description && f.description.toLowerCase().includes(q))
       );
     },
   };

@@ -1,14 +1,7 @@
 import { shallowRef, readonly, computed, onUnmounted } from 'vue';
 import type { DeepReadonly, ShallowRef } from 'vue';
-import {
-  EditorStore,
-  createSchemaContext,
-} from '@ordo-engine/editor-core';
-import type {
-  EditorState,
-  Command,
-  SchemaContext,
-} from '@ordo-engine/editor-core';
+import { EditorStore, createSchemaContext } from '@ordo-engine/editor-core';
+import type { EditorState, Command, SchemaContext } from '@ordo-engine/editor-core';
 import type { RuleSet } from '@ordo-engine/editor-core';
 
 export interface UseEditorStoreReturn {
@@ -32,7 +25,7 @@ export interface UseEditorStoreReturn {
  */
 export function useEditorStore(
   initialRuleset: RuleSet,
-  options?: { maxHistory?: number },
+  options?: { maxHistory?: number }
 ): UseEditorStoreReturn {
   const store = new EditorStore(initialRuleset, options);
   const state = shallowRef<EditorState>(store.getState() as EditorState);

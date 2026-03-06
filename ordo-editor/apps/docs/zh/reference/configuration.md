@@ -41,13 +41,13 @@
 
 ## 部署配置
 
-| 选项           | CLI 标志                     | 环境变量                      | 默认值       | 描述                                                   |
-| -------------- | ---------------------------- | ----------------------------- | ------------ | ------------------------------------------------------ |
-| 实例角色       | `--role`                     | `ORDO_ROLE`                   | `standalone` | 实例角色：`standalone`、`writer` 或 `reader`           |
-| Writer 地址    | `--writer-addr`              | `ORDO_WRITER_ADDR`            | 无           | Writer 节点地址（Reader 用于重定向写请求）             |
-| 监控规则       | `--watch-rules`              | `ORDO_WATCH_RULES`            | `false`      | 启用文件监控实现规则热重载                             |
-| 请求体大小限制 | `--max-request-body-bytes`   | `ORDO_MAX_REQUEST_BODY_BYTES` | `10485760`   | HTTP 请求体最大字节数（10 MB）                         |
-| 请求超时       | `--request-timeout-secs`     | `ORDO_REQUEST_TIMEOUT_SECS`   | `30`         | HTTP 请求超时时间（秒）                                |
+| 选项           | CLI 标志                   | 环境变量                      | 默认值       | 描述                                         |
+| -------------- | -------------------------- | ----------------------------- | ------------ | -------------------------------------------- |
+| 实例角色       | `--role`                   | `ORDO_ROLE`                   | `standalone` | 实例角色：`standalone`、`writer` 或 `reader` |
+| Writer 地址    | `--writer-addr`            | `ORDO_WRITER_ADDR`            | 无           | Writer 节点地址（Reader 用于重定向写请求）   |
+| 监控规则       | `--watch-rules`            | `ORDO_WATCH_RULES`            | `false`      | 启用文件监控实现规则热重载                   |
+| 请求体大小限制 | `--max-request-body-bytes` | `ORDO_MAX_REQUEST_BODY_BYTES` | `10485760`   | HTTP 请求体最大字节数（10 MB）               |
+| 请求超时       | `--request-timeout-secs`   | `ORDO_REQUEST_TIMEOUT_SECS`   | `30`         | HTTP 请求超时时间（秒）                      |
 
 ### Writer/Reader 部署
 
@@ -87,15 +87,16 @@ ordo-server --role reader \
 
 Ordo 提供 Kubernetes 兼容的健康检查端点：
 
-| 端点             | 类型      | 描述                                       |
-| ---------------- | --------- | ------------------------------------------ |
-| `/healthz/live`  | 存活探针  | 进程存活则始终返回 `200`                   |
-| `/healthz/ready` | 就绪探针  | 检查 store 锁可用性和磁盘可写性            |
-| `/health`        | 就绪探针  | 旧版端点，行为与 `/healthz/ready` 相同      |
+| 端点             | 类型     | 描述                                   |
+| ---------------- | -------- | -------------------------------------- |
+| `/healthz/live`  | 存活探针 | 进程存活则始终返回 `200`               |
+| `/healthz/ready` | 就绪探针 | 检查 store 锁可用性和磁盘可写性        |
+| `/health`        | 就绪探针 | 旧版端点，行为与 `/healthz/ready` 相同 |
 
 ### 就绪检查
 
 就绪探针执行以下检查：
+
 1. **Store 锁** — 尝试在 2 秒超时内获取读锁
 2. **磁盘可写** — 向 `--rules-dir` 写入 `.health_probe` 测试文件（如已配置）
 

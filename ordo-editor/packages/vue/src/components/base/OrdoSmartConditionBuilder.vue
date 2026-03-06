@@ -50,9 +50,7 @@ const emit = defineEmits<{
 type EditorMode = 'smart' | 'expression';
 
 // Determine initial mode based on condition type
-const editorMode = ref<EditorMode>(
-  props.modelValue.type === 'expression' ? 'expression' : 'smart',
-);
+const editorMode = ref<EditorMode>(props.modelValue.type === 'expression' ? 'expression' : 'smart');
 
 const isSimple = computed(() => props.modelValue.type === 'simple');
 const isLogical = computed(() => props.modelValue.type === 'logical');
@@ -114,7 +112,7 @@ function updateLeftField(fieldPath: string) {
   const validOps = props.schemaContext.getOperatorsForType(fieldType as SchemaFieldType);
   let operator = simpleCondition.value?.operator ?? 'eq';
   if (!validOps.find((op) => op.value === operator)) {
-    operator = validOps[0]?.value as SimpleCondition['operator'] ?? 'eq';
+    operator = (validOps[0]?.value as SimpleCondition['operator']) ?? 'eq';
   }
 
   // Reset right side to a type-appropriate default
@@ -133,9 +131,7 @@ function updateLeftField(fieldPath: string) {
     }
   }
 
-  emitCondition(
-    ConditionFactory.simple(left, operator as SimpleCondition['operator'], right),
-  );
+  emitCondition(ConditionFactory.simple(left, operator as SimpleCondition['operator'], right));
 }
 
 function updateOperator(opValue: string) {
@@ -144,15 +140,15 @@ function updateOperator(opValue: string) {
     ConditionFactory.simple(
       simpleCondition.value.left,
       opValue as SimpleCondition['operator'],
-      simpleCondition.value.right,
-    ),
+      simpleCondition.value.right
+    )
   );
 }
 
 function updateRightValue(expr: import('@ordo-engine/editor-core').Expr) {
   if (!simpleCondition.value) return;
   emitCondition(
-    ConditionFactory.simple(simpleCondition.value.left, simpleCondition.value.operator, expr),
+    ConditionFactory.simple(simpleCondition.value.left, simpleCondition.value.operator, expr)
   );
 }
 
@@ -198,12 +194,8 @@ function switchToExpression() {
   // Convert current condition to expression string if it's simple
   if (simpleCondition.value) {
     const left =
-      simpleCondition.value.left.type === 'variable'
-        ? simpleCondition.value.left.path
-        : '';
-    const op = availableOperators.value.find(
-      (o) => o.value === simpleCondition.value!.operator,
-    );
+      simpleCondition.value.left.type === 'variable' ? simpleCondition.value.left.path : '';
+    const op = availableOperators.value.find((o) => o.value === simpleCondition.value!.operator);
     const right = getExprDisplay(simpleCondition.value.right);
     const exprStr = `${left} ${op?.symbol ?? '=='} ${right}`.trim();
     emitCondition(ConditionFactory.expression(exprStr));
@@ -212,21 +204,15 @@ function switchToExpression() {
 
 function switchToSmart() {
   editorMode.value = 'smart';
-  emitCondition(
-    ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')),
-  );
+  emitCondition(ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')));
 }
 
 function switchConditionType(type: 'simple' | 'logical') {
   if (type === 'simple') {
-    emitCondition(
-      ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')),
-    );
+    emitCondition(ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')));
   } else {
     emitCondition(
-      ConditionFactory.and(
-        ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')),
-      ),
+      ConditionFactory.and(ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')))
     );
   }
 }
@@ -300,7 +286,10 @@ function handleExpressionFallback(condition: Condition) {
     </div>
 
     <!-- Smart Simple Mode -->
-    <div v-if="editorMode === 'smart' && isSimple && simpleCondition" class="ordo-smart-condition__simple">
+    <div
+      v-if="editorMode === 'smart' && isSimple && simpleCondition"
+      class="ordo-smart-condition__simple"
+    >
       <div class="ordo-smart-condition__row">
         <!-- Left: Field picker -->
         <OrdoSchemaFieldPicker
@@ -340,14 +329,19 @@ function handleExpressionFallback(condition: Condition) {
     </div>
 
     <!-- Smart Logical Mode -->
-    <div v-if="editorMode === 'smart' && isLogical && logicalCondition" class="ordo-smart-condition__logical">
+    <div
+      v-if="editorMode === 'smart' && isLogical && logicalCondition"
+      class="ordo-smart-condition__logical"
+    >
       <div class="ordo-smart-condition__logical-bar">
         <select
           :value="logicalCondition.operator"
           :disabled="disabled"
           class="ordo-smart-condition__logical-select"
           :class="logicalCondition.operator"
-          @change="updateLogicalOperator(($event.target as HTMLSelectElement).value as 'and' | 'or')"
+          @change="
+            updateLogicalOperator(($event.target as HTMLSelectElement).value as 'and' | 'or')
+          "
         >
           <option value="and">AND (All match)</option>
           <option value="or">OR (Any match)</option>
@@ -378,7 +372,14 @@ function handleExpressionFallback(condition: Condition) {
             title="Remove condition"
             @click="removeLogicalChild(index)"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>

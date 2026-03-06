@@ -14,8 +14,15 @@ import type {
   DecisionTableRow,
   SchemaFieldType,
 } from './decision-table';
-import type { Step, Branch, DecisionStep, TerminalStep, OutputField } from './step';
-import { isDecisionStep, isTerminalStep } from './step';
+import type {
+  Step,
+  Branch,
+  DecisionStep,
+  TerminalStep,
+  OutputField,
+  VariableAssignment,
+} from './step';
+import { isDecisionStep, isActionStep, isTerminalStep } from './step';
 import type { Condition, SimpleCondition } from './condition';
 import { conditionToString } from './condition';
 import type { Expr, LiteralExpr } from './expr';
@@ -200,15 +207,100 @@ function cellValueToExpr(cell: CellValue): Expr {
 }
 
 // ============================================================================
-// Steps → Table (decompile)
+// Steps → Table (decompile) — graph traversal approach
 // ============================================================================
 
+interface PathConditionEntry {
+  condition: Condition;
+  branchLabel?: string;
+}
+
+interface ExecutionPath {
+  conditions: PathConditionEntry[];
+  actions: VariableAssignment[];
+  terminal: TerminalStep;
+}
+
 /**
- * Attempts to decompile a Step[] back into a DecisionTable.
+ * DFS through the step graph, collecting conditions (from Decision branches)
+ * and variable assignments (from Action steps) along each path to a Terminal.
+ */
+function traceExecutionPaths(
+  stepMap: Map<string, Step>,
+  currentStepId: string,
+  conditions: PathConditionEntry[],
+  actions: VariableAssignment[],
+  visited: Set<string>,
+  maxDepth: number
+): ExecutionPath[] {
+  if (maxDepth <= 0) return [];
+  const step = stepMap.get(currentStepId);
+  if (!step || visited.has(currentStepId)) return [];
+
+  if (isTerminalStep(step)) {
+    return [
+      {
+        conditions: [...conditions],
+        actions: [...actions],
+        terminal: step,
+      },
+    ];
+  }
+
+  visited.add(currentStepId);
+  const results: ExecutionPath[] = [];
+
+  if (isActionStep(step)) {
+    const accumulated = [...actions, ...(step.assignments || [])];
+    results.push(
+      ...traceExecutionPaths(
+        stepMap,
+        step.nextStepId,
+        conditions,
+        accumulated,
+        visited,
+        maxDepth - 1
+      )
+    );
+  } else if (isDecisionStep(step)) {
+    for (const branch of step.branches) {
+      results.push(
+        ...traceExecutionPaths(
+          stepMap,
+          branch.nextStepId,
+          [...conditions, { condition: branch.condition, branchLabel: branch.label }],
+          actions,
+          visited,
+          maxDepth - 1
+        )
+      );
+    }
+    // Default path — no additional condition (becomes wildcard in the table)
+    results.push(
+      ...traceExecutionPaths(
+        stepMap,
+        step.defaultNextStepId,
+        conditions,
+        actions,
+        visited,
+        maxDepth - 1
+      )
+    );
+  }
+
+  visited.delete(currentStepId);
+  return results;
+}
+
+/**
+ * Decompiles a Step[] into a DecisionTable by tracing every execution path
+ * through the step graph (Decision → Action → Terminal chains).
  *
- * Returns `null` if the step structure cannot be represented as a table.
- * A valid table structure is: one Decision step whose every branch (and default)
- * leads directly to a distinct Terminal step with no intermediate Action steps.
+ * Each path becomes one table row. Input columns are derived from branch
+ * conditions, output columns from action assignments + terminal outputs.
+ *
+ * Returns `null` only when no valid paths exist or the graph is degenerate
+ * (>200 paths).
  */
 export function decompileStepsToTable(
   steps: Step[],
@@ -217,59 +309,77 @@ export function decompileStepsToTable(
 ): DecisionTable | null {
   const stepMap = new Map(steps.map((s) => [s.id, s]));
   const startStep = stepMap.get(startStepId);
-  if (!startStep || !isDecisionStep(startStep)) return null;
+  if (!startStep) return null;
 
-  // Every branch target must be a terminal step
-  for (const branch of startStep.branches) {
-    const target = stepMap.get(branch.nextStepId);
-    if (!target || !isTerminalStep(target)) return null;
-  }
+  const paths = traceExecutionPaths(stepMap, startStepId, [], [], new Set(), 100);
+  if (paths.length === 0 || paths.length > 200) return null;
 
-  const defaultTarget = stepMap.get(startStep.defaultNextStepId);
-  if (!defaultTarget || !isTerminalStep(defaultTarget)) return null;
-
-  // --- Extract input columns from branch conditions ---
+  // --- Extract input columns from all path conditions ---
   const fieldPaths = new Set<string>();
-  for (const branch of startStep.branches) {
-    collectInputFieldPaths(branch.condition, fieldPaths);
+  for (const path of paths) {
+    for (const entry of path.conditions) {
+      collectInputFieldPaths(entry.condition, fieldPaths);
+    }
   }
 
-  const inputColumns: InputColumn[] = [...fieldPaths].map((path) => {
-    const schemaField = schema ? resolveSchemaField(schema, path) : undefined;
+  const inputColumns: InputColumn[] = [...fieldPaths].map((p) => {
+    const schemaField = schema ? resolveSchemaField(schema, p) : undefined;
     return {
       id: generateId('col_in'),
-      fieldPath: path,
-      label: schemaField?.description || pathToLabel(path),
+      fieldPath: p,
+      label: schemaField?.description || pathToLabel(p),
       type: (schemaField?.type ?? 'string') as SchemaFieldType,
     };
   });
 
-  // --- Extract output columns from terminal outputs ---
-  const outputFieldNames = new Set<string>();
-  for (const branch of startStep.branches) {
-    const terminal = stepMap.get(branch.nextStepId) as TerminalStep;
-    terminal.output?.forEach((f) => outputFieldNames.add(f.name));
+  // --- Extract output columns (action assignments first, then terminal outputs) ---
+  const outputFieldNames = new Map<string, boolean>();
+  for (const path of paths) {
+    for (const a of path.actions) {
+      if (!outputFieldNames.has(a.name)) outputFieldNames.set(a.name, true);
+    }
+    path.terminal.output?.forEach((f) => {
+      if (!outputFieldNames.has(f.name)) outputFieldNames.set(f.name, true);
+    });
   }
 
-  const outputColumns: OutputColumn[] = [...outputFieldNames].map((name) => ({
-    id: generateId('col_out'),
-    fieldName: name,
-    label: name,
-    type: 'string' as SchemaFieldType,
-  }));
+  const outputColumns: OutputColumn[] = [...outputFieldNames.keys()].map((name) => {
+    const schemaField = schema ? resolveSchemaField(schema, name) : undefined;
+    return {
+      id: generateId('col_out'),
+      fieldName: name,
+      label: schemaField?.description || pathToLabel(name),
+      type: (schemaField?.type ?? 'string') as SchemaFieldType,
+    };
+  });
 
-  // --- Build rows from branches ---
-  const rows: DecisionTableRow[] = startStep.branches.map((branch, index) => {
-    const terminal = stepMap.get(branch.nextStepId) as TerminalStep;
+  // --- Build rows from execution paths ---
+  const rows: DecisionTableRow[] = paths.map((path, index) => {
+    // Combine all conditions along this path into one AND for per-field extraction
+    const combined: Condition =
+      path.conditions.length === 0
+        ? { type: 'constant', value: true }
+        : path.conditions.length === 1
+          ? path.conditions[0].condition
+          : {
+              type: 'logical',
+              operator: 'and',
+              conditions: path.conditions.map((e) => e.condition),
+            };
 
     const inputValues: Record<string, CellValue> = {};
     for (const col of inputColumns) {
-      inputValues[col.id] = extractCellValueForField(branch.condition, col.fieldPath);
+      inputValues[col.id] = extractCellValueForField(combined, col.fieldPath);
     }
 
     const outputValues: Record<string, CellValue> = {};
     for (const col of outputColumns) {
-      const field = terminal.output?.find((f) => f.name === col.fieldName);
+      const assignment = path.actions.find((a) => a.name === col.fieldName);
+      if (assignment) {
+        outputValues[col.id] = exprToCellValue(assignment.value);
+        continue;
+      }
+      const field = path.terminal.output?.find((f) => f.name === col.fieldName);
       outputValues[col.id] = field ? exprToCellValue(field.value) : { type: 'any' };
     }
 
@@ -278,13 +388,13 @@ export function decompileStepsToTable(
       priority: index + 1,
       inputValues,
       outputValues,
-      resultCode: terminal.code,
-      resultMessage: extractLiteralString(terminal.message),
+      resultCode: path.terminal.code,
+      resultMessage: extractLiteralString(path.terminal.message),
     };
   });
 
   return {
-    name: startStep.name,
+    name: startStep.name || 'Decision Table',
     hitPolicy: 'first',
     inputColumns,
     outputColumns,
@@ -333,11 +443,7 @@ function extractCellValueForField(condition: Condition, fieldPath: string): Cell
     if (relevant.length === 1) return extractCellValueForField(relevant[0], fieldPath);
 
     // Two simple conditions on the same numeric field → try to form a range
-    if (
-      relevant.length === 2 &&
-      relevant[0].type === 'simple' &&
-      relevant[1].type === 'simple'
-    ) {
+    if (relevant.length === 2 && relevant[0].type === 'simple' && relevant[1].type === 'simple') {
       const range = tryBuildRangeCell(
         relevant[0] as SimpleCondition,
         relevant[1] as SimpleCondition,
@@ -481,7 +587,11 @@ function resolveSchemaField(schema: SchemaField[], path: string): SchemaField | 
 
 /** Convert a field path into a human-readable label. "$.order.total_amount" → "Total Amount" */
 function pathToLabel(path: string): string {
-  const leaf = path.replace(/^\$\.?/, '').split('.').pop() || path;
+  const leaf =
+    path
+      .replace(/^\$\.?/, '')
+      .split('.')
+      .pop() || path;
   return leaf
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[_-]/g, ' ')

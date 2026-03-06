@@ -201,7 +201,9 @@ function handleMouseMove(event: MouseEvent) {
 }
 
 .edge-path {
-  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+  transition:
+    stroke 0.15s ease,
+    stroke-width 0.15s ease;
 }
 
 .edge-path.edge-selected {

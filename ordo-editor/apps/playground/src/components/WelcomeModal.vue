@@ -299,7 +299,9 @@ h1 {
 
 .fade-enter-active .welcome-modal,
 .fade-leave-active .welcome-modal {
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
 }
 
 .fade-enter-from .welcome-modal,

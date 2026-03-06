@@ -13,10 +13,7 @@ import type {
   SchemaFieldType,
   HitPolicy,
 } from '@ordo-engine/editor-core';
-import {
-  DecisionTable as DTFactory,
-  cellValueToString,
-} from '@ordo-engine/editor-core';
+import { DecisionTable as DTFactory, cellValueToString } from '@ordo-engine/editor-core';
 import type { SchemaField } from '@ordo-engine/editor-core';
 import OrdoTableCellEditor from './OrdoTableCellEditor.vue';
 import OrdoTableToolbar from './OrdoTableToolbar.vue';
@@ -48,7 +45,11 @@ const dropTargetRowId = ref<string | null>(null);
 
 const allColumns = computed(() => [
   ...props.modelValue.inputColumns.map((c) => ({ ...c, kind: 'input' as const })),
-  ...props.modelValue.outputColumns.map((c) => ({ ...c, kind: 'output' as const, fieldPath: c.fieldName })),
+  ...props.modelValue.outputColumns.map((c) => ({
+    ...c,
+    kind: 'output' as const,
+    fieldPath: c.fieldName,
+  })),
 ]);
 
 const hasColumns = computed(() => allColumns.value.length > 0);
@@ -230,7 +231,11 @@ function isEditing(rowId: string, columnId: string): boolean {
   return editingCell.value?.rowId === rowId && editingCell.value?.columnId === columnId;
 }
 
-function getCellValue(row: DecisionTableRow, columnId: string, kind: 'input' | 'output'): CellValue {
+function getCellValue(
+  row: DecisionTableRow,
+  columnId: string,
+  kind: 'input' | 'output'
+): CellValue {
   const map = kind === 'input' ? row.inputValues : row.outputValues;
   return map[columnId] ?? { type: 'any' };
 }
@@ -243,7 +248,12 @@ function getColumnType(columnId: string): SchemaFieldType {
   return 'string';
 }
 
-function updateCellValue(rowId: string, columnId: string, kind: 'input' | 'output', value: CellValue) {
+function updateCellValue(
+  rowId: string,
+  columnId: string,
+  kind: 'input' | 'output',
+  value: CellValue
+) {
   const rows = props.modelValue.rows.map((r) => {
     if (r.id !== rowId) return r;
     if (kind === 'input') {
@@ -331,7 +341,14 @@ function cellTypeClass(cell: CellValue): string {
 
     <!-- Empty state -->
     <div v-if="!hasColumns" class="ordo-decision-table__empty">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <svg
+        width="48"
+        height="48"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+      >
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <line x1="3" y1="9" x2="21" y2="9" />
         <line x1="3" y1="15" x2="21" y2="15" />
@@ -354,7 +371,9 @@ function cellTypeClass(cell: CellValue): string {
               class="ordo-decision-table__th ordo-decision-table__th--input"
             >
               <div class="ordo-decision-table__col-header">
-                <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--input">IN</span>
+                <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--input"
+                  >IN</span
+                >
                 <span class="ordo-decision-table__col-label">{{ col.label }}</span>
                 <span class="ordo-decision-table__col-type">{{ col.type }}</span>
                 <button
@@ -364,8 +383,16 @@ function cellTypeClass(cell: CellValue): string {
                   :title="t('table.deleteColumn')"
                   @click="deleteColumn(col.id, 'input')"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
@@ -379,7 +406,9 @@ function cellTypeClass(cell: CellValue): string {
               class="ordo-decision-table__th ordo-decision-table__th--output"
             >
               <div class="ordo-decision-table__col-header">
-                <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--output">OUT</span>
+                <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--output"
+                  >OUT</span
+                >
                 <span class="ordo-decision-table__col-label">{{ col.label }}</span>
                 <span class="ordo-decision-table__col-type">{{ col.type }}</span>
                 <button
@@ -389,8 +418,16 @@ function cellTypeClass(cell: CellValue): string {
                   :title="t('table.deleteColumn')"
                   @click="deleteColumn(col.id, 'output')"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
@@ -398,11 +435,18 @@ function cellTypeClass(cell: CellValue): string {
             </th>
 
             <!-- Result columns -->
-            <th class="ordo-decision-table__th ordo-decision-table__th--result">{{ t('table.resultCode') }}</th>
-            <th class="ordo-decision-table__th ordo-decision-table__th--result">{{ t('table.resultMessage') }}</th>
+            <th class="ordo-decision-table__th ordo-decision-table__th--result">
+              {{ t('table.resultCode') }}
+            </th>
+            <th class="ordo-decision-table__th ordo-decision-table__th--result">
+              {{ t('table.resultMessage') }}
+            </th>
 
             <!-- Actions -->
-            <th v-if="!disabled" class="ordo-decision-table__th ordo-decision-table__th--actions"></th>
+            <th
+              v-if="!disabled"
+              class="ordo-decision-table__th ordo-decision-table__th--actions"
+            ></th>
           </tr>
         </thead>
 
@@ -419,7 +463,8 @@ function cellTypeClass(cell: CellValue): string {
             class="ordo-decision-table__row"
             :class="{
               'ordo-decision-table__row--dragging': dragRowId === row.id,
-              'ordo-decision-table__row--drop-target': dropTargetRowId === row.id && dragRowId !== row.id,
+              'ordo-decision-table__row--drop-target':
+                dropTargetRowId === row.id && dragRowId !== row.id,
             }"
             :draggable="!disabled"
             @dragstart="onDragStart(row.id)"
@@ -432,9 +477,12 @@ function cellTypeClass(cell: CellValue): string {
             <td class="ordo-decision-table__td ordo-decision-table__td--handle">
               <span class="ordo-decision-table__drag-handle" :title="t('table.priority')">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
-                  <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-                  <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                  <circle cx="9" cy="6" r="1.5" />
+                  <circle cx="15" cy="6" r="1.5" />
+                  <circle cx="9" cy="12" r="1.5" />
+                  <circle cx="15" cy="12" r="1.5" />
+                  <circle cx="9" cy="18" r="1.5" />
+                  <circle cx="15" cy="18" r="1.5" />
                 </svg>
               </span>
               <span class="ordo-decision-table__priority">{{ row.priority }}</span>
@@ -456,7 +504,11 @@ function cellTypeClass(cell: CellValue): string {
                 @confirm="stopEditing"
                 @cancel="stopEditing"
               />
-              <div v-else class="ordo-decision-table__cell-display" :class="cellTypeClass(getCellValue(row, col.id, 'input'))">
+              <div
+                v-else
+                class="ordo-decision-table__cell-display"
+                :class="cellTypeClass(getCellValue(row, col.id, 'input'))"
+              >
                 {{ cellDisplayText(getCellValue(row, col.id, 'input')) }}
               </div>
             </td>
@@ -477,7 +529,11 @@ function cellTypeClass(cell: CellValue): string {
                 @confirm="stopEditing"
                 @cancel="stopEditing"
               />
-              <div v-else class="ordo-decision-table__cell-display" :class="cellTypeClass(getCellValue(row, col.id, 'output'))">
+              <div
+                v-else
+                class="ordo-decision-table__cell-display"
+                :class="cellTypeClass(getCellValue(row, col.id, 'output'))"
+              >
                 {{ cellDisplayText(getCellValue(row, col.id, 'output')) }}
               </div>
             </td>
@@ -489,7 +545,9 @@ function cellTypeClass(cell: CellValue): string {
                 class="ordo-decision-table__inline-input"
                 :disabled="disabled"
                 placeholder="CODE"
-                @input="updateRowField(row.id, 'resultCode', ($event.target as HTMLInputElement).value)"
+                @input="
+                  updateRowField(row.id, 'resultCode', ($event.target as HTMLInputElement).value)
+                "
               />
             </td>
 
@@ -500,7 +558,9 @@ function cellTypeClass(cell: CellValue): string {
                 class="ordo-decision-table__inline-input"
                 :disabled="disabled"
                 placeholder="Message"
-                @input="updateRowField(row.id, 'resultMessage', ($event.target as HTMLInputElement).value)"
+                @input="
+                  updateRowField(row.id, 'resultMessage', ($event.target as HTMLInputElement).value)
+                "
               />
             </td>
 
@@ -513,7 +573,14 @@ function cellTypeClass(cell: CellValue): string {
                   :title="t('table.duplicateRow')"
                   @click.stop="duplicateRow(row.id)"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
                     <rect x="9" y="9" width="13" height="13" rx="2" />
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                   </svg>
@@ -524,9 +591,18 @@ function cellTypeClass(cell: CellValue): string {
                   :title="t('table.deleteRow')"
                   @click.stop="deleteRow(row.id)"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
                     <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <path
+                      d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                    />
                   </svg>
                 </button>
               </div>

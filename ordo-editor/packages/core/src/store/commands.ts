@@ -22,7 +22,7 @@ export class AddStepCommand implements Command {
   readonly type = 'AddStep';
   constructor(
     private step: Step,
-    private setAsStart = false,
+    private setAsStart = false
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -30,9 +30,7 @@ export class AddStepCommand implements Command {
       ...state.ruleset,
       steps: [...state.ruleset.steps, deepClone(this.step)],
       startStepId:
-        this.setAsStart || !state.ruleset.startStepId
-          ? this.step.id
-          : state.ruleset.startStepId,
+        this.setAsStart || !state.ruleset.startStepId ? this.step.id : state.ruleset.startStepId,
     };
     return { ...state, ruleset };
   }
@@ -54,19 +52,14 @@ export class RemoveStepCommand implements Command {
     const ruleset = {
       ...state.ruleset,
       steps,
-      startStepId:
-        state.ruleset.startStepId === this.stepId
-          ? ''
-          : state.ruleset.startStepId,
+      startStepId: state.ruleset.startStepId === this.stepId ? '' : state.ruleset.startStepId,
     };
 
     return {
       ...state,
       ruleset,
-      selectedStepId:
-        state.selectedStepId === this.stepId ? null : state.selectedStepId,
-      selectedBranchId:
-        state.selectedStepId === this.stepId ? null : state.selectedBranchId,
+      selectedStepId: state.selectedStepId === this.stepId ? null : state.selectedStepId,
+      selectedBranchId: state.selectedStepId === this.stepId ? null : state.selectedBranchId,
     };
   }
 
@@ -77,10 +70,9 @@ export class RemoveStepCommand implements Command {
       return {
         ...d,
         branches: d.branches.map((b) =>
-          b.nextStepId === removedId ? { ...b, nextStepId: '' } : b,
+          b.nextStepId === removedId ? { ...b, nextStepId: '' } : b
         ),
-        defaultNextStepId:
-          d.defaultNextStepId === removedId ? '' : d.defaultNextStepId,
+        defaultNextStepId: d.defaultNextStepId === removedId ? '' : d.defaultNextStepId,
       };
     }
     if (step.type === 'action') {
@@ -102,12 +94,12 @@ export class UpdateStepCommand implements Command {
   readonly type = 'UpdateStep';
   constructor(
     private stepId: string,
-    private updates: Partial<Step>,
+    private updates: Partial<Step>
   ) {}
 
   execute(state: EditorState): EditorState {
     const steps = state.ruleset.steps.map((s) =>
-      s.id === this.stepId ? ({ ...s, ...this.updates, id: s.id, type: s.type } as Step) : s,
+      s.id === this.stepId ? ({ ...s, ...this.updates, id: s.id, type: s.type } as Step) : s
     );
     return { ...state, ruleset: { ...state.ruleset, steps } };
   }
@@ -121,12 +113,12 @@ export class MoveStepCommand implements Command {
   readonly type = 'MoveStep';
   constructor(
     private stepId: string,
-    private position: { x: number; y: number },
+    private position: { x: number; y: number }
   ) {}
 
   execute(state: EditorState): EditorState {
     const steps = state.ruleset.steps.map((s) =>
-      s.id === this.stepId ? { ...s, position: { ...this.position } } : s,
+      s.id === this.stepId ? { ...s, position: { ...this.position } } : s
     );
     return { ...state, ruleset: { ...state.ruleset, steps } };
   }
@@ -144,7 +136,7 @@ export class AddBranchCommand implements Command {
   readonly type = 'AddBranch';
   constructor(
     private stepId: string,
-    private branch: Branch,
+    private branch: Branch
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -169,7 +161,7 @@ export class RemoveBranchCommand implements Command {
   readonly type = 'RemoveBranch';
   constructor(
     private stepId: string,
-    private branchId: string,
+    private branchId: string
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -185,8 +177,7 @@ export class RemoveBranchCommand implements Command {
     return {
       ...state,
       ruleset: { ...state.ruleset, steps },
-      selectedBranchId:
-        state.selectedBranchId === this.branchId ? null : state.selectedBranchId,
+      selectedBranchId: state.selectedBranchId === this.branchId ? null : state.selectedBranchId,
     };
   }
 
@@ -200,7 +191,7 @@ export class UpdateBranchCommand implements Command {
   constructor(
     private stepId: string,
     private branchId: string,
-    private updates: Partial<Pick<Branch, 'label' | 'condition' | 'nextStepId'>>,
+    private updates: Partial<Pick<Branch, 'label' | 'condition' | 'nextStepId'>>
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -208,9 +199,7 @@ export class UpdateBranchCommand implements Command {
       if (s.id === this.stepId && isDecisionStep(s)) {
         return {
           ...s,
-          branches: s.branches.map((b) =>
-            b.id === this.branchId ? { ...b, ...this.updates } : b,
-          ),
+          branches: s.branches.map((b) => (b.id === this.branchId ? { ...b, ...this.updates } : b)),
         };
       }
       return s;
@@ -228,7 +217,7 @@ export class ReorderBranchCommand implements Command {
   constructor(
     private stepId: string,
     private branchId: string,
-    private direction: 'up' | 'down',
+    private direction: 'up' | 'down'
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -261,7 +250,7 @@ export class ConnectStepsCommand implements Command {
   constructor(
     private fromStepId: string,
     private toStepId: string,
-    private branchId?: string,
+    private branchId?: string
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -273,7 +262,7 @@ export class ConnectStepsCommand implements Command {
           return {
             ...s,
             branches: s.branches.map((b) =>
-              b.id === this.branchId ? { ...b, nextStepId: this.toStepId } : b,
+              b.id === this.branchId ? { ...b, nextStepId: this.toStepId } : b
             ),
           };
         }
@@ -299,7 +288,7 @@ export class DisconnectStepsCommand implements Command {
   constructor(
     private fromStepId: string,
     private toStepId: string,
-    private branchId?: string,
+    private branchId?: string
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -313,7 +302,7 @@ export class DisconnectStepsCommand implements Command {
             branches: s.branches.map((b) =>
               b.id === this.branchId && b.nextStepId === this.toStepId
                 ? { ...b, nextStepId: '' }
-                : b,
+                : b
             ),
           };
         }
@@ -388,7 +377,7 @@ export class SetSchemaCommand implements Command {
   readonly type = 'SetSchema';
   constructor(
     private inputSchema?: SchemaField[],
-    private outputSchema?: SchemaField[],
+    private outputSchema?: SchemaField[]
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -414,14 +403,11 @@ export class BatchCommand implements Command {
   readonly type = 'Batch';
   constructor(
     private commands: Command[],
-    private label?: string,
+    private label?: string
   ) {}
 
   execute(state: EditorState): EditorState {
-    return this.commands.reduce(
-      (s, cmd) => cmd.execute(s),
-      state,
-    );
+    return this.commands.reduce((s, cmd) => cmd.execute(s), state);
   }
 
   describe(): string {
@@ -437,7 +423,7 @@ export class PasteStepCommand implements Command {
   readonly type = 'PasteStep';
   constructor(
     private step: Step,
-    private offset?: { x: number; y: number },
+    private offset?: { x: number; y: number }
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -477,7 +463,7 @@ export class SelectStepCommand implements Command {
   readonly type = 'SelectStep';
   constructor(
     private stepId: string | null,
-    private branchId: string | null = null,
+    private branchId: string | null = null
   ) {}
 
   execute(state: EditorState): EditorState {
@@ -501,7 +487,7 @@ export class ImportDecisionTableCommand implements Command {
   readonly type = 'ImportDecisionTable';
   constructor(
     private steps: Step[],
-    private startStepId: string,
+    private startStepId: string
   ) {}
 
   execute(state: EditorState): EditorState {

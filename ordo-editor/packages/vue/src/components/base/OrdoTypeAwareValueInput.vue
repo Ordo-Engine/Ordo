@@ -39,9 +39,7 @@ const emit = defineEmits<{
 }>();
 
 type InputMode = 'literal' | 'field';
-const inputMode = ref<InputMode>(
-  props.modelValue.type === 'variable' ? 'field' : 'literal',
-);
+const inputMode = ref<InputMode>(props.modelValue.type === 'variable' ? 'field' : 'literal');
 
 // Extract display value from expression
 const displayValue = computed(() => {
@@ -81,9 +79,7 @@ const hasEnum = computed(() => {
 const effectiveEnumValues = computed(() => {
   if (props.enumValues.length > 0) return props.enumValues;
   if (props.schemaContext && props.fieldPath) {
-    return props.schemaContext
-      .getValueHintsForField(props.fieldPath)
-      .map((h) => String(h.value));
+    return props.schemaContext.getValueHintsForField(props.fieldPath).map((h) => String(h.value));
   }
   return [];
 });
@@ -208,7 +204,10 @@ function switchMode(mode: InputMode) {
     </div>
 
     <!-- Number input -->
-    <div v-else-if="fieldType === 'number' && inputMode === 'literal'" class="ordo-type-value-input__number">
+    <div
+      v-else-if="fieldType === 'number' && inputMode === 'literal'"
+      class="ordo-type-value-input__number"
+    >
       <input
         type="number"
         :value="numberValue"

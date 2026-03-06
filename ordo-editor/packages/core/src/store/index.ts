@@ -25,9 +25,4 @@ export {
 export type { Command } from './commands';
 
 export { createSchemaContext } from './schema-context';
-export type {
-  SchemaContext,
-  ResolvedField,
-  OperatorInfo,
-  ValueHint,
-} from './schema-context';
+export type { SchemaContext, ResolvedField, OperatorInfo, ValueHint } from './schema-context';

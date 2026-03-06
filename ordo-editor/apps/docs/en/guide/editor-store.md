@@ -17,24 +17,24 @@ Each open ruleset file has its own independent `EditorStore` instance, ensuring 
 
 All rule changes are expressed as commands:
 
-| Command              | Description                           |
-| -------------------- | ------------------------------------- |
-| `AddStep`            | Add a new step to the ruleset         |
-| `RemoveStep`         | Remove a step                         |
-| `UpdateStep`         | Modify step properties                |
-| `MoveStep`           | Change step position                  |
-| `AddBranch`          | Add a branch to a Decision step       |
-| `RemoveBranch`       | Remove a branch                       |
-| `UpdateBranch`       | Modify branch conditions or target    |
-| `ReorderBranch`      | Change branch evaluation order        |
-| `ConnectSteps`       | Create a connection between steps     |
-| `DisconnectSteps`    | Remove a connection                   |
-| `SetStartStep`       | Set the entry step                    |
-| `UpdateConfig`       | Update ruleset configuration          |
-| `SetSchema`          | Set or update the ruleset schema      |
-| `Batch`              | Execute multiple commands atomically  |
-| `PasteStep`          | Paste a copied step                   |
-| `ImportDecisionTable`| Import a decision table as steps      |
+| Command               | Description                          |
+| --------------------- | ------------------------------------ |
+| `AddStep`             | Add a new step to the ruleset        |
+| `RemoveStep`          | Remove a step                        |
+| `UpdateStep`          | Modify step properties               |
+| `MoveStep`            | Change step position                 |
+| `AddBranch`           | Add a branch to a Decision step      |
+| `RemoveBranch`        | Remove a branch                      |
+| `UpdateBranch`        | Modify branch conditions or target   |
+| `ReorderBranch`       | Change branch evaluation order       |
+| `ConnectSteps`        | Create a connection between steps    |
+| `DisconnectSteps`     | Remove a connection                  |
+| `SetStartStep`        | Set the entry step                   |
+| `UpdateConfig`        | Update ruleset configuration         |
+| `SetSchema`           | Set or update the ruleset schema     |
+| `Batch`               | Execute multiple commands atomically |
+| `PasteStep`           | Paste a copied step                  |
+| `ImportDecisionTable` | Import a decision table as steps     |
 
 ## Schema-Aware Editing
 
@@ -65,6 +65,7 @@ The `OrdoSchemaFieldPicker` provides:
 ### Enriched Suggestions
 
 Action and Terminal editors automatically provide:
+
 - Variable name autocompletion from schema fields
 - Expression input suggestions combining schema fields and existing variables
 
@@ -74,28 +75,28 @@ Use the `useEditorStore` composable in Vue 3:
 
 ```vue
 <script setup lang="ts">
-import { useEditorStore } from '@ordo-engine/editor-vue'
+import { useEditorStore } from '@ordo-engine/editor-vue';
 
-const store = useEditorStore(fileId, initialRuleset)
-const { state, dispatch, undo, redo, canUndo, canRedo, schemaContext } = store
+const store = useEditorStore(fileId, initialRuleset);
+const { state, dispatch, undo, redo, canUndo, canRedo, schemaContext } = store;
 </script>
 ```
 
 ## Programmatic API
 
 ```typescript
-import { EditorStore } from '@ordo-engine/editor-core'
+import { EditorStore } from '@ordo-engine/editor-core';
 
-const store = new EditorStore(initialRuleset, { maxHistory: 80 })
+const store = new EditorStore(initialRuleset, { maxHistory: 80 });
 
 // Dispatch commands
-store.dispatch({ type: 'AddStep', payload: { step: newStep } })
+store.dispatch({ type: 'AddStep', payload: { step: newStep } });
 
 // Undo/Redo
-store.undo()
-store.redo()
+store.undo();
+store.redo();
 
 // Access state
-console.log(store.state.steps)
-console.log(store.canUndo)
+console.log(store.state.steps);
+console.log(store.canUndo);
 ```

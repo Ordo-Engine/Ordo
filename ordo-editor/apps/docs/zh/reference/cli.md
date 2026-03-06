@@ -211,11 +211,11 @@ ordo-server --signature-enabled --signature-allow-unsigned-local false
 ordo-server --role reader --writer-addr http://writer-node:8080
 ```
 
-|            |                                     |
-| ---------- | ----------------------------------- |
-| **默认值** | `standalone`                        |
-| **值**     | `standalone`, `writer`, `reader`    |
-| **环境变量** | `ORDO_ROLE`                       |
+|              |                                  |
+| ------------ | -------------------------------- |
+| **默认值**   | `standalone`                     |
+| **值**       | `standalone`, `writer`, `reader` |
+| **环境变量** | `ORDO_ROLE`                      |
 
 - `standalone` — 完全读写访问（默认单节点模式）
 - `writer` — 完全读写访问，作为主写入节点
@@ -229,10 +229,10 @@ Writer 节点地址，Reader 实例在 `409` 响应中返回给客户端。
 ordo-server --role reader --writer-addr http://ordo-writer:8080
 ```
 
-|            |                     |
-| ---------- | ------------------- |
-| **默认值** | 无                  |
-| **格式**   | URL                 |
+|              |                    |
+| ------------ | ------------------ |
+| **默认值**   | 无                 |
+| **格式**     | URL                |
 | **环境变量** | `ORDO_WRITER_ADDR` |
 
 ### --watch-rules
@@ -243,10 +243,10 @@ ordo-server --role reader --writer-addr http://ordo-writer:8080
 ordo-server --rules-dir ./rules --watch-rules
 ```
 
-|            |                    |
-| ---------- | ------------------ |
-| **默认值** | `false`            |
-| **要求**   | `--rules-dir`      |
+|              |                    |
+| ------------ | ------------------ |
+| **默认值**   | `false`            |
+| **要求**     | `--rules-dir`      |
 | **环境变量** | `ORDO_WATCH_RULES` |
 
 启用后：
@@ -264,9 +264,9 @@ HTTP 请求体最大字节数。
 ordo-server --max-request-body-bytes 5242880
 ```
 
-|            |                              |
-| ---------- | ---------------------------- |
-| **默认值** | `10485760`（10 MB）          |
+|              |                               |
+| ------------ | ----------------------------- |
+| **默认值**   | `10485760`（10 MB）           |
 | **环境变量** | `ORDO_MAX_REQUEST_BODY_BYTES` |
 
 同时应用于 gRPC 最大解码消息大小。
@@ -279,9 +279,9 @@ HTTP 请求超时时间（秒），超时返回 `408 Request Timeout`。
 ordo-server --request-timeout-secs 60
 ```
 
-|            |                             |
-| ---------- | --------------------------- |
-| **默认值** | `30`                        |
+|              |                             |
+| ------------ | --------------------------- |
+| **默认值**   | `30`                        |
 | **环境变量** | `ORDO_REQUEST_TIMEOUT_SECS` |
 
 ## 日志选项

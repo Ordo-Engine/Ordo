@@ -20,24 +20,24 @@ Data is automatically synchronized when switching between modes.
 
 A decision table consists of:
 
-| Component       | Description                                                |
-| --------------- | ---------------------------------------------------------- |
-| Input Columns   | Schema field paths used as conditions (e.g., `user.age`)   |
-| Output Columns  | Result fields produced by the rule                         |
-| Rows (Rules)    | Each row is one rule with priority, conditions, and outputs |
-| Hit Policy      | How matching is resolved: `first`, `all`, or `collect`     |
+| Component      | Description                                                 |
+| -------------- | ----------------------------------------------------------- |
+| Input Columns  | Schema field paths used as conditions (e.g., `user.age`)    |
+| Output Columns | Result fields produced by the rule                          |
+| Rows (Rules)   | Each row is one rule with priority, conditions, and outputs |
+| Hit Policy     | How matching is resolved: `first`, `all`, or `collect`      |
 
 ### Cell Types
 
 Each input cell can use one of five condition types:
 
-| Type         | Example              | Description                      |
-| ------------ | -------------------- | -------------------------------- |
-| `exact`      | `"premium"`          | Exact value match                |
-| `range`      | `[18, 65]`           | Numeric range (inclusive)        |
-| `in`         | `["A", "B", "C"]`    | Value in set                     |
-| `any`        | `*`                  | Matches any value (wildcard)     |
-| `expression` | `age > 18 && vip`    | Free-form Ordo expression        |
+| Type         | Example           | Description                  |
+| ------------ | ----------------- | ---------------------------- |
+| `exact`      | `"premium"`       | Exact value match            |
+| `range`      | `[18, 65]`        | Numeric range (inclusive)    |
+| `in`         | `["A", "B", "C"]` | Value in set                 |
+| `any`        | `*`               | Matches any value (wildcard) |
+| `expression` | `age > 18 && vip` | Free-form Ordo expression    |
 
 ## Usage
 
@@ -64,11 +64,11 @@ Each input cell can use one of five condition types:
 
 ### Hit Policies
 
-| Policy    | Behavior                                                |
-| --------- | ------------------------------------------------------- |
-| `first`   | Returns the first matching row's output (default)       |
-| `all`     | Returns outputs from all matching rows                  |
-| `collect`  | Collects outputs from all matching rows into a list     |
+| Policy    | Behavior                                            |
+| --------- | --------------------------------------------------- |
+| `first`   | Returns the first matching row's output (default)   |
+| `all`     | Returns outputs from all matching rows              |
+| `collect` | Collects outputs from all matching rows into a list |
 
 ::: tip
 Only `first` hit policy is currently supported for bidirectional conversion with the Flow diagram.
@@ -86,6 +86,7 @@ This conversion is automatic when switching between Table and Flow modes.
 ### Conversion Constraints
 
 The automatic decompilation works for rulesets that follow the pattern:
+
 - A single Decision step as the entry point
 - Each branch points to a Terminal step
 - Conditions use standard comparison operators
@@ -107,16 +108,16 @@ import {
   createEmptyRow,
   compileTableToSteps,
   decompileStepsToTable,
-} from '@ordo-engine/editor-core'
+} from '@ordo-engine/editor-core';
 
 // Create a table programmatically
-const table = createEmptyTable()
-table.inputColumns.push(createInputColumn('user.age', 'number'))
-table.outputColumns.push(createOutputColumn('discount', 'number'))
+const table = createEmptyTable();
+table.inputColumns.push(createInputColumn('user.age', 'number'));
+table.outputColumns.push(createOutputColumn('discount', 'number'));
 
 // Convert to steps for execution
-const steps = compileTableToSteps(table, 'my-rule')
+const steps = compileTableToSteps(table, 'my-rule');
 
 // Convert steps back to table
-const recovered = decompileStepsToTable(steps)
+const recovered = decompileStepsToTable(steps);
 ```

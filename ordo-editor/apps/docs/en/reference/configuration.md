@@ -41,13 +41,13 @@ This page documents all configuration options for Ordo server.
 
 ## Deployment Configuration
 
-| Option              | CLI Flag                     | Env Variable                 | Default      | Description                                                 |
-| ------------------- | ---------------------------- | ---------------------------- | ------------ | ----------------------------------------------------------- |
-| Instance Role       | `--role`                     | `ORDO_ROLE`                  | `standalone` | Instance role: `standalone`, `writer`, or `reader`          |
-| Writer Address      | `--writer-addr`              | `ORDO_WRITER_ADDR`           | None         | Writer node address (used by reader to redirect writes)     |
-| Watch Rules         | `--watch-rules`              | `ORDO_WATCH_RULES`           | `false`      | Enable file watcher for hot-reloading rules                 |
-| Max Request Body    | `--max-request-body-bytes`   | `ORDO_MAX_REQUEST_BODY_BYTES`| `10485760`   | Maximum HTTP request body size in bytes (10 MB)             |
-| Request Timeout     | `--request-timeout-secs`     | `ORDO_REQUEST_TIMEOUT_SECS`  | `30`         | HTTP request timeout in seconds                             |
+| Option           | CLI Flag                   | Env Variable                  | Default      | Description                                             |
+| ---------------- | -------------------------- | ----------------------------- | ------------ | ------------------------------------------------------- |
+| Instance Role    | `--role`                   | `ORDO_ROLE`                   | `standalone` | Instance role: `standalone`, `writer`, or `reader`      |
+| Writer Address   | `--writer-addr`            | `ORDO_WRITER_ADDR`            | None         | Writer node address (used by reader to redirect writes) |
+| Watch Rules      | `--watch-rules`            | `ORDO_WATCH_RULES`            | `false`      | Enable file watcher for hot-reloading rules             |
+| Max Request Body | `--max-request-body-bytes` | `ORDO_MAX_REQUEST_BODY_BYTES` | `10485760`   | Maximum HTTP request body size in bytes (10 MB)         |
+| Request Timeout  | `--request-timeout-secs`   | `ORDO_REQUEST_TIMEOUT_SECS`   | `30`         | HTTP request timeout in seconds                         |
 
 ### Writer/Reader Deployment
 
@@ -87,15 +87,16 @@ When `--watch-rules` is enabled, Ordo monitors the rules directory for file chan
 
 Ordo provides Kubernetes-compatible health check endpoints:
 
-| Endpoint         | Type      | Description                                            |
-| ---------------- | --------- | ------------------------------------------------------ |
-| `/healthz/live`  | Liveness  | Always returns `200` if the process is alive           |
-| `/healthz/ready` | Readiness | Checks store lock availability and disk writability    |
-| `/health`        | Readiness | Legacy endpoint, same behavior as `/healthz/ready`     |
+| Endpoint         | Type      | Description                                         |
+| ---------------- | --------- | --------------------------------------------------- |
+| `/healthz/live`  | Liveness  | Always returns `200` if the process is alive        |
+| `/healthz/ready` | Readiness | Checks store lock availability and disk writability |
+| `/health`        | Readiness | Legacy endpoint, same behavior as `/healthz/ready`  |
 
 ### Readiness Checks
 
 The readiness probe performs:
+
 1. **Store lock** — Attempts to acquire a read lock with a 2-second timeout
 2. **Disk writable** — Writes a `.health_probe` test file to `--rules-dir` (if configured)
 

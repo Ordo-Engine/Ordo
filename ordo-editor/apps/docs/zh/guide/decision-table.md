@@ -20,24 +20,24 @@
 
 决策表由以下部分组成：
 
-| 组成部分     | 描述                                         |
-| ------------ | -------------------------------------------- |
-| 输入列       | 用作条件的 Schema 字段路径（如 `user.age`）  |
-| 输出列       | 规则产生的结果字段                           |
-| 行（规则）   | 每行一条规则，包含优先级、条件和输出值       |
-| 命中策略     | 匹配方式：`first`、`all` 或 `collect`        |
+| 组成部分   | 描述                                        |
+| ---------- | ------------------------------------------- |
+| 输入列     | 用作条件的 Schema 字段路径（如 `user.age`） |
+| 输出列     | 规则产生的结果字段                          |
+| 行（规则） | 每行一条规则，包含优先级、条件和输出值      |
+| 命中策略   | 匹配方式：`first`、`all` 或 `collect`       |
 
 ### 单元格类型
 
 每个输入单元格可使用五种条件类型之一：
 
-| 类型         | 示例               | 描述                      |
-| ------------ | -------------------- | ------------------------ |
-| `exact`      | `"premium"`          | 精确值匹配               |
-| `range`      | `[18, 65]`           | 数值范围（含两端）       |
-| `in`         | `["A", "B", "C"]`    | 值在集合中               |
-| `any`        | `*`                  | 匹配任意值（通配符）     |
-| `expression` | `age > 18 && vip`    | 自由 Ordo 表达式         |
+| 类型         | 示例              | 描述                 |
+| ------------ | ----------------- | -------------------- |
+| `exact`      | `"premium"`       | 精确值匹配           |
+| `range`      | `[18, 65]`        | 数值范围（含两端）   |
+| `in`         | `["A", "B", "C"]` | 值在集合中           |
+| `any`        | `*`               | 匹配任意值（通配符） |
+| `expression` | `age > 18 && vip` | 自由 Ordo 表达式     |
 
 ## 使用方法
 
@@ -64,11 +64,11 @@
 
 ### 命中策略
 
-| 策略      | 行为                                         |
-| --------- | -------------------------------------------- |
-| `first`   | 返回第一个匹配行的输出（默认）               |
-| `all`     | 返回所有匹配行的输出                         |
-| `collect`  | 将所有匹配行的输出收集为列表                 |
+| 策略      | 行为                           |
+| --------- | ------------------------------ |
+| `first`   | 返回第一个匹配行的输出（默认） |
+| `all`     | 返回所有匹配行的输出           |
+| `collect` | 将所有匹配行的输出收集为列表   |
 
 ::: tip
 目前仅 `first` 命中策略支持与流程图的双向转换。
@@ -86,6 +86,7 @@
 ### 转换约束
 
 自动反编译适用于以下模式的规则集：
+
 - 以单个决策步骤为入口
 - 每个分支指向一个终止步骤
 - 条件使用标准比较运算符
@@ -107,16 +108,16 @@ import {
   createEmptyRow,
   compileTableToSteps,
   decompileStepsToTable,
-} from '@ordo-engine/editor-core'
+} from '@ordo-engine/editor-core';
 
 // 以编程方式创建表格
-const table = createEmptyTable()
-table.inputColumns.push(createInputColumn('user.age', 'number'))
-table.outputColumns.push(createOutputColumn('discount', 'number'))
+const table = createEmptyTable();
+table.inputColumns.push(createInputColumn('user.age', 'number'));
+table.outputColumns.push(createOutputColumn('discount', 'number'));
 
 // 转换为步骤以供执行
-const steps = compileTableToSteps(table, 'my-rule')
+const steps = compileTableToSteps(table, 'my-rule');
 
 // 将步骤转回表格
-const recovered = decompileStepsToTable(steps)
+const recovered = decompileStepsToTable(steps);
 ```

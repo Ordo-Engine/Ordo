@@ -211,11 +211,11 @@ Instance role for distributed deployment.
 ordo-server --role reader --writer-addr http://writer-node:8080
 ```
 
-|             |                                     |
-| ----------- | ----------------------------------- |
-| **Default** | `standalone`                        |
-| **Values**  | `standalone`, `writer`, `reader`    |
-| **Env**     | `ORDO_ROLE`                         |
+|             |                                  |
+| ----------- | -------------------------------- |
+| **Default** | `standalone`                     |
+| **Values**  | `standalone`, `writer`, `reader` |
+| **Env**     | `ORDO_ROLE`                      |
 
 - `standalone` — Full read/write access (default single-node mode)
 - `writer` — Full read/write access, serves as the primary write node
@@ -229,10 +229,10 @@ Writer node address, returned to clients in `409` responses when running as a re
 ordo-server --role reader --writer-addr http://ordo-writer:8080
 ```
 
-|             |                  |
-| ----------- | ---------------- |
-| **Default** | None             |
-| **Format**  | URL              |
+|             |                    |
+| ----------- | ------------------ |
+| **Default** | None               |
+| **Format**  | URL                |
 | **Env**     | `ORDO_WRITER_ADDR` |
 
 ### --watch-rules
@@ -264,9 +264,9 @@ Maximum HTTP request body size in bytes.
 ordo-server --max-request-body-bytes 5242880
 ```
 
-|             |                              |
-| ----------- | ---------------------------- |
-| **Default** | `10485760` (10 MB)           |
+|             |                               |
+| ----------- | ----------------------------- |
+| **Default** | `10485760` (10 MB)            |
 | **Env**     | `ORDO_MAX_REQUEST_BODY_BYTES` |
 
 Also applies to gRPC max decoding message size.

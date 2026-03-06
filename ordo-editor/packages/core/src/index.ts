@@ -26,5 +26,8 @@ export * from './engine';
 // Schema exports (Protobuf parsing, JIT schema utilities)
 export * from './schema';
 
+// Store exports (SchemaContext, EditorStore)
+export * from './store';
+
 // Version
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';

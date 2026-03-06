@@ -4,7 +4,7 @@
  * 统一步骤编辑器，根据步骤类型渲染
  */
 import { computed } from 'vue';
-import type { Step, DecisionStep, ActionStep, TerminalStep } from '@ordo-engine/editor-core';
+import type { Step, DecisionStep, ActionStep, TerminalStep, SchemaContext } from '@ordo-engine/editor-core';
 import OrdoDecisionEditor from './OrdoDecisionEditor.vue';
 import OrdoActionEditor from './OrdoActionEditor.vue';
 import OrdoTerminalEditor from './OrdoTerminalEditor.vue';
@@ -17,6 +17,8 @@ export interface Props {
   availableSteps?: Step[];
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Schema context for smart editors */
+  schemaContext?: SchemaContext;
   /** Whether the editor is disabled */
   disabled?: boolean;
   /** Whether to show delete button */
@@ -26,6 +28,7 @@ export interface Props {
 const props = withDefaults(defineProps<Props>(), {
   availableSteps: () => [],
   suggestions: () => [],
+  schemaContext: undefined,
   disabled: false,
   showDelete: true,
 });
@@ -74,6 +77,7 @@ function handleDelete() {
       :model-value="modelValue as DecisionStep"
       :available-steps="availableSteps"
       :suggestions="suggestions"
+      :schema-context="schemaContext"
       :disabled="disabled"
       @update:model-value="handleUpdate"
       @change="handleChange"
@@ -85,6 +89,7 @@ function handleDelete() {
       :model-value="modelValue as ActionStep"
       :available-steps="availableSteps"
       :suggestions="suggestions"
+      :schema-context="schemaContext"
       :disabled="disabled"
       @update:model-value="handleUpdate"
       @change="handleChange"
@@ -95,6 +100,7 @@ function handleDelete() {
       v-if="isTerminal"
       :model-value="modelValue as TerminalStep"
       :suggestions="suggestions"
+      :schema-context="schemaContext"
       :disabled="disabled"
       @update:model-value="handleUpdate"
       @change="handleChange"

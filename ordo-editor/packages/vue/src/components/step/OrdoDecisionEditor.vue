@@ -4,9 +4,10 @@
  * 决策步骤编辑器
  */
 import { computed } from 'vue';
-import type { DecisionStep, Branch, Condition, Step } from '@ordo-engine/editor-core';
+import type { DecisionStep, Branch, Condition, Step, SchemaContext } from '@ordo-engine/editor-core';
 import { Condition as ConditionFactory, Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoConditionBuilder from '../base/OrdoConditionBuilder.vue';
+import OrdoSmartConditionBuilder from '../base/OrdoSmartConditionBuilder.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
@@ -18,6 +19,8 @@ export interface Props {
   availableSteps?: Step[];
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Schema context for smart condition builder */
+  schemaContext?: SchemaContext;
   /** Whether the editor is disabled */
   disabled?: boolean;
 }
@@ -25,8 +28,11 @@ export interface Props {
 const props = withDefaults(defineProps<Props>(), {
   availableSteps: () => [],
   suggestions: () => [],
+  schemaContext: undefined,
   disabled: false,
 });
+
+const hasSchema = computed(() => !!props.schemaContext);
 
 const emit = defineEmits<{
   'update:modelValue': [value: DecisionStep];
@@ -196,7 +202,16 @@ function moveBranch(index: number, direction: 'up' | 'down') {
             <div class="ordo-branch-row">
               <span class="label">If</span>
               <div class="content">
+                <OrdoSmartConditionBuilder
+                  v-if="hasSchema"
+                  :model-value="branch.condition"
+                  :schema-context="schemaContext!"
+                  :suggestions="suggestions"
+                  :disabled="disabled"
+                  @update:model-value="updateBranch(index, { condition: $event })"
+                />
                 <OrdoConditionBuilder
+                  v-else
                   :model-value="branch.condition"
                   :suggestions="suggestions"
                   :disabled="disabled"

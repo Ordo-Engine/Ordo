@@ -4,9 +4,10 @@
  * 动作步骤编辑器
  */
 import { computed } from 'vue';
-import type { ActionStep, VariableAssignment, Step } from '@ordo-engine/editor-core';
+import type { ActionStep, VariableAssignment, Step, SchemaContext } from '@ordo-engine/editor-core';
 import { Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoExpressionInput from '../base/OrdoExpressionInput.vue';
+import OrdoSchemaFieldPicker from '../base/OrdoSchemaFieldPicker.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
@@ -18,6 +19,8 @@ export interface Props {
   availableSteps?: Step[];
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Schema context for field autocomplete */
+  schemaContext?: SchemaContext;
   /** Whether the editor is disabled */
   disabled?: boolean;
 }
@@ -25,7 +28,36 @@ export interface Props {
 const props = withDefaults(defineProps<Props>(), {
   availableSteps: () => [],
   suggestions: () => [],
+  schemaContext: undefined,
   disabled: false,
+});
+
+const hasSchema = computed(() => !!props.schemaContext);
+
+// Build enriched suggestions that include schema fields + existing variable assignments
+const enrichedSuggestions = computed((): FieldSuggestion[] => {
+  const base = [...props.suggestions];
+  if (props.schemaContext) {
+    for (const field of props.schemaContext.getAllFields()) {
+      if (!base.find((s) => s.value === field.fullPath)) {
+        base.push({
+          value: field.fullPath,
+          label: `${field.fullPath} (${field.type})`,
+          description: field.description,
+        });
+      }
+    }
+  }
+  // Add existing variable assignments as suggestions
+  if (props.modelValue.assignments) {
+    for (const assign of props.modelValue.assignments) {
+      const varPath = `$.${assign.name}`;
+      if (!base.find((s) => s.value === varPath)) {
+        base.push({ value: varPath, label: `${varPath} (variable)` });
+      }
+    }
+  }
+  return base;
 });
 
 const emit = defineEmits<{
@@ -197,15 +229,23 @@ function updateExprValue(val: string): any {
                   :value="assign.name"
                   :disabled="disabled"
                   class="ordo-input-clean"
+                  :list="hasSchema ? `schema-fields-${index}` : undefined"
                   @input="
                     updateAssignment(index, { name: ($event.target as HTMLInputElement).value })
                   "
                 />
+                <datalist v-if="hasSchema" :id="`schema-fields-${index}`">
+                  <option
+                    v-for="field in schemaContext!.getAllFields()"
+                    :key="field.path"
+                    :value="field.name"
+                  />
+                </datalist>
               </td>
               <td>
                 <OrdoExpressionInput
                   :model-value="getExprValue(assign.value)"
-                  :suggestions="suggestions"
+                  :suggestions="enrichedSuggestions"
                   :disabled="disabled"
                   @update:model-value="updateAssignment(index, { value: updateExprValue($event) })"
                 />
@@ -242,7 +282,7 @@ function updateExprValue(val: string): any {
         </select>
         <OrdoExpressionInput
           :model-value="getExprValue(modelValue.logging?.message)"
-          :suggestions="suggestions"
+          :suggestions="enrichedSuggestions"
           :disabled="disabled"
           placeholder="Log message..."
           @update:model-value="updateLogging({ message: updateExprValue($event) })"

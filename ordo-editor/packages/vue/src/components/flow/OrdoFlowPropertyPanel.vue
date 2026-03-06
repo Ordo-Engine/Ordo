@@ -4,7 +4,7 @@
  * 选中节点的属性面板
  */
 import { computed } from 'vue';
-import type { Step } from '@ordo-engine/editor-core';
+import type { Step, SchemaContext } from '@ordo-engine/editor-core';
 import OrdoStepEditor from '../step/OrdoStepEditor.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
@@ -15,11 +15,13 @@ export interface Props {
   node: FlowNode;
   availableSteps: Step[];
   suggestions?: FieldSuggestion[];
+  schemaContext?: SchemaContext;
   disabled?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
+  schemaContext: undefined,
   disabled: false,
 });
 
@@ -112,6 +114,7 @@ function handleStepChange(updatedStep: Step) {
         :model-value="step"
         :available-steps="availableSteps"
         :suggestions="suggestions"
+        :schema-context="schemaContext"
         :disabled="disabled"
         :show-delete="false"
         @update:model-value="handleStepUpdate"

@@ -18,6 +18,52 @@ export interface LocaleMessages {
     unknown: string;
     close: string;
   };
+  condition: {
+    selectField: string;
+    selectOperator: string;
+    enterValue: string;
+    switchToExpression: string;
+    switchToSmart: string;
+    fieldReference: string;
+    literalValue: string;
+  };
+  valueInput: {
+    true: string;
+    false: string;
+    null: string;
+  };
+  table: {
+    addRow: string;
+    addInputColumn: string;
+    addOutputColumn: string;
+    deleteRow: string;
+    deleteColumn: string;
+    duplicateRow: string;
+    hitPolicy: string;
+    hitPolicyFirst: string;
+    hitPolicyAll: string;
+    hitPolicyCollect: string;
+    importFromSchema: string;
+    exportJson: string;
+    validate: string;
+    resultCode: string;
+    resultMessage: string;
+    noRows: string;
+    noColumns: string;
+    cellExact: string;
+    cellRange: string;
+    cellList: string;
+    cellAny: string;
+    cellExpression: string;
+    inputColumns: string;
+    outputColumns: string;
+    priority: string;
+    columnField: string;
+    columnLabel: string;
+    columnType: string;
+    addColumn: string;
+    showAsFlow: string;
+  };
   step: {
     decision: string;
     action: string;
@@ -130,6 +176,52 @@ const en: LocaleMessages = {
     unknown: 'Unknown',
     close: 'Close',
   },
+  condition: {
+    selectField: 'Select field',
+    selectOperator: 'Select operator',
+    enterValue: 'Enter value',
+    switchToExpression: 'Switch to Expression',
+    switchToSmart: 'Switch to Smart',
+    fieldReference: 'Field Reference',
+    literalValue: 'Literal Value',
+  },
+  valueInput: {
+    true: 'true',
+    false: 'false',
+    null: 'null',
+  },
+  table: {
+    addRow: 'Add Row',
+    addInputColumn: 'Add Input Column',
+    addOutputColumn: 'Add Output Column',
+    deleteRow: 'Delete Row',
+    deleteColumn: 'Delete Column',
+    duplicateRow: 'Duplicate Row',
+    hitPolicy: 'Hit Policy',
+    hitPolicyFirst: 'First Match',
+    hitPolicyAll: 'All Matches',
+    hitPolicyCollect: 'Collect',
+    importFromSchema: 'Import from Schema',
+    exportJson: 'Export JSON',
+    validate: 'Validate',
+    resultCode: 'Result Code',
+    resultMessage: 'Result Message',
+    noRows: 'No rules defined. Click "Add Row" to create the first rule.',
+    noColumns: 'No columns defined. Add input and output columns to get started.',
+    cellExact: 'Exact',
+    cellRange: 'Range',
+    cellList: 'List',
+    cellAny: 'Any',
+    cellExpression: 'Expression',
+    inputColumns: 'Input Columns',
+    outputColumns: 'Output Columns',
+    priority: 'Priority',
+    columnField: 'Field Path',
+    columnLabel: 'Label',
+    columnType: 'Type',
+    addColumn: 'Add Column',
+    showAsFlow: 'Show as Flow',
+  },
   step: {
     decision: 'Decision',
     action: 'Action',
@@ -241,6 +333,52 @@ const zhCN: LocaleMessages = {
     optional: '可选',
     unknown: '未知',
     close: '关闭',
+  },
+  condition: {
+    selectField: '选择字段',
+    selectOperator: '选择运算符',
+    enterValue: '输入值',
+    switchToExpression: '切换到表达式',
+    switchToSmart: '切换到智能模式',
+    fieldReference: '字段引用',
+    literalValue: '字面量',
+  },
+  valueInput: {
+    true: '真',
+    false: '假',
+    null: '空',
+  },
+  table: {
+    addRow: '添加行',
+    addInputColumn: '添加输入列',
+    addOutputColumn: '添加输出列',
+    deleteRow: '删除行',
+    deleteColumn: '删除列',
+    duplicateRow: '复制行',
+    hitPolicy: '命中策略',
+    hitPolicyFirst: '首次匹配',
+    hitPolicyAll: '全部匹配',
+    hitPolicyCollect: '收集',
+    importFromSchema: '从 Schema 导入',
+    exportJson: '导出 JSON',
+    validate: '验证',
+    resultCode: '结果码',
+    resultMessage: '结果消息',
+    noRows: '暂无规则。点击"添加行"创建第一条规则。',
+    noColumns: '暂无列定义。请添加输入列和输出列以开始。',
+    cellExact: '精确',
+    cellRange: '范围',
+    cellList: '列表',
+    cellAny: '任意',
+    cellExpression: '表达式',
+    inputColumns: '输入列',
+    outputColumns: '输出列',
+    priority: '优先级',
+    columnField: '字段路径',
+    columnLabel: '标签',
+    columnType: '类型',
+    addColumn: '添加列',
+    showAsFlow: '显示为流程图',
   },
   step: {
     decision: '决策节点',

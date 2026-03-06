@@ -3,7 +3,8 @@
  * OrdoTerminalEditor - Terminal step editor (Refactored)
  * 终结步骤编辑器
  */
-import type { TerminalStep, OutputField } from '@ordo-engine/editor-core';
+import { computed } from 'vue';
+import type { TerminalStep, OutputField, SchemaContext } from '@ordo-engine/editor-core';
 import { Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoExpressionInput from '../base/OrdoExpressionInput.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
@@ -15,13 +16,35 @@ export interface Props {
   modelValue: TerminalStep;
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Schema context for output field suggestions */
+  schemaContext?: SchemaContext;
   /** Whether the editor is disabled */
   disabled?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
+  schemaContext: undefined,
   disabled: false,
+});
+
+const hasSchema = computed(() => !!props.schemaContext);
+
+// Build enriched suggestions that include schema fields
+const enrichedSuggestions = computed((): FieldSuggestion[] => {
+  const base = [...props.suggestions];
+  if (props.schemaContext) {
+    for (const field of props.schemaContext.getAllFields()) {
+      if (!base.find((s) => s.value === field.fullPath)) {
+        base.push({
+          value: field.fullPath,
+          label: `${field.fullPath} (${field.type})`,
+          description: field.description,
+        });
+      }
+    }
+  }
+  return base;
 });
 
 const emit = defineEmits<{
@@ -155,7 +178,7 @@ function updateExprValue(val: string): any {
         <label>{{ t('step.resultMessage') }}</label>
         <OrdoExpressionInput
           :model-value="getExprValue(modelValue.message)"
-          :suggestions="suggestions"
+          :suggestions="enrichedSuggestions"
           :disabled="disabled"
           placeholder="Message expression..."
           @update:model-value="updateMessage"
@@ -188,13 +211,21 @@ function updateExprValue(val: string): any {
                   :value="output.name"
                   :disabled="disabled"
                   class="ordo-input-clean"
+                  :list="hasSchema ? `output-fields-${index}` : undefined"
                   @input="updateOutput(index, { name: ($event.target as HTMLInputElement).value })"
                 />
+                <datalist v-if="hasSchema" :id="`output-fields-${index}`">
+                  <option
+                    v-for="field in schemaContext!.getAllFields()"
+                    :key="field.path"
+                    :value="field.name"
+                  />
+                </datalist>
               </td>
               <td>
                 <OrdoExpressionInput
                   :model-value="getExprValue(output.value)"
-                  :suggestions="suggestions"
+                  :suggestions="enrichedSuggestions"
                   :disabled="disabled"
                   @update:model-value="updateOutput(index, { value: updateExprValue($event) })"
                 />

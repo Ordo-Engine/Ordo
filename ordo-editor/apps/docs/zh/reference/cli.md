@@ -201,6 +201,89 @@ ordo-server --signature-enabled --signature-allow-unsigned-local false
 | ---------- | ------ |
 | **默认值** | `true` |
 
+## 部署选项
+
+### --role
+
+分布式部署的实例角色。
+
+```bash
+ordo-server --role reader --writer-addr http://writer-node:8080
+```
+
+|            |                                     |
+| ---------- | ----------------------------------- |
+| **默认值** | `standalone`                        |
+| **值**     | `standalone`, `writer`, `reader`    |
+| **环境变量** | `ORDO_ROLE`                       |
+
+- `standalone` — 完全读写访问（默认单节点模式）
+- `writer` — 完全读写访问，作为主写入节点
+- `reader` — 只读；写请求（对 rulesets、tenants、config 的 `POST`/`PUT`/`DELETE`）返回 `409 Conflict` 并附带 writer 地址
+
+### --writer-addr
+
+Writer 节点地址，Reader 实例在 `409` 响应中返回给客户端。
+
+```bash
+ordo-server --role reader --writer-addr http://ordo-writer:8080
+```
+
+|            |                     |
+| ---------- | ------------------- |
+| **默认值** | 无                  |
+| **格式**   | URL                 |
+| **环境变量** | `ORDO_WRITER_ADDR` |
+
+### --watch-rules
+
+启用文件系统监控，当磁盘上的规则文件变更时自动热重载。
+
+```bash
+ordo-server --rules-dir ./rules --watch-rules
+```
+
+|            |                    |
+| ---------- | ------------------ |
+| **默认值** | `false`            |
+| **要求**   | `--rules-dir`      |
+| **环境变量** | `ORDO_WATCH_RULES` |
+
+启用后：
+
+- 监控 `--rules-dir` 下的 `.json`、`.yaml`、`.yml` 文件变更
+- 200ms 防抖处理快速连续变更
+- 原生文件事件不可用时回退到 30 秒轮询
+- 多租户模式下，同时监控 `<rules-dir>/tenants/` 并在 `tenants.json` 变更时重载租户配置
+
+### --max-request-body-bytes
+
+HTTP 请求体最大字节数。
+
+```bash
+ordo-server --max-request-body-bytes 5242880
+```
+
+|            |                              |
+| ---------- | ---------------------------- |
+| **默认值** | `10485760`（10 MB）          |
+| **环境变量** | `ORDO_MAX_REQUEST_BODY_BYTES` |
+
+同时应用于 gRPC 最大解码消息大小。
+
+### --request-timeout-secs
+
+HTTP 请求超时时间（秒），超时返回 `408 Request Timeout`。
+
+```bash
+ordo-server --request-timeout-secs 60
+```
+
+|            |                             |
+| ---------- | --------------------------- |
+| **默认值** | `30`                        |
+| **环境变量** | `ORDO_REQUEST_TIMEOUT_SECS` |
+
 ## 日志选项
 
 ### --log-level
@@ -239,7 +322,25 @@ ordo-server \
   --max-versions 20 \
   --audit-dir /var/log/ordo/audit \
   --audit-sample-rate 10 \
+  --watch-rules \
+  --max-request-body-bytes 10485760 \
+  --request-timeout-secs 30 \
   --log-level info
+```
+
+### Writer/Reader 部署
+
+```bash
+# Writer 节点
+ordo-server --role writer \
+  --rules-dir /shared/rules \
+  --watch-rules
+
+# Reader 节点
+ordo-server --role reader \
+  --writer-addr http://ordo-writer:8080 \
+  --rules-dir /shared/rules \
+  --watch-rules
 ```
 
 ### 仅 HTTP

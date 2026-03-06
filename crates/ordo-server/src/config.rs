@@ -35,16 +35,70 @@
 //! | `ORDO_SERVICE_NAME` | Service name for OTel traces | `ordo-server` |
 //! | `ORDO_OTLP_ENDPOINT` | OTLP HTTP endpoint for traces | - |
 //! | `ORDO_SHUTDOWN_TIMEOUT_SECS` | Graceful shutdown timeout | `30` |
+//! | `ORDO_MAX_REQUEST_BODY_BYTES` | Max HTTP request body size | `10485760` (10MB) |
+//! | `ORDO_REQUEST_TIMEOUT_SECS` | HTTP request timeout | `30` |
 
 use clap::Parser;
+use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
+/// Instance role in a distributed deployment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InstanceRole {
+    /// Single-node mode — full read/write (current default behaviour).
+    #[default]
+    Standalone,
+    /// Accepts mutations and publishes changes to readers.
+    Writer,
+    /// Read-only — serves GET/execute, rejects mutations.
+    Reader,
+}
+
+impl fmt::Display for InstanceRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstanceRole::Standalone => write!(f, "standalone"),
+            InstanceRole::Writer => write!(f, "writer"),
+            InstanceRole::Reader => write!(f, "reader"),
+        }
+    }
+}
+
+impl std::str::FromStr for InstanceRole {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "standalone" => Ok(InstanceRole::Standalone),
+            "writer" => Ok(InstanceRole::Writer),
+            "reader" => Ok(InstanceRole::Reader),
+            other => Err(format!(
+                "invalid role '{}', expected one of: standalone, writer, reader",
+                other
+            )),
+        }
+    }
+}
 
 /// Ordo Rule Engine Server
 #[derive(Parser, Debug, Clone)]
 #[command(name = "ordo-server")]
 #[command(author, version, about, long_about = None)]
 pub struct ServerConfig {
+    /// Instance role: standalone (default), writer, or reader.
+    /// Writer accepts mutations; reader is read-only and rejects write requests.
+    #[arg(long, default_value = "standalone", env = "ORDO_ROLE")]
+    pub role: InstanceRole,
+
+    /// Writer instance address (e.g. http://10.0.0.1:8080).
+    /// Reader instances include this in 409 responses so clients can redirect writes.
+    #[arg(long, env = "ORDO_WRITER_ADDR")]
+    pub writer_addr: Option<String>,
+
+    /// Enable file-system watching for live rule reload (requires --rules-dir).
+    #[arg(long, default_value = "false", env = "ORDO_WATCH_RULES")]
+    pub watch_rules: bool,
+
     /// HTTP server port (shorthand for --http-addr 0.0.0.0:<port>).
     /// If both --port and --http-addr are specified, --http-addr takes precedence.
     #[arg(short = 'p', long, env = "ORDO_PORT")]
@@ -184,6 +238,16 @@ pub struct ServerConfig {
     /// Seconds to wait for in-flight requests to complete during graceful shutdown.
     #[arg(long, default_value = "30", env = "ORDO_SHUTDOWN_TIMEOUT_SECS")]
     pub shutdown_timeout_secs: u64,
+
+    /// Maximum HTTP request body size in bytes (default 10MB).
+    /// gRPC uses tonic's built-in message size limit set to the same value.
+    #[arg(long, default_value = "10485760", env = "ORDO_MAX_REQUEST_BODY_BYTES")]
+    pub max_request_body_bytes: usize,
+
+    /// HTTP request timeout in seconds.
+    /// Requests exceeding this duration are terminated with 408 Request Timeout.
+    #[arg(long, default_value = "30", env = "ORDO_REQUEST_TIMEOUT_SECS")]
+    pub request_timeout_secs: u64,
 }
 
 impl ServerConfig {
@@ -230,11 +294,19 @@ impl ServerConfig {
     pub fn debug_enabled(&self) -> bool {
         self.debug_mode
     }
+
+    /// Returns true when this instance should reject write operations.
+    pub fn is_read_only(&self) -> bool {
+        self.role == InstanceRole::Reader
+    }
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
+            role: InstanceRole::Standalone,
+            writer_addr: None,
+            watch_rules: false,
             port: None,
             grpc_port: None,
             http_addr_opt: None,
@@ -262,6 +334,8 @@ impl Default for ServerConfig {
             service_name: "ordo-server".to_string(),
             otlp_endpoint: None,
             shutdown_timeout_secs: 30,
+            max_request_body_bytes: 10 * 1024 * 1024,
+            request_timeout_secs: 30,
         }
     }
 }
@@ -306,5 +380,51 @@ mod tests {
             ..Default::default()
         };
         assert!(config.debug_enabled());
+    }
+
+    #[test]
+    fn test_instance_role_default() {
+        let config = ServerConfig::default();
+        assert_eq!(config.role, InstanceRole::Standalone);
+        assert!(!config.is_read_only());
+    }
+
+    #[test]
+    fn test_reader_is_read_only() {
+        let config = ServerConfig {
+            role: InstanceRole::Reader,
+            ..Default::default()
+        };
+        assert!(config.is_read_only());
+    }
+
+    #[test]
+    fn test_writer_is_not_read_only() {
+        let config = ServerConfig {
+            role: InstanceRole::Writer,
+            ..Default::default()
+        };
+        assert!(!config.is_read_only());
+    }
+
+    #[test]
+    fn test_instance_role_parse() {
+        assert_eq!(
+            "standalone".parse::<InstanceRole>().unwrap(),
+            InstanceRole::Standalone
+        );
+        assert_eq!(
+            "writer".parse::<InstanceRole>().unwrap(),
+            InstanceRole::Writer
+        );
+        assert_eq!(
+            "reader".parse::<InstanceRole>().unwrap(),
+            InstanceRole::Reader
+        );
+        assert_eq!(
+            "Reader".parse::<InstanceRole>().unwrap(),
+            InstanceRole::Reader
+        );
+        assert!("invalid".parse::<InstanceRole>().is_err());
     }
 }

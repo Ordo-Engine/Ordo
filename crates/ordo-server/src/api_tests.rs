@@ -17,10 +17,10 @@ use crate::{
     api,
     audit::AuditLogger,
     debug::DebugSessionManager,
-    health_check,
     metrics::PrometheusMetricSink,
     middleware,
     rate_limiter::RateLimiter,
+    readiness_check,
     store::RuleStore,
     tenant::{TenantDefaults, TenantManager},
     AppState, ServerConfig,
@@ -56,7 +56,7 @@ async fn build_test_app() -> Router {
     };
 
     Router::new()
-        .route("/health", get(health_check))
+        .route("/health", get(readiness_check))
         .route(
             "/api/v1/rulesets",
             get(api::list_rulesets).post(api::create_ruleset),
@@ -171,7 +171,7 @@ async fn test_health_check() {
     let app = build_test_app().await;
     let (status, body) = get_request(&app, "/health").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["status"], "healthy");
+    assert_eq!(body["status"], "ready");
 }
 
 #[tokio::test]

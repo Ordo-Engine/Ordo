@@ -42,6 +42,8 @@ use tokio::sync::{watch, RwLock};
 use tonic::transport::Server as TonicServer;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
@@ -55,6 +57,7 @@ mod metrics;
 mod middleware;
 mod rate_limiter;
 mod store;
+mod sync;
 mod telemetry;
 mod tenant;
 #[cfg(unix)]
@@ -70,6 +73,7 @@ use ordo_core::signature::RuleVerifier;
 use rate_limiter::RateLimiter;
 use std::fs;
 use store::RuleStore;
+use sync::file_watcher::RecentWrites;
 use tenant::{default_tenant_store_path, TenantDefaults, TenantManager, TenantStore};
 
 /// Application state shared between HTTP handlers
@@ -145,6 +149,15 @@ async fn main() -> anyhow::Result<()> {
         &config.log_level,
         config.otlp_endpoint.as_deref(),
     );
+
+    // Log instance role
+    info!("Instance role: {}", config.role);
+    if config.is_read_only() {
+        info!(
+            "Read-only mode — write requests will be rejected (writer: {})",
+            config.writer_addr.as_deref().unwrap_or("not configured")
+        );
+    }
 
     // Log debug mode warning
     if config.debug_enabled() {
@@ -274,6 +287,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let rate_limiter = Arc::new(RateLimiter::new());
+    let recent_writes = Arc::new(RecentWrites::new());
 
     // Shutdown broadcast channel — signal handlers and servers share this.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -327,6 +341,9 @@ async fn main() -> anyhow::Result<()> {
         let grpc_tenant_manager = tenant_manager.clone();
         let grpc_rate_limiter = rate_limiter.clone();
         let grpc_multi_tenancy_enabled = config.multi_tenancy_enabled;
+        let grpc_max_body = config.max_request_body_bytes;
+        let grpc_role = config.role;
+        let grpc_writer_addr = config.writer_addr.clone();
         let grpc_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             start_grpc_server(
@@ -337,6 +354,9 @@ async fn main() -> anyhow::Result<()> {
                 grpc_tenant_manager,
                 grpc_rate_limiter,
                 grpc_multi_tenancy_enabled,
+                grpc_max_body,
+                grpc_role,
+                grpc_writer_addr,
                 grpc_shutdown_rx,
             )
             .await
@@ -353,6 +373,7 @@ async fn main() -> anyhow::Result<()> {
         let uds_tenant_manager = tenant_manager.clone();
         let uds_rate_limiter = rate_limiter.clone();
         let uds_multi_tenancy_enabled = config.multi_tenancy_enabled;
+        let uds_max_body = config.max_request_body_bytes;
         let uds_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             uds::start_uds_server(
@@ -363,11 +384,36 @@ async fn main() -> anyhow::Result<()> {
                 uds_tenant_manager,
                 uds_rate_limiter,
                 uds_multi_tenancy_enabled,
+                uds_max_body,
                 uds_shutdown_rx,
             )
             .await
             .map_err(|e| anyhow::anyhow!("UDS server error: {}", e))
         }));
+    }
+
+    // File watcher (if --watch-rules is set and --rules-dir is configured)
+    let mut watcher_handle: Option<tokio::task::JoinHandle<()>> = None;
+    if config.watch_rules {
+        if let Some(ref rules_dir) = config.rules_dir {
+            let watch_dir = if config.multi_tenancy_enabled {
+                rules_dir.join("tenants")
+            } else {
+                rules_dir.clone()
+            };
+            let handle = sync::file_watcher::start_file_watcher(
+                watch_dir,
+                store.clone(),
+                tenant_manager.clone(),
+                recent_writes.clone(),
+                shutdown_rx.clone(),
+            )
+            .await;
+            watcher_handle = Some(handle);
+            info!("File watcher enabled for {:?}", rules_dir);
+        } else {
+            warn!("--watch-rules requires --rules-dir; file watching disabled");
+        }
     }
 
     // Signal handler: wait for SIGTERM/Ctrl-C, then begin graceful shutdown.
@@ -419,6 +465,12 @@ async fn main() -> anyhow::Result<()> {
         info!("No servers enabled. Exiting.");
     }
 
+    // Stop the file watcher (it listens on shutdown_rx too, but abort for certainty).
+    if let Some(handle) = watcher_handle {
+        handle.abort();
+        let _ = handle.await;
+    }
+
     // Flush and shut down OpenTelemetry spans before process exit.
     if let Some(provider) = otel_provider {
         telemetry::shutdown(provider);
@@ -458,8 +510,10 @@ async fn start_http_server(
 
     // Build base router
     let mut app = Router::new()
-        // Health check
-        .route("/health", get(health_check))
+        // Health check (backward-compatible + Kubernetes-style probes)
+        .route("/health", get(readiness_check))
+        .route("/healthz/live", get(liveness_check))
+        .route("/healthz/ready", get(readiness_check))
         // Rule management (Admin API)
         .route(
             "/api/v1/rulesets",
@@ -560,15 +614,22 @@ async fn start_http_server(
             .allow_headers([axum::http::header::CONTENT_TYPE])
     };
 
+    let request_timeout = Duration::from_secs(state.config.request_timeout_secs);
+    let max_body = state.config.max_request_body_bytes;
+
     let app = app
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
+            middleware::role::read_only_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             middleware::tenant::tenant_middleware,
         ))
-        // Outermost layer: catch panics in any handler or inner middleware and
-        // return 500 instead of crashing the server process.
+        .layer(TimeoutLayer::new(request_timeout))
+        .layer(RequestBodyLimitLayer::new(max_body))
         .layer(CatchPanicLayer::new())
         .with_state(state);
 
@@ -596,6 +657,9 @@ async fn start_grpc_server(
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     multi_tenancy_enabled: bool,
+    max_request_body_bytes: usize,
+    role: config::InstanceRole,
+    writer_addr: Option<String>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let grpc_service = OrdoGrpcService::new(
@@ -605,12 +669,18 @@ async fn start_grpc_server(
         tenant_manager,
         rate_limiter,
         multi_tenancy_enabled,
-    );
+    )
+    .with_role(role, writer_addr);
 
     info!("gRPC server listening on {}", addr);
 
     TonicServer::builder()
-        .add_service(OrdoServiceServer::new(grpc_service))
+        .tcp_keepalive(Some(Duration::from_secs(60)))
+        .http2_keepalive_interval(Some(Duration::from_secs(30)))
+        .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+        .add_service(
+            OrdoServiceServer::new(grpc_service).max_decoding_message_size(max_request_body_bytes),
+        )
         .serve_with_shutdown(addr, async move {
             shutdown_rx.changed().await.ok();
             info!("gRPC server: draining in-flight requests");
@@ -621,34 +691,73 @@ async fn start_grpc_server(
     Ok(())
 }
 
-/// Health check endpoint with detailed status
-async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
-    let store = state.store.read().await;
-
-    // Determine storage mode and info
-    let storage_info = if store.persistence_enabled() {
-        serde_json::json!({
-            "mode": "persistent",
-            "rules_dir": store.rules_dir().map(|p| p.display().to_string()),
-            "rules_count": store.len()
-        })
-    } else {
-        serde_json::json!({
-            "mode": "memory",
-            "rules_count": store.len()
-        })
-    };
-
-    // Update metrics
-    metrics::set_rules_count(store.len() as i64);
-
+/// Liveness probe — confirms the process is running.
+/// Always returns 200; use for Kubernetes liveness probes.
+async fn liveness_check() -> impl IntoResponse {
     Json(serde_json::json!({
-        "status": "healthy",
+        "status": "alive",
         "version": ordo_core::VERSION,
         "uptime_seconds": metrics::START_TIME.elapsed().as_secs(),
-        "storage": storage_info,
-        "debug_mode": state.config.debug_enabled()
     }))
+}
+
+/// Readiness probe — confirms the service can handle requests.
+/// Checks store lock acquisition (with timeout) and disk writability.
+/// Returns 503 if any check fails. Use for Kubernetes readiness probes
+/// and load balancer health checks.
+async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
+    let store_result = tokio::time::timeout(Duration::from_secs(2), state.store.read()).await;
+
+    let (store_lock_ok, rules_count, storage_mode) = match store_result {
+        Ok(guard) => {
+            metrics::set_rules_count(guard.len() as i64);
+            let mode = if guard.persistence_enabled() {
+                "persistent"
+            } else {
+                "memory"
+            };
+            (true, guard.len(), mode)
+        }
+        Err(_) => (false, 0, "unknown"),
+    };
+
+    let disk_ok = if let Some(ref rules_dir) = state.config.rules_dir {
+        let probe = rules_dir.join(".health_probe");
+        match tokio::fs::write(&probe, b"ok").await {
+            Ok(_) => {
+                let _ = tokio::fs::remove_file(&probe).await;
+                true
+            }
+            Err(_) => false,
+        }
+    } else {
+        true
+    };
+
+    let is_ready = store_lock_ok && disk_ok;
+    let status_code = if is_ready {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status_code,
+        Json(serde_json::json!({
+            "status": if is_ready { "ready" } else { "not_ready" },
+            "version": ordo_core::VERSION,
+            "uptime_seconds": metrics::START_TIME.elapsed().as_secs(),
+            "checks": {
+                "store_lock": store_lock_ok,
+                "disk_writable": disk_ok,
+            },
+            "storage": {
+                "mode": storage_mode,
+                "rules_count": rules_count,
+            },
+            "debug_mode": state.config.debug_enabled()
+        })),
+    )
 }
 
 /// Prometheus metrics endpoint

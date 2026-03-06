@@ -201,6 +201,89 @@ ordo-server --signature-enabled --signature-allow-unsigned-local false
 | ----------- | ------ |
 | **Default** | `true` |
 
+## Deployment Options
+
+### --role
+
+Instance role for distributed deployment.
+
+```bash
+ordo-server --role reader --writer-addr http://writer-node:8080
+```
+
+|             |                                     |
+| ----------- | ----------------------------------- |
+| **Default** | `standalone`                        |
+| **Values**  | `standalone`, `writer`, `reader`    |
+| **Env**     | `ORDO_ROLE`                         |
+
+- `standalone` — Full read/write access (default single-node mode)
+- `writer` — Full read/write access, serves as the primary write node
+- `reader` — Read-only; write requests (`POST`/`PUT`/`DELETE` on rulesets, tenants, config) return `409 Conflict` with the writer address
+
+### --writer-addr
+
+Writer node address, returned to clients in `409` responses when running as a reader.
+
+```bash
+ordo-server --role reader --writer-addr http://ordo-writer:8080
+```
+
+|             |                  |
+| ----------- | ---------------- |
+| **Default** | None             |
+| **Format**  | URL              |
+| **Env**     | `ORDO_WRITER_ADDR` |
+
+### --watch-rules
+
+Enable file system watcher for hot-reloading rules when files change on disk.
+
+```bash
+ordo-server --rules-dir ./rules --watch-rules
+```
+
+|              |                    |
+| ------------ | ------------------ |
+| **Default**  | `false`            |
+| **Requires** | `--rules-dir`      |
+| **Env**      | `ORDO_WATCH_RULES` |
+
+When enabled:
+
+- Monitors `--rules-dir` for `.json`, `.yaml`, `.yml` file changes
+- 200ms debounce to batch rapid file changes
+- Falls back to 30-second polling if native file system events are unavailable
+- In multi-tenancy mode, monitors `<rules-dir>/tenants/` and reloads tenant configs on `tenants.json` change
+
+### --max-request-body-bytes
+
+Maximum HTTP request body size in bytes.
+
+```bash
+ordo-server --max-request-body-bytes 5242880
+```
+
+|             |                              |
+| ----------- | ---------------------------- |
+| **Default** | `10485760` (10 MB)           |
+| **Env**     | `ORDO_MAX_REQUEST_BODY_BYTES` |
+
+Also applies to gRPC max decoding message size.
+
+### --request-timeout-secs
+
+HTTP request timeout in seconds. Returns `408 Request Timeout` if exceeded.
+
+```bash
+ordo-server --request-timeout-secs 60
+```
+
+|             |                             |
+| ----------- | --------------------------- |
+| **Default** | `30`                        |
+| **Env**     | `ORDO_REQUEST_TIMEOUT_SECS` |
+
 ## Logging Options
 
 ### --log-level
@@ -239,7 +322,25 @@ ordo-server \
   --max-versions 20 \
   --audit-dir /var/log/ordo/audit \
   --audit-sample-rate 10 \
+  --watch-rules \
+  --max-request-body-bytes 10485760 \
+  --request-timeout-secs 30 \
   --log-level info
+```
+
+### Writer/Reader Deployment
+
+```bash
+# Writer node
+ordo-server --role writer \
+  --rules-dir /shared/rules \
+  --watch-rules
+
+# Reader node
+ordo-server --role reader \
+  --writer-addr http://ordo-writer:8080 \
+  --rules-dir /shared/rules \
+  --watch-rules
 ```
 
 ### HTTP Only

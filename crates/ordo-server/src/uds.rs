@@ -27,6 +27,7 @@ pub async fn start_uds_server(
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     multi_tenancy_enabled: bool,
+    max_request_body_bytes: usize,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Remove existing socket file if it exists
@@ -57,7 +58,9 @@ pub async fn start_uds_server(
 
     // Start server with graceful shutdown
     Server::builder()
-        .add_service(OrdoServiceServer::new(grpc_service))
+        .add_service(
+            OrdoServiceServer::new(grpc_service).max_decoding_message_size(max_request_body_bytes),
+        )
         .serve_with_incoming_shutdown(uds_stream, async move {
             shutdown_rx.changed().await.ok();
             info!("UDS server: draining in-flight requests");
@@ -117,6 +120,7 @@ mod tests {
                 tenant_manager_clone,
                 rate_limiter_clone,
                 false,
+                10 * 1024 * 1024,
                 shutdown_rx,
             )
             .await

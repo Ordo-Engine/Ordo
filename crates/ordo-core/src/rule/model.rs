@@ -37,7 +37,7 @@ pub struct RuleSetConfig {
     pub max_depth: usize,
 
     /// Timeout in milliseconds (0 = no timeout)
-    #[serde(default)]
+    #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
 
     /// Whether to enable tracing
@@ -55,6 +55,10 @@ fn default_version() -> String {
 
 fn default_max_depth() -> usize {
     100
+}
+
+fn default_timeout_ms() -> u64 {
+    5000
 }
 
 /// Field missing behavior
@@ -92,7 +96,7 @@ impl RuleSet {
                 entry_step: entry_step.into(),
                 field_missing: FieldMissingBehavior::default(),
                 max_depth: default_max_depth(),
-                timeout_ms: 0,
+                timeout_ms: default_timeout_ms(),
                 enable_trace: false,
                 metadata: HashMap::new(),
             },

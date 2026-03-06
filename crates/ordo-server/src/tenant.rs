@@ -152,6 +152,29 @@ impl TenantManager {
             None => Err(format!("Tenant '{}' not found", tenant_id)),
         }
     }
+
+    /// Reload tenant configuration from the backing store.
+    ///
+    /// This is called by the file watcher when `tenants.json` changes on disk.
+    /// The in-memory map is replaced atomically; existing references obtained
+    /// before the reload are unaffected (they are clones).
+    pub async fn reload(&self) -> io::Result<()> {
+        let store = match &self.store {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+        let new_tenants = store.load().await?;
+        let count = new_tenants.len();
+        let mut guard = self.tenants.write().await;
+        *guard = new_tenants;
+        info!("Reloaded tenant config ({} tenants)", count);
+        Ok(())
+    }
+
+    /// Returns the store path (if configured) so the file watcher can monitor it.
+    pub fn store_path(&self) -> Option<&Path> {
+        self.store.as_ref().map(|s| s.path.as_path())
+    }
 }
 
 pub fn default_tenant_store_path(rules_dir: &Path) -> PathBuf {
@@ -187,5 +210,39 @@ mod tests {
             .unwrap();
         let list2 = manager2.list().await;
         assert_eq!(list2.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_tenant_reload() {
+        let temp = TempDir::new().unwrap();
+        let store_path = temp.path().join("tenants.json");
+        let store = TenantStore::new(store_path.clone());
+        let defaults = TenantDefaults {
+            default_qps_limit: None,
+            default_burst_limit: None,
+            default_timeout_ms: 100,
+        };
+
+        let manager = TenantManager::new(Some(store), defaults).await.unwrap();
+        manager.ensure_default("default").await.unwrap();
+        assert_eq!(manager.list().await.len(), 1);
+
+        // Externally add a second tenant to the file
+        let mut tenants = HashMap::new();
+        tenants.insert(
+            "default".to_string(),
+            TenantConfig::default_for_id("default", manager.defaults()),
+        );
+        tenants.insert(
+            "new-tenant".to_string(),
+            TenantConfig::default_for_id("new-tenant", manager.defaults()),
+        );
+        let data = serde_json::to_vec_pretty(&tenants).unwrap();
+        tokio::fs::write(&store_path, data).await.unwrap();
+
+        // Reload and verify
+        manager.reload().await.unwrap();
+        assert_eq!(manager.list().await.len(), 2);
+        assert!(manager.get("new-tenant").await.is_some());
     }
 }

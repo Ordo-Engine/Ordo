@@ -836,6 +836,89 @@ impl RuleStore {
         self.rules_dir.as_deref()
     }
 
+    /// Hot-reload a single rule file from disk.
+    ///
+    /// Reads the file, parses/validates/compiles the ruleset, then atomically
+    /// replaces the in-memory entry. Ongoing executions holding the old `Arc`
+    /// are unaffected.
+    pub fn reload_file(&mut self, path: &Path) -> io::Result<()> {
+        let format = match FileFormat::from_path(path) {
+            Some(f) => f,
+            None => return Ok(()),
+        };
+
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid filename"))?
+            .to_string();
+
+        if Self::is_version_file(&file_stem) {
+            return Ok(());
+        }
+
+        // Skip temp files produced by atomic writes
+        if file_stem.starts_with('.') {
+            return Ok(());
+        }
+
+        let _format = format; // used above for validation
+
+        let tenant_id = self.tenant_id_from_path(path);
+
+        let mut ruleset = self.load_ruleset_file(path)?;
+        ruleset.config.tenant_id = Some(tenant_id.clone());
+
+        let key = self.make_key(&tenant_id, &file_stem);
+        info!(
+            "Hot-reloaded rule '{}' (tenant '{}') from {:?}",
+            file_stem, tenant_id, path
+        );
+        self.rulesets.insert(key, Arc::new(ruleset));
+        metrics::set_rules_count(self.rulesets.len() as i64);
+
+        Ok(())
+    }
+
+    /// Remove a rule whose backing file was deleted.
+    ///
+    /// Derives the rule key from the file path and removes the in-memory entry.
+    pub fn remove_by_path(&mut self, path: &Path) -> io::Result<()> {
+        let file_stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => return Ok(()),
+        };
+
+        if Self::is_version_file(&file_stem) || file_stem.starts_with('.') {
+            return Ok(());
+        }
+
+        let tenant_id = self.tenant_id_from_path(path);
+        let key = self.make_key(&tenant_id, &file_stem);
+
+        if self.rulesets.remove(&key).is_some() {
+            info!(
+                "Removed rule '{}' (tenant '{}') — backing file deleted",
+                file_stem, tenant_id
+            );
+            metrics::set_rules_count(self.rulesets.len() as i64);
+        }
+
+        Ok(())
+    }
+
+    /// Derive the tenant id from a file path by inspecting the parent directory.
+    fn tenant_id_from_path(&self, path: &Path) -> String {
+        if !self.multi_tenancy_enabled {
+            return self.default_tenant.clone();
+        }
+        path.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| self.default_tenant.clone())
+    }
+
     /// Get the number of loaded rules
     pub fn len(&self) -> usize {
         self.rulesets.len()
@@ -1176,6 +1259,66 @@ steps:
         assert_eq!(loaded, 1);
         assert!(store2.exists("load-test"));
         assert!(!store2.exists("load-test.v1")); // Version files should not be loaded as rules
+    }
+
+    // ==================== Hot Reload Tests ====================
+
+    #[test]
+    fn test_reload_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence(rules_dir.clone());
+
+        // Create initial rule
+        let ruleset = create_test_ruleset_with_version("reload-test", "1.0.0");
+        store.put(ruleset).unwrap();
+        assert_eq!(store.get("reload-test").unwrap().config.version, "1.0.0");
+
+        // Manually write a new version to disk
+        let mut updated = create_test_ruleset_with_version("reload-test", "2.0.0");
+        updated.config.tenant_id = Some("default".to_string());
+        let content = serde_json::to_string_pretty(&updated).unwrap();
+        fs::write(rules_dir.join("reload-test.json"), content).unwrap();
+
+        // Hot reload
+        store
+            .reload_file(&rules_dir.join("reload-test.json"))
+            .unwrap();
+        assert_eq!(store.get("reload-test").unwrap().config.version, "2.0.0");
+    }
+
+    #[test]
+    fn test_remove_by_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence(rules_dir.clone());
+
+        let ruleset = create_test_ruleset("remove-test");
+        store.put(ruleset).unwrap();
+        assert!(store.exists("remove-test"));
+
+        store
+            .remove_by_path(&rules_dir.join("remove-test.json"))
+            .unwrap();
+        assert!(!store.exists("remove-test"));
+    }
+
+    #[test]
+    fn test_reload_skips_version_and_temp_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence(rules_dir.clone());
+
+        // Version file should be skipped
+        assert!(store.reload_file(&rules_dir.join("rule.v1.json")).is_ok());
+        assert_eq!(store.len(), 0);
+
+        // Temp file should be skipped
+        assert!(store.reload_file(&rules_dir.join(".rule.tmp")).is_ok());
+        assert_eq!(store.len(), 0);
     }
 
     // ==================== Multi-Tenancy Tests ====================

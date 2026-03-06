@@ -84,6 +84,8 @@ export default defineConfig({
                 { text: 'Version Management', link: '/en/guide/versioning' },
                 { text: 'Audit Logging', link: '/en/guide/audit-logging' },
                 { text: 'Rule Signing', link: '/en/guide/rule-signing' },
+                { text: 'Decision Table', link: '/en/guide/decision-table' },
+                { text: 'Editor Store & Undo/Redo', link: '/en/guide/editor-store' },
               ]
             },
             {
@@ -172,6 +174,8 @@ export default defineConfig({
                 { text: '版本管理', link: '/zh/guide/versioning' },
                 { text: '规则签名', link: '/zh/guide/rule-signing' },
                 { text: '审计日志', link: '/zh/guide/audit-logging' },
+                { text: '决策表', link: '/zh/guide/decision-table' },
+                { text: '编辑器状态管理', link: '/zh/guide/editor-store' },
               ]
             },
             {

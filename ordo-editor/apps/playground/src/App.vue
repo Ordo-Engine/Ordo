@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   OrdoFormEditor,
   OrdoFlowEditor,
+  OrdoDecisionTable,
   OrdoExecutionPanel,
   OrdoSchemaEditor,
   OrdoPerformancePanel,
@@ -25,7 +26,14 @@ import {
   type JITSchema,
   type JITRulesetAnalysis,
 } from '@ordo-engine/editor-core';
-import { Step, Condition, Expr, generateId, convertToEngineFormat } from '@ordo-engine/editor-core';
+import {
+  Step, Condition, Expr, generateId, convertToEngineFormat,
+  EditorStore,
+  decompileStepsToTable,
+  compileTableToSteps,
+  DecisionTable as DTFactory,
+} from '@ordo-engine/editor-core';
+import type { DecisionTable } from '@ordo-engine/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
 import DebugPage from './pages/DebugPage.vue';
 import { useTour } from './composables/useTour';
@@ -89,7 +97,7 @@ function handleSchemaChange(schema: JITSchema) {
 // Tour - with callback to switch to flow mode
 const { startTour, shouldShowTour, resetTour } = useTour({
   onSwitchToFlow: () => {
-    editorMode.value = 'flow';
+    setEditorMode('flow');
   },
 });
 const showWelcome = ref(false);
@@ -98,7 +106,52 @@ const { t, locale, setLocale } = useI18n();
 
 // Theme & Locale & Editor Mode
 const theme = ref<'light' | 'dark'>('dark');
-const editorMode = ref<'form' | 'flow'>('form');
+const editorMode = ref<'form' | 'flow' | 'table'>('form');
+
+// ============ EditorStore (per-file undo/redo) ============
+const editorStores = new Map<string, EditorStore>();
+
+function getOrCreateStore(fileId: string, rs: RuleSet): EditorStore {
+  let store = editorStores.get(fileId);
+  if (!store) {
+    store = new EditorStore(rs, { maxHistory: 80 });
+    editorStores.set(fileId, store);
+  }
+  return store;
+}
+
+const activeStore = computed(() => {
+  if (!activeFile.value) return null;
+  return getOrCreateStore(activeFile.value.id, activeFile.value.ruleset);
+});
+
+const canUndo = computed(() => activeStore.value?.canUndo() ?? false);
+const canRedo = computed(() => activeStore.value?.canRedo() ?? false);
+
+function editorUndo() {
+  const store = activeStore.value;
+  if (!store || !store.canUndo()) return;
+  store.undo();
+  const file = files.value.find((f) => f.id === activeFileId.value);
+  if (file) {
+    file.ruleset = JSON.parse(JSON.stringify(store.getState().ruleset));
+    file.modified = true;
+  }
+}
+
+function editorRedo() {
+  const store = activeStore.value;
+  if (!store || !store.canRedo()) return;
+  store.redo();
+  const file = files.value.find((f) => f.id === activeFileId.value);
+  if (file) {
+    file.ruleset = JSON.parse(JSON.stringify(store.getState().ruleset));
+    file.modified = true;
+  }
+}
+
+// ============ Decision Table state (per-file) ============
+const decisionTables = ref<Record<string, DecisionTable>>({});
 
 // Sidebar visibility
 const showLeftSidebar = ref(true);
@@ -121,7 +174,30 @@ function toggleLocale() {
   setLocale(locale.value === 'en' ? 'zh-CN' : 'en');
 }
 
-function setEditorMode(mode: 'form' | 'flow') {
+function setEditorMode(mode: 'form' | 'flow' | 'table') {
+  const prev = editorMode.value;
+  if (mode === prev) return;
+
+  // Leaving table mode → compile table back to steps
+  if (prev === 'table') {
+    const table = decisionTables.value[activeFileId.value];
+    if (table && table.rows.length > 0) {
+      try {
+        const { steps, startStepId } = compileTableToSteps(table);
+        ruleset.value = { ...ruleset.value, steps, startStepId };
+      } catch (err) {
+        console.warn('Failed to compile decision table:', err);
+      }
+    }
+  }
+
+  // Entering table mode → decompile steps to table
+  if (mode === 'table') {
+    const rs = ruleset.value;
+    const table = decompileStepsToTable(rs.steps, rs.startStepId, rs.config.inputSchema);
+    decisionTables.value[activeFileId.value] = table ?? DTFactory.emptyTable(rs.config.name || 'Decision Table');
+  }
+
   editorMode.value = mode;
 }
 
@@ -146,9 +222,8 @@ function toggleExecutionPanel() {
 
 function onShowInFlow(trace: any) {
   executionTrace.value = trace;
-  // Switch to flow mode if not already
   if (editorMode.value !== 'flow') {
-    editorMode.value = 'flow';
+    setEditorMode('flow');
   }
 }
 
@@ -261,9 +336,35 @@ function handleMouseUp() {
   isResizingRight.value = false;
 }
 
+// Keyboard shortcuts
+function handleKeyDown(e: KeyboardEvent) {
+  const isMod = e.metaKey || e.ctrlKey;
+  if (!isMod) return;
+
+  // Undo: Cmd/Ctrl+Z
+  if (e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    editorUndo();
+    return;
+  }
+  // Redo: Cmd/Ctrl+Shift+Z
+  if (e.key === 'z' && e.shiftKey) {
+    e.preventDefault();
+    editorRedo();
+    return;
+  }
+  // Duplicate: Cmd/Ctrl+D
+  if (e.key === 'd') {
+    e.preventDefault();
+    // Future: duplicate selected step
+    return;
+  }
+}
+
 onMounted(() => {
   document.addEventListener('mousemove', handleMouseMove);
   document.addEventListener('mouseup', handleMouseUp);
+  document.addEventListener('keydown', handleKeyDown);
 
   // Show welcome modal for first-time visitors
   if (shouldShowTour()) {
@@ -274,6 +375,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleMouseMove);
   document.removeEventListener('mouseup', handleMouseUp);
+  document.removeEventListener('keydown', handleKeyDown);
 });
 
 // Tour handlers
@@ -1035,6 +1137,8 @@ function deleteFile(fileId: string) {
   if (idx !== -1) {
     files.value.splice(idx, 1);
     closeTab(fileId);
+    editorStores.delete(fileId);
+    delete decisionTables.value[fileId];
     if (files.value.length > 0 && !activeFileId.value) {
       selectFile(files.value[0].id);
     }
@@ -1190,7 +1294,36 @@ function toggleExportMenu() {
 
 function handleChange(newRuleset: RuleSet) {
   ruleset.value = newRuleset;
+  // Push snapshot to EditorStore for undo/redo
+  const store = activeStore.value;
+  if (store) {
+    store.replaceRuleset(newRuleset);
+  }
 }
+
+function handleTableChange(table: DecisionTable) {
+  decisionTables.value[activeFileId.value] = table;
+  const file = files.value.find((f) => f.id === activeFileId.value);
+  if (file) file.modified = true;
+}
+
+function handleShowTableAsFlow() {
+  setEditorMode('flow');
+}
+
+function cycleEditorMode() {
+  const modes: Array<'form' | 'flow' | 'table'> = ['form', 'flow', 'table'];
+  const idx = modes.indexOf(editorMode.value);
+  setEditorMode(modes[(idx + 1) % modes.length]);
+}
+
+const editorModeLabel = computed(() => {
+  switch (editorMode.value) {
+    case 'form': return 'Form';
+    case 'flow': return 'Flow';
+    case 'table': return 'Table';
+  }
+});
 
 watch(
   theme,
@@ -1269,6 +1402,30 @@ watch(
           <line x1="12" y1="8" x2="12" y2="12" />
           <line x1="12" y1="12" x2="6" y2="16" />
           <line x1="12" y1="12" x2="18" y2="16" />
+        </svg>
+      </div>
+
+      <!-- Table Mode -->
+      <div
+        class="activity-icon"
+        :class="{ active: editorMode === 'table' }"
+        @click="setEditorMode('table')"
+        title="Decision Table"
+        data-tour="mode-table"
+      >
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="3" y1="9" x2="21" y2="9" />
+          <line x1="3" y1="15" x2="21" y2="15" />
+          <line x1="9" y1="3" x2="9" y2="21" />
+          <line x1="15" y1="3" x2="15" y2="21" />
         </svg>
       </div>
 
@@ -1615,7 +1772,7 @@ watch(
           <span v-if="files.find((f) => f.id === tabId)?.modified" class="modified-indicator"
             >●</span
           >
-          <span class="mode-badge">{{ editorMode === 'form' ? 'Form' : 'Flow' }}</span>
+          <span class="mode-badge">{{ editorModeLabel }}</span>
           <span class="close" @click.stop="closeTab(tabId)">×</span>
         </div>
       </div>
@@ -1760,13 +1917,24 @@ watch(
 
           <!-- Flow Editor -->
           <OrdoFlowEditor
-            v-else
+            v-else-if="editorMode === 'flow'"
             v-model="ruleset"
             :suggestions="suggestions"
             :locale="locale"
             :execution-trace="executionTrace"
             @change="handleChange"
           />
+
+          <!-- Decision Table Editor -->
+          <div v-else-if="editorMode === 'table'" class="table-editor-wrapper">
+            <OrdoDecisionTable
+              :model-value="decisionTables[activeFileId] ?? DTFactory.emptyTable()"
+              :schema="currentSchema"
+              @update:model-value="handleTableChange"
+              @change="handleTableChange"
+              @show-as-flow="handleShowTableAsFlow"
+            />
+          </div>
         </div>
 
         <!-- Execution Panel (Bottom) -->
@@ -1833,11 +2001,8 @@ watch(
           </svg>
           Debug
         </div>
-        <div
-          class="status-item clickable"
-          @click="setEditorMode(editorMode === 'form' ? 'flow' : 'form')"
-        >
-          Mode: {{ editorMode === 'form' ? 'Form' : 'Flow' }}
+        <div class="status-item clickable" @click="cycleEditorMode">
+          Mode: {{ editorModeLabel }}
         </div>
         <div class="status-item clickable" @click="toggleRightSidebar">
           JSON: {{ showRightSidebar ? 'On' : 'Off' }}
@@ -2371,6 +2536,13 @@ watch(
   overflow: hidden;
   position: relative;
   min-height: 0;
+}
+
+/* Table editor wrapper */
+.table-editor-wrapper {
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
 }
 
 /* Empty state */

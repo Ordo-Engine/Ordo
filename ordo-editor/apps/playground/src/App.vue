@@ -192,23 +192,11 @@ function setEditorMode(mode: 'form' | 'flow' | 'table') {
   const file = activeFile.value;
   if (!file) return;
 
+  // Decision table documents: locked to table mode only
   if (file.documentType === 'decision-table') {
-    // Decision table documents: table is the source of truth
-    // Entering flow mode → compile table to steps for preview
-    if (mode === 'flow') {
-      const table = file.decisionTable;
-      if (table && table.rows.length > 0) {
-        try {
-          const { steps, startStepId } = compileTableToSteps(table);
-          ruleset.value = { ...ruleset.value, steps, startStepId, groups: undefined };
-        } catch (err) {
-          console.warn('Failed to compile decision table for preview:', err);
-        }
-      }
-    }
-    // No decompile needed — table is stored directly
+    if (mode !== 'table') return;
   } else {
-    // Flow documents: table mode is not available
+    // Flow documents: form and flow only, no table
     if (mode === 'table') return;
   }
 
@@ -1128,11 +1116,7 @@ function selectFile(fileId: string) {
   // Auto-switch editor mode based on document type
   const file = files.value.find((f) => f.id === fileId);
   if (file) {
-    if (
-      file.documentType === 'decision-table' &&
-      editorMode.value !== 'table' &&
-      editorMode.value !== 'form'
-    ) {
+    if (file.documentType === 'decision-table') {
       editorMode.value = 'table';
     } else if (file.documentType === 'flow' && editorMode.value === 'table') {
       editorMode.value = 'form';
@@ -1408,10 +1392,6 @@ function handleTableChange(table: DecisionTable) {
   }
 }
 
-function handleShowTableAsFlow() {
-  setEditorMode('flow');
-}
-
 /** Computed table data: for table docs use stored table, for flow docs use decisionTables cache */
 const activeTableData = computed(() => {
   const file = activeFile.value;
@@ -1426,25 +1406,27 @@ const activeTableData = computed(() => {
 const availableModes = computed<Array<'form' | 'flow' | 'table'>>(() => {
   const file = activeFile.value;
   if (file?.documentType === 'decision-table') {
-    return ['table', 'form', 'flow']; // table first, flow is preview
+    return ['table']; // decision table docs: table only
   }
-  return ['form', 'flow']; // no table mode for flow documents
+  return ['form', 'flow']; // flow docs: form and flow only
 });
+
+/** Whether the current document is a decision table */
+const isTableDocument = computed(() => activeFile.value?.documentType === 'decision-table');
 
 function cycleEditorMode() {
   const modes = availableModes.value;
+  if (modes.length <= 1) return; // no cycling for single-mode documents
   const idx = modes.indexOf(editorMode.value);
   setEditorMode(modes[(idx + 1) % modes.length]);
 }
 
 const editorModeLabel = computed(() => {
-  const file = activeFile.value;
-  const isTableDoc = file?.documentType === 'decision-table';
   switch (editorMode.value) {
     case 'form':
-      return 'JSON';
+      return 'Form';
     case 'flow':
-      return isTableDoc ? 'Flow Preview' : 'Flow';
+      return 'Flow';
     case 'table':
       return 'Table';
   }
@@ -1482,8 +1464,9 @@ watch(
         </svg>
       </div>
 
-      <!-- Form Mode -->
+      <!-- Form Mode (flow documents only) -->
       <div
+        v-if="!isTableDocument"
         class="activity-icon"
         :class="{ active: editorMode === 'form' }"
         @click="setEditorMode('form')"
@@ -1505,8 +1488,9 @@ watch(
         </svg>
       </div>
 
-      <!-- Flow Mode -->
+      <!-- Flow Mode (flow documents only) -->
       <div
+        v-if="!isTableDocument"
         class="activity-icon"
         :class="{ active: editorMode === 'flow' }"
         @click="setEditorMode('flow')"
@@ -2050,17 +2034,25 @@ watch(
       <!-- Editor Content -->
       <div v-else-if="activeFile" class="ide-editor-wrapper">
         <div class="ide-editor-content" data-tour="editor">
-          <!-- Form Editor -->
+          <!-- Decision Table Document: always show table editor -->
+          <div v-if="isTableDocument" class="table-editor-wrapper">
+            <OrdoDecisionTable
+              :model-value="activeTableData"
+              :schema="currentSchema"
+              @update:model-value="handleTableChange"
+              @change="handleTableChange"
+            />
+          </div>
+
+          <!-- Flow Document: Form or Flow editor -->
           <OrdoFormEditor
-            v-if="editorMode === 'form'"
+            v-else-if="editorMode === 'form'"
             v-model="ruleset"
             :auto-validate="true"
             :show-validation="true"
             :locale="locale"
             @change="handleChange"
           />
-
-          <!-- Flow Editor -->
           <OrdoFlowEditor
             v-else-if="editorMode === 'flow'"
             v-model="ruleset"
@@ -2069,18 +2061,6 @@ watch(
             :execution-trace="executionTrace"
             @change="handleChange"
           />
-
-          <!-- Decision Table Editor -->
-          <div v-else-if="editorMode === 'table'" class="table-editor-wrapper">
-            <OrdoDecisionTable
-              :model-value="activeTableData"
-              :schema="currentSchema"
-              :read-only="activeFile?.documentType !== 'decision-table'"
-              @update:model-value="handleTableChange"
-              @change="handleTableChange"
-              @show-as-flow="handleShowTableAsFlow"
-            />
-          </div>
         </div>
 
         <!-- Execution Panel (Bottom) -->

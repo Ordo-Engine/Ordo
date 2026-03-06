@@ -16,6 +16,10 @@ use serde::Serialize;
 use std::cell::UnsafeCell;
 use std::time::Instant;
 
+/// Safety limit on VM instructions per expression evaluation.
+/// Prevents infinite loops from backward jumps in bytecode (e.g. corrupted .ordo files).
+const MAX_VM_INSTRUCTIONS: u32 = 1_000_000;
+
 /// Instruction opcodes as u8 for compact encoding
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -523,9 +527,17 @@ impl BytecodeVM {
 
         let mut ip: usize = 0;
         let len = instructions.len();
+        let mut instruction_count: u32 = 0;
 
         // Main dispatch loop - optimized for branch prediction
         while ip < len {
+            instruction_count += 1;
+            if instruction_count > MAX_VM_INSTRUCTIONS {
+                return Err(OrdoError::eval_error_static(
+                    "Expression execution limit exceeded (possible infinite loop)",
+                ));
+            }
+
             // SAFETY: ip is bounds-checked by the while condition
             let inst = unsafe { instructions.get_unchecked(ip) };
             ip += 1;
@@ -874,10 +886,16 @@ impl BytecodeVM {
             let inst_start = Instant::now();
             let current_ip = ip;
 
+            trace.total_instructions += 1;
+            if trace.total_instructions > MAX_VM_INSTRUCTIONS as usize {
+                return Err(OrdoError::eval_error_static(
+                    "Expression execution limit exceeded (possible infinite loop)",
+                ));
+            }
+
             // SAFETY: ip is bounds-checked by the while condition
             let inst = unsafe { instructions.get_unchecked(ip) };
             ip += 1;
-            trace.total_instructions += 1;
 
             // Execute instruction (same as execute, but with tracing)
             match inst.op {

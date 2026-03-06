@@ -22,7 +22,7 @@ tokio = { workspace = true, features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic.workspace = true
 tower.workspace = true
-tower-http = { workspace = true, features = ["trace", "cors", "catch-panic"] }
+tower-http = { workspace = true, features = ["trace", "cors", "catch-panic", "limit", "timeout"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 opentelemetry.workspace = true
@@ -34,6 +34,8 @@ lazy_static = "1.4"
 chrono.workspace = true
 regex.workspace = true
 dashmap.workspace = true
+notify = { version = "6", features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

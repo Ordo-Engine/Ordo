@@ -29,6 +29,7 @@ use ordo_proto::{
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
+use crate::config::InstanceRole;
 use crate::rate_limiter::RateLimiter;
 use crate::store::RuleStore;
 use crate::tenant::{TenantConfig, TenantManager};
@@ -48,6 +49,8 @@ pub struct OrdoGrpcService {
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     multi_tenancy_enabled: bool,
+    role: InstanceRole,
+    writer_addr: Option<String>,
 }
 
 impl OrdoGrpcService {
@@ -68,7 +71,30 @@ impl OrdoGrpcService {
             tenant_manager,
             rate_limiter,
             multi_tenancy_enabled,
+            role: InstanceRole::Standalone,
+            writer_addr: None,
         }
+    }
+
+    /// Set the instance role and writer address for read-only enforcement.
+    pub fn with_role(mut self, role: InstanceRole, writer_addr: Option<String>) -> Self {
+        self.role = role;
+        self.writer_addr = writer_addr;
+        self
+    }
+
+    /// Return FAILED_PRECONDITION if this is a reader instance.
+    /// Used by future gRPC write methods (PutRuleSet, DeleteRuleSet).
+    #[allow(dead_code, clippy::result_large_err)]
+    fn reject_if_read_only(&self) -> std::result::Result<(), Status> {
+        if self.role == InstanceRole::Reader {
+            let writer = self.writer_addr.as_deref().unwrap_or("unknown");
+            return Err(Status::failed_precondition(format!(
+                "This instance is a read-only reader. Send mutations to the writer at {}",
+                writer
+            )));
+        }
+        Ok(())
     }
 
     /// Extract tenant ID from gRPC metadata
@@ -522,23 +548,34 @@ impl OrdoService for OrdoGrpcService {
         }))
     }
 
-    /// Health check (does not require tenant validation)
+    /// Health check with timeout on store lock acquisition.
+    /// Returns NOT_SERVING if the store is unresponsive.
     async fn health(
         &self,
         request: Request<HealthRequest>,
     ) -> std::result::Result<Response<HealthResponse>, Status> {
-        // For health check, we use the tenant from metadata if provided, else default
         let tenant_id = self.extract_tenant_id(&request);
 
-        let store = self.store.read().await;
-        let ruleset_count = store.list_for_tenant(&tenant_id).len() as u32;
+        let store_result =
+            tokio::time::timeout(std::time::Duration::from_secs(2), self.store.read()).await;
 
-        Ok(Response::new(HealthResponse {
-            status: health_response::Status::Serving as i32,
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            ruleset_count,
-            uptime_seconds: self.start_time.elapsed().as_secs(),
-        }))
+        match store_result {
+            Ok(store) => {
+                let ruleset_count = store.list_for_tenant(&tenant_id).len() as u32;
+                Ok(Response::new(HealthResponse {
+                    status: health_response::Status::Serving as i32,
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    ruleset_count,
+                    uptime_seconds: self.start_time.elapsed().as_secs(),
+                }))
+            }
+            Err(_) => Ok(Response::new(HealthResponse {
+                status: health_response::Status::NotServing as i32,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                ruleset_count: 0,
+                uptime_seconds: self.start_time.elapsed().as_secs(),
+            })),
+        }
     }
 }
 

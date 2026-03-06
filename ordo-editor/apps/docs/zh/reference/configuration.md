@@ -13,6 +13,7 @@
 | 禁用 gRPC    | `--disable-grpc`          | `false`         | 禁用 gRPC 服务器                     |
 | 日志级别     | `--log-level`             | `info`          | 日志详细程度                         |
 | 优雅停机超时 | `--shutdown-timeout-secs` | `30`            | 优雅停机期间等待进行中请求完成的秒数 |
+| 调试模式     | `--debug-mode`            | `false`         | 启用调试 API 端点                    |
 
 ## 存储配置
 
@@ -37,6 +38,82 @@
 | 信任公钥列表   | `--signature-trusted-keys`         | 无      | 逗号分隔的 base64 公钥      |
 | 公钥文件       | `--signature-trusted-keys-file`    | 无      | 公钥文件（每行一个 base64） |
 | 允许本地无签名 | `--signature-allow-unsigned-local` | `true`  | 启动时允许本地规则无签名    |
+
+## 部署配置
+
+| 选项           | CLI 标志                     | 环境变量                      | 默认值       | 描述                                                   |
+| -------------- | ---------------------------- | ----------------------------- | ------------ | ------------------------------------------------------ |
+| 实例角色       | `--role`                     | `ORDO_ROLE`                   | `standalone` | 实例角色：`standalone`、`writer` 或 `reader`           |
+| Writer 地址    | `--writer-addr`              | `ORDO_WRITER_ADDR`            | 无           | Writer 节点地址（Reader 用于重定向写请求）             |
+| 监控规则       | `--watch-rules`              | `ORDO_WATCH_RULES`            | `false`      | 启用文件监控实现规则热重载                             |
+| 请求体大小限制 | `--max-request-body-bytes`   | `ORDO_MAX_REQUEST_BODY_BYTES` | `10485760`   | HTTP 请求体最大字节数（10 MB）                         |
+| 请求超时       | `--request-timeout-secs`     | `ORDO_REQUEST_TIMEOUT_SECS`   | `30`         | HTTP 请求超时时间（秒）                                |
+
+### Writer/Reader 部署
+
+Ordo 支持 Writer/Reader 分布式部署模式，分离读写流量：
+
+```bash
+# Writer 节点 — 处理所有规则 CRUD 操作
+ordo-server --role writer --rules-dir /shared/rules --watch-rules
+
+# Reader 节点 — 仅提供读取和执行请求
+ordo-server --role reader \
+  --writer-addr http://ordo-writer:8080 \
+  --rules-dir /shared/rules \
+  --watch-rules
+```
+
+当 Reader 收到写请求时，返回 `409 Conflict` 并附带 Writer 地址：
+
+```json
+{
+  "error": "This instance is read-only (role: reader)",
+  "writer": "http://ordo-writer:8080",
+  "hint": "Send write requests to the writer instance"
+}
+```
+
+### 文件监控
+
+启用 `--watch-rules` 后，Ordo 会监控规则目录的文件变更：
+
+- 使用原生操作系统文件事件（macOS 上的 FSEvents，Linux 上的 inotify）
+- 200ms 防抖处理快速连续变更
+- 原生事件不可用时回退到 30 秒轮询
+- 多租户模式下，同时监控 `tenants.json` 的租户配置变更
+
+## 健康检查端点
+
+Ordo 提供 Kubernetes 兼容的健康检查端点：
+
+| 端点             | 类型      | 描述                                       |
+| ---------------- | --------- | ------------------------------------------ |
+| `/healthz/live`  | 存活探针  | 进程存活则始终返回 `200`                   |
+| `/healthz/ready` | 就绪探针  | 检查 store 锁可用性和磁盘可写性            |
+| `/health`        | 就绪探针  | 旧版端点，行为与 `/healthz/ready` 相同      |
+
+### 就绪检查
+
+就绪探针执行以下检查：
+1. **Store 锁** — 尝试在 2 秒超时内获取读锁
+2. **磁盘可写** — 向 `--rules-dir` 写入 `.health_probe` 测试文件（如已配置）
+
+```yaml
+# Kubernetes 探针配置
+livenessProbe:
+  httpGet:
+    path: /healthz/live
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /healthz/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+```
 
 ## 可观测性配置
 
@@ -87,6 +164,10 @@ ENV ORDO_SIGNATURE_TRUSTED_KEYS_FILE=/data/keys/trusted_keys.txt
 ENV ORDO_SERVICE_NAME=ordo-server
 ENV ORDO_OTLP_ENDPOINT=http://otel-collector:4318
 ENV ORDO_SHUTDOWN_TIMEOUT_SECS=30
+ENV ORDO_ROLE=standalone
+ENV ORDO_WATCH_RULES=false
+ENV ORDO_MAX_REQUEST_BODY_BYTES=10485760
+ENV ORDO_REQUEST_TIMEOUT_SECS=30
 ```
 
 ### Docker Compose
@@ -129,6 +210,10 @@ data:
   ORDO_SERVICE_NAME: 'ordo-server'
   ORDO_OTLP_ENDPOINT: 'http://otel-collector:4318'
   ORDO_SHUTDOWN_TIMEOUT_SECS: '30'
+  ORDO_ROLE: 'standalone'
+  ORDO_WATCH_RULES: 'true'
+  ORDO_MAX_REQUEST_BODY_BYTES: '10485760'
+  ORDO_REQUEST_TIMEOUT_SECS: '30'
 ```
 
 ### Deployment
@@ -150,6 +235,19 @@ spec:
             - --grpc-addr=0.0.0.0:50051
             - --rules-dir=/data/rules
             - --audit-dir=/data/audit
+            - --watch-rules
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
           volumeMounts:
             - name: rules
               mountPath: /data/rules

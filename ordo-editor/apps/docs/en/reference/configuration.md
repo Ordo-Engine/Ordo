@@ -13,6 +13,7 @@ This page documents all configuration options for Ordo server.
 | Disable gRPC     | `--disable-grpc`          | `false`         | Disable gRPC server                                             |
 | Log Level        | `--log-level`             | `info`          | Logging verbosity                                               |
 | Shutdown Timeout | `--shutdown-timeout-secs` | `30`            | Seconds to wait for in-flight requests during graceful shutdown |
+| Debug Mode       | `--debug-mode`            | `false`         | Enable debug API endpoints                                      |
 
 ## Storage Configuration
 
@@ -37,6 +38,82 @@ This page documents all configuration options for Ordo server.
 | Trusted Public Keys  | `--signature-trusted-keys`         | None    | Comma-separated base64 public keys          |
 | Trusted Keys File    | `--signature-trusted-keys-file`    | None    | File with base64 public keys (one per line) |
 | Allow Unsigned Local | `--signature-allow-unsigned-local` | `true`  | Allow unsigned local files on startup       |
+
+## Deployment Configuration
+
+| Option              | CLI Flag                     | Env Variable                 | Default      | Description                                                 |
+| ------------------- | ---------------------------- | ---------------------------- | ------------ | ----------------------------------------------------------- |
+| Instance Role       | `--role`                     | `ORDO_ROLE`                  | `standalone` | Instance role: `standalone`, `writer`, or `reader`          |
+| Writer Address      | `--writer-addr`              | `ORDO_WRITER_ADDR`           | None         | Writer node address (used by reader to redirect writes)     |
+| Watch Rules         | `--watch-rules`              | `ORDO_WATCH_RULES`           | `false`      | Enable file watcher for hot-reloading rules                 |
+| Max Request Body    | `--max-request-body-bytes`   | `ORDO_MAX_REQUEST_BODY_BYTES`| `10485760`   | Maximum HTTP request body size in bytes (10 MB)             |
+| Request Timeout     | `--request-timeout-secs`     | `ORDO_REQUEST_TIMEOUT_SECS`  | `30`         | HTTP request timeout in seconds                             |
+
+### Writer/Reader Deployment
+
+Ordo supports a distributed Writer/Reader deployment model for separating write and read traffic:
+
+```bash
+# Writer node — handles all rule CRUD operations
+ordo-server --role writer --rules-dir /shared/rules --watch-rules
+
+# Reader node — serves read and execution requests only
+ordo-server --role reader \
+  --writer-addr http://ordo-writer:8080 \
+  --rules-dir /shared/rules \
+  --watch-rules
+```
+
+When a reader receives a write request, it returns `409 Conflict` with the writer address:
+
+```json
+{
+  "error": "This instance is read-only (role: reader)",
+  "writer": "http://ordo-writer:8080",
+  "hint": "Send write requests to the writer instance"
+}
+```
+
+### File Watcher
+
+When `--watch-rules` is enabled, Ordo monitors the rules directory for file changes:
+
+- Uses native OS file system events (FSEvents on macOS, inotify on Linux)
+- 200ms debounce to batch rapid file changes
+- Falls back to 30-second polling if native events are unavailable
+- In multi-tenancy mode, also watches `tenants.json` for tenant config changes
+
+## Health Check Endpoints
+
+Ordo provides Kubernetes-compatible health check endpoints:
+
+| Endpoint         | Type      | Description                                            |
+| ---------------- | --------- | ------------------------------------------------------ |
+| `/healthz/live`  | Liveness  | Always returns `200` if the process is alive           |
+| `/healthz/ready` | Readiness | Checks store lock availability and disk writability    |
+| `/health`        | Readiness | Legacy endpoint, same behavior as `/healthz/ready`     |
+
+### Readiness Checks
+
+The readiness probe performs:
+1. **Store lock** — Attempts to acquire a read lock with a 2-second timeout
+2. **Disk writable** — Writes a `.health_probe` test file to `--rules-dir` (if configured)
+
+```yaml
+# Kubernetes probe configuration
+livenessProbe:
+  httpGet:
+    path: /healthz/live
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /healthz/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+```
 
 ## Observability Configuration
 
@@ -87,6 +164,10 @@ ENV ORDO_SIGNATURE_TRUSTED_KEYS_FILE=/data/keys/trusted_keys.txt
 ENV ORDO_SERVICE_NAME=ordo-server
 ENV ORDO_OTLP_ENDPOINT=http://otel-collector:4318
 ENV ORDO_SHUTDOWN_TIMEOUT_SECS=30
+ENV ORDO_ROLE=standalone
+ENV ORDO_WATCH_RULES=false
+ENV ORDO_MAX_REQUEST_BODY_BYTES=10485760
+ENV ORDO_REQUEST_TIMEOUT_SECS=30
 ```
 
 ### Docker Compose
@@ -129,6 +210,10 @@ data:
   ORDO_SERVICE_NAME: 'ordo-server'
   ORDO_OTLP_ENDPOINT: 'http://otel-collector:4318'
   ORDO_SHUTDOWN_TIMEOUT_SECS: '30'
+  ORDO_ROLE: 'standalone'
+  ORDO_WATCH_RULES: 'true'
+  ORDO_MAX_REQUEST_BODY_BYTES: '10485760'
+  ORDO_REQUEST_TIMEOUT_SECS: '30'
 ```
 
 ### Deployment
@@ -150,6 +235,19 @@ spec:
             - --grpc-addr=0.0.0.0:50051
             - --rules-dir=/data/rules
             - --audit-dir=/data/audit
+            - --watch-rules
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
           volumeMounts:
             - name: rules
               mountPath: /data/rules

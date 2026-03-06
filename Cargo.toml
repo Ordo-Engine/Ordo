@@ -49,7 +49,7 @@ tokio = { version = "1", features = ["full"] }
 # Web 框架
 axum = "0.7"
 tower = "0.4"
-tower-http = { version = "0.5", features = ["trace", "cors"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "limit", "timeout"] }
 
 # gRPC
 tonic = "0.10"

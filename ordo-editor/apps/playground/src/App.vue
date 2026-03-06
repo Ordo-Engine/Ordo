@@ -188,7 +188,9 @@ function setEditorMode(mode: 'form' | 'flow' | 'table') {
     if (table && table.rows.length > 0) {
       try {
         const { steps, startStepId } = compileTableToSteps(table);
-        ruleset.value = { ...ruleset.value, steps, startStepId };
+        // Strip groups: compiled steps have new IDs that don't match old group stepIds,
+        // causing applyGroupBasedLayout to push all nodes off-screen.
+        ruleset.value = { ...ruleset.value, steps, startStepId, groups: undefined };
       } catch (err) {
         console.warn('Failed to compile decision table:', err);
       }

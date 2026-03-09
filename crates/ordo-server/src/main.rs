@@ -150,6 +150,11 @@ async fn main() -> anyhow::Result<()> {
         config.otlp_endpoint.as_deref(),
     );
 
+    // Validate configuration
+    if let Err(e) = config.validate() {
+        return Err(anyhow::anyhow!("Configuration error: {}", e));
+    }
+
     // Log instance role
     info!("Instance role: {}", config.role);
     if config.is_read_only() {
@@ -817,6 +822,7 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
         Json(serde_json::json!({
             "status": if is_ready { "ready" } else { "not_ready" },
             "version": ordo_core::VERSION,
+            "role": state.config.role.to_string(),
             "uptime_seconds": metrics::START_TIME.elapsed().as_secs(),
             "checks": {
                 "store_lock": store_lock_ok,
@@ -825,6 +831,10 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
             "storage": {
                 "mode": storage_mode,
                 "rules_count": rules_count,
+            },
+            "sync": {
+                "nats_configured": state.config.nats_enabled(),
+                "watch_rules": state.config.watch_rules,
             },
             "debug_mode": state.config.debug_enabled()
         })),

@@ -315,16 +315,89 @@ impl ServerConfig {
         self.role == InstanceRole::Reader
     }
 
-    /// Resolve the instance ID — uses the configured value or generates a random one.
+    /// Resolve the instance ID.
+    ///
+    /// Priority: explicit `--instance-id` > `hostname:http_port` > random hex.
+    /// Warns when falling back to a random ID with NATS enabled.
     pub fn resolve_instance_id(&self) -> String {
-        self.instance_id
-            .clone()
-            .unwrap_or_else(|| format!("{:016x}", rand::random::<u64>()))
+        if let Some(ref id) = self.instance_id {
+            return id.clone();
+        }
+
+        // Prefer hostname:port for a stable, human-readable default.
+        if let Ok(hostname) = hostname::get() {
+            let hostname = hostname.to_string_lossy().to_string();
+            if !hostname.is_empty() {
+                return format!("{}:{}", hostname, self.http_addr().port());
+            }
+        }
+
+        // Last resort: random hex — warn if NATS is active because a random ID
+        // means a new durable consumer is created on every restart.
+        let id = format!("{:016x}", rand::random::<u64>());
+        if self.nats_enabled() {
+            tracing::warn!(
+                "Using random instance ID '{}' — set --instance-id for stable NATS consumers",
+                id
+            );
+        }
+        id
     }
 
     /// Returns true if NATS sync is configured.
     pub fn nats_enabled(&self) -> bool {
         self.nats_url.is_some()
+    }
+
+    /// Validate configuration for contradictory or risky settings.
+    /// Logs warnings for non-fatal issues, returns Err for fatal ones.
+    pub fn validate(&self) -> Result<(), String> {
+        // Reader without writer-addr: clients won't know where to redirect writes
+        if self.role == InstanceRole::Reader && self.writer_addr.is_none() {
+            tracing::warn!(
+                "Reader role without --writer-addr: 409 responses will not include a writer address"
+            );
+        }
+
+        // Writer with writer-addr makes no sense
+        if self.role == InstanceRole::Writer && self.writer_addr.is_some() {
+            tracing::warn!(
+                "--writer-addr is set but this instance is a writer; the value will be ignored"
+            );
+        }
+
+        // NATS URL configured but feature not compiled in
+        #[cfg(not(feature = "nats-sync"))]
+        if self.nats_url.is_some() {
+            tracing::warn!(
+                "--nats-url is set but the binary was built without the `nats-sync` feature — NATS sync is disabled"
+            );
+        }
+
+        // watch-rules without rules-dir
+        if self.watch_rules && self.rules_dir.is_none() {
+            tracing::warn!("--watch-rules has no effect without --rules-dir");
+        }
+
+        // max-versions without rules-dir
+        if self.max_versions != 10 && self.rules_dir.is_none() {
+            tracing::warn!("--max-versions has no effect without --rules-dir");
+        }
+
+        // All transports disabled
+        if self.disable_http && self.disable_grpc && self.uds_path.is_none() {
+            return Err(
+                "All transports disabled (--disable-http, --disable-grpc, no --uds-path). Nothing to serve."
+                    .to_string(),
+            );
+        }
+
+        // signature-require without signature-enabled
+        if self.signature_require && !self.signature_enabled {
+            tracing::warn!("--signature-require has no effect without --signature-enabled");
+        }
+
+        Ok(())
     }
 }
 
@@ -435,6 +508,39 @@ mod tests {
             ..Default::default()
         };
         assert!(!config.is_read_only());
+    }
+
+    #[test]
+    fn test_resolve_instance_id_explicit() {
+        let config = ServerConfig {
+            instance_id: Some("my-node".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.resolve_instance_id(), "my-node");
+    }
+
+    #[test]
+    fn test_resolve_instance_id_fallback_hostname() {
+        let config = ServerConfig::default();
+        let id = config.resolve_instance_id();
+        // Should contain hostname:port or be a hex fallback
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn test_validate_all_transports_disabled() {
+        let config = ServerConfig {
+            disable_http: true,
+            disable_grpc: true,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ok_default() {
+        let config = ServerConfig::default();
+        assert!(config.validate().is_ok());
     }
 
     #[test]

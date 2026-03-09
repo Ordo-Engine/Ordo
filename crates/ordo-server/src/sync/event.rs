@@ -25,6 +25,17 @@ pub enum SyncEvent {
     TenantConfigChanged { config_json: String },
 }
 
+impl SyncEvent {
+    /// Returns a short label for metrics (e.g. "RulePut", "RuleDeleted").
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            SyncEvent::RulePut { .. } => "RulePut",
+            SyncEvent::RuleDeleted { .. } => "RuleDeleted",
+            SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
+        }
+    }
+}
+
 /// Envelope wrapping a [`SyncEvent`] with metadata for echo suppression and ordering.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(not(feature = "nats-sync"), allow(dead_code))]

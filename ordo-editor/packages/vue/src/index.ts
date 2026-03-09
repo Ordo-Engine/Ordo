@@ -106,6 +106,14 @@ export type {
   HitPolicy,
 } from '@ordo-engine/editor-core';
 
+// Re-export document types
+export type {
+  RuleDocument,
+  FlowDocument,
+  DecisionTableDocument,
+  DocumentType,
+} from '@ordo-engine/editor-core';
+
 export {
   EditorStore,
   CommandBus,
@@ -159,6 +167,16 @@ import {
   cellValueToString,
   compileTableToSteps,
   decompileStepsToTable,
+  // Document model
+  isFlowDocument,
+  isDecisionTableDocument,
+  documentToRuleSet,
+  flowDocumentToRuleSet,
+  tableDocumentToRuleSet,
+  ruleSetToFlowDocument,
+  createEmptyFlowDocument,
+  createEmptyTableDocument,
+  detectDocumentType,
 } from '@ordo-engine/editor-core';
 
 // Export factory objects with their original names
@@ -195,6 +213,16 @@ export {
   cellValueToString,
   compileTableToSteps,
   decompileStepsToTable,
+  // Document model
+  isFlowDocument,
+  isDecisionTableDocument,
+  documentToRuleSet,
+  flowDocumentToRuleSet,
+  tableDocumentToRuleSet,
+  ruleSetToFlowDocument,
+  createEmptyFlowDocument,
+  createEmptyTableDocument,
+  detectDocumentType,
 };
 
 // Version

@@ -4,6 +4,8 @@
  */
 
 import { RuleSet, Expr, Condition, Step } from '../model';
+import type { RuleDocument, DecisionTableDocument } from '../model/document';
+import { detectDocumentType, ruleSetToFlowDocument } from '../model/document';
 
 /** Serialization format */
 export type SerializationFormat = 'json' | 'yaml';
@@ -363,6 +365,137 @@ export function readFileAsText(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsText(file);
   });
+}
+
+// ============================================================================
+// RuleDocument serialization (unified document format)
+// ============================================================================
+
+/**
+ * Serialize a RuleDocument to JSON string.
+ */
+export function serializeDocument(doc: RuleDocument, options: SerializationOptions = {}): string {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  const data = opts.includeMetadata ? doc : { ...doc, metadata: undefined };
+
+  if (opts.pretty) {
+    return JSON.stringify(data, null, opts.indent);
+  }
+  return JSON.stringify(data);
+}
+
+/**
+ * Deserialize a RuleDocument from JSON string.
+ * Detects document type from `type` field; defaults to 'flow' for backward compatibility.
+ */
+export function deserializeDocument(json: string): RuleDocument {
+  const data = JSON.parse(json);
+  const docType = detectDocumentType(data);
+
+  if (docType === 'decision-table') {
+    return deserializeTableDocument(data);
+  }
+
+  // Flow document (or legacy RuleSet without type field)
+  const ruleset = deserializeRuleSet(json);
+  return ruleSetToFlowDocument(ruleset);
+}
+
+/**
+ * Deserialize a DecisionTableDocument from a parsed object.
+ */
+function deserializeTableDocument(data: Record<string, unknown>): DecisionTableDocument {
+  if (!data.config || typeof data.config !== 'object') {
+    throw new Error('Invalid decision table document: missing config');
+  }
+  if (!data.table || typeof data.table !== 'object') {
+    throw new Error('Invalid decision table document: missing table');
+  }
+
+  const config = data.config as Record<string, unknown>;
+  const table = data.table as Record<string, unknown>;
+
+  return {
+    type: 'decision-table',
+    config: {
+      name: (config.name as string) || '',
+      version: config.version as string | undefined,
+      description: config.description as string | undefined,
+      tags: config.tags as string[] | undefined,
+      inputSchema: config.inputSchema as RuleSet['config']['inputSchema'],
+      outputSchema: config.outputSchema as RuleSet['config']['outputSchema'],
+      enableTrace: config.enableTrace as boolean | undefined,
+      timeout: config.timeout as number | undefined,
+    },
+    table: {
+      name: (table.name as string) || '',
+      hitPolicy: (table.hitPolicy as 'first' | 'all' | 'collect') || 'first',
+      inputColumns: Array.isArray(table.inputColumns) ? table.inputColumns : [],
+      outputColumns: Array.isArray(table.outputColumns) ? table.outputColumns : [],
+      rows: Array.isArray(table.rows) ? table.rows : [],
+    },
+    metadata: data.metadata as DecisionTableDocument['metadata'],
+  };
+}
+
+/**
+ * Import a RuleDocument from file content. Supports both flow and decision-table types.
+ */
+export function importDocumentFromFile(
+  content: string | ArrayBuffer,
+  filename: string
+): { document: RuleDocument; format: OrdoFileFormat } {
+  const format = detectFileFormat(filename, content);
+
+  if (format === 'binary') {
+    throw new Error(
+      'Binary .ordo files cannot be imported in the browser. Use the compiled executor on the server.'
+    );
+  }
+
+  if (content instanceof ArrayBuffer) {
+    content = new TextDecoder().decode(content);
+  }
+
+  let doc: RuleDocument;
+
+  if (format === 'yaml') {
+    const data = JSON.parse(content); // simplified — same as existing parseSimpleYaml
+    doc = deserializeDocument(JSON.stringify(data));
+  } else {
+    doc = deserializeDocument(content);
+  }
+
+  // Update name from filename if not set
+  if (!doc.config.name && filename) {
+    const nameMatch = filename.match(/^(.+?)(?:\.ordo)?(?:\.(json|yaml|yml))?$/i);
+    if (nameMatch) {
+      doc.config.name = nameMatch[1];
+    }
+  }
+
+  return { document: doc, format };
+}
+
+/**
+ * Export a RuleDocument to file with specified format.
+ */
+export function exportDocumentToFile(
+  doc: RuleDocument,
+  options: FileExportOptions = {}
+): { content: string; filename: string; mimeType: string } {
+  const format = options.format || 'json';
+  const content = serializeDocument(doc, options);
+  const baseName = doc.config.name || 'ruleset';
+  const version = doc.config.version || '1.0.0';
+  const ext = format === 'yaml' ? 'ordo.yaml' : 'ordo.json';
+
+  return {
+    content,
+    filename: `${baseName}-${version}.${ext}`,
+    mimeType: format === 'yaml' ? 'application/x-yaml' : 'application/json',
+  };
 }
 
 /**

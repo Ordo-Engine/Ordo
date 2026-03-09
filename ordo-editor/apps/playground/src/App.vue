@@ -33,11 +33,18 @@ import {
   generateId,
   convertToEngineFormat,
   EditorStore,
-  decompileStepsToTable,
   compileTableToSteps,
   DecisionTable as DTFactory,
 } from '@ordo-engine/editor-core';
-import type { DecisionTable } from '@ordo-engine/editor-core';
+import type { DecisionTable, RuleDocument, DocumentType } from '@ordo-engine/editor-core';
+import {
+  documentToRuleSet,
+  createEmptyFlowDocument,
+  createEmptyTableDocument,
+  isFlowDocument,
+  isDecisionTableDocument,
+  ruleSetToFlowDocument,
+} from '@ordo-engine/editor-core';
 import WelcomeModal from './components/WelcomeModal.vue';
 import DebugPage from './pages/DebugPage.vue';
 import { useTour } from './composables/useTour';
@@ -182,27 +189,15 @@ function setEditorMode(mode: 'form' | 'flow' | 'table') {
   const prev = editorMode.value;
   if (mode === prev) return;
 
-  // Leaving table mode → compile table back to steps
-  if (prev === 'table') {
-    const table = decisionTables.value[activeFileId.value];
-    if (table && table.rows.length > 0) {
-      try {
-        const { steps, startStepId } = compileTableToSteps(table);
-        // Strip groups: compiled steps have new IDs that don't match old group stepIds,
-        // causing applyGroupBasedLayout to push all nodes off-screen.
-        ruleset.value = { ...ruleset.value, steps, startStepId, groups: undefined };
-      } catch (err) {
-        console.warn('Failed to compile decision table:', err);
-      }
-    }
-  }
+  const file = activeFile.value;
+  if (!file) return;
 
-  // Entering table mode → decompile steps to table
-  if (mode === 'table') {
-    const rs = ruleset.value;
-    const table = decompileStepsToTable(rs.steps, rs.startStepId, rs.config.inputSchema);
-    decisionTables.value[activeFileId.value] =
-      table ?? DTFactory.emptyTable(rs.config.name || 'Decision Table');
+  // Decision table documents: locked to table mode only
+  if (file.documentType === 'decision-table') {
+    if (mode !== 'table') return;
+  } else {
+    // Flow documents: form and flow only, no table
+    if (mode === 'table') return;
   }
 
   editorMode.value = mode;
@@ -409,7 +404,11 @@ function handleRestartTour() {
 interface OrdoFile {
   id: string;
   name: string;
+  documentType: DocumentType;
+  /** For flow documents — the step-based ruleset */
   ruleset: RuleSet;
+  /** For decision-table documents — the standalone table */
+  decisionTable?: DecisionTable;
   modified: boolean;
 }
 
@@ -1027,18 +1026,21 @@ const files = ref<OrdoFile[]>([
   {
     id: 'file_1',
     name: 'payment_validation.ordo',
+    documentType: 'flow',
     ruleset: JSON.parse(JSON.stringify(paymentRuleset)),
     modified: false,
   },
   {
     id: 'file_2',
     name: 'risk_assessment.ordo',
+    documentType: 'flow',
     ruleset: JSON.parse(JSON.stringify(riskRuleset)),
     modified: false,
   },
   {
     id: 'file_3',
     name: 'discount_calculator.ordo',
+    documentType: 'flow',
     ruleset: JSON.parse(JSON.stringify(discountRuleset)),
     modified: false,
   },
@@ -1089,6 +1091,16 @@ const suggestions = computed(() => {
 
 const jsonOutput = computed(() => {
   try {
+    const file = activeFile.value;
+    if (file?.documentType === 'decision-table' && file.decisionTable) {
+      const doc = {
+        type: 'decision-table',
+        config: file.ruleset.config,
+        table: file.decisionTable,
+        metadata: file.ruleset.metadata,
+      };
+      return JSON.stringify(doc, null, 2);
+    }
     return serializeRuleSet(ruleset.value, { pretty: true });
   } catch {
     return '{}';
@@ -1100,6 +1112,15 @@ function selectFile(fileId: string) {
   activeFileId.value = fileId;
   if (!openTabs.value.includes(fileId)) {
     openTabs.value.push(fileId);
+  }
+  // Auto-switch editor mode based on document type
+  const file = files.value.find((f) => f.id === fileId);
+  if (file) {
+    if (file.documentType === 'decision-table') {
+      editorMode.value = 'table';
+    } else if (file.documentType === 'flow' && editorMode.value === 'table') {
+      editorMode.value = 'form';
+    }
   }
 }
 
@@ -1113,14 +1134,18 @@ function closeTab(fileId: string) {
   }
 }
 
-function createNewFile() {
+function createNewFile(type: DocumentType = 'flow') {
   const id = `file_${generateId()}`;
+  const isTable = type === 'decision-table';
   const newFile: OrdoFile = {
     id,
-    name: `new_rule_${files.value.length + 1}.ordo`,
+    name: isTable
+      ? `new_table_${files.value.length + 1}.ordo`
+      : `new_rule_${files.value.length + 1}.ordo`,
+    documentType: type,
     ruleset: {
       config: {
-        name: 'New Rule',
+        name: isTable ? 'New Decision Table' : 'New Rule',
         version: '1.0.0',
         description: '',
         inputSchema: [],
@@ -1133,10 +1158,15 @@ function createNewFile() {
         updatedAt: new Date().toISOString(),
       },
     },
+    decisionTable: isTable ? DTFactory.emptyTable('New Decision Table') : undefined,
     modified: true,
   };
   files.value.push(newFile);
   selectFile(id);
+  // Auto-switch to table mode for decision table documents
+  if (isTable) {
+    editorMode.value = 'table';
+  }
 }
 
 function deleteFile(fileId: string) {
@@ -1153,6 +1183,7 @@ function deleteFile(fileId: string) {
 }
 
 function getFileIcon(file: OrdoFile) {
+  if (file.documentType === 'decision-table') return 'decision';
   const stepTypes = file.ruleset.steps.map((s) => s.type);
   if (stepTypes.includes('decision') && stepTypes.includes('terminal')) {
     return 'decision';
@@ -1207,14 +1238,34 @@ async function handleFileSelect(event: Event) {
       return;
     }
 
-    const { ruleset: importedRuleset } = importRuleSetFromFile(content, file.name);
+    // Detect document type from content
+    const parsed = JSON.parse(content);
+    const isTableDoc = parsed.type === 'decision-table';
+
+    let importedRuleset: RuleSet;
+    let importedTable: DecisionTable | undefined;
+
+    if (isTableDoc) {
+      importedRuleset = {
+        config: parsed.config || { name: '' },
+        startStepId: '',
+        steps: [],
+        metadata: parsed.metadata,
+      };
+      importedTable = parsed.table;
+    } else {
+      const result = importRuleSetFromFile(content, file.name);
+      importedRuleset = result.ruleset;
+    }
 
     // Create new file entry
     const id = `file_${generateId()}`;
     const newFile: OrdoFile = {
       id,
       name: file.name.replace(/\.(json|yaml|yml)$/i, '.ordo'),
+      documentType: isTableDoc ? 'decision-table' : 'flow',
       ruleset: importedRuleset,
+      decisionTable: importedTable,
       modified: false,
     };
 
@@ -1233,12 +1284,30 @@ async function handleFileSelect(event: Event) {
 function exportAsJson() {
   if (!activeFile.value) return;
 
-  const { content, filename, mimeType } = exportRuleSetToFile(activeFile.value.ruleset, {
-    format: 'json',
-    pretty: true,
-  });
+  let content: string;
+  let filename: string;
 
-  downloadFile(content, filename, mimeType);
+  if (activeFile.value.documentType === 'decision-table' && activeFile.value.decisionTable) {
+    const doc = {
+      type: 'decision-table',
+      config: activeFile.value.ruleset.config,
+      table: activeFile.value.decisionTable,
+      metadata: activeFile.value.ruleset.metadata,
+    };
+    content = JSON.stringify(doc, null, 2);
+    const baseName = activeFile.value.ruleset.config.name || 'decision-table';
+    const version = activeFile.value.ruleset.config.version || '1.0.0';
+    filename = `${baseName}-${version}.ordo.json`;
+  } else {
+    const result = exportRuleSetToFile(activeFile.value.ruleset, {
+      format: 'json',
+      pretty: true,
+    });
+    content = result.content;
+    filename = result.filename;
+  }
+
+  downloadFile(content, filename, 'application/json');
 
   // Mark as saved
   activeFile.value.modified = false;
@@ -1309,17 +1378,45 @@ function handleChange(newRuleset: RuleSet) {
 }
 
 function handleTableChange(table: DecisionTable) {
-  decisionTables.value[activeFileId.value] = table;
   const file = files.value.find((f) => f.id === activeFileId.value);
-  if (file) file.modified = true;
+  if (!file) return;
+
+  if (file.documentType === 'decision-table') {
+    // Decision table document: table is the source of truth, store directly
+    file.decisionTable = table;
+    file.modified = true;
+  } else {
+    // Flow document: legacy path (shouldn't happen since table mode is disabled for flow)
+    decisionTables.value[activeFileId.value] = table;
+    file.modified = true;
+  }
 }
 
-function handleShowTableAsFlow() {
-  setEditorMode('flow');
-}
+/** Computed table data: for table docs use stored table, for flow docs use decisionTables cache */
+const activeTableData = computed(() => {
+  const file = activeFile.value;
+  if (!file) return DTFactory.emptyTable();
+  if (file.documentType === 'decision-table') {
+    return file.decisionTable ?? DTFactory.emptyTable(file.ruleset.config.name);
+  }
+  return decisionTables.value[activeFileId.value] ?? DTFactory.emptyTable();
+});
+
+/** Available editor modes for the current document type */
+const availableModes = computed<Array<'form' | 'flow' | 'table'>>(() => {
+  const file = activeFile.value;
+  if (file?.documentType === 'decision-table') {
+    return ['table']; // decision table docs: table only
+  }
+  return ['form', 'flow']; // flow docs: form and flow only
+});
+
+/** Whether the current document is a decision table */
+const isTableDocument = computed(() => activeFile.value?.documentType === 'decision-table');
 
 function cycleEditorMode() {
-  const modes: Array<'form' | 'flow' | 'table'> = ['form', 'flow', 'table'];
+  const modes = availableModes.value;
+  if (modes.length <= 1) return; // no cycling for single-mode documents
   const idx = modes.indexOf(editorMode.value);
   setEditorMode(modes[(idx + 1) % modes.length]);
 }
@@ -1367,8 +1464,9 @@ watch(
         </svg>
       </div>
 
-      <!-- Form Mode -->
+      <!-- Form Mode (flow documents only) -->
       <div
+        v-if="!isTableDocument"
         class="activity-icon"
         :class="{ active: editorMode === 'form' }"
         @click="setEditorMode('form')"
@@ -1390,8 +1488,9 @@ watch(
         </svg>
       </div>
 
-      <!-- Flow Mode -->
+      <!-- Flow Mode (flow documents only) -->
       <div
+        v-if="!isTableDocument"
         class="activity-icon"
         :class="{ active: editorMode === 'flow' }"
         @click="setEditorMode('flow')"
@@ -1415,8 +1514,9 @@ watch(
         </svg>
       </div>
 
-      <!-- Table Mode -->
+      <!-- Table Mode (only for decision-table documents) -->
       <div
+        v-if="activeFile?.documentType === 'decision-table'"
         class="activity-icon"
         :class="{ active: editorMode === 'table' }"
         @click="setEditorMode('table')"
@@ -1590,8 +1690,8 @@ watch(
               ></path>
             </svg>
           </button>
-          <!-- New File -->
-          <button class="icon-btn" @click="createNewFile" title="New File">
+          <!-- New Flow Rule -->
+          <button class="icon-btn" @click="createNewFile('flow')" title="New Flow Rule">
             <svg
               width="14"
               height="14"
@@ -1602,6 +1702,25 @@ watch(
             >
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <!-- New Decision Table -->
+          <button
+            class="icon-btn"
+            @click="createNewFile('decision-table')"
+            title="New Decision Table"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="3" y1="9" x2="21" y2="9" />
+              <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
           <!-- Export Menu -->
@@ -1915,17 +2034,25 @@ watch(
       <!-- Editor Content -->
       <div v-else-if="activeFile" class="ide-editor-wrapper">
         <div class="ide-editor-content" data-tour="editor">
-          <!-- Form Editor -->
+          <!-- Decision Table Document: always show table editor -->
+          <div v-if="isTableDocument" class="table-editor-wrapper">
+            <OrdoDecisionTable
+              :model-value="activeTableData"
+              :schema="currentSchema"
+              @update:model-value="handleTableChange"
+              @change="handleTableChange"
+            />
+          </div>
+
+          <!-- Flow Document: Form or Flow editor -->
           <OrdoFormEditor
-            v-if="editorMode === 'form'"
+            v-else-if="editorMode === 'form'"
             v-model="ruleset"
             :auto-validate="true"
             :show-validation="true"
             :locale="locale"
             @change="handleChange"
           />
-
-          <!-- Flow Editor -->
           <OrdoFlowEditor
             v-else-if="editorMode === 'flow'"
             v-model="ruleset"
@@ -1934,17 +2061,6 @@ watch(
             :execution-trace="executionTrace"
             @change="handleChange"
           />
-
-          <!-- Decision Table Editor -->
-          <div v-else-if="editorMode === 'table'" class="table-editor-wrapper">
-            <OrdoDecisionTable
-              :model-value="decisionTables[activeFileId] ?? DTFactory.emptyTable()"
-              :schema="currentSchema"
-              @update:model-value="handleTableChange"
-              @change="handleTableChange"
-              @show-as-flow="handleShowTableAsFlow"
-            />
-          </div>
         </div>
 
         <!-- Execution Panel (Bottom) -->
@@ -1962,7 +2078,12 @@ watch(
       <div v-else class="empty-state">
         <OrdoIcon name="terminal" :size="48" />
         <p>No file selected</p>
-        <button class="create-btn" @click="createNewFile">Create New Rule</button>
+        <div class="empty-state-actions">
+          <button class="create-btn" @click="createNewFile('flow')">New Flow Rule</button>
+          <button class="create-btn create-btn--table" @click="createNewFile('decision-table')">
+            New Decision Table
+          </button>
+        </div>
       </div>
 
       <!-- Status Bar -->

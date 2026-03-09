@@ -416,6 +416,70 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // NATS sync (if configured and `nats-sync` feature is enabled)
+    #[cfg(feature = "nats-sync")]
+    let mut nats_subscriber_handle: Option<tokio::task::JoinHandle<()>> = None;
+    #[cfg(feature = "nats-sync")]
+    if let Some(ref nats_url) = config.nats_url {
+        let instance_id = config.resolve_instance_id();
+        info!(
+            "Initializing NATS sync (url={}, instance={}, prefix={})",
+            nats_url, instance_id, config.nats_subject_prefix
+        );
+
+        match sync::nats_sync::connect(nats_url).await {
+            Ok(jetstream) => {
+                if let Err(e) =
+                    sync::nats_sync::ensure_stream(&jetstream, &config.nats_subject_prefix).await
+                {
+                    warn!("Failed to ensure NATS stream: {} — NATS sync disabled", e);
+                } else {
+                    // Writer: set up publisher → channel → store/tenant_manager
+                    if !config.is_read_only() {
+                        let publisher = sync::nats_sync::NatsPublisher::new(
+                            jetstream.clone(),
+                            config.nats_subject_prefix.clone(),
+                            instance_id.clone(),
+                        );
+                        let sync_tx = publisher.start(shutdown_rx.clone());
+                        {
+                            let mut store_guard = store.write().await;
+                            store_guard.set_sync_tx(sync_tx.clone());
+                        }
+                        tenant_manager.set_sync_tx(sync_tx).await;
+                        info!("NATS publisher started (writer mode)");
+                    }
+
+                    // Reader (and writer for echo-suppressed fallback): set up subscriber
+                    if config.is_read_only() {
+                        match sync::nats_sync::create_consumer(&jetstream, &instance_id).await {
+                            Ok(consumer) => {
+                                let subscriber = sync::nats_sync::NatsSubscriber::new(
+                                    consumer,
+                                    instance_id.clone(),
+                                    store.clone(),
+                                    tenant_manager.clone(),
+                                );
+                                nats_subscriber_handle =
+                                    Some(subscriber.start(shutdown_rx.clone()));
+                                info!("NATS subscriber started (reader mode)");
+                            }
+                            Err(e) => {
+                                warn!("Failed to create NATS consumer: {} — reader will rely on file watcher only", e);
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to connect to NATS at {}: {} — NATS sync disabled",
+                    nats_url, e
+                );
+            }
+        }
+    }
+
     // Signal handler: wait for SIGTERM/Ctrl-C, then begin graceful shutdown.
     let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
     let shutdown_audit_logger = audit_logger.clone();
@@ -467,6 +531,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Stop the file watcher (it listens on shutdown_rx too, but abort for certainty).
     if let Some(handle) = watcher_handle {
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    // Stop the NATS subscriber.
+    #[cfg(feature = "nats-sync")]
+    if let Some(handle) = nats_subscriber_handle {
         handle.abort();
         let _ = handle.await;
     }

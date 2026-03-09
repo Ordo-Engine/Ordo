@@ -206,6 +206,7 @@ async fn main() -> anyhow::Result<()> {
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
         }
+        store.set_resource_limits(config.max_rules_per_tenant, config.max_total_rules);
 
         // Load existing rules from directory
         match store.load_from_dir() {
@@ -238,6 +239,7 @@ async fn main() -> anyhow::Result<()> {
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
         }
+        store.set_resource_limits(config.max_rules_per_tenant, config.max_total_rules);
         Arc::new(RwLock::new(store))
     };
 

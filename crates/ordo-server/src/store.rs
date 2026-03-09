@@ -76,6 +76,10 @@ pub struct RuleStore {
     /// `put_for_tenant` / `delete_for_tenant` send events here; the NATS
     /// publisher task consumes them.
     sync_tx: Option<mpsc::UnboundedSender<SyncEvent>>,
+    /// Maximum number of rulesets per tenant (None = unlimited).
+    max_rules_per_tenant: Option<usize>,
+    /// Maximum total number of rulesets across all tenants (None = unlimited).
+    max_total_rules: Option<usize>,
 }
 
 /// Version information for a rule
@@ -114,6 +118,8 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
         }
     }
 
@@ -130,6 +136,8 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
         }
     }
 
@@ -152,6 +160,8 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
         }
     }
 
@@ -172,6 +182,8 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
         }
     }
 
@@ -185,6 +197,32 @@ impl RuleStore {
     #[allow(dead_code)]
     pub fn set_max_versions(&mut self, max_versions: usize) {
         self.max_versions = max_versions;
+    }
+
+    /// Set store resource limits.
+    ///
+    /// - `max_rules_per_tenant`: maximum rulesets a single tenant may own (`None` = unlimited).
+    /// - `max_total_rules`: maximum rulesets across all tenants combined (`None` = unlimited).
+    pub fn set_resource_limits(
+        &mut self,
+        max_rules_per_tenant: Option<usize>,
+        max_total_rules: Option<usize>,
+    ) {
+        self.max_rules_per_tenant = max_rules_per_tenant;
+        self.max_total_rules = max_total_rules;
+    }
+
+    /// Count rulesets owned by a specific tenant.
+    fn count_for_tenant(&self, tenant_id: &str) -> usize {
+        if self.multi_tenancy_enabled {
+            let prefix = format!("{}/", tenant_id);
+            self.rulesets
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .count()
+        } else {
+            self.rulesets.len()
+        }
     }
 
     /// Configure signature verification for local rule loading
@@ -727,6 +765,30 @@ impl RuleStore {
 
         let name = ruleset.config.name.clone();
         ruleset.config.tenant_id = Some(tenant_id.to_string());
+
+        // Enforce resource limits for new rules only (updates are always allowed)
+        let is_new = !self.exists_for_tenant(tenant_id, &name);
+        if is_new {
+            if let Some(max_per_tenant) = self.max_rules_per_tenant {
+                if self.count_for_tenant(tenant_id) >= max_per_tenant {
+                    return Err(vec![format!(
+                        "Resource limit exceeded: tenant '{}' already has {} rulesets (max {})",
+                        tenant_id,
+                        self.count_for_tenant(tenant_id),
+                        max_per_tenant
+                    )]);
+                }
+            }
+            if let Some(max_total) = self.max_total_rules {
+                if self.rulesets.len() >= max_total {
+                    return Err(vec![format!(
+                        "Resource limit exceeded: store already contains {} rulesets (max {})",
+                        self.rulesets.len(),
+                        max_total
+                    )]);
+                }
+            }
+        }
 
         // Backup current version if it exists (for version history)
         if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
@@ -1448,5 +1510,70 @@ steps:
         // Verify tenant isolation after reload
         assert_eq!(store2.list_for_tenant("tenant-a").len(), 1);
         assert_eq!(store2.list_for_tenant("tenant-b").len(), 1);
+    }
+
+    #[test]
+    fn test_max_total_rules_limit() {
+        let mut store = RuleStore::new();
+        store.set_resource_limits(None, Some(2));
+
+        store.put(create_test_ruleset("rule-1")).unwrap();
+        store.put(create_test_ruleset("rule-2")).unwrap();
+
+        // Third new rule must be rejected
+        let err = store.put(create_test_ruleset("rule-3")).unwrap_err();
+        assert!(err[0].contains("Resource limit exceeded"));
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn test_max_total_rules_update_allowed() {
+        let mut store = RuleStore::new();
+        store.set_resource_limits(None, Some(1));
+
+        store.put(create_test_ruleset("rule-1")).unwrap();
+
+        // Updating the same rule must succeed even at the limit
+        store.put(create_test_ruleset("rule-1")).unwrap();
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn test_max_rules_per_tenant_limit() {
+        let mut store = RuleStore::new();
+        store.enable_multi_tenancy("default".to_string());
+        store.set_resource_limits(Some(2), None);
+
+        store
+            .put_for_tenant("tenant-a", create_test_ruleset("rule-1"))
+            .unwrap();
+        store
+            .put_for_tenant("tenant-a", create_test_ruleset("rule-2"))
+            .unwrap();
+
+        // tenant-a is now at the limit
+        let err = store
+            .put_for_tenant("tenant-a", create_test_ruleset("rule-3"))
+            .unwrap_err();
+        assert!(err[0].contains("Resource limit exceeded"));
+
+        // tenant-b is independent — must still be allowed
+        store
+            .put_for_tenant("tenant-b", create_test_ruleset("rule-1"))
+            .unwrap();
+    }
+
+    #[test]
+    fn test_resource_limits_none_is_unlimited() {
+        let mut store = RuleStore::new();
+        store.set_resource_limits(None, None);
+
+        // Should be able to add many rules without hitting a limit
+        for i in 0..50 {
+            store
+                .put(create_test_ruleset(&format!("rule-{}", i)))
+                .unwrap();
+        }
+        assert_eq!(store.len(), 50);
     }
 }

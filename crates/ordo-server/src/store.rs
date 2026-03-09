@@ -5,6 +5,7 @@
 //! Supports version management with automatic backup of previous versions.
 
 use crate::metrics;
+use crate::sync::event::SyncEvent;
 use once_cell::sync::Lazy;
 use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use ordo_core::signature::{strip_signature, RuleVerifier};
@@ -16,6 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 /// Pre-compiled regex for version file detection
@@ -70,6 +72,10 @@ pub struct RuleStore {
     signature_verifier: Option<RuleVerifier>,
     /// Allow unsigned local rules when signature verification is enabled
     allow_unsigned_local: bool,
+    /// Channel for publishing sync events (set when NATS sync is enabled).
+    /// `put_for_tenant` / `delete_for_tenant` send events here; the NATS
+    /// publisher task consumes them.
+    sync_tx: Option<mpsc::UnboundedSender<SyncEvent>>,
 }
 
 /// Version information for a rule
@@ -107,6 +113,7 @@ impl RuleStore {
             max_versions: 10,
             signature_verifier: None,
             allow_unsigned_local: true,
+            sync_tx: None,
         }
     }
 
@@ -122,6 +129,7 @@ impl RuleStore {
             max_versions: 10,
             signature_verifier: None,
             allow_unsigned_local: true,
+            sync_tx: None,
         }
     }
 
@@ -143,6 +151,7 @@ impl RuleStore {
             max_versions,
             signature_verifier: None,
             allow_unsigned_local: true,
+            sync_tx: None,
         }
     }
 
@@ -162,6 +171,7 @@ impl RuleStore {
             max_versions,
             signature_verifier: None,
             allow_unsigned_local: true,
+            sync_tx: None,
         }
     }
 
@@ -739,11 +749,29 @@ impl RuleStore {
             }
         }
 
+        // Serialize for sync before moving into Arc
+        let sync_json = if self.sync_tx.is_some() {
+            serde_json::to_string(&ruleset).ok()
+        } else {
+            None
+        };
+
+        let version = ruleset.config.version.clone();
         let key = self.make_key(tenant_id, &name);
         self.rulesets.insert(key, Arc::new(ruleset));
 
         // Record store operation metric
         metrics::record_store_operation("put");
+
+        // Publish sync event (non-blocking, best-effort)
+        if let (Some(tx), Some(json)) = (&self.sync_tx, sync_json) {
+            let _ = tx.send(SyncEvent::RulePut {
+                tenant_id: tenant_id.to_string(),
+                name,
+                ruleset_json: json,
+                version,
+            });
+        }
 
         Ok(())
     }
@@ -783,6 +811,14 @@ impl RuleStore {
             // Delete all version files
             if let Err(e) = self.delete_all_versions(tenant_id, name) {
                 error!("Failed to delete version files for '{}': {}", name, e);
+            }
+
+            // Publish sync event (non-blocking, best-effort)
+            if let Some(tx) = &self.sync_tx {
+                let _ = tx.send(SyncEvent::RuleDeleted {
+                    tenant_id: tenant_id.to_string(),
+                    name: name.to_string(),
+                });
             }
         }
 
@@ -824,6 +860,37 @@ impl RuleStore {
     pub fn exists_for_tenant(&self, tenant_id: &str, name: &str) -> bool {
         let key = self.make_key(tenant_id, name);
         self.rulesets.contains_key(&key)
+    }
+
+    /// Set the sync event channel for NATS publishing.
+    ///
+    /// After this is set, `put_for_tenant` and `delete_for_tenant` will
+    /// send events to the channel so the NATS publisher can propagate them.
+    pub fn set_sync_tx(&mut self, tx: mpsc::UnboundedSender<SyncEvent>) {
+        self.sync_tx = Some(tx);
+    }
+
+    /// Apply a rule put received via NATS sync (reader side).
+    ///
+    /// Deserializes the ruleset JSON, compiles expressions, and inserts into
+    /// the in-memory store. Does **not** persist to disk or publish further
+    /// sync events.
+    pub fn apply_sync_put(&mut self, tenant_id: &str, ruleset_json: &str) -> io::Result<()> {
+        let mut ruleset: RuleSet = serde_json::from_str(ruleset_json)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        ruleset
+            .compile()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+        ruleset.config.tenant_id = Some(tenant_id.to_string());
+
+        let name = ruleset.config.name.clone();
+        let key = self.make_key(tenant_id, &name);
+        self.rulesets.insert(key, Arc::new(ruleset));
+        metrics::set_rules_count(self.rulesets.len() as i64);
+
+        Ok(())
     }
 
     /// Get executor reference

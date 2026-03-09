@@ -2,11 +2,12 @@
 //!
 //! Provides tenant configs with optional file persistence.
 
+use crate::sync::event::SyncEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +83,8 @@ pub struct TenantManager {
     tenants: RwLock<HashMap<String, TenantConfig>>,
     store: Option<TenantStore>,
     defaults: TenantDefaults,
+    /// Sync channel for publishing tenant config changes to NATS.
+    sync_tx: RwLock<Option<mpsc::UnboundedSender<SyncEvent>>>,
 }
 
 impl TenantManager {
@@ -95,6 +98,7 @@ impl TenantManager {
             tenants: RwLock::new(tenants),
             store,
             defaults,
+            sync_tx: RwLock::new(None),
         })
     }
 
@@ -131,6 +135,7 @@ impl TenantManager {
         if let Some(store) = &self.store {
             store.save(&guard).await?;
         }
+        self.publish_sync_event(&guard).await;
         Ok(())
     }
 
@@ -141,6 +146,7 @@ impl TenantManager {
             if let Some(store) = &self.store {
                 store.save(&guard).await?;
             }
+            self.publish_sync_event(&guard).await;
         }
         Ok(existed)
     }
@@ -168,6 +174,36 @@ impl TenantManager {
         let mut guard = self.tenants.write().await;
         *guard = new_tenants;
         info!("Reloaded tenant config ({} tenants)", count);
+        Ok(())
+    }
+
+    /// Set the sync event channel for NATS publishing.
+    pub async fn set_sync_tx(&self, tx: mpsc::UnboundedSender<SyncEvent>) {
+        let mut guard = self.sync_tx.write().await;
+        *guard = Some(tx);
+    }
+
+    /// Publish a TenantConfigChanged event to the sync channel.
+    async fn publish_sync_event(&self, tenants: &HashMap<String, TenantConfig>) {
+        let tx_guard = self.sync_tx.read().await;
+        if let Some(tx) = tx_guard.as_ref() {
+            if let Ok(json) = serde_json::to_string(tenants) {
+                let _ = tx.send(SyncEvent::TenantConfigChanged { config_json: json });
+            }
+        }
+    }
+
+    /// Apply a tenant config snapshot received via NATS sync (reader side).
+    ///
+    /// Replaces the in-memory tenant map atomically. Does **not** persist
+    /// to disk or publish further sync events.
+    pub async fn apply_sync_config(&self, config_json: &str) -> io::Result<()> {
+        let new_tenants: HashMap<String, TenantConfig> = serde_json::from_str(config_json)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let count = new_tenants.len();
+        let mut guard = self.tenants.write().await;
+        *guard = new_tenants;
+        info!("Applied sync tenant config ({} tenants)", count);
         Ok(())
     }
 

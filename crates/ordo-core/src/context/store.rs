@@ -58,6 +58,7 @@ impl Context {
     /// - No prefix or `data.`: get from root data
     /// - `$`: get from variables
     /// - `item.`: get from current iteration item
+    /// - `_index`: get the current iteration index (if set)
     pub fn get(&self, path: &str) -> Option<&Value> {
         if let Some(var_name) = path.strip_prefix('$') {
             // Variable reference
@@ -69,8 +70,8 @@ impl Context {
             // Current iteration item itself
             self.current_item.as_ref()
         } else if path == "_index" {
-            // Special handling for index
-            None // TODO: needs improvement
+            // Special handling for index - backed by an internal variable
+            self.variables.get("_index")
         } else if let Some(data_path) = path.strip_prefix("data.") {
             // Explicit data prefix
             self.data.get_path(data_path)
@@ -109,6 +110,9 @@ impl Context {
     pub fn set_current_item(&mut self, item: Value, index: usize) {
         self.current_item = Some(item);
         self.current_index = Some(index);
+        // Expose the current index via a special `_index` variable so it can be accessed from expressions.
+        self.variables
+            .insert("_index".to_string(), Value::int(index as i64));
     }
 
     /// Clear current iteration item
@@ -116,6 +120,8 @@ impl Context {
     pub fn clear_current_item(&mut self) {
         self.current_item = None;
         self.current_index = None;
+        // Remove the special index variable when iteration ends.
+        self.variables.remove("_index");
     }
 
     /// Get current iteration item
@@ -188,5 +194,7 @@ mod tests {
         assert_eq!(ctx.get("item.type"), Some(&Value::string("card")));
         assert_eq!(ctx.get("item.amount"), Some(&Value::int(1000)));
         assert_eq!(ctx.current_index(), Some(0));
+        // `_index` should be available as a special variable reflecting the current index.
+        assert_eq!(ctx.get("_index"), Some(&Value::int(0)));
     }
 }

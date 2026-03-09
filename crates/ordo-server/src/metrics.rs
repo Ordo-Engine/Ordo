@@ -142,6 +142,35 @@ lazy_static! {
         &["tenant_id"]
     ).unwrap();
 
+    // ==================== Sync Metrics ====================
+
+    /// Total sync events published (writer side)
+    pub static ref SYNC_EVENTS_PUBLISHED_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_sync_events_published_total",
+        "Total sync events published to NATS",
+        &["event_type"]
+    ).unwrap();
+
+    /// Total sync events successfully applied (reader side)
+    pub static ref SYNC_EVENTS_APPLIED_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_sync_events_applied_total",
+        "Total sync events applied from NATS",
+        &["event_type"]
+    ).unwrap();
+
+    /// Total sync event failures (publish or apply)
+    pub static ref SYNC_EVENTS_FAILED_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_sync_events_failed_total",
+        "Total sync event failures",
+        &["event_type", "stage"]
+    ).unwrap();
+
+    /// Timestamp of the last successful sync event (epoch seconds)
+    pub static ref LAST_SYNC_TIMESTAMP: Gauge = register_gauge!(
+        "ordo_last_sync_timestamp_seconds",
+        "Unix timestamp of the last successful sync event"
+    ).unwrap();
+
     // ==================== Batch Execution Metrics ====================
 
     /// Total batch executions counter
@@ -338,6 +367,42 @@ pub fn record_batch_execution(
         .with_label_values(&[ruleset, "failed"])
         .inc_by(failed_count as f64);
 }
+/// Record a successfully published sync event
+#[cfg(feature = "nats-sync")]
+pub fn record_sync_published(event_type: &str) {
+    SYNC_EVENTS_PUBLISHED_TOTAL
+        .with_label_values(&[event_type])
+        .inc();
+    LAST_SYNC_TIMESTAMP.set(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64(),
+    );
+}
+
+/// Record a successfully applied sync event
+#[cfg(feature = "nats-sync")]
+pub fn record_sync_applied(event_type: &str) {
+    SYNC_EVENTS_APPLIED_TOTAL
+        .with_label_values(&[event_type])
+        .inc();
+    LAST_SYNC_TIMESTAMP.set(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64(),
+    );
+}
+
+/// Record a failed sync event (stage: "publish" or "apply")
+#[cfg(feature = "nats-sync")]
+pub fn record_sync_failed(event_type: &str, stage: &str) {
+    SYNC_EVENTS_FAILED_TOTAL
+        .with_label_values(&[event_type, stage])
+        .inc();
+}
+
 /// Encode all metrics to Prometheus text format
 pub fn encode_metrics() -> String {
     // Update dynamic metrics before encoding

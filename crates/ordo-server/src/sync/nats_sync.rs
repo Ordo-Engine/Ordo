@@ -11,6 +11,7 @@
 //! - Echo suppression: each message carries an `instance_id`; the subscriber skips
 //!   messages from its own instance.
 
+use crate::metrics;
 use crate::store::RuleStore;
 use crate::sync::event::{SyncEvent, SyncMessage};
 use crate::tenant::TenantManager;
@@ -91,6 +92,7 @@ impl NatsPublisher {
     }
 
     async fn publish(&self, event: SyncEvent) {
+        let event_type = event.event_type();
         let msg = SyncMessage::new(self.instance_id.clone(), event);
         let subject = msg.subject(&self.subject_prefix);
 
@@ -98,6 +100,7 @@ impl NatsPublisher {
             Ok(p) => p,
             Err(e) => {
                 error!("Failed to serialize sync event: {}", e);
+                metrics::record_sync_failed(event_type, "publish");
                 return;
             }
         };
@@ -112,14 +115,17 @@ impl NatsPublisher {
                 match ack_future.await {
                     Ok(_ack) => {
                         debug!("Published sync event to {}", subject);
+                        metrics::record_sync_published(event_type);
                     }
                     Err(e) => {
                         warn!("NATS JetStream ack failed for {}: {}", subject, e);
+                        metrics::record_sync_failed(event_type, "publish");
                     }
                 }
             }
             Err(e) => {
                 warn!("Failed to publish sync event to {}: {}", subject, e);
+                metrics::record_sync_failed(event_type, "publish");
             }
         }
     }
@@ -272,12 +278,14 @@ impl NatsSubscriber {
                     "Applied sync RulePut: '{}' (tenant '{}') v{}",
                     name, tenant_id, version
                 );
+                metrics::record_sync_applied("RulePut");
             }
             Err(e) => {
                 error!(
                     "Failed to apply sync RulePut for '{}' (tenant '{}'): {}",
                     name, tenant_id, e
                 );
+                metrics::record_sync_failed("RulePut", "apply");
             }
         }
     }
@@ -289,6 +297,7 @@ impl NatsSubscriber {
                 "Applied sync RuleDeleted: '{}' (tenant '{}')",
                 name, tenant_id
             );
+            metrics::record_sync_applied("RuleDeleted");
         } else {
             debug!(
                 "Sync RuleDeleted for '{}' (tenant '{}') — already absent",
@@ -301,9 +310,11 @@ impl NatsSubscriber {
         match self.tenant_manager.apply_sync_config(config_json).await {
             Ok(()) => {
                 info!("Applied sync TenantConfigChanged");
+                metrics::record_sync_applied("TenantConfigChanged");
             }
             Err(e) => {
                 error!("Failed to apply sync TenantConfigChanged: {}", e);
+                metrics::record_sync_failed("TenantConfigChanged", "apply");
             }
         }
     }

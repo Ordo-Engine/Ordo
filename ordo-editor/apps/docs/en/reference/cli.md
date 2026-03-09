@@ -256,6 +256,54 @@ When enabled:
 - Falls back to 30-second polling if native file system events are unavailable
 - In multi-tenancy mode, monitors `<rules-dir>/tenants/` and reloads tenant configs on `tenants.json` change
 
+### --nats-url
+
+NATS server URL for distributed sync via JetStream. Requires `nats-sync` feature.
+
+```bash
+ordo-server --role writer --nats-url nats://localhost:4222
+```
+
+|             |                 |
+| ----------- | --------------- |
+| **Default** | None (disabled) |
+| **Format**  | NATS URL        |
+| **Env**     | `ORDO_NATS_URL` |
+| **Feature** | `nats-sync`     |
+
+When set on a **writer**: publishes rule changes to NATS JetStream.
+When set on a **reader**: subscribes to receive rule updates.
+
+### --nats-subject-prefix
+
+Subject prefix for NATS sync events.
+
+```bash
+ordo-server --nats-url nats://localhost:4222 --nats-subject-prefix myapp.rules
+```
+
+|             |                            |
+| ----------- | -------------------------- |
+| **Default** | `ordo.rules`               |
+| **Env**     | `ORDO_NATS_SUBJECT_PREFIX` |
+
+Events are published to `{prefix}.{tenant_id}.{name}` (rules) or `{prefix}.tenants` (tenant config).
+
+### --instance-id
+
+Unique instance identifier for NATS consumer naming and echo suppression.
+
+```bash
+ordo-server --nats-url nats://localhost:4222 --instance-id reader-1
+```
+
+|             |                         |
+| ----------- | ----------------------- |
+| **Default** | Random (auto-generated) |
+| **Env**     | `ORDO_INSTANCE_ID`      |
+
+If not specified, a random hex string is generated at startup. Set explicitly in Kubernetes to use the pod name via `metadata.name`.
+
 ### --max-request-body-bytes
 
 Maximum HTTP request body size in bytes.
@@ -328,7 +376,7 @@ ordo-server \
   --log-level info
 ```
 
-### Writer/Reader Deployment
+### Writer/Reader with File Watch
 
 ```bash
 # Writer node
@@ -341,6 +389,22 @@ ordo-server --role reader \
   --writer-addr http://ordo-writer:8080 \
   --rules-dir /shared/rules \
   --watch-rules
+```
+
+### Writer/Reader with NATS Sync
+
+```bash
+# Writer node
+ordo-server --role writer \
+  --rules-dir /data/rules \
+  --nats-url nats://nats:4222 \
+  --instance-id writer-1
+
+# Reader node
+ordo-server --role reader \
+  --writer-addr http://ordo-writer:8080 \
+  --nats-url nats://nats:4222 \
+  --instance-id reader-1
 ```
 
 ### HTTP Only

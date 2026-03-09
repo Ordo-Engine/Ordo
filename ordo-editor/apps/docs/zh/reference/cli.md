@@ -256,6 +256,54 @@ ordo-server --rules-dir ./rules --watch-rules
 - 原生文件事件不可用时回退到 30 秒轮询
 - 多租户模式下，同时监控 `<rules-dir>/tenants/` 并在 `tenants.json` 变更时重载租户配置
 
+### --nats-url
+
+用于分布式同步的 NATS 服务器 URL。需要 `nats-sync` 特性。
+
+```bash
+ordo-server --role writer --nats-url nats://localhost:4222
+```
+
+|              |                 |
+| ------------ | --------------- |
+| **默认值**   | 无（禁用）      |
+| **格式**     | NATS URL        |
+| **环境变量** | `ORDO_NATS_URL` |
+| **Feature**  | `nats-sync`     |
+
+在 **Writer** 上设置时：将规则变更发布到 NATS JetStream。
+在 **Reader** 上设置时：订阅接收规则更新。
+
+### --nats-subject-prefix
+
+NATS 同步事件的 Subject 前缀。
+
+```bash
+ordo-server --nats-url nats://localhost:4222 --nats-subject-prefix myapp.rules
+```
+
+|              |                            |
+| ------------ | -------------------------- |
+| **默认值**   | `ordo.rules`               |
+| **环境变量** | `ORDO_NATS_SUBJECT_PREFIX` |
+
+事件发布到 `{prefix}.{tenant_id}.{name}`（规则）或 `{prefix}.tenants`（租户配置）。
+
+### --instance-id
+
+唯一实例标识符，用于 NATS 消费者命名和回声抑制。
+
+```bash
+ordo-server --nats-url nats://localhost:4222 --instance-id reader-1
+```
+
+|              |                    |
+| ------------ | ------------------ |
+| **默认值**   | 随机生成           |
+| **环境变量** | `ORDO_INSTANCE_ID` |
+
+未指定时，启动时自动生成随机十六进制字符串。在 Kubernetes 中建议通过 `metadata.name` 设置为 Pod 名称。
+
 ### --max-request-body-bytes
 
 HTTP 请求体最大字节数。
@@ -328,7 +376,7 @@ ordo-server \
   --log-level info
 ```
 
-### Writer/Reader 部署
+### Writer/Reader 文件监控部署
 
 ```bash
 # Writer 节点
@@ -341,6 +389,22 @@ ordo-server --role reader \
   --writer-addr http://ordo-writer:8080 \
   --rules-dir /shared/rules \
   --watch-rules
+```
+
+### Writer/Reader NATS 同步部署
+
+```bash
+# Writer 节点
+ordo-server --role writer \
+  --rules-dir /data/rules \
+  --nats-url nats://nats:4222 \
+  --instance-id writer-1
+
+# Reader 节点
+ordo-server --role reader \
+  --writer-addr http://ordo-writer:8080 \
+  --nats-url nats://nats:4222 \
+  --instance-id reader-1
 ```
 
 ### 仅 HTTP

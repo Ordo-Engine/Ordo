@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 // PostHog configuration
 const POSTHOG_KEY = 'phc_BCRuie4xhbSduEL471w7XvQyPcP14QBXPidqdHYf4VY'
@@ -12,7 +13,7 @@ const isCustomDomain = process.env.CUSTOM_DOMAIN === 'true'
 const BASE_PATH = process.env.DOCS_BASE_PATH || (isCustomDomain ? '/' : '/Ordo/docs/')
 
 // https://vitepress.dev/reference/site-config
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: "Ordo",
   description: "High-performance rule engine with visual editor",
   
@@ -86,6 +87,7 @@ export default defineConfig({
                 { text: 'Rule Signing', link: '/en/guide/rule-signing' },
                 { text: 'Decision Table', link: '/en/guide/decision-table' },
                 { text: 'Editor Store & Undo/Redo', link: '/en/guide/editor-store' },
+                { text: 'Distributed Deployment', link: '/en/guide/distributed-deployment' },
               ]
             },
             {
@@ -176,6 +178,7 @@ export default defineConfig({
                 { text: '审计日志', link: '/zh/guide/audit-logging' },
                 { text: '决策表', link: '/zh/guide/decision-table' },
                 { text: '编辑器状态管理', link: '/zh/guide/editor-store' },
+                { text: '分布式部署', link: '/zh/guide/distributed-deployment' },
               ]
             },
             {
@@ -265,5 +268,7 @@ export default defineConfig({
         }
       }
     }
-  }
-})
+  },
+
+  mermaid: {},
+}))

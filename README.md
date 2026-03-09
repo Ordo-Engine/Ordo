@@ -103,6 +103,7 @@ let result = executor.execute(&loaded, input)?;
 - **Deterministic Execution**: Same input → Same path → Same result
 - **Execution Tracing**: Full visibility into every step for debugging
 - **Hot Reload**: Update rules without service restart
+- **Distributed Deployment**: Single-writer / multi-reader with NATS JetStream sync
 
 ### 🔌 Easy Integration
 
@@ -385,6 +386,7 @@ npm install @ordo/editor-core
 - [x] Compiled ruleset (binary .ordo format)
 - [x] Enterprise plugin system
 - [x] .ordo file import/export in Playground
+- [x] Distributed deployment (single-writer / multi-reader + NATS sync)
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 

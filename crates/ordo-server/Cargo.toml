@@ -36,6 +36,11 @@ regex.workspace = true
 dashmap.workspace = true
 notify = { version = "6", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.4"
+async-nats = { version = "0.38", optional = true }
+
+[features]
+default = []
+nats-sync = ["dep:async-nats"]
 
 [dev-dependencies]
 tempfile = "3"

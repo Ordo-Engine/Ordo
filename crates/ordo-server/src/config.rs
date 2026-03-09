@@ -99,6 +99,21 @@ pub struct ServerConfig {
     #[arg(long, default_value = "false", env = "ORDO_WATCH_RULES")]
     pub watch_rules: bool,
 
+    /// NATS server URL for distributed sync (e.g. nats://localhost:4222).
+    /// When set, the writer publishes rule changes to NATS JetStream and
+    /// readers subscribe to receive updates. Requires the `nats-sync` feature.
+    #[arg(long, env = "ORDO_NATS_URL")]
+    pub nats_url: Option<String>,
+
+    /// NATS subject prefix for sync events (default: ordo.rules).
+    #[arg(long, default_value = "ordo.rules", env = "ORDO_NATS_SUBJECT_PREFIX")]
+    pub nats_subject_prefix: String,
+
+    /// Unique instance identifier for NATS consumer naming and echo suppression.
+    /// Defaults to a random ID if not set.
+    #[arg(long, env = "ORDO_INSTANCE_ID")]
+    pub instance_id: Option<String>,
+
     /// HTTP server port (shorthand for --http-addr 0.0.0.0:<port>).
     /// If both --port and --http-addr are specified, --http-addr takes precedence.
     #[arg(short = 'p', long, env = "ORDO_PORT")]
@@ -299,6 +314,18 @@ impl ServerConfig {
     pub fn is_read_only(&self) -> bool {
         self.role == InstanceRole::Reader
     }
+
+    /// Resolve the instance ID — uses the configured value or generates a random one.
+    pub fn resolve_instance_id(&self) -> String {
+        self.instance_id
+            .clone()
+            .unwrap_or_else(|| format!("{:016x}", rand::random::<u64>()))
+    }
+
+    /// Returns true if NATS sync is configured.
+    pub fn nats_enabled(&self) -> bool {
+        self.nats_url.is_some()
+    }
 }
 
 impl Default for ServerConfig {
@@ -307,6 +334,9 @@ impl Default for ServerConfig {
             role: InstanceRole::Standalone,
             writer_addr: None,
             watch_rules: false,
+            nats_url: None,
+            nats_subject_prefix: "ordo.rules".to_string(),
+            instance_id: None,
             port: None,
             grpc_port: None,
             http_addr_opt: None,

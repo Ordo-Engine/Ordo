@@ -37,6 +37,8 @@
 //! | `ORDO_SHUTDOWN_TIMEOUT_SECS` | Graceful shutdown timeout | `30` |
 //! | `ORDO_MAX_REQUEST_BODY_BYTES` | Max HTTP request body size | `10485760` (10MB) |
 //! | `ORDO_REQUEST_TIMEOUT_SECS` | HTTP request timeout | `30` |
+//! | `ORDO_MAX_RULES_PER_TENANT` | Max rulesets per tenant | unlimited |
+//! | `ORDO_MAX_TOTAL_RULES` | Max rulesets across all tenants | unlimited |
 
 use clap::Parser;
 use std::fmt;
@@ -263,6 +265,16 @@ pub struct ServerConfig {
     /// Requests exceeding this duration are terminated with 408 Request Timeout.
     #[arg(long, default_value = "30", env = "ORDO_REQUEST_TIMEOUT_SECS")]
     pub request_timeout_secs: u64,
+
+    /// Maximum number of rulesets per tenant (optional, unlimited by default).
+    /// When this limit is reached, new PUT requests are rejected with 422.
+    #[arg(long, env = "ORDO_MAX_RULES_PER_TENANT")]
+    pub max_rules_per_tenant: Option<usize>,
+
+    /// Maximum total number of rulesets across all tenants (optional, unlimited by default).
+    /// When this limit is reached, new PUT requests are rejected with 422.
+    #[arg(long, env = "ORDO_MAX_TOTAL_RULES")]
+    pub max_total_rules: Option<usize>,
 }
 
 impl ServerConfig {
@@ -439,6 +451,8 @@ impl Default for ServerConfig {
             shutdown_timeout_secs: 30,
             max_request_body_bytes: 10 * 1024 * 1024,
             request_timeout_secs: 30,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
         }
     }
 }

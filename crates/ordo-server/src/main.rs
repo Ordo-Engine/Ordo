@@ -487,49 +487,64 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Signal handler: wait for SIGTERM/Ctrl-C, then begin graceful shutdown.
+    // Wait for shutdown signal or unexpected server exit, then drain gracefully.
     let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
-    let shutdown_audit_logger = audit_logger.clone();
-    tokio::spawn(async move {
-        let ctrl_c = tokio::signal::ctrl_c();
-        #[cfg(unix)]
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
 
-        #[cfg(unix)]
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = sigterm.recv() => {},
-        }
-
-        #[cfg(not(unix))]
-        ctrl_c.await.ok();
-
-        let uptime = metrics::START_TIME.elapsed().as_secs();
-        shutdown_audit_logger.log_server_stopped(uptime);
-        info!(
-            uptime_secs = uptime,
-            timeout_secs = shutdown_timeout.as_secs(),
-            "Shutdown signal received — draining connections"
-        );
-
-        // Notify all servers to begin graceful shutdown.
-        shutdown_tx.send(true).ok();
-    });
-
-    // Wait for all servers to finish (graceful drain or unrecoverable error).
     if !tasks.is_empty() {
-        match tokio::time::timeout(shutdown_timeout, futures::future::join_all(tasks)).await {
-            Ok(results) => {
+        // Build the shutdown signal future.
+        let shutdown_signal = async {
+            let ctrl_c = tokio::signal::ctrl_c();
+            #[cfg(unix)]
+            {
+                let mut sigterm =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .unwrap();
+                tokio::select! {
+                    _ = ctrl_c => {},
+                    _ = sigterm.recv() => {},
+                }
+            }
+            #[cfg(not(unix))]
+            ctrl_c.await.ok();
+        };
+
+        let all_tasks = futures::future::join_all(tasks);
+        tokio::pin!(all_tasks);
+
+        // Phase 1: Run until a signal arrives OR all servers exit on their own.
+        tokio::select! {
+            _ = shutdown_signal => {
+                let uptime = metrics::START_TIME.elapsed().as_secs();
+                audit_logger.log_server_stopped(uptime);
+                info!(
+                    uptime_secs = uptime,
+                    timeout_secs = shutdown_timeout.as_secs(),
+                    "Shutdown signal received — draining connections"
+                );
+
+                // Notify all servers to begin graceful shutdown.
+                shutdown_tx.send(true).ok();
+
+                // Phase 2: Wait for servers to finish, with a timeout.
+                match tokio::time::timeout(shutdown_timeout, &mut all_tasks).await {
+                    Ok(results) => {
+                        for r in results {
+                            r??;
+                        }
+                    }
+                    Err(_) => {
+                        warn!(
+                            timeout_secs = shutdown_timeout.as_secs(),
+                            "Graceful shutdown timed out — forcing exit"
+                        );
+                    }
+                }
+            }
+            results = &mut all_tasks => {
+                // Servers exited on their own (crash or error).
                 for r in results {
                     r??;
                 }
-            }
-            Err(_) => {
-                warn!(
-                    timeout_secs = shutdown_timeout.as_secs(),
-                    "Graceful shutdown timed out — forcing exit"
-                );
             }
         }
     } else {

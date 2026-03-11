@@ -66,13 +66,16 @@ impl CompiledRuleExecutor {
         let mut depth = 0usize;
 
         loop {
-            if ruleset.metadata.timeout_ms > 0 {
-                let elapsed_ms = start_time.elapsed().as_millis() as u64;
-                if elapsed_ms >= ruleset.metadata.timeout_ms {
-                    return Err(OrdoError::Timeout {
-                        timeout_ms: ruleset.metadata.timeout_ms,
-                    });
-                }
+            // Amortized timeout: skip the first 16 steps, then check every 16 steps.
+            // Avoids Instant::elapsed() syscall overhead for short rules.
+            if ruleset.metadata.timeout_ms > 0
+                && depth >= 16
+                && depth & 15 == 0
+                && start_time.elapsed().as_millis() as u64 >= ruleset.metadata.timeout_ms
+            {
+                return Err(OrdoError::Timeout {
+                    timeout_ms: ruleset.metadata.timeout_ms,
+                });
             }
 
             if depth >= ruleset.metadata.max_depth as usize {

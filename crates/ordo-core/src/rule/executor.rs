@@ -196,21 +196,27 @@ impl RuleExecutor {
     ) -> Result<ExecutionResult> {
         let start_time = Instant::now();
         let mut ctx = Context::new(input);
-        let mut trace = if self.trace_config.enabled || enable_trace {
+        let tracing = self.trace_config.enabled || enable_trace;
+        let mut trace = if tracing {
             Some(ExecutionTrace::new(&ruleset.config.name))
         } else {
             None
         };
 
         let mut current_step_id = ruleset.config.entry_step.clone();
-        let mut depth = 0;
+        let mut depth: usize = 0;
 
         loop {
-            if timeout_ms > 0 {
-                let elapsed_ms = start_time.elapsed().as_millis() as u64;
-                if elapsed_ms >= timeout_ms {
-                    return Err(OrdoError::Timeout { timeout_ms });
-                }
+            // Amortized timeout: skip the first 16 steps entirely, then check every 16 steps.
+            // Rationale: 16 steps at ~100ns each = ~1.6µs worst-case detection delay,
+            // negligible vs a 5000ms timeout. This eliminates syscall overhead for short rules
+            // (most production rules have <10 steps) while still catching runaway execution.
+            if timeout_ms > 0
+                && depth >= 16
+                && depth & 15 == 0
+                && start_time.elapsed().as_millis() as u64 >= timeout_ms
+            {
+                return Err(OrdoError::Timeout { timeout_ms });
             }
 
             // Check depth limit
@@ -226,13 +232,18 @@ impl RuleExecutor {
                         step_id: current_step_id.clone(),
                     })?;
 
-            let step_start = Instant::now();
+            // Execute step — branch on tracing to avoid Instant syscalls in the hot path.
+            // When tracing is off (default), zero Instant calls per step.
+            let (step_result, step_duration) = if tracing {
+                let step_start = Instant::now();
+                let result = self.execute_step(step, &mut ctx, &ruleset.config.field_missing)?;
+                (result, step_start.elapsed().as_micros() as u64)
+            } else {
+                let result = self.execute_step(step, &mut ctx, &ruleset.config.field_missing)?;
+                (result, 0)
+            };
 
-            // Execute step
-            let step_result = self.execute_step(step, &mut ctx, &ruleset.config.field_missing)?;
-            let step_duration = step_start.elapsed().as_micros() as u64;
-
-            // Record trace
+            // Record trace (only when enabled — zero overhead otherwise)
             if let Some(ref mut trace) = trace {
                 let step_trace = match &step_result {
                     StepResult::Continue { next_step } => {

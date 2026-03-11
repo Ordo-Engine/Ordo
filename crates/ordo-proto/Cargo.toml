@@ -3,6 +3,7 @@ name = "ordo-proto"
 version = "0.2.0"
 edition = "2021"
 description = "Protobuf definitions for Ordo rule engine"
+license = "MIT"
 
 [dependencies]
 prost = "0.12"

@@ -56,7 +56,7 @@ tonic = "0.10"
 prost = "0.12"
 
 # 监控
-prometheus = "0.13"
+prometheus = { version = "0.13", default-features = false }
 
 # 并行计算
 rayon = "1.10"
@@ -79,7 +79,7 @@ quote = "1"
 proc-macro2 = "1"
 
 # Internal crates
-ordo-derive = { path = "crates/ordo-derive" }
+ordo-derive = { version = "0.2.0", path = "crates/ordo-derive" }
 
 # OpenTelemetry
 opentelemetry = "0.22"

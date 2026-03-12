@@ -134,7 +134,7 @@ impl CompiledRuleExecutor {
                     ..
                 } => {
                     let result = TerminalResult {
-                        code: ruleset.get_string(*code)?.to_string(),
+                        code: ruleset.get_string(*code)?.to_string(), // Code needs to be owned per interface
                         message: ruleset.get_string(*message)?.to_string(),
                         output: Vec::new(),
                         data: data.clone(),
@@ -192,7 +192,7 @@ impl CompiledRuleExecutor {
                     .ok_or_else(|| OrdoError::parse_error("Expression index out of range"))?;
                 let val = self.vm.execute(expr, ctx)?;
                 let name = ruleset.get_string(*name)?;
-                ctx.set_variable(name.to_string(), val);
+                ctx.set_variable(name, val);
             }
             CompiledAction::Log { message, level } => {
                 let msg = ruleset.get_string(*message)?;
@@ -224,7 +224,7 @@ impl CompiledRuleExecutor {
                         return Ok(());
                     }
                 };
-                let name = ruleset.get_string(*name)?.to_string();
+                let name = ruleset.get_string(*name)?;
                 let tags = tags
                     .iter()
                     .map(|(k, v)| {
@@ -234,7 +234,7 @@ impl CompiledRuleExecutor {
                         ))
                     })
                     .collect::<Result<Vec<(String, String)>>>()?;
-                self.metric_sink.record_gauge(&name, metric_value, &tags);
+                self.metric_sink.record_gauge(name, metric_value, &tags);
             }
         }
         Ok(())

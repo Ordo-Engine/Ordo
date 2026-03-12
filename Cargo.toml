@@ -30,7 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # 高性能数据结构
-hashbrown = "0.14"
+hashbrown = { version = "0.14", features = ["serde"] }
 smallvec = "1"
 parking_lot = "0.12"
 

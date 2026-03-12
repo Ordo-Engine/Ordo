@@ -6,7 +6,7 @@
 //! - Execution state
 
 use super::Value;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 /// Execution context
 ///

@@ -120,7 +120,7 @@ fn build_rule_trace(result: &ExecutionResult) -> RuleTrace {
                 for (k, v) in vars {
                     // Convert ordo_core::Value to serde_json::Value
                     if let Ok(json_val) = serde_json::to_value(v) {
-                        all_variables.insert(k.clone(), json_val);
+                        all_variables.insert(k.to_string(), json_val);
                     }
                 }
             }
@@ -172,7 +172,7 @@ fn build_rule_trace_with_types(
                 for (k, v) in vars {
                     // Convert ordo_core::Value to serde_json::Value
                     if let Ok(json_val) = serde_json::to_value(v) {
-                        all_variables.insert(k.clone(), json_val);
+                        all_variables.insert(k.to_string(), json_val);
                     }
                 }
             }

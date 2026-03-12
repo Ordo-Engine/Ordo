@@ -3,8 +3,8 @@
 //! Provides execution tracing for debugging and monitoring
 
 use crate::context::Value;
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Trace configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -111,11 +111,13 @@ pub struct SchemaJITCompiler {
     ctx: codegen::Context,
     /// Function builder context (reusable)
     func_ctx: FunctionBuilderContext,
-    /// Compiled functions by (expr_hash, schema_name)
-    functions: HashMap<(u64, String), SchemaCompiledFunction>,
     /// Statistics
     stats: SchemaJITStats,
 }
+
+/// A thread-safe cache for compiled functions
+pub type SchemaJITCache =
+    dashmap::DashMap<u64, SchemaCompiledFunction, hashbrown::hash_map::DefaultHashBuilder>;
 
 /// JIT compilation statistics
 #[derive(Debug, Default, Clone)]
@@ -159,7 +161,6 @@ impl SchemaJITCompiler {
             module,
             ctx,
             func_ctx,
-            functions: HashMap::new(),
             stats: SchemaJITStats::default(),
         })
     }
@@ -168,19 +169,6 @@ impl SchemaJITCompiler {
     pub fn stats(&self) -> &SchemaJITStats {
         &self.stats
     }
-
-    /// Check if an expression has been compiled for a schema
-    pub fn is_compiled(&self, hash: u64, schema_name: &str) -> bool {
-        self.functions
-            .contains_key(&(hash, schema_name.to_string()))
-    }
-
-    /// Get a compiled function
-    pub fn get(&self, hash: u64, schema_name: &str) -> Option<&SchemaCompiledFunction> {
-        self.functions.get(&(hash, schema_name.to_string()))
-    }
-
-    /// Check if an expression can be compiled with a schema
     pub fn can_compile_with_schema(expr: &Expr, schema: &MessageSchema) -> bool {
         // Collect all field accesses
         let mut fields = Vec::new();
@@ -277,13 +265,14 @@ impl SchemaJITCompiler {
     pub fn compile_with_schema(
         &mut self,
         expr: &Expr,
-        hash: u64,
+        _raw_hash: u64, // retained for backward compatibility with calling signature
         schema: &MessageSchema,
-    ) -> Result<&SchemaCompiledFunction> {
-        let key = (hash, schema.name.clone());
-        if self.functions.contains_key(&key) {
-            // Safe: we just checked contains_key
-            return Ok(self.functions.get(&key).expect("key should exist"));
+        cache: &SchemaJITCache,
+    ) -> Result<SchemaCompiledFunction> {
+        let schema_hash = crate::expr::hash_expr(&format!("{}:{:?}", schema.name, expr));
+
+        if let Some(compiled) = cache.get(&schema_hash) {
+            return Ok(compiled.value().clone());
         }
 
         let start = std::time::Instant::now();
@@ -317,7 +306,7 @@ impl SchemaJITCompiler {
         sig.returns.push(AbiParam::new(types::I32)); // error code
 
         // Declare function
-        let func_name = format!("schema_jit_{}_{}", schema.name, hash);
+        let func_name = format!("schema_jit_{}_{}", schema.name, schema_hash);
         let func_id = self
             .module
             .declare_function(&func_name, Linkage::Local, &sig)
@@ -380,23 +369,20 @@ impl SchemaJITCompiler {
 
         let compiled = SchemaCompiledFunction {
             func_ptr,
-            expr_hash: hash,
+            expr_hash: schema_hash,
             schema_name: schema.name.clone(),
             code_size: 0, // TODO: Get actual code size
             accessed_fields: field_names,
         };
-
-        self.functions.insert(key.clone(), compiled);
 
         let duration = start.elapsed();
         self.stats.successful_compiles += 1;
         self.stats.schema_compiles += 1;
         self.stats.total_compile_time_ns += duration.as_nanos() as u64;
 
-        // Safe: we just inserted the key above
-        self.functions
-            .get(&key)
-            .ok_or_else(|| OrdoError::eval_error("Internal error: compiled function not found"))
+        cache.insert(schema_hash, compiled.clone());
+
+        Ok(compiled)
     }
 }
 
@@ -948,7 +934,12 @@ mod tests {
             right: Box::new(Expr::Literal(Value::Float(2.0))),
         };
 
-        let compiled = compiler.compile_with_schema(&expr, 12345, &schema).unwrap();
+        let compiled = {
+            let cache = SchemaJITCache::default();
+            compiler
+                .compile_with_schema(&expr, 12345, &schema, &cache)
+                .unwrap()
+        };
 
         // Execute
         let ctx = TestContext {
@@ -980,7 +971,12 @@ mod tests {
             right: Box::new(Expr::Literal(Value::Int(700))),
         };
 
-        let compiled = compiler.compile_with_schema(&expr, 67890, &schema).unwrap();
+        let compiled = {
+            let cache = SchemaJITCache::default();
+            compiler
+                .compile_with_schema(&expr, 67890, &schema, &cache)
+                .unwrap()
+        };
 
         // Test with score = 750 (should be true = 1.0)
         let ctx1 = TestContext { score: 750 };
@@ -1012,7 +1008,12 @@ mod tests {
             args: vec![Expr::Field("value".to_string())],
         };
 
-        let compiled = compiler.compile_with_schema(&expr, 11111, &schema).unwrap();
+        let compiled = {
+            let cache = SchemaJITCache::default();
+            compiler
+                .compile_with_schema(&expr, 11111, &schema, &cache)
+                .unwrap()
+        };
 
         let ctx = TestContext { value: -42.5 };
         let result = unsafe { compiled.call_typed(&ctx).unwrap() };
@@ -1028,7 +1029,12 @@ mod tests {
             .build();
 
         let expr = Expr::Literal(Value::Float(1.0));
-        compiler.compile_with_schema(&expr, 1, &schema).unwrap();
+        {
+            let cache = SchemaJITCache::default();
+            compiler
+                .compile_with_schema(&expr, 1, &schema, &cache)
+                .unwrap()
+        };
 
         let stats = compiler.stats();
         assert_eq!(stats.successful_compiles, 1);

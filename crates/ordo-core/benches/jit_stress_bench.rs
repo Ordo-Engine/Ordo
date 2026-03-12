@@ -12,6 +12,7 @@ use std::hint::black_box;
 use std::sync::OnceLock;
 
 use ordo_core::context::{Context, FieldType, MessageSchema, Value};
+use ordo_core::expr::jit::SchemaJITCache;
 use ordo_core::expr::jit::TypedContext;
 use ordo_core::expr::{BinaryOp, BytecodeVM, Evaluator, Expr, ExprCompiler, SchemaJITCompiler};
 
@@ -414,9 +415,12 @@ fn bench_complex_rules(c: &mut Criterion) {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         name.hash(&mut hasher);
-        let compiled_jit = jit_compiler
-            .compile_with_schema(expr, hasher.finish(), schema)
-            .unwrap();
+        let compiled_jit = {
+            let cache = SchemaJITCache::default();
+            jit_compiler
+                .compile_with_schema(expr, hasher.finish(), schema, &cache)
+                .unwrap()
+        };
 
         group.bench_with_input(BenchmarkId::new("tree", *name), &(), |b, _| {
             b.iter(|| black_box(tree_eval.eval(black_box(expr), black_box(&value_ctx))))
@@ -447,9 +451,12 @@ fn bench_high_volume(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
-    let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 1, RiskContext::schema())
-        .unwrap();
+    let compiled_jit = {
+        let cache = SchemaJITCache::default();
+        jit_compiler
+            .compile_with_schema(&expr, 1, RiskContext::schema(), &cache)
+            .unwrap()
+    };
 
     for count in [10_000u64, 100_000, 500_000] {
         let contexts = generate_risk_contexts(count as usize);
@@ -539,12 +546,13 @@ fn bench_rule_pipeline(c: &mut Criterion) {
     let schema = RiskContext::schema();
     let mut compiled_jit = Vec::new();
     for (i, e) in rules.iter().enumerate() {
-        compiled_jit.push(
+        compiled_jit.push({
+            let cache = SchemaJITCache::default();
             jit_compiler
-                .compile_with_schema(e, i as u64, schema)
+                .compile_with_schema(e, i as u64, schema, &cache)
                 .unwrap()
-                .clone(),
-        );
+                .clone()
+        });
     }
 
     // 10K contexts × 5 rules = 50K evaluations
@@ -634,9 +642,12 @@ fn bench_latency_distribution(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
-    let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 1, RiskContext::schema())
-        .unwrap();
+    let compiled_jit = {
+        let cache = SchemaJITCache::default();
+        jit_compiler
+            .compile_with_schema(&expr, 1, RiskContext::schema(), &cache)
+            .unwrap()
+    };
 
     // Single evaluation latency (best case for showing JIT advantage)
     group.bench_function("tree_single", |b| {

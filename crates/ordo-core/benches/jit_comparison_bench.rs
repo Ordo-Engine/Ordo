@@ -13,6 +13,7 @@ use std::hint::black_box;
 use std::sync::OnceLock;
 
 use ordo_core::context::{Context, FieldType, MessageSchema, Value};
+use ordo_core::expr::jit::SchemaJITCache;
 use ordo_core::expr::jit::TypedContext;
 use ordo_core::expr::{BinaryOp, BytecodeVM, Evaluator, Expr, ExprCompiler, SchemaJITCompiler};
 
@@ -568,9 +569,12 @@ fn bench_loan_rules(c: &mut Criterion) {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         format!("{:?}", expr).hash(&mut hasher);
         let hash = hasher.finish();
-        let compiled_jit = jit_compiler
-            .compile_with_schema(expr, hash, schema)
-            .unwrap();
+        let compiled_jit = {
+            let cache = SchemaJITCache::default();
+            jit_compiler
+                .compile_with_schema(expr, hash, schema, &cache)
+                .unwrap()
+        };
 
         // Count conditions for throughput
         let condition_count = count_conditions(expr);
@@ -634,9 +638,12 @@ fn bench_order_rules(c: &mut Criterion) {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         format!("{:?}", expr).hash(&mut hasher);
         let hash = hasher.finish();
-        let compiled_jit = jit_compiler
-            .compile_with_schema(expr, hash, schema)
-            .unwrap();
+        let compiled_jit = {
+            let cache = SchemaJITCache::default();
+            jit_compiler
+                .compile_with_schema(expr, hash, schema, &cache)
+                .unwrap()
+        };
 
         // Tree-walk
         group.bench_with_input(
@@ -692,9 +699,12 @@ fn bench_complexity_scaling(c: &mut Criterion) {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         format!("{:?}", expr).hash(&mut hasher);
-        let compiled_jit = jit_compiler
-            .compile_with_schema(&expr, hasher.finish(), schema)
-            .unwrap();
+        let compiled_jit = {
+            let cache = SchemaJITCache::default();
+            jit_compiler
+                .compile_with_schema(&expr, hasher.finish(), schema, &cache)
+                .unwrap()
+        };
 
         group.throughput(Throughput::Elements(num_conditions as u64));
 
@@ -749,9 +759,12 @@ fn bench_throughput(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
-    let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 12345, LoanContext::schema())
-        .unwrap();
+    let compiled_jit = {
+        let cache = SchemaJITCache::default();
+        jit_compiler
+            .compile_with_schema(&expr, 12345, LoanContext::schema(), &cache)
+            .unwrap()
+    };
 
     group.throughput(Throughput::Elements(1));
 

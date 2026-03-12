@@ -41,7 +41,7 @@ mod typed_context;
 
 // Schema-Aware JIT exports
 pub use schema_compiler::{
-    SchemaCompiledFunction, SchemaJITCompiler, SchemaJITErrorCode, SchemaJITStats,
+    SchemaCompiledFunction, SchemaJITCache, SchemaJITCompiler, SchemaJITErrorCode, SchemaJITStats,
 };
 pub use schema_evaluator::{SchemaJITEvaluator, SchemaJITEvaluatorConfig, SchemaJITEvaluatorStats};
 pub use typed_context::{DynamicTypedContext, FieldAccessInfo, TypedContext};

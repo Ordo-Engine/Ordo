@@ -14,7 +14,7 @@ use std::hint::black_box;
 use std::sync::OnceLock;
 
 use ordo_core::context::{Context, FieldType, MessageSchema, Value};
-use ordo_core::expr::jit::TypedContext;
+use ordo_core::expr::jit::{SchemaJITCache, TypedContext};
 use ordo_core::expr::{BinaryOp, BytecodeVM, Evaluator, Expr, ExprCompiler, SchemaJITCompiler};
 
 // ============================================================================
@@ -176,8 +176,9 @@ fn bench_fair_comparison(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
+    let cache = SchemaJITCache::default();
     let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 1, LoanContext::schema())
+        .compile_with_schema(&expr, 1, LoanContext::schema(), &cache)
         .unwrap();
 
     // Benchmark: Pure evaluation (no context creation overhead)
@@ -215,8 +216,9 @@ fn bench_end_to_end(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
+    let cache = SchemaJITCache::default();
     let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 1, LoanContext::schema())
+        .compile_with_schema(&expr, 1, LoanContext::schema(), &cache)
         .unwrap();
 
     // Raw data (simulating deserialized protobuf)
@@ -282,8 +284,9 @@ fn bench_cold_cache(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
+    let cache = SchemaJITCache::default();
     let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 1, LoanContext::schema())
+        .compile_with_schema(&expr, 1, LoanContext::schema(), &cache)
         .unwrap();
 
     group.throughput(Throughput::Elements(1000));
@@ -349,8 +352,9 @@ fn bench_compilation_amortization(c: &mut Criterion) {
             b.iter(|| {
                 // Include compilation cost
                 let mut jit_compiler = SchemaJITCompiler::new().unwrap();
+                let cache = SchemaJITCache::default();
                 let compiled = jit_compiler
-                    .compile_with_schema(&expr, n as u64, schema)
+                    .compile_with_schema(&expr, n as u64, schema, &cache)
                     .unwrap();
 
                 // Execute N times
@@ -413,8 +417,9 @@ fn bench_realistic_throughput(c: &mut Criterion) {
     let compiled_bc = bc_compiler.compile(&expr);
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
+    let cache = SchemaJITCache::default();
     let compiled_jit = jit_compiler
-        .compile_with_schema(&expr, 1, LoanContext::schema())
+        .compile_with_schema(&expr, 1, LoanContext::schema(), &cache)
         .unwrap();
 
     group.throughput(Throughput::Elements(10000));

@@ -203,7 +203,7 @@ impl RuleExecutor {
             None
         };
 
-        let mut current_step_id = ruleset.config.entry_step.clone();
+        let mut current_step_id = ruleset.config.entry_step.as_str();
         let mut depth: usize = 0;
 
         loop {
@@ -227,9 +227,9 @@ impl RuleExecutor {
             // Get current step
             let step =
                 ruleset
-                    .get_step(&current_step_id)
+                    .get_step(current_step_id)
                     .ok_or_else(|| OrdoError::StepNotFound {
-                        step_id: current_step_id.clone(),
+                        step_id: current_step_id.to_string(),
                     })?;
 
             // Execute step — branch on tracing to avoid Instant syscalls in the hot path.
@@ -365,12 +365,12 @@ impl RuleExecutor {
     }
 
     /// Execute a single step
-    fn execute_step(
+    fn execute_step<'a>(
         &self,
-        step: &Step,
+        step: &'a Step,
         ctx: &mut Context,
         field_missing: &FieldMissingBehavior,
-    ) -> Result<StepResult> {
+    ) -> Result<StepResult<'a>> {
         match &step.kind {
             StepKind::Decision {
                 branches,
@@ -387,7 +387,7 @@ impl RuleExecutor {
                             self.execute_action(action, ctx)?;
                         }
                         return Ok(StepResult::Continue {
-                            next_step: branch.next_step.clone(),
+                            next_step: branch.next_step.as_str(),
                         });
                     }
                 }
@@ -395,7 +395,7 @@ impl RuleExecutor {
                 // No branch matched, use default
                 if let Some(default) = default_next {
                     Ok(StepResult::Continue {
-                        next_step: default.clone(),
+                        next_step: default.as_str(),
                     })
                 } else {
                     Err(OrdoError::eval_error(format!(
@@ -411,7 +411,7 @@ impl RuleExecutor {
                     self.execute_action(action, ctx)?;
                 }
                 Ok(StepResult::Continue {
-                    next_step: next_step.clone(),
+                    next_step: next_step.as_str(),
                 })
             }
 
@@ -543,9 +543,9 @@ impl RuleExecutor {
 
 /// Step execution result
 #[derive(Debug, Clone)]
-pub enum StepResult {
+pub enum StepResult<'a> {
     /// Continue to next step
-    Continue { next_step: String },
+    Continue { next_step: &'a str },
     /// Terminal - execution complete
     Terminal { result: TerminalResult },
 }

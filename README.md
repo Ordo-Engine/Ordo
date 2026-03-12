@@ -116,6 +116,10 @@ let result = executor.execute(&loaded, input)?;
 
 ## Performance
 
+<p align="center">
+  <img src="images/benchmark-race.gif" alt="Benchmark Race: Ordo vs OPA vs json-rules-engine vs Grule" width="100%" />
+</p>
+
 Benchmarked on Apple Silicon (M-series), single thread:
 
 | Metric | Result |

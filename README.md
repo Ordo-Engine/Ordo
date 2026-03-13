@@ -105,6 +105,29 @@ let result = executor.execute(&loaded, input)?;
 - **Hot Reload**: Update rules without service restart
 - **Distributed Deployment**: Single-writer / multi-reader with NATS JetStream sync
 
+### 🗄️ Data Filter API
+
+Push rule logic directly into your database — no full-table scans, no row-by-row evaluation:
+
+```bash
+# "What documents can user alice see?" → SQL WHERE clause ready to use
+curl -X POST http://localhost:8080/api/v1/rulesets/doc_access/filter \
+  -d '{
+    "known_input": { "user": { "role": "member", "id": "alice", "subscription": "free" } },
+    "target_results": ["ALLOW"],
+    "format": "sql",
+    "field_mapping": { "doc.owner_id": "owner_id", "doc.visibility": "visibility" }
+  }'
+
+# → "filter": "(owner_id = 'alice') OR (visibility = 'public')"
+```
+
+- **Partial Evaluation**: Known fields fold to constants; unknown fields become DB columns
+- **Admin shortcut**: Returns `always_matches: true` → skip the WHERE clause entirely
+- **Zero rows shortcut**: Returns `never_matches: true` → return empty result immediately
+- **SQL & JSON output**: Standard WHERE clause or framework-agnostic predicate tree
+- **Zero impact on execution**: Completely separate code path, no hot-path overhead
+
 ### 🔌 Easy Integration
 
 - **HTTP REST API**: Simple JSON-based interface
@@ -391,6 +414,7 @@ npm install @ordo/editor-core
 - [x] Enterprise plugin system
 - [x] .ordo file import/export in Playground
 - [x] Distributed deployment (single-writer / multi-reader + NATS sync)
+- [x] Data Filter API (partial evaluation → SQL/JSON predicate push-down)
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 

@@ -4,6 +4,7 @@
 
 use super::step::Step;
 use crate::error::Result;
+use hashbrown::HashMap as FastMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -80,8 +81,8 @@ pub struct RuleSet {
     /// Configuration
     pub config: RuleSetConfig,
 
-    /// Steps by ID
-    pub steps: HashMap<String, Step>,
+    /// Steps by ID (hashbrown for faster lookup in the execution hot loop)
+    pub steps: FastMap<String, Step>,
 }
 
 impl RuleSet {
@@ -100,7 +101,7 @@ impl RuleSet {
                 enable_trace: false,
                 metadata: HashMap::new(),
             },
-            steps: HashMap::new(),
+            steps: FastMap::new(),
         }
     }
 

@@ -247,7 +247,12 @@ impl CompiledRuleExecutor {
         result: &TerminalResult,
         ctx: &Context,
     ) -> Result<Value> {
-        let mut output: hashbrown::HashMap<IString, Value> = hashbrown::HashMap::new();
+        let data_len = match &result.data {
+            Value::Object(map) => map.len(),
+            _ => 0,
+        };
+        let mut output: hashbrown::HashMap<IString, Value> =
+            hashbrown::HashMap::with_capacity(outputs.len() + data_len);
 
         for item in outputs {
             let expr = ruleset

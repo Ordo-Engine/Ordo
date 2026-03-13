@@ -278,10 +278,10 @@ impl RuleExecutor {
                     depth += 1;
                 }
                 StepResult::Terminal { result } => {
-                    let output = self.build_output(&result, &ctx)?;
+                    let output = self.build_output(result, &ctx)?;
                     return Ok(ExecutionResult {
-                        code: result.code,
-                        message: result.message,
+                        code: result.code.clone(),
+                        message: result.message.clone(),
                         output,
                         trace,
                         duration_us: start_time.elapsed().as_micros() as u64,
@@ -415,9 +415,7 @@ impl RuleExecutor {
                 })
             }
 
-            StepKind::Terminal { result } => Ok(StepResult::Terminal {
-                result: result.clone(),
-            }),
+            StepKind::Terminal { result } => Ok(StepResult::Terminal { result }),
         }
     }
 
@@ -522,7 +520,13 @@ impl RuleExecutor {
     fn build_output(&self, result: &TerminalResult, ctx: &Context) -> Result<Value> {
         use crate::context::IString;
 
-        let mut output: hashbrown::HashMap<IString, Value> = hashbrown::HashMap::new();
+        // Pre-allocate capacity: output expressions + static data fields
+        let data_len = match &result.data {
+            Value::Object(map) => map.len(),
+            _ => 0,
+        };
+        let mut output: hashbrown::HashMap<IString, Value> =
+            hashbrown::HashMap::with_capacity(result.output.len() + data_len);
 
         // Evaluate output expressions
         for (key, expr) in &result.output {
@@ -546,8 +550,8 @@ impl RuleExecutor {
 pub enum StepResult<'a> {
     /// Continue to next step
     Continue { next_step: &'a str },
-    /// Terminal - execution complete
-    Terminal { result: TerminalResult },
+    /// Terminal - execution complete (borrows TerminalResult to avoid clone)
+    Terminal { result: &'a TerminalResult },
 }
 
 /// Complete execution result

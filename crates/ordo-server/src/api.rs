@@ -6,7 +6,6 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use futures::future::join_all;
 use ordo_core::prelude::*;
 use ordo_core::rule::ExecutionOptions;
 use ordo_core::signature::{strip_signature, SignatureAlgorithm, SignatureConfig};
@@ -16,6 +15,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::ApiError;
+use crate::json::SimdJson;
 use crate::metrics;
 use crate::middleware::tenant::TenantContext;
 use crate::AppState;
@@ -259,18 +259,32 @@ pub async fn list_rulesets(
 }
 
 /// Get a ruleset by name
+///
+/// Clones the Arc (cheap refcount bump) and releases the read lock
+/// before serialization, so writers are not blocked during JSON encoding.
 pub async fn get_ruleset(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(name): Path<String>,
-) -> ApiResult<Json<RuleSet>> {
-    let store = state.store.read().await;
-    let ruleset = store
-        .get_for_tenant(&tenant.id, &name)
-        .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+) -> ApiResult<axum::response::Response> {
+    // Clone Arc and release lock immediately
+    let ruleset = {
+        let store = state.store.read().await;
+        store
+            .get_for_tenant(&tenant.id, &name)
+            .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
+        // read lock drops here
+    };
 
-    // Clone to return
-    Ok(Json((*ruleset).clone()))
+    // Serialize outside the lock — no deep RuleSet clone needed, just the Arc
+    let body = serde_json::to_vec(&*ruleset)
+        .map_err(|e| ApiError::internal(format!("Serialization error: {}", e)))?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body))
+        .unwrap())
 }
 
 /// Create or update a ruleset
@@ -286,18 +300,20 @@ pub async fn create_ruleset(
         strip_signature(&mut payload).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let signature = resolve_signature(header_signature, body_signature)?;
 
-    let mut ruleset: RuleSet = serde_json::from_value(payload.clone())?;
-
-    let mut store = state.store.write().await;
-    let name = ruleset.config.name.clone();
-    let new_version = ruleset.config.version.clone();
-    let exists = store.exists_for_tenant(&tenant.id, &name);
-
+    // Verify signature BEFORE consuming the payload to avoid cloning
     if let Some(verifier) = &state.signature_verifier {
         verifier
             .verify_json_value(&payload, signature.as_ref())
             .map_err(|e| ApiError::forbidden(format!("Signature verification failed: {}", e)))?;
     }
+
+    // Now we can consume the payload without cloning
+    let mut ruleset: RuleSet = serde_json::from_value(payload)?;
+
+    let mut store = state.store.write().await;
+    let name = ruleset.config.name.clone();
+    let new_version = ruleset.config.version.clone();
+    let exists = store.exists_for_tenant(&tenant.id, &name);
 
     if let Some(config_tenant) = ruleset.config.tenant_id.as_deref() {
         if config_tenant != tenant.id {
@@ -382,7 +398,7 @@ pub async fn execute_ruleset(
     Extension(tenant): Extension<TenantContext>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
     Path(name): Path<String>,
-    Json(request): Json<ExecuteRequest>,
+    SimdJson(request): SimdJson<ExecuteRequest>,
 ) -> ApiResult<Json<ExecuteResponse>> {
     let start = Instant::now();
 
@@ -492,7 +508,7 @@ pub async fn execute_ruleset_batch(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(name): Path<String>,
-    Json(request): Json<BatchExecuteRequest>,
+    SimdJson(request): SimdJson<BatchExecuteRequest>,
 ) -> ApiResult<Json<BatchExecuteResponse>> {
     let start = Instant::now();
 
@@ -569,51 +585,58 @@ pub async fn execute_ruleset_batch(
     };
 
     let results: Vec<BatchExecuteResultItem> = if request.options.parallel {
-        let futures = request.inputs.into_iter().map(|input| {
-            let ruleset = Arc::clone(&ruleset);
-            let executor = executor.clone();
-            let exec_options = Arc::clone(&exec_options);
-            tokio::task::spawn_blocking(move || {
-                let start_one = Instant::now();
-                match executor.execute_with_options(&ruleset, input, Some(&exec_options)) {
-                    Ok(result) => {
-                        let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
-                        BatchExecuteResultItem {
-                            code: result.code,
-                            message: result.message,
-                            output: result.output,
-                            duration_us: result.duration_us,
-                            trace,
-                            error: None,
+        // Use a single spawn_blocking + rayon par_iter instead of N spawn_blocking tasks.
+        // This avoids 1000 task allocations for a 1000-item batch and uses rayon's
+        // work-stealing thread pool for efficient CPU utilization.
+        let inputs = request.inputs;
+        let par_executor = executor.clone();
+        let par_ruleset = Arc::clone(&ruleset);
+        let par_exec_options = Arc::clone(&exec_options);
+        tokio::task::spawn_blocking(move || {
+            use rayon::prelude::*;
+            inputs
+                .into_par_iter()
+                .map(|input| {
+                    let start_one = Instant::now();
+                    match par_executor.execute_with_options(
+                        &par_ruleset,
+                        input,
+                        Some(&par_exec_options),
+                    ) {
+                        Ok(result) => {
+                            let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
+                            BatchExecuteResultItem {
+                                code: result.code,
+                                message: result.message,
+                                output: result.output,
+                                duration_us: result.duration_us,
+                                trace,
+                                error: None,
+                            }
                         }
+                        Err(err) => BatchExecuteResultItem {
+                            code: "error".to_string(),
+                            message: err.to_string(),
+                            output: Value::Null,
+                            duration_us: start_one.elapsed().as_micros() as u64,
+                            trace: None,
+                            error: Some(err.to_string()),
+                        },
                     }
-                    Err(err) => BatchExecuteResultItem {
-                        code: "error".to_string(),
-                        message: err.to_string(),
-                        output: Value::Null,
-                        duration_us: start_one.elapsed().as_micros() as u64,
-                        trace: None,
-                        error: Some(err.to_string()),
-                    },
-                }
-            })
-        });
-
-        join_all(futures)
-            .await
-            .into_iter()
-            .map(|result| match result {
-                Ok(item) => item,
-                Err(err) => BatchExecuteResultItem {
-                    code: "error".to_string(),
-                    message: "batch task failed".to_string(),
-                    output: Value::Null,
-                    duration_us: 0,
-                    trace: None,
-                    error: Some(err.to_string()),
-                },
-            })
-            .collect()
+                })
+                .collect()
+        })
+        .await
+        .unwrap_or_else(|err| {
+            vec![BatchExecuteResultItem {
+                code: "error".to_string(),
+                message: "batch task failed".to_string(),
+                output: Value::Null,
+                duration_us: 0,
+                trace: None,
+                error: Some(err.to_string()),
+            }]
+        })
     } else {
         request
             .inputs
@@ -653,7 +676,9 @@ pub async fn execute_ruleset_batch(
     }))
 }
 /// Evaluate an expression (debug endpoint)
-pub async fn eval_expression(Json(request): Json<EvalRequest>) -> ApiResult<Json<EvalResponse>> {
+pub async fn eval_expression(
+    SimdJson(request): SimdJson<EvalRequest>,
+) -> ApiResult<Json<EvalResponse>> {
     let start = Instant::now();
 
     // Parse expression

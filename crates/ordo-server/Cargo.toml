@@ -16,9 +16,11 @@ ordo-proto = { version = "0.2.0", path = "../ordo-proto" }
 parking_lot.workspace = true
 prost.workspace = true
 rand = "0.8"
+rayon.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml = "0.9"
+simd-json.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic.workspace = true

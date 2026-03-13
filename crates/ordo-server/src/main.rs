@@ -53,6 +53,7 @@ mod config;
 pub mod debug;
 mod error;
 mod grpc;
+mod json;
 mod metrics;
 mod middleware;
 mod rate_limiter;

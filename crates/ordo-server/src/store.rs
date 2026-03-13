@@ -360,38 +360,54 @@ impl RuleStore {
     }
 
     /// Load a single ruleset from a file
+    ///
+    /// When signature verification is not needed, deserializes directly to RuleSet
+    /// (skipping the intermediate serde_json::Value step) for better performance.
     fn load_ruleset_file(&self, path: &Path) -> io::Result<RuleSet> {
         let format = FileFormat::from_path(path)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Unknown file format"))?;
 
         let content = fs::read_to_string(path)?;
 
-        let mut json_value: serde_json::Value = match format {
-            FileFormat::Json => serde_json::from_str(&content)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-            FileFormat::Yaml => serde_yaml::from_str(&content)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        };
+        let needs_signature_check = self.signature_verifier.is_some();
 
-        let signature = strip_signature(&mut json_value)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let mut ruleset: RuleSet = if needs_signature_check {
+            // Signature verification requires intermediate serde_json::Value
+            let mut json_value: serde_json::Value = match format {
+                FileFormat::Json => serde_json::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+                FileFormat::Yaml => serde_yaml::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+            };
 
-        if let Some(verifier) = &self.signature_verifier {
-            let should_verify = signature.is_some() || !self.allow_unsigned_local;
-            if should_verify {
-                verifier
-                    .verify_json_value(&json_value, signature.as_ref())
-                    .map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Signature verification failed: {}", e),
-                        )
-                    })?;
+            let signature = strip_signature(&mut json_value)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+            if let Some(verifier) = &self.signature_verifier {
+                let should_verify = signature.is_some() || !self.allow_unsigned_local;
+                if should_verify {
+                    verifier
+                        .verify_json_value(&json_value, signature.as_ref())
+                        .map_err(|e| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                format!("Signature verification failed: {}", e),
+                            )
+                        })?;
+                }
             }
-        }
 
-        let mut ruleset: RuleSet = serde_json::from_value(json_value)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            serde_json::from_value(json_value)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        } else {
+            // Fast path: deserialize directly to RuleSet (no intermediate Value)
+            match format {
+                FileFormat::Json => serde_json::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+                FileFormat::Yaml => serde_yaml::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+            }
+        };
 
         // Validate the loaded ruleset
         ruleset.validate().map_err(|errors| {

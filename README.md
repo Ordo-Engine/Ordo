@@ -5,7 +5,7 @@
 <h1 align="center">Ordo</h1>
 
 <p align="center">
-  <strong>A high-performance rule engine with visual editor</strong>
+  <strong>Sub-microsecond rule execution with a built-in visual editor</strong>
 </p>
 
 <p align="center">
@@ -24,9 +24,7 @@
   <a href="https://discord.gg/Y529FkArhh"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
-<p align="center">
-  <img src="images/main.png" alt="Ordo Visual Editor" width="100%" />
-</p>
+
 
 ---
 
@@ -34,7 +32,7 @@
 
 **Ordo** (Latin for "order") is an enterprise-grade rule engine built in Rust — evaluate business rules with **sub-microsecond latency** without touching your application code.
 
-### ✨ Try it now: [Live Playground](https://pama-lee.github.io/Ordo/)
+**Try it now:** [Live Playground](https://pama-lee.github.io/Ordo/)
 
 **Best for:**
 - Fraud / risk scoring where latency matters
@@ -46,6 +44,39 @@
 - Replace brittle if/else chains with a visual flow editor their ops team can actually read
 - Push rule logic down into the database — no full-table scans, no row-by-row evaluation
 - Run the same rules in the browser (WASM), over HTTP, or via gRPC with identical semantics
+
+---
+
+## How it works
+
+Define a rule (JSON or YAML):
+
+```json
+{
+  "config": { "name": "discount", "entry_step": "check" },
+  "steps": {
+    "check": {
+      "type": "decision",
+      "branches": [{ "condition": "user.vip == true", "next_step": "vip" }],
+      "default_next": "normal"
+    },
+    "vip":    { "type": "terminal", "result": { "code": "VIP",    "message": "20% off" } },
+    "normal": { "type": "terminal", "result": { "code": "NORMAL", "message": "5% off"  } }
+  }
+}
+```
+
+Evaluate in ~1.6 µs:
+
+```json
+// Input
+{ "user": { "vip": true } }
+
+// Output
+{ "code": "VIP", "message": "20% off" }
+```
+
+Rules live outside your code — update them without redeploying.
 
 ---
 
@@ -61,14 +92,19 @@
 | Deployment | single binary | agent + OPA server | JVM | Node.js service |
 | Language | Rust | Rego (DSL) | Java | JavaScript |
 
+<sub>Latency figures are warm-run single-thread benchmarks on Apple Silicon (M-series). OPA and Drools numbers are from their own published benchmarks and community reports; json-rules-engine measured locally. See <a href="benchmark/">benchmark/</a> for scripts, raw data, and methodology.</sub>
+
 ---
 
 ## Features
 
-### 🎨 Visual Rule Editor
+### Visual Rule Editor
 
 Design complex business rules with an intuitive drag-and-drop flow editor:
 
+<p align="center">
+  <img src="images/main.png" alt="Ordo Visual Editor" width="100%" />
+</p>
 <p align="center">
   <img src="images/flow.png" alt="Flow Editor" width="100%" />
 </p>
@@ -78,7 +114,7 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 - **Real-time Execution**: Test rules instantly with WASM-powered execution
 - **Execution Trace**: Debug step-by-step with visual path highlighting
 
-### 🚀 Blazing Fast
+### Performance
 
 - **1.63 µs** average rule execution (interpreter, warm, Apple Silicon M-series)
 - **50–80 ns** with JIT compilation — 20–30x faster for numeric expressions
@@ -88,14 +124,14 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 > Benchmark methodology: Apple Silicon M-series, single-threaded, warm runs, L1–L4 rule complexity.
 > See [benchmark/](benchmark/) for scripts, raw data, and comparison methodology.
 
-### 🔧 Flexible Rule Definition
+### Flexible Rule Definition
 
 - **Step Flow Model**: Linear decision steps with conditional jumps
 - **Rich Expressions**: Comparisons, logical operators, functions, conditionals
 - **Built-in Functions**: `len()`, `sum()`, `avg()`, `upper()`, `lower()`, `abs()`, `min()`, `max()`
 - **Field Coalescing**: `coalesce(field, fallback, default)` for missing field handling
 
-### 🗄️ Data Filter API
+### Data Filter API
 
 Push rule logic directly into your database — no full-table scans, no row-by-row evaluation:
 
@@ -118,7 +154,7 @@ curl -X POST http://localhost:8080/api/v1/rulesets/doc_access/filter \
 - **SQL, JSON, and MongoDB `$match` output**: Standard WHERE clause, predicate tree, or `$match` stage
 - **Zero impact on execution**: Completely separate code path, no hot-path overhead
 
-### 🔒 Compiled Rules (Rule Protection)
+### Compiled Rules (Rule Protection)
 
 Protect your business logic by compiling rules into binary format:
 
@@ -132,7 +168,7 @@ let loaded = CompiledRuleSet::load_from_file("rules.ordo")?;
 let result = CompiledRuleExecutor::new().execute(&loaded, input)?;
 ```
 
-### 🛡️ Production Ready
+### Production Ready
 
 - **Deterministic execution**: Same input → same path → same result, always
 - **Hot reload**: Update rules without service restart
@@ -141,7 +177,7 @@ let result = CompiledRuleExecutor::new().execute(&loaded, input)?;
 - **Prometheus metrics** + health endpoint out of the box
 - **Distributed deployment**: Single-writer / multi-reader with NATS JetStream sync
 
-### 🔌 Easy Integration
+### Integration
 
 - **HTTP REST API**: Simple JSON-based interface
 - **WebAssembly**: Run rules directly in the browser
@@ -189,12 +225,23 @@ See [benchmark/](benchmark/) for detailed reports, graphs, and comparison method
 
 ### Try in 30 seconds
 
+**Docker** (no Rust install needed):
+
+```bash
+docker run -d -p 8080:8080 ghcr.io/pama-lee/ordo:latest
+```
+
+<details>
+<summary>From source</summary>
+
 ```bash
 git clone https://github.com/Pama-Lee/Ordo.git
 cd Ordo
 cargo build --release
 ./target/release/ordo-server
 ```
+
+</details>
 
 Create a rule:
 
@@ -344,5 +391,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <sub>Built with 🦀 and Rust</sub>
+  <sub>Built with Rust</sub>
 </p>

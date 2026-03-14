@@ -22,15 +22,23 @@ pub struct FilterPath {
 }
 
 /// Collect all paths that reach any of `target_results`, up to `max_paths`.
+///
+/// Returns `(paths, truncated)`. `truncated` is true when the path limit was
+/// reached before the full graph was explored. In that case the caller should
+/// treat the result as `always_matches` to avoid false negatives (hiding rows
+/// that the rule engine would have accepted).
+///
+/// A `max_paths` of 0 means no limit.
 pub fn collect_paths(
     ruleset: &RuleSet,
     evaluator: &mut PartialEvaluator,
     target_results: &[String],
     max_paths: usize,
-) -> Result<Vec<FilterPath>> {
+) -> Result<(Vec<FilterPath>, bool)> {
     let entry = ruleset.config.entry_step.clone();
     let mut paths = Vec::new();
     let mut conditions: Vec<Expr> = Vec::new();
+    let mut truncated = false;
 
     collect_recursive(
         ruleset,
@@ -41,9 +49,10 @@ pub fn collect_paths(
         max_paths,
         0,
         &mut paths,
+        &mut truncated,
     )?;
 
-    Ok(paths)
+    Ok((paths, truncated))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -56,8 +65,13 @@ fn collect_recursive(
     max_paths: usize,
     depth: usize,
     paths: &mut Vec<FilterPath>,
+    truncated: &mut bool,
 ) -> Result<()> {
-    if depth > MAX_DEPTH || paths.len() >= max_paths {
+    if depth > MAX_DEPTH {
+        return Ok(());
+    }
+    if max_paths > 0 && paths.len() >= max_paths {
+        *truncated = true;
         return Ok(());
     }
 
@@ -87,6 +101,7 @@ fn collect_recursive(
                 max_paths,
                 depth + 1,
                 paths,
+                truncated,
             )?;
         }
 
@@ -98,7 +113,8 @@ fn collect_recursive(
             let mut negations: Vec<Expr> = Vec::new();
 
             for branch in branches {
-                if paths.len() >= max_paths {
+                if max_paths > 0 && paths.len() >= max_paths {
+                    *truncated = true;
                     break;
                 }
 
@@ -124,6 +140,7 @@ fn collect_recursive(
                         max_paths,
                         depth + 1,
                         paths,
+                        truncated,
                     )?;
                     return Ok(()); // subsequent branches are dead code
                 }
@@ -140,6 +157,7 @@ fn collect_recursive(
                     max_paths,
                     depth + 1,
                     paths,
+                    truncated,
                 )?;
                 conditions.pop();
 
@@ -149,7 +167,7 @@ fn collect_recursive(
 
             // Follow the default path with all branch-condition negations
             if let Some(default) = default_next.as_deref() {
-                if paths.len() < max_paths {
+                if max_paths == 0 || paths.len() < max_paths {
                     let neg_count = negations.len();
                     conditions.extend(negations);
                     collect_recursive(
@@ -161,8 +179,11 @@ fn collect_recursive(
                         max_paths,
                         depth + 1,
                         paths,
+                        truncated,
                     )?;
                     conditions.truncate(conditions.len() - neg_count);
+                } else {
+                    *truncated = true;
                 }
             }
         }

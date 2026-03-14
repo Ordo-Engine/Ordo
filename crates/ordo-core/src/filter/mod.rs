@@ -90,6 +90,13 @@ pub struct FilterResult {
     /// The caller should return an empty result set immediately.
     pub never_matches: bool,
 
+    /// True when the `max_paths` limit was reached before the full graph was
+    /// explored. The generated filter is incomplete and may be more permissive
+    /// than actual rule execution. `always_matches` will also be set to true
+    /// in this case to avoid false negatives (hiding valid rows).
+    /// Consider increasing `max_paths` if this occurs.
+    pub truncated: bool,
+
     /// Fields that remain unknown (appear in the filter as database columns)
     pub unknown_fields: Vec<String>,
 }
@@ -106,12 +113,27 @@ impl FilterCompiler {
     pub fn compile(&self, ruleset: &RuleSet, request: FilterRequest) -> Result<FilterResult> {
         let mut evaluator = PartialEvaluator::new(request.known_input);
 
-        let paths = collect_paths(
+        let (paths, truncated) = collect_paths(
             ruleset,
             &mut evaluator,
             &request.target_results,
             request.max_paths,
         )?;
+
+        // When the path limit was hit, the generated filter would be incomplete
+        // (too strict), which could silently hide rows that the rule engine
+        // accepts. Return always_matches to be safe; the caller can increase
+        // max_paths and retry.
+        if truncated {
+            return Ok(FilterResult {
+                format: request.format,
+                filter: JsonValue::String("TRUE".to_string()),
+                always_matches: true,
+                never_matches: false,
+                truncated: true,
+                unknown_fields: vec![],
+            });
+        }
 
         if paths.is_empty() {
             return Ok(FilterResult {
@@ -119,6 +141,7 @@ impl FilterCompiler {
                 filter: JsonValue::Null,
                 always_matches: false,
                 never_matches: true,
+                truncated: false,
                 unknown_fields: vec![],
             });
         }
@@ -147,6 +170,7 @@ impl FilterCompiler {
             filter,
             always_matches,
             never_matches: false,
+            truncated: false,
             unknown_fields,
         })
     }

@@ -82,8 +82,24 @@ fn binary_to_sql(
     let r = || expr_to_sql(right, mapping);
 
     match op {
-        BinaryOp::Eq => Ok(format!("{} = {}", l()?, r()?)),
-        BinaryOp::Ne => Ok(format!("{} != {}", l()?, r()?)),
+        BinaryOp::Eq => {
+            if matches!(right, Expr::Literal(Value::Null)) {
+                Ok(format!("{} IS NULL", l()?))
+            } else if matches!(left, Expr::Literal(Value::Null)) {
+                Ok(format!("{} IS NULL", r()?))
+            } else {
+                Ok(format!("{} = {}", l()?, r()?))
+            }
+        }
+        BinaryOp::Ne => {
+            if matches!(right, Expr::Literal(Value::Null)) {
+                Ok(format!("{} IS NOT NULL", l()?))
+            } else if matches!(left, Expr::Literal(Value::Null)) {
+                Ok(format!("{} IS NOT NULL", r()?))
+            } else {
+                Ok(format!("{} != {}", l()?, r()?))
+            }
+        }
         BinaryOp::Lt => Ok(format!("{} < {}", l()?, r()?)),
         BinaryOp::Le => Ok(format!("{} <= {}", l()?, r()?)),
         BinaryOp::Gt => Ok(format!("{} > {}", l()?, r()?)),
@@ -94,7 +110,11 @@ fn binary_to_sql(
         BinaryOp::NotIn => Ok(format!("{} NOT IN {}", l()?, r()?)),
         BinaryOp::Contains => {
             if let Expr::Literal(Value::String(s)) = right {
-                Ok(format!("{} LIKE '%{}%'", l()?, escape_sql(s)))
+                Ok(format!(
+                    "{} LIKE '%{}%' ESCAPE '!'",
+                    l()?,
+                    escape_like_pattern(s)
+                ))
             } else {
                 Err(OrdoError::parse_error(
                     "SQL LIKE requires a string literal for 'contains'",
@@ -131,14 +151,14 @@ fn call_to_sql(name: &str, args: &[Expr], mapping: &HashMap<String, String>) -> 
     match (name, args) {
         ("is_null", [field]) => Ok(format!("{} IS NULL", expr_to_sql(field, mapping)?)),
         ("starts_with", [field, Expr::Literal(Value::String(s))]) => Ok(format!(
-            "{} LIKE '{}%'",
+            "{} LIKE '{}%' ESCAPE '!'",
             expr_to_sql(field, mapping)?,
-            escape_sql(s)
+            escape_like_pattern(s)
         )),
         ("ends_with", [field, Expr::Literal(Value::String(s))]) => Ok(format!(
-            "{} LIKE '%{}'",
+            "{} LIKE '%{}' ESCAPE '!'",
             expr_to_sql(field, mapping)?,
-            escape_sql(s)
+            escape_like_pattern(s)
         )),
         _ => Err(OrdoError::parse_error(format!(
             "Function '{}' is not supported in SQL filter generation",
@@ -164,4 +184,25 @@ fn value_to_sql(val: &Value) -> String {
 
 fn escape_sql(s: &str) -> String {
     s.replace('\'', "''")
+}
+
+/// Escape a string for use inside a SQL LIKE pattern with `ESCAPE '!'`.
+///
+/// Escapes:
+/// - `!` → `!!`  (the escape character itself)
+/// - `%` → `!%`  (SQL wildcard: any sequence of characters)
+/// - `_` → `!_`  (SQL wildcard: any single character)
+/// - `'` → `''`  (SQL string delimiter)
+fn escape_like_pattern(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '!' => out.push_str("!!"),
+            '%' => out.push_str("!%"),
+            '_' => out.push_str("!_"),
+            '\'' => out.push_str("''"),
+            other => out.push(other),
+        }
+    }
+    out
 }

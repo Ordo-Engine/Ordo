@@ -184,6 +184,27 @@ let result = CompiledRuleExecutor::new().execute(&loaded, input)?;
 - **gRPC**: High-performance binary protocol
 - **npm packages**: `@ordo-engine/editor-core`, `@ordo-engine/editor-vue`, `@ordo-engine/editor-react`
 
+### Go SDK
+
+```bash
+go get github.com/pama-lee/ordo-go
+```
+
+```go
+client, _ := ordo.NewClient(
+    ordo.WithHTTPAddress("http://localhost:8080"),
+    ordo.WithGRPCAddress("localhost:50051"),
+)
+defer client.Close()
+
+result, err := client.Execute(ctx, "discount-check", map[string]any{
+    "user": map[string]any{"vip": true},
+})
+// result.Code == "VIP"
+```
+
+Features: dual HTTP/gRPC with automatic protocol selection, connection pooling, exponential backoff retry, batch execution, multi-tenancy. See [sdk/go/](sdk/go/) for full documentation.
+
 ---
 
 ## Performance

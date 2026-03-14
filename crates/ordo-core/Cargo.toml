@@ -3,6 +3,13 @@ name = "ordo-core"
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
+description = "High-performance rule engine with JIT compilation, visual editor support, and database filter push-down"
+keywords = ["rule-engine", "business-rules", "jit", "decision", "evaluation"]
+categories = ["algorithms", "data-structures"]
+repository = "https://github.com/Pama-Lee/Ordo"
+homepage = "https://github.com/Pama-Lee/Ordo"
+documentation = "https://docs.rs/ordo-core"
+readme = "README.md"
 
 [dependencies]
 anyhow.workspace = true

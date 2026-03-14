@@ -1129,3 +1129,78 @@ pub async fn delete_tenant(
         )))
     }
 }
+
+// ==================== Data Filter API ====================
+
+/// Filter request (forwarded from ordo-core)
+#[derive(Deserialize)]
+pub struct FilterRequest {
+    pub known_input: Value,
+    pub target_results: Vec<String>,
+    #[serde(default)]
+    pub format: ordo_core::filter::FilterFormat,
+    #[serde(default)]
+    pub field_mapping: std::collections::HashMap<String, String>,
+    #[serde(default = "default_max_paths")]
+    pub max_paths: usize,
+}
+
+fn default_max_paths() -> usize {
+    100
+}
+
+/// Filter response
+#[derive(Serialize)]
+pub struct FilterResponse {
+    pub format: ordo_core::filter::FilterFormat,
+    pub filter: serde_json::Value,
+    pub always_matches: bool,
+    pub never_matches: bool,
+    pub unknown_fields: Vec<String>,
+}
+
+/// Generate a database filter (SQL WHERE clause or JSON predicate) from a ruleset.
+///
+/// Given a set of known input fields (e.g. current user's role and id), this endpoint
+/// performs partial evaluation of the rule graph and returns a filter expression that
+/// can be pushed directly to the database — avoiding a full table scan.
+pub async fn compile_filter(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    SimdJson(request): SimdJson<FilterRequest>,
+) -> ApiResult<Json<FilterResponse>> {
+    if request.target_results.is_empty() {
+        return Err(ApiError::bad_request(
+            "target_results cannot be empty".to_string(),
+        ));
+    }
+
+    let ruleset = {
+        let store = state.store.read().await;
+        store
+            .get_for_tenant(&tenant.id, &name)
+            .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
+    };
+
+    let core_request = ordo_core::filter::FilterRequest {
+        known_input: request.known_input,
+        target_results: request.target_results,
+        format: request.format,
+        field_mapping: request.field_mapping,
+        max_paths: request.max_paths,
+    };
+
+    let compiler = ordo_core::filter::FilterCompiler::new();
+    let result = compiler
+        .compile(&ruleset, core_request)
+        .map_err(|e| ApiError::internal(format!("Filter compilation failed: {}", e)))?;
+
+    Ok(Json(FilterResponse {
+        format: result.format,
+        filter: result.filter,
+        always_matches: result.always_matches,
+        never_matches: result.never_matches,
+        unknown_fields: result.unknown_fields,
+    }))
+}

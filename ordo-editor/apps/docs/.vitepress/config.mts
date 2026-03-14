@@ -105,6 +105,7 @@ export default withMermaid(defineConfig({
                 { text: 'HTTP REST API', link: '/en/api/http-api' },
                 { text: 'gRPC API', link: '/en/api/grpc-api' },
                 { text: 'WebAssembly', link: '/en/api/wasm' },
+                { text: 'Data Filter API', link: '/en/api/filter-api' },
               ]
             }
           ],
@@ -196,6 +197,7 @@ export default withMermaid(defineConfig({
                 { text: 'HTTP REST API', link: '/zh/api/http-api' },
                 { text: 'gRPC API', link: '/zh/api/grpc-api' },
                 { text: 'WebAssembly', link: '/zh/api/wasm' },
+                { text: '数据过滤 API', link: '/zh/api/filter-api' },
               ]
             }
           ],

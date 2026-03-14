@@ -32,9 +32,34 @@
 
 ## What is Ordo?
 
-**Ordo** (Latin for "order") is an enterprise-grade rule engine designed for extreme performance and reliability. Built entirely in Rust, it evaluates business rules with **sub-microsecond latency** and supports **500,000+ executions per second**.
+**Ordo** (Latin for "order") is an enterprise-grade rule engine built in Rust — evaluate business rules with **sub-microsecond latency** without touching your application code.
 
 ### ✨ Try it now: [Live Playground](https://pama-lee.github.io/Ordo/)
+
+**Best for:**
+- Fraud / risk scoring where latency matters
+- Promotion and discount logic that non-engineers need to update
+- Payment routing and access-control decisions under high load
+- Any business rule that today lives as hard-coded `if/else`
+
+**Why teams use Ordo:**
+- Replace brittle if/else chains with a visual flow editor their ops team can actually read
+- Push rule logic down into the database — no full-table scans, no row-by-row evaluation
+- Run the same rules in the browser (WASM), over HTTP, or via gRPC with identical semantics
+
+---
+
+## Why Ordo?
+
+| | **Ordo** | OPA | Drools | json-rules-engine |
+|---|---|---|---|---|
+| Single-rule latency | **~1.6 µs** | ~1 ms | ~5–10 ms | ~0.5 ms |
+| JIT compilation | ✅ Cranelift | ❌ | ❌ | ❌ |
+| Visual editor | ✅ built-in | ❌ | ✅ (Workbench, heavy) | ❌ |
+| DB filter push-down | ✅ SQL/JSON/Mongo | ❌ | ❌ | ❌ |
+| WASM / browser | ✅ | ❌ | ❌ | ✅ (Node only) |
+| Deployment | single binary | agent + OPA server | JVM | Node.js service |
+| Language | Rust | Rego (DSL) | Java | JavaScript |
 
 ---
 
@@ -53,18 +78,15 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 - **Real-time Execution**: Test rules instantly with WASM-powered execution
 - **Execution Trace**: Debug step-by-step with visual path highlighting
 
-<p align="center">
-  <img src="images/flow2.png" alt="Form Editor" width="100%" />
-</p>
-
 ### 🚀 Blazing Fast
 
-- **1.63 µs** average rule execution time (interpreter)
-- **50-80 ns** with JIT compilation (20-30x faster)
-- **600x faster** than the 1ms target
-- Zero-allocation hot path
-- Pre-compiled expression evaluation
-- Schema-aware JIT compilation with Cranelift
+- **1.63 µs** average rule execution (interpreter, warm, Apple Silicon M-series)
+- **50–80 ns** with JIT compilation — 20–30x faster for numeric expressions
+- **54,000 QPS** on HTTP API, single thread
+- Zero-allocation hot path; pre-compiled expression evaluation
+
+> Benchmark methodology: Apple Silicon M-series, single-threaded, warm runs, L1–L4 rule complexity.
+> See [benchmark/](benchmark/) for scripts, raw data, and comparison methodology.
 
 ### 🔧 Flexible Rule Definition
 
@@ -73,44 +95,58 @@ Design complex business rules with an intuitive drag-and-drop flow editor:
 - **Built-in Functions**: `len()`, `sum()`, `avg()`, `upper()`, `lower()`, `abs()`, `min()`, `max()`
 - **Field Coalescing**: `coalesce(field, fallback, default)` for missing field handling
 
+### 🗄️ Data Filter API
+
+Push rule logic directly into your database — no full-table scans, no row-by-row evaluation:
+
+```bash
+# "What documents can user alice see?" → SQL WHERE clause ready to use
+curl -X POST http://localhost:8080/api/v1/rulesets/doc_access/filter \
+  -d '{
+    "known_input": { "user": { "role": "member", "id": "alice", "subscription": "free" } },
+    "target_results": ["ALLOW"],
+    "format": "sql",
+    "field_mapping": { "doc.owner_id": "owner_id", "doc.visibility": "visibility" }
+  }'
+
+# → "filter": "(owner_id = 'alice') OR (visibility = 'public')"
+```
+
+- **Partial Evaluation**: Known fields fold to constants; unknown fields become DB columns
+- **Admin shortcut**: Returns `always_matches: true` → skip the WHERE clause entirely
+- **Zero rows shortcut**: Returns `never_matches: true` → return empty result immediately
+- **SQL, JSON, and MongoDB `$match` output**: Standard WHERE clause, predicate tree, or `$match` stage
+- **Zero impact on execution**: Completely separate code path, no hot-path overhead
+
 ### 🔒 Compiled Rules (Rule Protection)
 
 Protect your business logic by compiling rules into binary format:
 
 ```rust
-use ordo_core::prelude::*;
-
-// Compile ruleset to binary format
+// Compile ruleset to binary .ordo format (CRC32 integrity + optional ED25519 signature)
 let compiled = RuleSetCompiler::compile(&ruleset)?;
-
-// Save as .ordo binary file
 compiled.save_to_file("rules.ordo")?;
 
 // Load and execute
 let loaded = CompiledRuleSet::load_from_file("rules.ordo")?;
-let executor = CompiledRuleExecutor::new();
-let result = executor.execute(&loaded, input)?;
+let result = CompiledRuleExecutor::new().execute(&loaded, input)?;
 ```
-
-**Features:**
-- **Binary Format**: Rules compiled to bytecode, not human-readable
-- **Integrity Check**: CRC32 checksum prevents tampering
-- **Fast Loading**: Direct binary deserialization
-- **Enterprise Plugin**: Extensible encryption support (Enterprise Edition)
 
 ### 🛡️ Production Ready
 
-- **Deterministic Execution**: Same input → Same path → Same result
-- **Execution Tracing**: Full visibility into every step for debugging
-- **Hot Reload**: Update rules without service restart
-- **Distributed Deployment**: Single-writer / multi-reader with NATS JetStream sync
+- **Deterministic execution**: Same input → same path → same result, always
+- **Hot reload**: Update rules without service restart
+- **Version history + rollback**: Keep N versions, roll back with one API call
+- **Audit logging**: JSON Lines log of rule changes and executions (configurable sampling)
+- **Prometheus metrics** + health endpoint out of the box
+- **Distributed deployment**: Single-writer / multi-reader with NATS JetStream sync
 
 ### 🔌 Easy Integration
 
 - **HTTP REST API**: Simple JSON-based interface
-- **WebAssembly**: Run rules directly in browser
-- **gRPC Support**: High-performance binary protocol
-- **npm Packages**: `@ordo/editor-core`, `@ordo/editor-vue`, `@ordo/editor-react`
+- **WebAssembly**: Run rules directly in the browser
+- **gRPC**: High-performance binary protocol
+- **npm packages**: `@ordo-engine/editor-core`, `@ordo-engine/editor-vue`, `@ordo-engine/editor-react`
 
 ---
 
@@ -120,22 +156,20 @@ let result = executor.execute(&loaded, input)?;
   <img src="images/benchmark-race.gif" alt="Benchmark Race: Ordo vs OPA vs json-rules-engine vs Grule" width="100%" />
 </p>
 
-Benchmarked on Apple Silicon (M-series), single thread:
+All numbers measured on Apple Silicon (M-series), single thread, warm runs:
 
 | Metric | Result |
 |--------|--------|
 | Single rule execution (interpreter) | **1.63 µs** |
-| Single rule execution (JIT) | **50-80 ns** |
-| Expression evaluation | **79-211 ns** |
-| HTTP API throughput | **54,000 QPS** |
-| Projected multi-thread | **500,000+ QPS** |
+| Single rule execution (JIT) | **50–80 ns** |
+| Expression evaluation | **79–211 ns** |
+| HTTP API throughput (single thread) | **54,000 QPS** |
 
 ### JIT Compilation
 
-Ordo features a Schema-aware JIT compiler powered by Cranelift that provides **20-30x speedup** for numeric expressions:
+Schema-aware JIT powered by Cranelift — **20–30x speedup** for numeric expressions:
 
 ```rust
-// Define schema with derive macro
 #[derive(TypedContext)]
 struct UserContext {
     age: i64,
@@ -143,190 +177,121 @@ struct UserContext {
     vip_level: i64,
 }
 
-// JIT-compiled expressions run at native speed
+// Runs at native speed after first compile
 let result = jit_evaluator.evaluate("age >= 18 && balance > 1000.0", &context);
 ```
 
-See [benchmark/](benchmark/) for detailed reports with graphs.
+See [benchmark/](benchmark/) for detailed reports, graphs, and comparison methodology.
 
 ---
 
 ## Quick Start
 
-### Run the Server
+### Try in 30 seconds
 
 ```bash
 git clone https://github.com/Pama-Lee/Ordo.git
 cd Ordo
-
-# Build and run
 cargo build --release
 ./target/release/ordo-server
 ```
 
-### Enable Rule Persistence
-
-By default, rules are stored in memory and lost on restart. To enable file-based persistence:
+Create a rule:
 
 ```bash
-# Create a rules directory and enable persistence
-./target/release/ordo-server --rules-dir ./rules
-
-# Rules are automatically:
-# - Loaded from ./rules on startup (supports .json, .yaml, .yml)
-# - Saved to ./rules when created/updated via API
-# - Deleted from ./rules when removed via API
-```
-
-**Example rule file** (`./rules/discount-check.json`):
-```json
-{
-  "config": {
-    "name": "discount-check",
-    "version": "1.0.0",
-    "entry_step": "check_vip"
-  },
-  "steps": {
-    "check_vip": {
-      "id": "check_vip",
-      "name": "Check VIP Status",
-      "type": "decision",
-      "branches": [
-        { "condition": "user.vip == true", "next_step": "vip_discount" }
-      ],
-      "default_next": "normal_discount"
-    },
-    "vip_discount": {
-      "id": "vip_discount",
-      "name": "VIP Discount",
-      "type": "terminal",
-      "result": { "code": "VIP", "message": "20% discount applied" }
-    },
-    "normal_discount": {
-      "id": "normal_discount",
-      "name": "Normal Discount",
-      "type": "terminal",
-      "result": { "code": "NORMAL", "message": "5% discount applied" }
+curl -X POST http://localhost:8080/api/v1/rulesets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": { "name": "discount-check", "version": "1.0.0", "entry_step": "check_vip" },
+    "steps": {
+      "check_vip": {
+        "id": "check_vip", "name": "Check VIP Status", "type": "decision",
+        "branches": [{ "condition": "user.vip == true", "next_step": "vip_discount" }],
+        "default_next": "normal_discount"
+      },
+      "vip_discount":   { "id": "vip_discount",   "name": "VIP Discount",    "type": "terminal", "result": { "code": "VIP",    "message": "20% discount" } },
+      "normal_discount":{ "id": "normal_discount", "name": "Normal Discount", "type": "terminal", "result": { "code": "NORMAL", "message": "5% discount"  } }
     }
-  }
-}
+  }'
 ```
 
-### Rule Version Management
-
-When persistence is enabled, Ordo automatically keeps historical versions of your rules:
+Execute it:
 
 ```bash
-# Control version history (default: 10 versions)
-./target/release/ordo-server --rules-dir ./rules --max-versions 10
-```
-
-**List versions** (`GET /api/v1/rulesets/:name/versions`):
-```bash
-curl http://localhost:8080/api/v1/rulesets/discount-check/versions
-```
-
-**Rollback to a previous version** (`POST /api/v1/rulesets/:name/rollback`):
-```bash
-curl -X POST http://localhost:8080/api/v1/rulesets/discount-check/rollback \
+curl -X POST http://localhost:8080/api/v1/rulesets/discount-check/execute \
   -H "Content-Type: application/json" \
-  -d '{"seq": 2}'
+  -d '{ "input": { "user": { "vip": true } } }'
+# → { "code": "VIP", "message": "20% discount" }
 ```
 
-### Audit Logging
-
-Enable structured audit logging to track rule changes, executions, and system events:
-
-```bash
-# Enable audit logging with 10% execution sampling
-./target/release/ordo-server --rules-dir ./rules --audit-dir ./audit --audit-sample-rate 10
-```
-
-**Audit log format** (JSON Lines):
-```json
-{"timestamp":"2024-01-08T10:00:00.123Z","level":"INFO","event":"server_started","version":"0.1.0","rules_count":12}
-{"timestamp":"2024-01-08T10:00:01.456Z","level":"INFO","event":"rule_created","rule_name":"payment-check","version":"1.0.0","source_ip":"127.0.0.1"}
-{"timestamp":"2024-01-08T10:00:02.789Z","level":"INFO","event":"rule_executed","rule_name":"payment-check","duration_us":1500,"result":"success"}
-```
-
-**Event types**: `server_started`, `server_stopped`, `rule_created`, `rule_updated`, `rule_deleted`, `rule_rollback`, `rule_executed`
-
-**Dynamic sample rate adjustment** - update at runtime without restart:
-```bash
-# Get current sample rate
-curl http://localhost:8080/api/v1/config/audit-sample-rate
-# {"sample_rate": 10}
-
-# Update sample rate to 50%
-curl -X PUT http://localhost:8080/api/v1/config/audit-sample-rate \
-  -H "Content-Type: application/json" \
-  -d '{"sample_rate": 50}'
-# {"sample_rate": 50, "previous": 10}
-```
-
-### Monitoring & Health Check
-
-Ordo provides built-in observability endpoints:
-
-**Health Check** (`GET /health`):
-```json
-{
-  "status": "healthy",
-  "version": "0.1.0",
-  "uptime_seconds": 3600,
-  "storage": {
-    "mode": "persistent",
-    "rules_dir": "./rules",
-    "rules_count": 12
-  }
-}
-```
-
-**Prometheus Metrics** (`GET /metrics`):
-```bash
-curl http://localhost:8080/metrics
-
-# Sample output:
-# ordo_info{version="0.1.0"} 1
-# ordo_uptime_seconds 3600
-# ordo_rules_total 12
-# ordo_executions_total{ruleset="payment-check",result="success"} 1000
-# ordo_execution_duration_seconds_bucket{ruleset="payment-check",le="0.001"} 950
-```
+Or try the **[Live Playground](https://pama-lee.github.io/Ordo/)** — no install needed.
 
 ### Use the Visual Editor
 
-Visit the [Live Playground](https://pama-lee.github.io/Ordo/) or run locally:
-
 ```bash
-cd ordo-editor
-pnpm install
-pnpm dev
+cd ordo-editor && pnpm install && pnpm dev
 ```
 
 ### Expression Syntax
 
 ```
-# Comparisons
-age >= 18
-status == "active"
-
-# Logical operators
 age >= 18 && status == "active"
 tier == "gold" || tier == "platinum"
-
-# Field access
 user.profile.level
-items[0].price
-
-# Functions
-len(items) > 0
-sum(prices) >= 100
-upper(name) == "ADMIN"
-
-# Conditionals
+len(items) > 0 && sum(prices) >= 100
 if exists(discount) then price * (1 - discount) else price
 ```
+
+### npm Packages
+
+```bash
+npm install @ordo-engine/editor-vue    # Vue 3
+npm install @ordo-engine/editor-react  # React
+npm install @ordo-engine/editor-core   # Framework-agnostic
+```
+
+<details>
+<summary><strong>Production Setup</strong> — persistence, versioning, audit, monitoring</summary>
+
+### Persistence
+
+```bash
+./target/release/ordo-server --rules-dir ./rules
+# Rules auto-loaded on startup (.json / .yaml / .yml)
+# Saved/deleted via API automatically
+```
+
+### Version Management
+
+```bash
+./target/release/ordo-server --rules-dir ./rules --max-versions 10
+
+# List versions
+curl http://localhost:8080/api/v1/rulesets/discount-check/versions
+
+# Rollback
+curl -X POST http://localhost:8080/api/v1/rulesets/discount-check/rollback \
+  -d '{"seq": 2}'
+```
+
+### Audit Logging
+
+```bash
+# Enable with 10% execution sampling
+./target/release/ordo-server --rules-dir ./rules --audit-dir ./audit --audit-sample-rate 10
+```
+
+Logs JSON Lines: `rule_created`, `rule_updated`, `rule_executed`, `rule_rollback`, etc.
+Sample rate is adjustable at runtime via `PUT /api/v1/config/audit-sample-rate`.
+
+### Monitoring
+
+```bash
+curl http://localhost:8080/health    # Health check
+curl http://localhost:8080/metrics   # Prometheus metrics
+```
+
+</details>
 
 ---
 
@@ -336,40 +301,15 @@ if exists(discount) then price * (1 - discount) else price
 ordo/
 ├── crates/
 │   ├── ordo-core/       # Core rule engine library
-│   │   └── rule/
-│   │       ├── compiled.rs      # CompiledRuleSet (.ordo binary format)
-│   │       ├── compiler.rs      # RuleSetCompiler
-│   │       └── compiled_executor.rs  # CompiledRuleExecutor
 │   ├── ordo-derive/     # Derive macros for TypedContext
 │   ├── ordo-server/     # HTTP/gRPC API server
 │   ├── ordo-wasm/       # WebAssembly bindings
 │   └── ordo-proto/      # Protocol definitions
-├── ordo-editor/         # Visual rule editor
-│   ├── packages/
-│   │   ├── core/        # @ordo/editor-core (framework-agnostic)
-│   │   ├── vue/         # @ordo/editor-vue (Vue 3 components)
-│   │   ├── react/       # @ordo/editor-react (React components)
-│   │   └── wasm/        # @ordo/wasm (WASM bindings)
-│   └── apps/
-│       ├── playground/  # Live demo application
-│       └── docs/        # Documentation (VitePress)
+├── ordo-editor/         # Visual rule editor (pnpm workspace)
+│   ├── packages/        # core / vue / react / wasm
+│   └── apps/            # playground / docs (VitePress)
 ├── scripts/             # Build & release scripts
 └── benchmark/           # Performance reports
-```
-
-## npm Packages
-
-Install the visual editor components in your project:
-
-```bash
-# Vue 3
-npm install @ordo/editor-vue
-
-# React
-npm install @ordo/editor-react
-
-# Core (framework-agnostic)
-npm install @ordo/editor-core
 ```
 
 ---
@@ -377,7 +317,7 @@ npm install @ordo/editor-core
 ## Roadmap
 
 - [x] Core rule engine
-- [x] HTTP REST API
+- [x] HTTP REST API + gRPC
 - [x] Execution tracing
 - [x] Built-in functions
 - [x] Visual rule editor
@@ -390,7 +330,8 @@ npm install @ordo/editor-core
 - [x] Compiled ruleset (binary .ordo format)
 - [x] Enterprise plugin system
 - [x] .ordo file import/export in Playground
-- [x] Distributed deployment (single-writer / multi-reader + NATS sync)
+- [x] Distributed deployment (NATS JetStream sync)
+- [x] Data Filter API (SQL / JSON / MongoDB `$match` push-down)
 - [ ] Collaborative editing
 - [ ] Rule marketplace
 
@@ -398,7 +339,7 @@ npm install @ordo/editor-core
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 

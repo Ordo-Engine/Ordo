@@ -633,6 +633,11 @@ async fn start_http_server(
             "/api/v1/execute/:name/batch",
             post(api::execute_ruleset_batch),
         )
+        // Data Filter API (partial evaluation → SQL/JSON predicate)
+        .route(
+            "/api/v1/rulesets/:name/filter",
+            post(api::compile_filter),
+        )
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Audit configuration

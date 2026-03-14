@@ -17,6 +17,7 @@
 //! full table scan + row-by-row rule execution.
 
 pub mod json_predicate;
+pub mod mongo;
 pub mod partial_eval;
 pub mod path_collector;
 pub mod sql;
@@ -24,7 +25,7 @@ pub mod sql;
 use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 
 use crate::context::Value;
 use crate::error::Result;
@@ -41,6 +42,8 @@ pub enum FilterFormat {
     #[default]
     Sql,
     Json,
+    /// MongoDB aggregation pipeline `$match` stage
+    Mongo,
 }
 
 /// Request for filter compilation
@@ -125,9 +128,13 @@ impl FilterCompiler {
         // accepts. Return always_matches to be safe; the caller can increase
         // max_paths and retry.
         if truncated {
+            let filter = match request.format {
+                FilterFormat::Mongo => json!({}),
+                _ => JsonValue::String("TRUE".to_string()),
+            };
             return Ok(FilterResult {
                 format: request.format,
-                filter: JsonValue::String("TRUE".to_string()),
+                filter,
                 always_matches: true,
                 never_matches: false,
                 truncated: true,
@@ -163,6 +170,7 @@ impl FilterCompiler {
                 JsonValue::String(s)
             }
             FilterFormat::Json => json_predicate::to_json(&paths, &request.field_mapping),
+            FilterFormat::Mongo => mongo::to_mongo(&paths, &request.field_mapping),
         };
 
         Ok(FilterResult {

@@ -1,6 +1,6 @@
 [package]
 name = "ordo-server"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 
@@ -11,8 +11,8 @@ axum.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 once_cell = "1.19"
-ordo-core = { version = "0.2.0", path = "../ordo-core" }
-ordo-proto = { version = "0.2.0", path = "../ordo-proto" }
+ordo-core = { version = "0.3.0", path = "../ordo-core" }
+ordo-proto = { version = "0.3.0", path = "../ordo-proto" }
 parking_lot.workspace = true
 prost.workspace = true
 rand = "0.8"

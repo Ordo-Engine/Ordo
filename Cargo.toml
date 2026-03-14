@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Ordo Team"]
 license = "MIT"
@@ -80,7 +80,7 @@ quote = "1"
 proc-macro2 = "1"
 
 # Internal crates
-ordo-derive = { version = "0.2.0", path = "crates/ordo-derive" }
+ordo-derive = { version = "0.3.0", path = "crates/ordo-derive" }
 
 # OpenTelemetry
 opentelemetry = "0.22"

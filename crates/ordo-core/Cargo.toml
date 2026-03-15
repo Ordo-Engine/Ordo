@@ -50,7 +50,7 @@ default = ["derive", "jit", "signature", "extended-functions"]
 derive = ["ordo-derive"]
 jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native", "cranelift-codegen"]
 signature = ["ed25519-dalek", "rand", "base64", "getrandom"]
-extended-functions = ["sha2", "hmac", "md-5", "uuid", "urlencoding"]
+extended-functions = ["sha2", "hmac", "md-5", "uuid", "urlencoding", "base64"]
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }

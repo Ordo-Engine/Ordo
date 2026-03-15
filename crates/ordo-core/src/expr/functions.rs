@@ -484,7 +484,11 @@ impl FunctionRegistry {
         self.register("pad_left", |args| {
             require_args("pad_left", args, 3)?;
             let s = require_string("pad_left", &args[0])?;
-            let width = require_int("pad_left", &args[1])? as usize;
+            let raw_width = require_int("pad_left", &args[1])?;
+            if raw_width < 0 {
+                return Ok(Value::string(s));
+            }
+            let width = raw_width as usize;
             let ch = require_string("pad_left", &args[2])?;
             let pad_char = ch.chars().next().unwrap_or(' ');
             if s.len() >= width {
@@ -498,7 +502,11 @@ impl FunctionRegistry {
         self.register("pad_right", |args| {
             require_args("pad_right", args, 3)?;
             let s = require_string("pad_right", &args[0])?;
-            let width = require_int("pad_right", &args[1])? as usize;
+            let raw_width = require_int("pad_right", &args[1])?;
+            if raw_width < 0 {
+                return Ok(Value::string(s));
+            }
+            let width = raw_width as usize;
             let ch = require_string("pad_right", &args[2])?;
             let pad_char = ch.chars().next().unwrap_or(' ');
             if s.len() >= width {
@@ -550,27 +558,30 @@ impl FunctionRegistry {
         });
 
         // --- Encoding functions (4) ---
-        self.register("base64_encode", |args| {
-            require_args("base64_encode", args, 1)?;
-            let s = require_string("base64_encode", &args[0])?;
-            use base64::Engine;
-            Ok(Value::string(
-                base64::engine::general_purpose::STANDARD.encode(s.as_bytes()),
-            ))
-        });
+        #[cfg(feature = "extended-functions")]
+        {
+            self.register("base64_encode", |args| {
+                require_args("base64_encode", args, 1)?;
+                let s = require_string("base64_encode", &args[0])?;
+                use base64::Engine;
+                Ok(Value::string(
+                    base64::engine::general_purpose::STANDARD.encode(s.as_bytes()),
+                ))
+            });
 
-        self.register("base64_decode", |args| {
-            require_args("base64_decode", args, 1)?;
-            let s = require_string("base64_decode", &args[0])?;
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(s.as_bytes())
-                .map_err(|e| OrdoError::eval_error(format!("base64_decode: {}", e)))?;
-            let decoded = String::from_utf8(bytes).map_err(|e| {
-                OrdoError::eval_error(format!("base64_decode: invalid UTF-8: {}", e))
-            })?;
-            Ok(Value::string(decoded))
-        });
+            self.register("base64_decode", |args| {
+                require_args("base64_decode", args, 1)?;
+                let s = require_string("base64_decode", &args[0])?;
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(s.as_bytes())
+                    .map_err(|e| OrdoError::eval_error(format!("base64_decode: {}", e)))?;
+                let decoded = String::from_utf8(bytes).map_err(|e| {
+                    OrdoError::eval_error(format!("base64_decode: invalid UTF-8: {}", e))
+                })?;
+                Ok(Value::string(decoded))
+            });
+        }
 
         #[cfg(feature = "extended-functions")]
         self.register("url_encode", |args| {
@@ -676,7 +687,7 @@ impl FunctionRegistry {
                 arr.len()
             };
             let start = start.min(arr.len());
-            let end = end.min(arr.len());
+            let end = end.min(arr.len()).max(start);
             Ok(Value::array(arr[start..end].to_vec()))
         });
 
@@ -1393,6 +1404,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "extended-functions")]
     #[test]
     fn test_encoding_functions() {
         let registry = FunctionRegistry::new();

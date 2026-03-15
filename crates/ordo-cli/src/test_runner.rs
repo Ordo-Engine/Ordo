@@ -73,13 +73,12 @@ pub fn run(args: TestArgs) -> Result<()> {
                     }
                 }
 
-                if let Some(Value::Object(expected_map)) = &test.expect.output {
-                    for (k, v) in expected_map {
-                        let actual = result.output.get_path(k.as_ref());
-                        if actual != Some(v) {
-                            failures
-                                .push(format!("output.{}: expected {:?}, got {:?}", k, v, actual));
-                        }
+                if let Some(expected_output) = &test.expect.output {
+                    if &result.output != expected_output {
+                        failures.push(format!(
+                            "output: expected {:?}, got {:?}",
+                            expected_output, result.output
+                        ));
                     }
                 }
 

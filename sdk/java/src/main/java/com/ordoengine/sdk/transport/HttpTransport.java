@@ -79,12 +79,13 @@ public class HttpTransport implements AutoCloseable {
     public ExecuteResult execute(String name, Object input, boolean includeTrace) {
         try {
             String url = apiUrl + "/execute/" + name;
+            Map<String, Object> body = new HashMap<>();
+            body.put("input", input);
             if (includeTrace) {
-                url += "?include_trace=true";
+                body.put("trace", true);
             }
-            String body = mapper.writeValueAsString(input);
             HttpRequest request = requestBuilder(url)
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
             String response = doRequest(request);
             return mapper.readValue(response, ExecuteResult.class);
@@ -99,7 +100,9 @@ public class HttpTransport implements AutoCloseable {
             Map<String, Object> body = new HashMap<>();
             body.put("inputs", inputs);
             if (includeTrace) {
-                body.put("include_trace", true);
+                Map<String, Object> options = new HashMap<>();
+                options.put("trace", true);
+                body.put("options", options);
             }
             HttpRequest request = requestBuilder(url)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
@@ -150,8 +153,9 @@ public class HttpTransport implements AutoCloseable {
 
     public void updateRuleSet(String name, Object ruleset) {
         try {
-            HttpRequest request = requestBuilder(apiUrl + "/rulesets/" + name)
-                    .PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(ruleset)))
+            // Server uses POST for both create and update (upsert)
+            HttpRequest request = requestBuilder(apiUrl + "/rulesets")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(ruleset)))
                     .build();
             doRequest(request);
         } catch (IOException e) {

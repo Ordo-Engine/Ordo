@@ -9,7 +9,7 @@ from typing import Callable, TypeVar
 
 import requests
 
-from .errors import APIError
+from .errors import APIError, ConnectionError as OrdoConnectionError
 
 T = TypeVar("T")
 
@@ -36,6 +36,8 @@ def _is_retryable(exc: Exception) -> bool:
         if exc.status_code is not None:
             return exc.status_code >= 500 or exc.status_code == 429
         return False
+    if isinstance(exc, OrdoConnectionError):
+        return True
     if isinstance(exc, requests.ConnectionError):
         return True
     if isinstance(exc, requests.Timeout):

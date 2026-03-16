@@ -1,4 +1,9 @@
-"""gRPC transport for the Ordo SDK (optional dependency)."""
+"""gRPC transport for the Ordo SDK (optional dependency).
+
+Requires compiled protobuf stubs. Generate them with:
+    python -m grpc_tools.protoc -I proto \
+        --python_out=ordo/_proto --grpc_python_out=ordo/_proto proto/ordo.proto
+"""
 
 from __future__ import annotations
 
@@ -19,11 +24,21 @@ from .models import (
 
 try:
     import grpc
-    from google.protobuf import descriptor_pool, symbol_database
 
     HAS_GRPC = True
 except ImportError:
     HAS_GRPC = False
+
+# Try to import compiled proto stubs
+_pb2 = None
+_pb2_grpc = None
+try:
+    from ordo._proto import ordo_pb2 as _pb2  # type: ignore[assignment]
+    from ordo._proto import ordo_pb2_grpc as _pb2_grpc  # type: ignore[assignment]
+
+    HAS_STUBS = True
+except ImportError:
+    HAS_STUBS = False
 
 
 def _check_grpc() -> None:
@@ -32,14 +47,17 @@ def _check_grpc() -> None:
             "grpcio and protobuf are required for gRPC support. "
             "Install with: pip install ordo-sdk[grpc]"
         )
+    if not HAS_STUBS:
+        raise ImportError(
+            "Compiled proto stubs not found. Generate them with:\n"
+            "  pip install grpcio-tools\n"
+            "  python -m grpc_tools.protoc -I proto "
+            "--python_out=ordo/_proto --grpc_python_out=ordo/_proto proto/ordo.proto"
+        )
 
 
 class GrpcClient:
-    """gRPC transport for Ordo API.
-
-    Uses a simple JSON-over-gRPC approach via unstructured requests,
-    matching the proto service definition.
-    """
+    """gRPC transport for Ordo API using compiled protobuf stubs."""
 
     def __init__(
         self,
@@ -51,29 +69,7 @@ class GrpcClient:
         self._address = address
         self._tenant_id = tenant_id
         self._channel = grpc.insecure_channel(address, options=options)
-
-        # Import the generated stubs dynamically, or use generic unary calls
-        # We use generic calls to avoid requiring proto compilation
-        self._execute = self._channel.unary_unary(
-            "/ordo.v1.OrdoService/Execute",
-            request_serializer=self._serialize_execute_request,
-            response_deserializer=self._deserialize_execute_response,
-        )
-        self._batch_execute = self._channel.unary_unary(
-            "/ordo.v1.OrdoService/BatchExecute",
-            request_serializer=self._serialize_batch_request,
-            response_deserializer=self._deserialize_batch_response,
-        )
-        self._eval_rpc = self._channel.unary_unary(
-            "/ordo.v1.OrdoService/Eval",
-            request_serializer=self._serialize_eval_request,
-            response_deserializer=self._deserialize_eval_response,
-        )
-        self._health_rpc = self._channel.unary_unary(
-            "/ordo.v1.OrdoService/Health",
-            request_serializer=self._serialize_health_request,
-            response_deserializer=self._deserialize_health_response,
-        )
+        self._stub = _pb2_grpc.OrdoServiceStub(self._channel)  # type: ignore[union-attr]
 
     def _metadata(self) -> list[tuple[str, str]]:
         md: list[tuple[str, str]] = []
@@ -81,167 +77,138 @@ class GrpcClient:
             md.append(("x-tenant-id", self._tenant_id))
         return md
 
-    # --- Simple JSON wire format ---
-    # Since we want to avoid proto compilation as a hard requirement,
-    # we use a minimal hand-rolled serialization matching the proto schema.
-    # This encodes messages as JSON and wraps them for the gRPC wire format.
-
-    @staticmethod
-    def _encode_json_proto(fields: dict[str, Any]) -> bytes:
-        """Encode a dict as a simple JSON bytes payload for gRPC."""
-        return json.dumps(fields).encode("utf-8")
-
-    @staticmethod
-    def _decode_json_proto(data: bytes) -> dict[str, Any]:
-        """Decode JSON bytes from gRPC response."""
-        return json.loads(data)
-
-    # Serializers / Deserializers for each RPC
-
-    @staticmethod
-    def _serialize_execute_request(req: dict) -> bytes:
-        return json.dumps(req).encode("utf-8")
-
-    @staticmethod
-    def _deserialize_execute_response(data: bytes) -> dict:
-        return json.loads(data)
-
-    @staticmethod
-    def _serialize_batch_request(req: dict) -> bytes:
-        return json.dumps(req).encode("utf-8")
-
-    @staticmethod
-    def _deserialize_batch_response(data: bytes) -> dict:
-        return json.loads(data)
-
-    @staticmethod
-    def _serialize_eval_request(req: dict) -> bytes:
-        return json.dumps(req).encode("utf-8")
-
-    @staticmethod
-    def _deserialize_eval_response(data: bytes) -> dict:
-        return json.loads(data)
-
-    @staticmethod
-    def _serialize_health_request(req: dict) -> bytes:
-        return json.dumps(req).encode("utf-8")
-
-    @staticmethod
-    def _deserialize_health_response(data: bytes) -> dict:
-        return json.loads(data)
-
-    def _call(self, stub: Any, request: dict, timeout: float | None = None) -> dict:
-        try:
-            return stub(request, metadata=self._metadata(), timeout=timeout)
-        except Exception as e:
-            if HAS_GRPC and isinstance(e, grpc.RpcError):
-                code = e.code()  # type: ignore[union-attr]
-                details = e.details()  # type: ignore[union-attr]
-                raise APIError(
-                    f"gRPC error: {details}",
-                    code=code.name if code else None,
-                    status_code=code.value[0] if code else None,
-                ) from e
-            raise OrdoConnectionError(f"gRPC call failed: {e}") from e
+    def _handle_rpc_error(self, e: Exception) -> None:
+        if HAS_GRPC and isinstance(e, grpc.RpcError):
+            code = e.code()  # type: ignore[union-attr]
+            details = e.details()  # type: ignore[union-attr]
+            raise APIError(
+                f"gRPC error: {details}",
+                code=code.name if code else None,
+                status_code=code.value[0] if code else None,
+            ) from e
+        raise OrdoConnectionError(f"gRPC call failed: {e}") from e
 
     # --- Public API ---
 
     def execute(self, name: str, input_data: Any, include_trace: bool = False) -> ExecuteResult:
-        req = {
-            "ruleset_name": name,
-            "input_json": json.dumps(input_data),
-            "include_trace": include_trace,
-        }
-        resp = self._call(self._execute, req)
+        req = _pb2.ExecuteRequest(  # type: ignore[union-attr]
+            ruleset_name=name,
+            input_json=json.dumps(input_data),
+            include_trace=include_trace,
+        )
+        try:
+            resp = self._stub.Execute(req, metadata=self._metadata())
+        except Exception as e:
+            self._handle_rpc_error(e)
+            raise  # unreachable, but satisfies type checker
+
         output = None
-        if resp.get("output_json"):
+        if resp.output_json:
             try:
-                output = json.loads(resp["output_json"])
+                output = json.loads(resp.output_json)
             except (ValueError, TypeError):
-                output = resp["output_json"]
-        trace = self._parse_trace(resp.get("trace"))
+                output = resp.output_json
+        trace = self._parse_proto_trace(resp.trace)
         return ExecuteResult(
-            code=resp.get("code", ""),
-            message=resp.get("message", ""),
+            code=resp.code,
+            message=resp.message,
             output=output,
-            duration_us=resp.get("duration_us", 0),
+            duration_us=resp.duration_us,
             trace=trace,
         )
 
     def execute_batch(
         self, name: str, inputs: list[Any], include_trace: bool = False
     ) -> BatchResult:
-        req = {
-            "ruleset_name": name,
-            "inputs_json": [json.dumps(i) for i in inputs],
-            "options": {"parallel": True, "include_trace": include_trace},
-        }
-        resp = self._call(self._batch_execute, req)
+        options = _pb2.BatchExecuteOptions(  # type: ignore[union-attr]
+            parallel=True, include_trace=include_trace
+        )
+        req = _pb2.BatchExecuteRequest(  # type: ignore[union-attr]
+            ruleset_name=name,
+            inputs_json=[json.dumps(i) for i in inputs],
+            options=options,
+        )
+        try:
+            resp = self._stub.BatchExecute(req, metadata=self._metadata())
+        except Exception as e:
+            self._handle_rpc_error(e)
+            raise
+
         items = []
-        for r in resp.get("results", []):
+        for r in resp.results:
             output = None
-            if r.get("output_json"):
+            if r.output_json:
                 try:
-                    output = json.loads(r["output_json"])
+                    output = json.loads(r.output_json)
                 except (ValueError, TypeError):
-                    output = r["output_json"]
+                    output = r.output_json
             items.append(
                 ExecuteResultItem(
-                    code=r.get("code", ""),
-                    message=r.get("message", ""),
+                    code=r.code,
+                    message=r.message,
                     output=output,
-                    duration_us=r.get("duration_us", 0),
-                    trace=self._parse_trace(r.get("trace")),
-                    error=r.get("error") or None,
+                    duration_us=r.duration_us,
+                    trace=self._parse_proto_trace(r.trace),
+                    error=r.error or None,
                 )
             )
-        s = resp.get("summary", {})
         summary = BatchSummary(
-            total=s.get("total", 0),
-            success=s.get("success", 0),
-            failed=s.get("failed", 0),
-            total_duration_us=s.get("total_duration_us", 0),
+            total=resp.summary.total,
+            success=resp.summary.success,
+            failed=resp.summary.failed,
+            total_duration_us=resp.summary.total_duration_us,
         )
         return BatchResult(results=items, summary=summary)
 
     def eval(self, expression: str, context: Any = None) -> EvalResult:
-        req = {
-            "expression": expression,
-            "context_json": json.dumps(context) if context is not None else "{}",
-        }
-        resp = self._call(self._eval_rpc, req)
+        req = _pb2.EvalRequest(  # type: ignore[union-attr]
+            expression=expression,
+            context_json=json.dumps(context) if context is not None else "{}",
+        )
+        try:
+            resp = self._stub.Eval(req, metadata=self._metadata())
+        except Exception as e:
+            self._handle_rpc_error(e)
+            raise
+
         result = None
-        if resp.get("result_json"):
+        if resp.result_json:
             try:
-                result = json.loads(resp["result_json"])
+                result = json.loads(resp.result_json)
             except (ValueError, TypeError):
-                result = resp["result_json"]
-        return EvalResult(result=result, parsed=resp.get("parsed_expression", ""))
+                result = resp.result_json
+        return EvalResult(result=result, parsed=resp.parsed_expression)
 
     def health(self) -> HealthStatus:
-        resp = self._call(self._health_rpc, {})
+        req = _pb2.HealthRequest()  # type: ignore[union-attr]
+        try:
+            resp = self._stub.Health(req, metadata=self._metadata())
+        except Exception as e:
+            self._handle_rpc_error(e)
+            raise
+
         status_map = {0: "unknown", 1: "serving", 2: "not_serving"}
         return HealthStatus(
-            status=status_map.get(resp.get("status", 0), "unknown"),
-            version=resp.get("version", ""),
-            ruleset_count=resp.get("ruleset_count", 0),
-            uptime_seconds=resp.get("uptime_seconds", 0),
+            status=status_map.get(resp.status, "unknown"),
+            version=resp.version,
+            ruleset_count=resp.ruleset_count,
+            uptime_seconds=resp.uptime_seconds,
         )
 
     @staticmethod
-    def _parse_trace(data: dict | None) -> ExecutionTrace | None:
-        if not data:
+    def _parse_proto_trace(trace: Any) -> ExecutionTrace | None:
+        if not trace or not trace.path:
             return None
         steps = [
             StepTrace(
-                step_id=s.get("step_id", ""),
-                step_name=s.get("step_name", ""),
-                duration_us=s.get("duration_us", 0),
-                result=s.get("result", ""),
+                step_id=s.step_id,
+                step_name=s.step_name,
+                duration_us=s.duration_us,
+                result=s.result,
             )
-            for s in data.get("steps", [])
+            for s in trace.steps
         ]
-        return ExecutionTrace(path=data.get("path", ""), steps=steps)
+        return ExecutionTrace(path=trace.path, steps=steps)
 
     def close(self) -> None:
         self._channel.close()

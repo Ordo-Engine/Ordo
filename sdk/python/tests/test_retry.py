@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from ordo.errors import APIError
+from ordo.errors import APIError, ConnectionError as OrdoConnectionError
 from ordo.retry import RetryConfig, retry_call
 
 
@@ -90,3 +90,18 @@ def test_retry_backoff_timing():
     gap2 = timestamps[2] - timestamps[1]
     assert gap1 >= 0.04  # ~50ms with tolerance
     assert gap2 >= 0.08  # ~100ms with tolerance
+
+
+def test_retry_ordo_connection_error():
+    attempts = []
+
+    def fn():
+        attempts.append(1)
+        if len(attempts) < 2:
+            raise OrdoConnectionError("connection refused")
+        return "ok"
+
+    config = RetryConfig(max_attempts=3, initial_interval=0.01, jitter=False)
+    result = retry_call(config, fn)
+    assert result == "ok"
+    assert len(attempts) == 2

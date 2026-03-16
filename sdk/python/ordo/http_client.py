@@ -77,8 +77,10 @@ class HttpClient:
     # --- Execution ---
 
     def execute(self, name: str, input_data: Any, include_trace: bool = False) -> ExecuteResult:
-        params = {"include_trace": "true"} if include_trace else None
-        data = self._request("POST", f"{self._api}/execute/{name}", json=input_data, params=params)
+        body: dict[str, Any] = {"input": input_data}
+        if include_trace:
+            body["trace"] = True
+        data = self._request("POST", f"{self._api}/execute/{name}", json=body)
         return parse_execute_result(data)
 
     def execute_batch(self, name: str, inputs: list[Any], include_trace: bool = False) -> BatchResult:
@@ -124,7 +126,8 @@ class HttpClient:
         self._request("POST", f"{self._api}/rulesets", json=ruleset)
 
     def update_ruleset(self, name: str, ruleset: dict[str, Any]) -> None:
-        self._request("PUT", f"{self._api}/rulesets/{name}", json=ruleset)
+        # Server uses POST for both create and update (upsert)
+        self._request("POST", f"{self._api}/rulesets", json=ruleset)
 
     def delete_ruleset(self, name: str) -> None:
         self._request("DELETE", f"{self._api}/rulesets/{name}")

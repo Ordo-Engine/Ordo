@@ -39,3 +39,11 @@ pub use executor::{
 pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
 pub use model::{RuleSet, RuleSetConfig};
 pub use step::{Action, ActionKind, Branch, Condition, Step, StepKind, TerminalResult};
+
+use std::sync::Arc;
+
+/// Trait for resolving ruleset names to RuleSet instances.
+/// Used by the executor to support CallRuleSet actions.
+pub trait RuleSetResolver: Send + Sync {
+    fn resolve(&self, name: &str) -> Option<Arc<RuleSet>>;
+}

@@ -1257,3 +1257,135 @@ pub async fn compile_filter(
         unknown_fields: result.unknown_fields,
     }))
 }
+
+// ==================== Rule Composition / Pipeline API ====================
+
+/// Resolver backed by an in-memory snapshot of rulesets for a given tenant.
+/// Used with CallRuleSet actions in the rule executor.
+struct SnapshotResolver {
+    rulesets: std::collections::HashMap<String, Arc<RuleSet>>,
+}
+
+impl RuleSetResolver for SnapshotResolver {
+    fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
+        self.rulesets.get(name).cloned()
+    }
+}
+
+/// Pipeline execution request
+#[derive(Deserialize)]
+pub struct PipelineRequest {
+    /// Ordered list of ruleset names to execute
+    pub rulesets: Vec<String>,
+    /// Initial input
+    pub input: ordo_core::context::Value,
+    /// Enable trace
+    #[serde(default)]
+    pub trace: bool,
+}
+
+/// Pipeline execution response
+#[derive(Serialize)]
+pub struct PipelineResponse {
+    /// Results from each stage
+    pub stages: Vec<PipelineStageResult>,
+    /// Final merged output
+    pub output: ordo_core::context::Value,
+    /// Total duration in microseconds
+    pub duration_us: u64,
+}
+
+/// Result of a single pipeline stage
+#[derive(Serialize)]
+pub struct PipelineStageResult {
+    pub ruleset: String,
+    pub code: String,
+    pub message: String,
+    pub output: ordo_core::context::Value,
+    pub duration_us: u64,
+}
+
+/// Execute a pipeline of rulesets sequentially
+pub async fn execute_pipeline(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    SimdJson(request): SimdJson<PipelineRequest>,
+) -> ApiResult<Json<PipelineResponse>> {
+    let start = Instant::now();
+
+    if request.rulesets.is_empty() {
+        return Err(ApiError::bad_request("rulesets list cannot be empty"));
+    }
+    if request.rulesets.len() > 20 {
+        return Err(ApiError::bad_request("pipeline limited to 20 stages"));
+    }
+
+    // Resolve all rulesets upfront (single lock acquisition)
+    let resolved: Vec<(String, Arc<RuleSet>)> = {
+        let store = state.store.read().await;
+        let mut result = Vec::with_capacity(request.rulesets.len());
+        for name in &request.rulesets {
+            let rs = store
+                .get_for_tenant(&tenant.id, name)
+                .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+            result.push((name.clone(), rs));
+        }
+        result
+    };
+
+    let exec_options = if request.trace {
+        Some(ExecutionOptions::default().trace(true))
+    } else {
+        None
+    };
+
+    // Build a resolver from the resolved rulesets so CallRuleSet works within pipeline stages
+    let snapshot = SnapshotResolver {
+        rulesets: resolved.iter().cloned().collect(),
+    };
+    let mut pipeline_executor =
+        RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), state.metric_sink.clone());
+    pipeline_executor.set_resolver(Arc::new(snapshot));
+
+    let mut current_input = request.input;
+    let mut stages = Vec::with_capacity(resolved.len());
+
+    for (name, ruleset) in &resolved {
+        let result = pipeline_executor
+            .execute_with_options(ruleset, current_input.clone(), exec_options.as_ref())
+            .map_err(|e| ApiError::internal(format!("Pipeline stage '{}' failed: {}", name, e)))?;
+
+        stages.push(PipelineStageResult {
+            ruleset: name.clone(),
+            code: result.code.clone(),
+            message: result.message.clone(),
+            output: result.output.clone(),
+            duration_us: result.duration_us,
+        });
+
+        // Merge output into input for next stage
+        if let ordo_core::context::Value::Object(ref output_map) = result.output {
+            if let ordo_core::context::Value::Object(ref mut input_map) = current_input {
+                for (k, v) in output_map {
+                    input_map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+
+    // Build final merged output from all stages
+    let mut final_output = std::collections::HashMap::new();
+    for stage in &stages {
+        if let ordo_core::context::Value::Object(ref map) = stage.output {
+            for (k, v) in map {
+                final_output.insert(k.as_ref().to_string(), v.clone());
+            }
+        }
+    }
+
+    Ok(Json(PipelineResponse {
+        stages,
+        output: ordo_core::context::Value::object(final_output),
+        duration_us: start.elapsed().as_micros() as u64,
+    }))
+}

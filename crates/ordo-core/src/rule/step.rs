@@ -320,6 +320,17 @@ pub enum ActionKind {
         tags: Vec<(String, String)>,
     },
 
+    /// Call another ruleset and store the result in a variable
+    CallRuleSet {
+        /// Name of the ruleset to call
+        ruleset_name: String,
+        /// Optional input mapping expression (default: use current context data)
+        #[serde(default)]
+        input_mapping: Option<Expr>,
+        /// Variable name to store the result (accessible as $variable)
+        result_variable: String,
+    },
+
     /// External call (future)
     #[serde(skip)]
     ExternalCall {

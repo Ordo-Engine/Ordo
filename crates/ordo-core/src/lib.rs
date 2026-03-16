@@ -73,7 +73,7 @@ pub mod prelude {
         CompiledCondition, CompiledMetadata, CompiledOutput, CompiledRuleExecutor, CompiledRuleSet,
         CompiledStep, Condition, ExecutionOptions, ExecutionResult, LoggingMetricSink, MetricSink,
         MetricType, NoOpMetricSink, RuleExecutor, RuleSet, RuleSetCompiler, RuleSetConfig,
-        SingleExecutionResult, Step, StepKind, TerminalResult,
+        RuleSetResolver, SingleExecutionResult, Step, StepKind, TerminalResult,
     };
     #[cfg(feature = "signature")]
     pub use crate::signature::signer::RuleSigner;

@@ -645,6 +645,8 @@ async fn start_http_server(
             "/api/v1/execute/:name/batch",
             post(api::execute_ruleset_batch),
         )
+        // Pipeline execution (rule composition)
+        .route("/api/v1/execute-pipeline", post(api::execute_pipeline))
         // Data Filter API (partial evaluation → SQL/JSON predicate)
         .route(
             "/api/v1/rulesets/:name/filter",

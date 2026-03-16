@@ -190,6 +190,11 @@ fn compile_actions(
                     tags: compiled_tags,
                 });
             }
+            ActionKind::CallRuleSet { .. } => {
+                return Err(OrdoError::parse_error(
+                    "CallRuleSet is not supported in compiled rules",
+                ));
+            }
             ActionKind::ExternalCall { .. } => {
                 return Err(OrdoError::parse_error(
                     "ExternalCall is not supported in compiled rules",

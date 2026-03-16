@@ -405,16 +405,25 @@ pub async fn execute_ruleset(
     // Track active executions
     metrics::inc_active_executions();
 
-    // Get ruleset with minimal lock hold time
-    // We get Arc<RuleSet> and immediately release the lock
-    let ruleset = {
+    // Get ruleset and external data with minimal lock hold time
+    let (ruleset, external_data) = {
         let store = state.store.read().await;
-        store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
+        let rs = store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
             metrics::dec_active_executions();
             ApiError::not_found(format!("RuleSet '{}' not found", name))
-        })?
+        })?;
+        let data = store.get_all_data_for_tenant(&tenant.id);
+        (rs, data)
         // Lock is released here when store goes out of scope
     };
+
+    // Inject external data as $data field in input
+    let mut input = request.input;
+    if !external_data.is_null() {
+        if let ordo_core::context::Value::Object(ref mut obj) = input {
+            obj.insert(std::sync::Arc::from("$data"), external_data);
+        }
+    }
 
     // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
     let exec_options = if tenant.config.execution_timeout_ms > 0 || request.trace {
@@ -432,55 +441,51 @@ pub async fn execute_ruleset(
     };
 
     // Execute without holding the lock and without cloning RuleSet
-    let result =
-        match state
-            .executor
-            .execute_with_options(&ruleset, request.input, exec_options.as_ref())
-        {
-            Ok(result) => {
-                // Record success metrics
-                let duration_secs = start.elapsed().as_secs_f64();
-                metrics::record_execution_success(&name, duration_secs);
-                metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
+    let result = match state
+        .executor
+        .execute_with_options(&ruleset, input, exec_options.as_ref())
+    {
+        Ok(result) => {
+            // Record success metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_success(&name, duration_secs);
+            metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
 
-                // Record terminal result distribution
-                metrics::record_terminal_result(&name, &result.code);
+            // Record terminal result distribution
+            metrics::record_terminal_result(&name, &result.code);
 
-                // Log audit event (with sampling)
-                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-                let rule_id = format!("{}/{}", tenant.id, name);
-                state.audit_logger.log_execution(
-                    &rule_id,
-                    result.duration_us,
-                    &result.code,
-                    source_ip,
-                );
+            // Log audit event (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            let rule_id = format!("{}/{}", tenant.id, name);
+            state
+                .audit_logger
+                .log_execution(&rule_id, result.duration_us, &result.code, source_ip);
 
-                result
-            }
-            Err(e) => {
-                // Record error metrics
-                let duration_secs = start.elapsed().as_secs_f64();
-                metrics::record_execution_error(&name, duration_secs);
-                metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
+            result
+        }
+        Err(e) => {
+            // Record error metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_error(&name, duration_secs);
+            metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
 
-                // Record terminal result for errors
-                metrics::record_terminal_result(&name, "error");
+            // Record terminal result for errors
+            metrics::record_terminal_result(&name, "error");
 
-                // Log audit event for errors (with sampling)
-                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-                let rule_id = format!("{}/{}", tenant.id, name);
-                state.audit_logger.log_execution(
-                    &rule_id,
-                    start.elapsed().as_micros() as u64,
-                    "error",
-                    source_ip,
-                );
+            // Log audit event for errors (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            let rule_id = format!("{}/{}", tenant.id, name);
+            state.audit_logger.log_execution(
+                &rule_id,
+                start.elapsed().as_micros() as u64,
+                "error",
+                source_ip,
+            );
 
-                metrics::dec_active_executions();
-                return Err(e.into());
-            }
-        };
+            metrics::dec_active_executions();
+            return Err(e.into());
+        }
+    };
 
     // Decrement active executions
     metrics::dec_active_executions();
@@ -1159,11 +1164,59 @@ pub struct FilterResponse {
     pub unknown_fields: Vec<String>,
 }
 
-/// Generate a database filter (SQL WHERE clause or JSON predicate) from a ruleset.
-///
-/// Given a set of known input fields (e.g. current user's role and id), this endpoint
-/// performs partial evaluation of the rule graph and returns a filter expression that
-/// can be pushed directly to the database — avoiding a full table scan.
+// ==================== External Data API ====================
+
+/// List all external data names for a tenant
+pub async fn list_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+) -> ApiResult<Json<Vec<String>>> {
+    let store = state.store.read().await;
+    Ok(Json(store.list_data_for_tenant(&tenant.id)))
+}
+
+/// Get external data by name
+pub async fn get_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+) -> ApiResult<Json<ordo_core::context::Value>> {
+    let store = state.store.read().await;
+    let data = store
+        .get_data_for_tenant(&tenant.id, &name)
+        .ok_or_else(|| ApiError::not_found(format!("Data '{}' not found", name)))?;
+    Ok(Json(data.as_ref().clone()))
+}
+
+/// Put (create/update) external data
+pub async fn put_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    SimdJson(value): SimdJson<ordo_core::context::Value>,
+) -> ApiResult<StatusCode> {
+    let mut store = state.store.write().await;
+    store
+        .put_data_for_tenant(&tenant.id, &name, value)
+        .map_err(|e| ApiError::internal(format!("Failed to store data: {}", e)))?;
+    Ok(StatusCode::OK)
+}
+
+/// Delete external data
+pub async fn delete_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+) -> ApiResult<StatusCode> {
+    let mut store = state.store.write().await;
+    if store.delete_data_for_tenant(&tenant.id, &name) {
+        Ok(StatusCode::OK)
+    } else {
+        Err(ApiError::not_found(format!("Data '{}' not found", name)))
+    }
+}
+
+/// Generate a database filter from a ruleset via partial evaluation.
 pub async fn compile_filter(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,

@@ -405,16 +405,25 @@ pub async fn execute_ruleset(
     // Track active executions
     metrics::inc_active_executions();
 
-    // Get ruleset with minimal lock hold time
-    // We get Arc<RuleSet> and immediately release the lock
-    let ruleset = {
+    // Get ruleset and external data with minimal lock hold time
+    let (ruleset, external_data) = {
         let store = state.store.read().await;
-        store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
+        let rs = store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
             metrics::dec_active_executions();
             ApiError::not_found(format!("RuleSet '{}' not found", name))
-        })?
+        })?;
+        let data = store.get_all_data_for_tenant(&tenant.id);
+        (rs, data)
         // Lock is released here when store goes out of scope
     };
+
+    // Inject external data as $data field in input
+    let mut input = request.input;
+    if !external_data.is_null() {
+        if let ordo_core::context::Value::Object(ref mut obj) = input {
+            obj.insert(std::sync::Arc::from("$data"), external_data);
+        }
+    }
 
     // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
     let exec_options = if tenant.config.execution_timeout_ms > 0 || request.trace {
@@ -432,55 +441,51 @@ pub async fn execute_ruleset(
     };
 
     // Execute without holding the lock and without cloning RuleSet
-    let result =
-        match state
-            .executor
-            .execute_with_options(&ruleset, request.input, exec_options.as_ref())
-        {
-            Ok(result) => {
-                // Record success metrics
-                let duration_secs = start.elapsed().as_secs_f64();
-                metrics::record_execution_success(&name, duration_secs);
-                metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
+    let result = match state
+        .executor
+        .execute_with_options(&ruleset, input, exec_options.as_ref())
+    {
+        Ok(result) => {
+            // Record success metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_success(&name, duration_secs);
+            metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
 
-                // Record terminal result distribution
-                metrics::record_terminal_result(&name, &result.code);
+            // Record terminal result distribution
+            metrics::record_terminal_result(&name, &result.code);
 
-                // Log audit event (with sampling)
-                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-                let rule_id = format!("{}/{}", tenant.id, name);
-                state.audit_logger.log_execution(
-                    &rule_id,
-                    result.duration_us,
-                    &result.code,
-                    source_ip,
-                );
+            // Log audit event (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            let rule_id = format!("{}/{}", tenant.id, name);
+            state
+                .audit_logger
+                .log_execution(&rule_id, result.duration_us, &result.code, source_ip);
 
-                result
-            }
-            Err(e) => {
-                // Record error metrics
-                let duration_secs = start.elapsed().as_secs_f64();
-                metrics::record_execution_error(&name, duration_secs);
-                metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
+            result
+        }
+        Err(e) => {
+            // Record error metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_error(&name, duration_secs);
+            metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
 
-                // Record terminal result for errors
-                metrics::record_terminal_result(&name, "error");
+            // Record terminal result for errors
+            metrics::record_terminal_result(&name, "error");
 
-                // Log audit event for errors (with sampling)
-                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-                let rule_id = format!("{}/{}", tenant.id, name);
-                state.audit_logger.log_execution(
-                    &rule_id,
-                    start.elapsed().as_micros() as u64,
-                    "error",
-                    source_ip,
-                );
+            // Log audit event for errors (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            let rule_id = format!("{}/{}", tenant.id, name);
+            state.audit_logger.log_execution(
+                &rule_id,
+                start.elapsed().as_micros() as u64,
+                "error",
+                source_ip,
+            );
 
-                metrics::dec_active_executions();
-                return Err(e.into());
-            }
-        };
+            metrics::dec_active_executions();
+            return Err(e.into());
+        }
+    };
 
     // Decrement active executions
     metrics::dec_active_executions();
@@ -1159,11 +1164,59 @@ pub struct FilterResponse {
     pub unknown_fields: Vec<String>,
 }
 
-/// Generate a database filter (SQL WHERE clause or JSON predicate) from a ruleset.
-///
-/// Given a set of known input fields (e.g. current user's role and id), this endpoint
-/// performs partial evaluation of the rule graph and returns a filter expression that
-/// can be pushed directly to the database — avoiding a full table scan.
+// ==================== External Data API ====================
+
+/// List all external data names for a tenant
+pub async fn list_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+) -> ApiResult<Json<Vec<String>>> {
+    let store = state.store.read().await;
+    Ok(Json(store.list_data_for_tenant(&tenant.id)))
+}
+
+/// Get external data by name
+pub async fn get_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+) -> ApiResult<Json<ordo_core::context::Value>> {
+    let store = state.store.read().await;
+    let data = store
+        .get_data_for_tenant(&tenant.id, &name)
+        .ok_or_else(|| ApiError::not_found(format!("Data '{}' not found", name)))?;
+    Ok(Json(data.as_ref().clone()))
+}
+
+/// Put (create/update) external data
+pub async fn put_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    SimdJson(value): SimdJson<ordo_core::context::Value>,
+) -> ApiResult<StatusCode> {
+    let mut store = state.store.write().await;
+    store
+        .put_data_for_tenant(&tenant.id, &name, value)
+        .map_err(|e| ApiError::internal(format!("Failed to store data: {}", e)))?;
+    Ok(StatusCode::OK)
+}
+
+/// Delete external data
+pub async fn delete_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+) -> ApiResult<StatusCode> {
+    let mut store = state.store.write().await;
+    if store.delete_data_for_tenant(&tenant.id, &name) {
+        Ok(StatusCode::OK)
+    } else {
+        Err(ApiError::not_found(format!("Data '{}' not found", name)))
+    }
+}
+
+/// Generate a database filter from a ruleset via partial evaluation.
 pub async fn compile_filter(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
@@ -1202,5 +1255,137 @@ pub async fn compile_filter(
         always_matches: result.always_matches,
         never_matches: result.never_matches,
         unknown_fields: result.unknown_fields,
+    }))
+}
+
+// ==================== Rule Composition / Pipeline API ====================
+
+/// Resolver backed by an in-memory snapshot of rulesets for a given tenant.
+/// Used with CallRuleSet actions in the rule executor.
+struct SnapshotResolver {
+    rulesets: std::collections::HashMap<String, Arc<RuleSet>>,
+}
+
+impl RuleSetResolver for SnapshotResolver {
+    fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
+        self.rulesets.get(name).cloned()
+    }
+}
+
+/// Pipeline execution request
+#[derive(Deserialize)]
+pub struct PipelineRequest {
+    /// Ordered list of ruleset names to execute
+    pub rulesets: Vec<String>,
+    /// Initial input
+    pub input: ordo_core::context::Value,
+    /// Enable trace
+    #[serde(default)]
+    pub trace: bool,
+}
+
+/// Pipeline execution response
+#[derive(Serialize)]
+pub struct PipelineResponse {
+    /// Results from each stage
+    pub stages: Vec<PipelineStageResult>,
+    /// Final merged output
+    pub output: ordo_core::context::Value,
+    /// Total duration in microseconds
+    pub duration_us: u64,
+}
+
+/// Result of a single pipeline stage
+#[derive(Serialize)]
+pub struct PipelineStageResult {
+    pub ruleset: String,
+    pub code: String,
+    pub message: String,
+    pub output: ordo_core::context::Value,
+    pub duration_us: u64,
+}
+
+/// Execute a pipeline of rulesets sequentially
+pub async fn execute_pipeline(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    SimdJson(request): SimdJson<PipelineRequest>,
+) -> ApiResult<Json<PipelineResponse>> {
+    let start = Instant::now();
+
+    if request.rulesets.is_empty() {
+        return Err(ApiError::bad_request("rulesets list cannot be empty"));
+    }
+    if request.rulesets.len() > 20 {
+        return Err(ApiError::bad_request("pipeline limited to 20 stages"));
+    }
+
+    // Resolve all rulesets upfront (single lock acquisition)
+    let resolved: Vec<(String, Arc<RuleSet>)> = {
+        let store = state.store.read().await;
+        let mut result = Vec::with_capacity(request.rulesets.len());
+        for name in &request.rulesets {
+            let rs = store
+                .get_for_tenant(&tenant.id, name)
+                .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+            result.push((name.clone(), rs));
+        }
+        result
+    };
+
+    let exec_options = if request.trace {
+        Some(ExecutionOptions::default().trace(true))
+    } else {
+        None
+    };
+
+    // Build a resolver from the resolved rulesets so CallRuleSet works within pipeline stages
+    let snapshot = SnapshotResolver {
+        rulesets: resolved.iter().cloned().collect(),
+    };
+    let mut pipeline_executor =
+        RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), state.metric_sink.clone());
+    pipeline_executor.set_resolver(Arc::new(snapshot));
+
+    let mut current_input = request.input;
+    let mut stages = Vec::with_capacity(resolved.len());
+
+    for (name, ruleset) in &resolved {
+        let result = pipeline_executor
+            .execute_with_options(ruleset, current_input.clone(), exec_options.as_ref())
+            .map_err(|e| ApiError::internal(format!("Pipeline stage '{}' failed: {}", name, e)))?;
+
+        stages.push(PipelineStageResult {
+            ruleset: name.clone(),
+            code: result.code.clone(),
+            message: result.message.clone(),
+            output: result.output.clone(),
+            duration_us: result.duration_us,
+        });
+
+        // Merge output into input for next stage
+        if let ordo_core::context::Value::Object(ref output_map) = result.output {
+            if let ordo_core::context::Value::Object(ref mut input_map) = current_input {
+                for (k, v) in output_map {
+                    input_map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+
+    // Build final merged output from all stages
+    let mut final_output = std::collections::HashMap::new();
+    for stage in &stages {
+        if let ordo_core::context::Value::Object(ref map) = stage.output {
+            for (k, v) in map {
+                final_output.insert(k.as_ref().to_string(), v.clone());
+            }
+        }
+    }
+
+    Ok(Json(PipelineResponse {
+        stages,
+        output: ordo_core::context::Value::object(final_output),
+        duration_us: start.elapsed().as_micros() as u64,
     }))
 }

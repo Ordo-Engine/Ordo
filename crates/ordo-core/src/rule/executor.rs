@@ -88,6 +88,10 @@ pub struct RuleExecutor {
     trace_config: TraceConfig,
     /// Metric sink for recording custom metrics from rule actions
     metric_sink: Arc<dyn MetricSink>,
+    /// Optional resolver for CallRuleSet actions
+    resolver: Option<Arc<dyn super::RuleSetResolver>>,
+    /// Maximum nesting depth for CallRuleSet (prevents unbounded recursion)
+    max_call_depth: usize,
 }
 
 impl Default for RuleExecutor {
@@ -103,6 +107,8 @@ impl RuleExecutor {
             evaluator: Evaluator::new(),
             trace_config: TraceConfig::default(),
             metric_sink: Arc::new(NoOpMetricSink),
+            resolver: None,
+            max_call_depth: 10,
         }
     }
 
@@ -112,6 +118,8 @@ impl RuleExecutor {
             evaluator: Evaluator::new(),
             trace_config,
             metric_sink: Arc::new(NoOpMetricSink),
+            resolver: None,
+            max_call_depth: 10,
         }
     }
 
@@ -121,6 +129,8 @@ impl RuleExecutor {
             evaluator: Evaluator::new(),
             trace_config: TraceConfig::default(),
             metric_sink,
+            resolver: None,
+            max_call_depth: 10,
         }
     }
 
@@ -133,7 +143,14 @@ impl RuleExecutor {
             evaluator: Evaluator::new(),
             trace_config,
             metric_sink,
+            resolver: None,
+            max_call_depth: 10,
         }
+    }
+
+    /// Set a resolver for CallRuleSet actions
+    pub fn set_resolver(&mut self, resolver: Arc<dyn super::RuleSetResolver>) {
+        self.resolver = Some(resolver);
     }
 
     /// Get the metric sink
@@ -182,7 +199,14 @@ impl RuleExecutor {
             .and_then(|o| o.enable_trace)
             .unwrap_or(ruleset.config.enable_trace);
 
-        self.execute_internal(ruleset, input, timeout_ms, max_depth, enable_trace)
+        self.execute_internal(
+            ruleset,
+            input,
+            timeout_ms,
+            max_depth,
+            enable_trace,
+            self.max_call_depth,
+        )
     }
 
     /// Internal execute implementation with explicit config parameters
@@ -193,6 +217,7 @@ impl RuleExecutor {
         timeout_ms: u64,
         max_depth: usize,
         enable_trace: bool,
+        remaining_call_depth: usize,
     ) -> Result<ExecutionResult> {
         let start_time = Instant::now();
         let mut ctx = Context::new(input);
@@ -236,10 +261,20 @@ impl RuleExecutor {
             // When tracing is off (default), zero Instant calls per step.
             let (step_result, step_duration) = if tracing {
                 let step_start = Instant::now();
-                let result = self.execute_step(step, &mut ctx, &ruleset.config.field_missing)?;
+                let result = self.execute_step(
+                    step,
+                    &mut ctx,
+                    &ruleset.config.field_missing,
+                    remaining_call_depth,
+                )?;
                 (result, step_start.elapsed().as_micros() as u64)
             } else {
-                let result = self.execute_step(step, &mut ctx, &ruleset.config.field_missing)?;
+                let result = self.execute_step(
+                    step,
+                    &mut ctx,
+                    &ruleset.config.field_missing,
+                    remaining_call_depth,
+                )?;
                 (result, 0)
             };
 
@@ -370,6 +405,7 @@ impl RuleExecutor {
         step: &'a Step,
         ctx: &mut Context,
         field_missing: &FieldMissingBehavior,
+        remaining_call_depth: usize,
     ) -> Result<StepResult<'a>> {
         match &step.kind {
             StepKind::Decision {
@@ -384,7 +420,7 @@ impl RuleExecutor {
                     if condition_result {
                         // Execute branch actions
                         for action in &branch.actions {
-                            self.execute_action(action, ctx)?;
+                            self.execute_action(action, ctx, remaining_call_depth)?;
                         }
                         return Ok(StepResult::Continue {
                             next_step: branch.next_step.as_str(),
@@ -408,7 +444,7 @@ impl RuleExecutor {
             StepKind::Action { actions, next_step } => {
                 // Execute all actions
                 for action in actions {
-                    self.execute_action(action, ctx)?;
+                    self.execute_action(action, ctx, remaining_call_depth)?;
                 }
                 Ok(StepResult::Continue {
                     next_step: next_step.as_str(),
@@ -464,7 +500,12 @@ impl RuleExecutor {
     }
 
     /// Execute an action
-    fn execute_action(&self, action: &super::step::Action, ctx: &mut Context) -> Result<()> {
+    fn execute_action(
+        &self,
+        action: &super::step::Action,
+        ctx: &mut Context,
+        remaining_call_depth: usize,
+    ) -> Result<()> {
         match &action.kind {
             ActionKind::SetVariable { name, value } => {
                 let val = self.evaluator.eval(value, ctx)?;
@@ -506,6 +547,56 @@ impl RuleExecutor {
                 // Record metric via sink
                 self.metric_sink.record_gauge(name, metric_value, tags);
                 tracing::debug!(metric = %name, value = %metric_value, tags = ?tags, "Metric recorded");
+            }
+
+            ActionKind::CallRuleSet {
+                ruleset_name,
+                input_mapping,
+                result_variable,
+            } => {
+                if remaining_call_depth == 0 {
+                    return Err(OrdoError::eval_error(format!(
+                        "CallRuleSet max nesting depth ({}) exceeded calling '{}'",
+                        self.max_call_depth, ruleset_name
+                    )));
+                }
+
+                let resolver = self.resolver.as_ref().ok_or_else(|| {
+                    OrdoError::eval_error("CallRuleSet requires a resolver to be configured")
+                })?;
+                let target =
+                    resolver
+                        .resolve(ruleset_name)
+                        .ok_or_else(|| OrdoError::RuleSetNotFound {
+                            name: ruleset_name.clone(),
+                        })?;
+
+                // Build input for the sub-ruleset
+                let sub_input = if let Some(mapping) = input_mapping {
+                    self.evaluator.eval(mapping, ctx)?
+                } else {
+                    ctx.data().clone()
+                };
+
+                // Execute sub-ruleset with decremented call depth
+                let sub_result = self.execute_internal(
+                    &target,
+                    sub_input,
+                    target.config.timeout_ms,
+                    target.config.max_depth,
+                    false,
+                    remaining_call_depth - 1,
+                )?;
+
+                // Store result as a variable
+                let result_obj = Value::object({
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("code".to_string(), Value::string(&sub_result.code));
+                    m.insert("message".to_string(), Value::string(&sub_result.message));
+                    m.insert("output".to_string(), sub_result.output);
+                    m
+                });
+                ctx.set_variable(result_variable, result_obj);
             }
 
             ActionKind::ExternalCall { .. } => {
@@ -880,5 +971,138 @@ mod tests {
         assert_eq!(result.results[1].code, "error");
         assert!(result.results[1].error.is_some());
         assert_eq!(result.results[2].code, "SUCCESS");
+    }
+
+    #[test]
+    fn test_call_ruleset() {
+        use crate::rule::step::{Action, ActionKind};
+        use crate::rule::RuleSetResolver;
+        use std::collections::HashMap;
+
+        // Create a sub-ruleset that returns a score
+        let mut score_ruleset = RuleSet::new("score", "compute");
+        score_ruleset.add_step(Step::terminal(
+            "compute",
+            "Compute Score",
+            TerminalResult::new("SCORED")
+                .with_message("Score computed")
+                .with_output("score", Expr::literal(95)),
+        ));
+
+        // Create a resolver with the sub-ruleset
+        struct TestResolver {
+            rulesets: HashMap<String, Arc<RuleSet>>,
+        }
+        impl RuleSetResolver for TestResolver {
+            fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
+                self.rulesets.get(name).cloned()
+            }
+        }
+
+        let mut resolver_map = HashMap::new();
+        resolver_map.insert("score".to_string(), Arc::new(score_ruleset));
+        let resolver = Arc::new(TestResolver {
+            rulesets: resolver_map,
+        });
+
+        // Create main ruleset that calls the sub-ruleset
+        let mut main_ruleset = RuleSet::new("main", "call_score");
+        main_ruleset.add_step(Step::action(
+            "call_score",
+            "Call Score",
+            vec![Action {
+                kind: ActionKind::CallRuleSet {
+                    ruleset_name: "score".to_string(),
+                    input_mapping: None,
+                    result_variable: "score_result".to_string(),
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        main_ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK")
+                .with_message("Done")
+                .with_output("sub_result", Expr::field("$score_result")),
+        ));
+
+        let mut executor = RuleExecutor::new();
+        executor.set_resolver(resolver);
+
+        let input = serde_json::from_str(r#"{"x": 1}"#).unwrap();
+        let result = executor.execute(&main_ruleset, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        // Verify the sub-ruleset result is stored as a variable
+        let sub_result = result.output.get_path("sub_result").unwrap();
+        assert_eq!(sub_result.get_path("code"), Some(&Value::string("SCORED")));
+        assert_eq!(
+            sub_result.get_path("message"),
+            Some(&Value::string("Score computed"))
+        );
+    }
+
+    #[test]
+    fn test_call_ruleset_not_found() {
+        use crate::rule::step::{Action, ActionKind};
+        use crate::rule::RuleSetResolver;
+
+        struct EmptyResolver;
+        impl RuleSetResolver for EmptyResolver {
+            fn resolve(&self, _name: &str) -> Option<Arc<RuleSet>> {
+                None
+            }
+        }
+
+        let mut main = RuleSet::new("main", "call");
+        main.add_step(Step::action(
+            "call",
+            "Call",
+            vec![Action {
+                kind: ActionKind::CallRuleSet {
+                    ruleset_name: "nonexistent".to_string(),
+                    input_mapping: None,
+                    result_variable: "result".to_string(),
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        main.add_step(Step::terminal("done", "Done", TerminalResult::new("OK")));
+
+        let mut executor = RuleExecutor::new();
+        executor.set_resolver(Arc::new(EmptyResolver));
+
+        let input = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&main, input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_call_ruleset_no_resolver() {
+        use crate::rule::step::{Action, ActionKind};
+
+        let mut main = RuleSet::new("main", "call");
+        main.add_step(Step::action(
+            "call",
+            "Call",
+            vec![Action {
+                kind: ActionKind::CallRuleSet {
+                    ruleset_name: "any".to_string(),
+                    input_mapping: None,
+                    result_variable: "result".to_string(),
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        main.add_step(Step::terminal("done", "Done", TerminalResult::new("OK")));
+
+        let executor = RuleExecutor::new(); // No resolver set
+        let input = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&main, input);
+        assert!(result.is_err());
     }
 }

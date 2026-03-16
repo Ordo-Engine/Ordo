@@ -923,3 +923,6 @@ mod tests {
 
 #[cfg(test)]
 mod api_tests;
+
+#[cfg(test)]
+mod api_integration_tests;

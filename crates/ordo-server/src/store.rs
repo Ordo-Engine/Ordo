@@ -80,6 +80,8 @@ pub struct RuleStore {
     max_rules_per_tenant: Option<usize>,
     /// Maximum total number of rulesets across all tenants (None = unlimited).
     max_total_rules: Option<usize>,
+    /// External reference data store (keyed by tenant:name)
+    data: HashMap<String, Arc<ordo_core::context::Value>>,
 }
 
 /// Version information for a rule
@@ -120,6 +122,7 @@ impl RuleStore {
             sync_tx: None,
             max_rules_per_tenant: None,
             max_total_rules: None,
+            data: HashMap::new(),
         }
     }
 
@@ -138,6 +141,7 @@ impl RuleStore {
             sync_tx: None,
             max_rules_per_tenant: None,
             max_total_rules: None,
+            data: HashMap::new(),
         }
     }
 
@@ -162,6 +166,7 @@ impl RuleStore {
             sync_tx: None,
             max_rules_per_tenant: None,
             max_total_rules: None,
+            data: HashMap::new(),
         }
     }
 
@@ -184,6 +189,7 @@ impl RuleStore {
             sync_tx: None,
             max_rules_per_tenant: None,
             max_total_rules: None,
+            data: HashMap::new(),
         }
     }
 
@@ -1073,6 +1079,182 @@ impl RuleStore {
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.rulesets.is_empty()
+    }
+
+    // ==================== External Data Store ====================
+
+    fn make_data_key(&self, tenant_id: &str, name: &str) -> String {
+        format!("{}:{}", tenant_id, name)
+    }
+
+    /// Get the data directory path for a tenant
+    fn data_dir_for_tenant(&self, tenant_id: &str) -> Option<PathBuf> {
+        self.rules_dir.as_ref().map(|dir| {
+            if self.multi_tenancy_enabled {
+                dir.join(tenant_id).join("data")
+            } else {
+                dir.join("data")
+            }
+        })
+    }
+
+    /// Put external reference data for a tenant
+    pub fn put_data_for_tenant(
+        &mut self,
+        tenant_id: &str,
+        name: &str,
+        value: ordo_core::context::Value,
+    ) -> io::Result<()> {
+        let key = self.make_data_key(tenant_id, name);
+
+        // Persist to disk first, so a failed write doesn't leave stale in-memory data
+        if let Some(data_dir) = self.data_dir_for_tenant(tenant_id) {
+            fs::create_dir_all(&data_dir)?;
+            let path = data_dir.join(format!("{}.json", name));
+            let json = serde_json::to_string_pretty(&value)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            fs::write(&path, json)?;
+            info!(
+                "Persisted data '{}' for tenant '{}' to {:?}",
+                name, tenant_id, path
+            );
+        }
+
+        self.data.insert(key, Arc::new(value));
+
+        Ok(())
+    }
+
+    /// Get external reference data for a tenant
+    pub fn get_data_for_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> Option<Arc<ordo_core::context::Value>> {
+        let key = self.make_data_key(tenant_id, name);
+        self.data.get(&key).cloned()
+    }
+
+    /// Delete external reference data for a tenant
+    pub fn delete_data_for_tenant(&mut self, tenant_id: &str, name: &str) -> bool {
+        let key = self.make_data_key(tenant_id, name);
+        let existed = self.data.remove(&key).is_some();
+
+        if existed {
+            if let Some(data_dir) = self.data_dir_for_tenant(tenant_id) {
+                let path = data_dir.join(format!("{}.json", name));
+                if path.exists() {
+                    if let Err(e) = fs::remove_file(&path) {
+                        warn!("Failed to delete data file {:?}: {}", path, e);
+                    }
+                }
+            }
+        }
+
+        existed
+    }
+
+    /// List all external reference data names for a tenant
+    pub fn list_data_for_tenant(&self, tenant_id: &str) -> Vec<String> {
+        let prefix = format!("{}:", tenant_id);
+        self.data
+            .keys()
+            .filter_map(|k| k.strip_prefix(&prefix).map(|name| name.to_string()))
+            .collect()
+    }
+
+    /// Get all data for a tenant merged into a single Value::Object
+    pub fn get_all_data_for_tenant(&self, tenant_id: &str) -> ordo_core::context::Value {
+        use ordo_core::context::Value;
+        let prefix = format!("{}:", tenant_id);
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in &self.data {
+            if let Some(name) = k.strip_prefix(&prefix) {
+                map.insert(name.to_string(), v.as_ref().clone());
+            }
+        }
+        if map.is_empty() {
+            Value::Null
+        } else {
+            Value::object(map)
+        }
+    }
+
+    /// Load external data from the data directory during startup
+    pub fn load_data_from_dir(&mut self) -> io::Result<usize> {
+        let rules_dir = match &self.rules_dir {
+            Some(dir) => dir.clone(),
+            None => return Ok(0),
+        };
+
+        let mut loaded = 0;
+
+        let tenant_data_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
+            let tenants_dir = rules_dir.join("tenants");
+            if !tenants_dir.exists() {
+                return Ok(0);
+            }
+            fs::read_dir(&tenants_dir)?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let tenant_id = e.file_name().to_string_lossy().to_string();
+                    let data_dir = e.path().join("data");
+                    if data_dir.exists() {
+                        Some((tenant_id, data_dir))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            let data_dir = rules_dir.join("data");
+            if data_dir.exists() {
+                vec![(self.default_tenant.clone(), data_dir)]
+            } else {
+                vec![]
+            }
+        };
+
+        for (tenant_id, data_dir) in tenant_data_dirs {
+            let entries = fs::read_dir(&data_dir)?;
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let ext = path.extension().and_then(|e| e.to_str());
+                if ext != Some("json") && ext != Some("yaml") && ext != Some("yml") {
+                    continue;
+                }
+                let name = match path.file_stem().and_then(|s| s.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+
+                let content = fs::read_to_string(&path)?;
+                let value: ordo_core::context::Value = if ext == Some("json") {
+                    serde_json::from_str(&content)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                } else {
+                    serde_yaml::from_str(&content)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                };
+
+                let key = self.make_data_key(&tenant_id, &name);
+                self.data.insert(key, Arc::new(value));
+                loaded += 1;
+                info!(
+                    "Loaded data '{}' for tenant '{}' from {:?}",
+                    name, tenant_id, path
+                );
+            }
+        }
+
+        if loaded > 0 {
+            info!("Loaded {} external data entries", loaded);
+        }
+        Ok(loaded)
     }
 }
 

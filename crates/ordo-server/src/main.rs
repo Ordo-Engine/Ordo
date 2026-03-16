@@ -230,6 +230,18 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        // Load external data from data/ subdirectory
+        match store.load_data_from_dir() {
+            Ok(count) => {
+                if count > 0 {
+                    info!("Loaded {} external data entries", count);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to load external data: {}", e);
+            }
+        }
+
         Arc::new(RwLock::new(store))
     } else {
         info!("Initializing in-memory store (no persistence)");
@@ -644,6 +656,14 @@ async fn start_http_server(
         .route(
             "/api/v1/config/audit-sample-rate",
             get(api::get_audit_sample_rate).put(api::set_audit_sample_rate),
+        )
+        // External data management
+        .route("/api/v1/data", get(api::list_data))
+        .route(
+            "/api/v1/data/:name",
+            get(api::get_data)
+                .put(api::put_data)
+                .delete(api::delete_data),
         )
         // Metrics
         .route("/metrics", get(prometheus_metrics))

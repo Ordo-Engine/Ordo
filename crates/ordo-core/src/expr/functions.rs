@@ -643,6 +643,398 @@ impl FunctionRegistry {
             Ok(Value::string(uuid::Uuid::new_v4().to_string()))
         });
 
+        // --- Hex encoding (2) ---
+        #[cfg(feature = "extended-functions")]
+        {
+            self.register("hex_encode", |args| {
+                require_args("hex_encode", args, 1)?;
+                let s = require_string("hex_encode", &args[0])?;
+                Ok(Value::string(hex::encode(s.as_bytes())))
+            });
+
+            self.register("hex_decode", |args| {
+                require_args("hex_decode", args, 1)?;
+                let s = require_string("hex_decode", &args[0])?;
+                let bytes = hex::decode(s).map_err(|e| {
+                    OrdoError::eval_error(format!("hex_decode: invalid hex string: {}", e))
+                })?;
+                let decoded = String::from_utf8(bytes).map_err(|e| {
+                    OrdoError::eval_error(format!("hex_decode: invalid UTF-8: {}", e))
+                })?;
+                Ok(Value::string(decoded))
+            });
+        }
+
+        // --- Base64url encoding (2) ---
+        #[cfg(feature = "extended-functions")]
+        {
+            self.register("base64url_encode", |args| {
+                require_args("base64url_encode", args, 1)?;
+                let s = require_string("base64url_encode", &args[0])?;
+                Ok(Value::string(
+                    data_encoding::BASE64URL_NOPAD.encode(s.as_bytes()),
+                ))
+            });
+
+            self.register("base64url_decode", |args| {
+                require_args("base64url_decode", args, 1)?;
+                let s = require_string("base64url_decode", &args[0])?;
+                let bytes = data_encoding::BASE64URL_NOPAD
+                    .decode(s.as_bytes())
+                    .map_err(|e| {
+                        OrdoError::eval_error(format!("base64url_decode: invalid input: {}", e))
+                    })?;
+                let decoded = String::from_utf8(bytes).map_err(|e| {
+                    OrdoError::eval_error(format!("base64url_decode: invalid UTF-8: {}", e))
+                })?;
+                Ok(Value::string(decoded))
+            });
+        }
+
+        // --- JSON marshal/unmarshal (2) ---
+        self.register("json_marshal", |args| {
+            require_args("json_marshal", args, 1)?;
+            let json = serde_json::to_string(&args[0])
+                .map_err(|e| OrdoError::eval_error(format!("json_marshal: {}", e)))?;
+            Ok(Value::string(json))
+        });
+
+        self.register("json_unmarshal", |args| {
+            require_args("json_unmarshal", args, 1)?;
+            let s = require_string("json_unmarshal", &args[0])?;
+            let val: Value = serde_json::from_str(s)
+                .map_err(|e| OrdoError::eval_error(format!("json_unmarshal: {}", e)))?;
+            Ok(val)
+        });
+
+        // --- YAML marshal/unmarshal (2) ---
+        self.register("yaml_marshal", |args| {
+            require_args("yaml_marshal", args, 1)?;
+            let yaml = serde_yaml::to_string(&args[0])
+                .map_err(|e| OrdoError::eval_error(format!("yaml_marshal: {}", e)))?;
+            Ok(Value::string(yaml))
+        });
+
+        self.register("yaml_unmarshal", |args| {
+            require_args("yaml_unmarshal", args, 1)?;
+            let s = require_string("yaml_unmarshal", &args[0])?;
+            let val: Value = serde_yaml::from_str(s)
+                .map_err(|e| OrdoError::eval_error(format!("yaml_unmarshal: {}", e)))?;
+            Ok(val)
+        });
+
+        // --- JWT functions (3) ---
+        #[cfg(feature = "extended-functions")]
+        {
+            self.register("jwt_decode", |args| {
+                require_args("jwt_decode", args, 1)?;
+                let token = require_string("jwt_decode", &args[0])?;
+                // Decode without verification — just extract the payload
+                let mut validation = jsonwebtoken::Validation::default();
+                validation.insecure_disable_signature_validation();
+                validation.validate_exp = false;
+                validation.validate_aud = false;
+                validation.required_spec_claims.clear();
+                validation.algorithms = vec![
+                    jsonwebtoken::Algorithm::HS256,
+                    jsonwebtoken::Algorithm::HS384,
+                    jsonwebtoken::Algorithm::HS512,
+                ];
+                let key = jsonwebtoken::DecodingKey::from_secret(b"");
+                let data = jsonwebtoken::decode::<serde_json::Value>(token, &key, &validation)
+                    .map_err(|e| OrdoError::eval_error(format!("jwt_decode: {}", e)))?;
+                let payload: Value = serde_json::from_value(data.claims)
+                    .map_err(|e| OrdoError::eval_error(format!("jwt_decode: {}", e)))?;
+                Ok(payload)
+            });
+
+            self.register("jwt_verify", |args| {
+                // jwt_verify(token, secret, algorithm)
+                // algorithm: "HS256", "HS384", "HS512" (HMAC-based)
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(OrdoError::FunctionArgError {
+                        name: "jwt_verify".into(),
+                        message: "expected 2 or 3 arguments (token, secret, [algorithm])".into(),
+                    });
+                }
+                let token = require_string("jwt_verify", &args[0])?;
+                let secret = require_string("jwt_verify", &args[1])?;
+                let alg_str = if args.len() == 3 {
+                    require_string("jwt_verify", &args[2])?
+                } else {
+                    "HS256"
+                };
+                let alg = match alg_str {
+                    "HS256" => jsonwebtoken::Algorithm::HS256,
+                    "HS384" => jsonwebtoken::Algorithm::HS384,
+                    "HS512" => jsonwebtoken::Algorithm::HS512,
+                    _ => {
+                        return Err(OrdoError::eval_error(format!(
+                            "jwt_verify: unsupported algorithm '{}' (supported: HS256, HS384, HS512)",
+                            alg_str
+                        )));
+                    }
+                };
+                let key = jsonwebtoken::DecodingKey::from_secret(secret.as_bytes());
+                let mut validation = jsonwebtoken::Validation::new(alg);
+                validation.validate_exp = false;
+                validation.validate_aud = false;
+                validation.required_spec_claims.clear();
+                match jsonwebtoken::decode::<serde_json::Value>(token, &key, &validation) {
+                    Ok(_) => Ok(Value::bool(true)),
+                    Err(_) => Ok(Value::bool(false)),
+                }
+            });
+
+            self.register("jwt_encode", |args| {
+                // jwt_encode(payload, secret, [algorithm])
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(OrdoError::FunctionArgError {
+                        name: "jwt_encode".into(),
+                        message: "expected 2 or 3 arguments (payload, secret, [algorithm])".into(),
+                    });
+                }
+                let payload_json: serde_json::Value = serde_json::to_value(&args[0])
+                    .map_err(|e| OrdoError::eval_error(format!("jwt_encode: {}", e)))?;
+                let secret = require_string("jwt_encode", &args[1])?;
+                let alg_str = if args.len() == 3 {
+                    require_string("jwt_encode", &args[2])?
+                } else {
+                    "HS256"
+                };
+                let alg = match alg_str {
+                    "HS256" => jsonwebtoken::Algorithm::HS256,
+                    "HS384" => jsonwebtoken::Algorithm::HS384,
+                    "HS512" => jsonwebtoken::Algorithm::HS512,
+                    _ => {
+                        return Err(OrdoError::eval_error(format!(
+                            "jwt_encode: unsupported algorithm '{}' (supported: HS256, HS384, HS512)",
+                            alg_str
+                        )));
+                    }
+                };
+                let header = jsonwebtoken::Header::new(alg);
+                let key = jsonwebtoken::EncodingKey::from_secret(secret.as_bytes());
+                let token = jsonwebtoken::encode(&header, &payload_json, &key)
+                    .map_err(|e| OrdoError::eval_error(format!("jwt_encode: {}", e)))?;
+                Ok(Value::string(token))
+            });
+        }
+
+        // --- Glob matching (1) ---
+        #[cfg(feature = "extended-functions")]
+        self.register("glob_match", |args| {
+            require_args("glob_match", args, 2)?;
+            let pattern = require_string("glob_match", &args[0])?;
+            let input = require_string("glob_match", &args[1])?;
+            let pat = glob::Pattern::new(pattern).map_err(|e| {
+                OrdoError::eval_error(format!("glob_match: invalid pattern: {}", e))
+            })?;
+            Ok(Value::bool(pat.matches(input)))
+        });
+
+        // --- Net/IP functions (2) ---
+        #[cfg(feature = "extended-functions")]
+        {
+            self.register("cidr_contains", |args| {
+                require_args("cidr_contains", args, 2)?;
+                let cidr_str = require_string("cidr_contains", &args[0])?;
+                let ip_str = require_string("cidr_contains", &args[1])?;
+                let network: ipnetwork::IpNetwork = cidr_str.parse().map_err(|e| {
+                    OrdoError::eval_error(format!(
+                        "cidr_contains: invalid CIDR '{}': {}",
+                        cidr_str, e
+                    ))
+                })?;
+                let ip: std::net::IpAddr = ip_str.parse().map_err(|e| {
+                    OrdoError::eval_error(format!("cidr_contains: invalid IP '{}': {}", ip_str, e))
+                })?;
+                Ok(Value::bool(network.contains(ip)))
+            });
+
+            self.register("cidr_intersects", |args| {
+                require_args("cidr_intersects", args, 2)?;
+                let a_str = require_string("cidr_intersects", &args[0])?;
+                let b_str = require_string("cidr_intersects", &args[1])?;
+                let a: ipnetwork::IpNetwork = a_str.parse().map_err(|e| {
+                    OrdoError::eval_error(format!(
+                        "cidr_intersects: invalid CIDR '{}': {}",
+                        a_str, e
+                    ))
+                })?;
+                let b: ipnetwork::IpNetwork = b_str.parse().map_err(|e| {
+                    OrdoError::eval_error(format!(
+                        "cidr_intersects: invalid CIDR '{}': {}",
+                        b_str, e
+                    ))
+                })?;
+                // Two CIDRs intersect if either contains the other's network address
+                let intersects = a.contains(b.ip()) || b.contains(a.ip());
+                Ok(Value::bool(intersects))
+            });
+        }
+
+        // --- Semver functions (2) ---
+        #[cfg(feature = "extended-functions")]
+        {
+            self.register("semver_compare", |args| {
+                require_args("semver_compare", args, 2)?;
+                let a_str = require_string("semver_compare", &args[0])?;
+                let b_str = require_string("semver_compare", &args[1])?;
+                let a: semver::Version = a_str.parse().map_err(|e| {
+                    OrdoError::eval_error(format!(
+                        "semver_compare: invalid version '{}': {}",
+                        a_str, e
+                    ))
+                })?;
+                let b: semver::Version = b_str.parse().map_err(|e| {
+                    OrdoError::eval_error(format!(
+                        "semver_compare: invalid version '{}': {}",
+                        b_str, e
+                    ))
+                })?;
+                Ok(Value::int(match a.cmp(&b) {
+                    std::cmp::Ordering::Less => -1,
+                    std::cmp::Ordering::Equal => 0,
+                    std::cmp::Ordering::Greater => 1,
+                }))
+            });
+
+            self.register("semver_is_valid", |args| {
+                require_args("semver_is_valid", args, 1)?;
+                let s = require_string("semver_is_valid", &args[0])?;
+                Ok(Value::bool(s.parse::<semver::Version>().is_ok()))
+            });
+        }
+
+        // --- Graph function (1) ---
+        self.register("graph_reachable", |args| {
+            // graph_reachable(graph, sources)
+            // graph: object where keys are node IDs, values are arrays of neighbor IDs
+            // sources: array of starting node IDs
+            // returns: set (array) of all reachable node IDs
+            require_args("graph_reachable", args, 2)?;
+            let graph = require_object("graph_reachable", &args[0])?;
+            let sources = require_array("graph_reachable", &args[1])?;
+
+            let mut visited = std::collections::HashSet::new();
+            let mut queue = std::collections::VecDeque::new();
+
+            for src in sources {
+                let key = src
+                    .as_str()
+                    .ok_or_else(|| OrdoError::type_error("string", src.type_name()))?;
+                if visited.insert(key.to_string()) {
+                    queue.push_back(key.to_string());
+                }
+            }
+
+            while let Some(node) = queue.pop_front() {
+                if let Some(neighbors) = graph.get(node.as_str()) {
+                    if let Some(arr) = neighbors.as_array() {
+                        for neighbor in arr {
+                            let n = neighbor.as_str().ok_or_else(|| {
+                                OrdoError::type_error("string", neighbor.type_name())
+                            })?;
+                            if visited.insert(n.to_string()) {
+                                queue.push_back(n.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            let result: Vec<Value> = visited.into_iter().map(Value::string).collect();
+            Ok(Value::array(result))
+        });
+
+        // --- Additional regex functions (2) ---
+        self.register("regex_find_all", |args| {
+            require_args("regex_find_all", args, 2)?;
+            let pattern = require_string("regex_find_all", &args[0])?;
+            let input = require_string("regex_find_all", &args[1])?;
+            let re = compile_regex(pattern)?;
+            let matches: Vec<Value> = re
+                .find_iter(input)
+                .map(|m| Value::string(m.as_str()))
+                .collect();
+            Ok(Value::array(matches))
+        });
+
+        self.register("regex_split", |args| {
+            require_args("regex_split", args, 2)?;
+            let pattern = require_string("regex_split", &args[0])?;
+            let input = require_string("regex_split", &args[1])?;
+            let re = compile_regex(pattern)?;
+            let parts: Vec<Value> = re.split(input).map(Value::string).collect();
+            Ok(Value::array(parts))
+        });
+
+        // --- Additional string functions (1) ---
+        self.register("sprintf", |args| {
+            // sprintf(format, [values])
+            // Simple implementation: replaces %s, %d, %f, %v with corresponding values
+            require_args("sprintf", args, 2)?;
+            let fmt = require_string("sprintf", &args[0])?;
+            let vals = require_array("sprintf", &args[1])?;
+            let mut result = fmt.to_string();
+            for val in vals {
+                // Find the earliest placeholder regardless of type
+                if let Some(pos) = ["%s", "%d", "%f", "%v"]
+                    .iter()
+                    .filter_map(|p| result.find(p).map(|i| (i, *p)))
+                    .min_by_key(|(i, _)| *i)
+                    .map(|(i, _)| i)
+                {
+                    let replacement = match val {
+                        Value::String(s) => s.to_string(),
+                        Value::Int(n) => n.to_string(),
+                        Value::Float(n) => n.to_string(),
+                        Value::Bool(b) => b.to_string(),
+                        Value::Null => "null".to_string(),
+                        other => format!("{:?}", other),
+                    };
+                    result.replace_range(pos..pos + 2, &replacement);
+                }
+            }
+            Ok(Value::string(result))
+        });
+
+        // --- Additional object/array functions (3) ---
+        self.register("object_get", |args| {
+            // object_get(object, key, default) — safe get with default value
+            require_args("object_get", args, 3)?;
+            let obj = require_object("object_get", &args[0])?;
+            let key = require_string("object_get", &args[1])?;
+            match obj.get(key) {
+                Some(v) => Ok(v.clone()),
+                None => Ok(args[2].clone()),
+            }
+        });
+
+        self.register("array_concat", |args| {
+            require_args("array_concat", args, 2)?;
+            let a = require_array("array_concat", &args[0])?;
+            let b = require_array("array_concat", &args[1])?;
+            let mut result = a.to_vec();
+            result.extend_from_slice(b);
+            Ok(Value::array(result))
+        });
+
+        self.register("flatten", |args| {
+            require_args("flatten", args, 1)?;
+            let arr = require_array("flatten", &args[0])?;
+            let mut result = Vec::new();
+            for item in arr {
+                if let Some(inner) = item.as_array() {
+                    result.extend_from_slice(inner);
+                } else {
+                    result.push(item.clone());
+                }
+            }
+            Ok(Value::array(result))
+        });
+
         // --- Array functions (8) ---
         self.register("sort", |args| {
             require_args("sort", args, 1)?;
@@ -1737,6 +2129,398 @@ mod tests {
         assert_eq!(
             registry.call("to_bool", &[Value::string("hello")]).unwrap(),
             Value::bool(true)
+        );
+    }
+
+    #[test]
+    fn test_hex_encoding() {
+        let registry = FunctionRegistry::new();
+
+        assert_eq!(
+            registry
+                .call("hex_encode", &[Value::string("hello")])
+                .unwrap(),
+            Value::string("68656c6c6f")
+        );
+        assert_eq!(
+            registry
+                .call("hex_decode", &[Value::string("68656c6c6f")])
+                .unwrap(),
+            Value::string("hello")
+        );
+        assert!(registry
+            .call("hex_decode", &[Value::string("zzzz")])
+            .is_err());
+    }
+
+    #[test]
+    fn test_base64url_encoding() {
+        let registry = FunctionRegistry::new();
+
+        let encoded = registry
+            .call("base64url_encode", &[Value::string("hello+world")])
+            .unwrap();
+        let decoded = registry.call("base64url_decode", &[encoded]).unwrap();
+        assert_eq!(decoded, Value::string("hello+world"));
+    }
+
+    #[test]
+    fn test_json_marshal_unmarshal() {
+        let registry = FunctionRegistry::new();
+
+        let obj = Value::object({
+            let mut m = std::collections::HashMap::new();
+            m.insert("key".to_string(), Value::int(42));
+            m
+        });
+        let json_str = registry
+            .call("json_marshal", std::slice::from_ref(&obj))
+            .unwrap();
+        let s = json_str.as_str().unwrap();
+        assert!(s.contains("\"key\""));
+        assert!(s.contains("42"));
+
+        let roundtrip = registry.call("json_unmarshal", &[json_str]).unwrap();
+        assert_eq!(roundtrip.get_path("key"), Some(&Value::Int(42)));
+    }
+
+    #[test]
+    fn test_yaml_marshal_unmarshal() {
+        let registry = FunctionRegistry::new();
+
+        let val = Value::int(42);
+        let yaml_str = registry.call("yaml_marshal", &[val]).unwrap();
+        let roundtrip = registry.call("yaml_unmarshal", &[yaml_str]).unwrap();
+        assert_eq!(roundtrip, Value::Int(42));
+    }
+
+    #[test]
+    fn test_jwt_functions() {
+        let registry = FunctionRegistry::new();
+
+        // Encode a JWT
+        let payload = Value::object({
+            let mut m = std::collections::HashMap::new();
+            m.insert("sub".to_string(), Value::string("user123"));
+            m.insert("role".to_string(), Value::string("admin"));
+            m
+        });
+        let token = registry
+            .call("jwt_encode", &[payload, Value::string("my-secret")])
+            .unwrap();
+        let token_str = token.as_str().unwrap();
+        assert!(token_str.contains('.'));
+
+        // Verify with correct secret
+        assert_eq!(
+            registry
+                .call("jwt_verify", &[token.clone(), Value::string("my-secret")])
+                .unwrap(),
+            Value::bool(true)
+        );
+
+        // Verify with wrong secret
+        assert_eq!(
+            registry
+                .call(
+                    "jwt_verify",
+                    &[token.clone(), Value::string("wrong-secret")]
+                )
+                .unwrap(),
+            Value::bool(false)
+        );
+
+        // Decode payload
+        let decoded = registry.call("jwt_decode", &[token]).unwrap();
+        assert_eq!(decoded.get_path("sub"), Some(&Value::string("user123")));
+        assert_eq!(decoded.get_path("role"), Some(&Value::string("admin")));
+    }
+
+    #[test]
+    fn test_jwt_decode_non_hs256() {
+        let registry = FunctionRegistry::new();
+        // Encode with HS384
+        let payload = Value::object({
+            let mut m = std::collections::HashMap::new();
+            m.insert("sub".to_string(), Value::string("u1"));
+            m
+        });
+        let token = registry
+            .call(
+                "jwt_encode",
+                &[payload, Value::string("secret"), Value::string("HS384")],
+            )
+            .unwrap();
+        // jwt_decode should accept non-HS256 tokens
+        let decoded = registry.call("jwt_decode", &[token]).unwrap();
+        assert_eq!(decoded.get_path("sub"), Some(&Value::string("u1")));
+    }
+
+    #[test]
+    fn test_glob_match() {
+        let registry = FunctionRegistry::new();
+
+        assert_eq!(
+            registry
+                .call(
+                    "glob_match",
+                    &[Value::string("*.rs"), Value::string("main.rs")]
+                )
+                .unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "glob_match",
+                    &[Value::string("*.rs"), Value::string("main.py")]
+                )
+                .unwrap(),
+            Value::bool(false)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "glob_match",
+                    &[
+                        Value::string("/api/*/users"),
+                        Value::string("/api/v1/users")
+                    ]
+                )
+                .unwrap(),
+            Value::bool(true)
+        );
+    }
+
+    #[test]
+    fn test_cidr_functions() {
+        let registry = FunctionRegistry::new();
+
+        assert_eq!(
+            registry
+                .call(
+                    "cidr_contains",
+                    &[Value::string("10.0.0.0/8"), Value::string("10.1.2.3")]
+                )
+                .unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "cidr_contains",
+                    &[Value::string("10.0.0.0/8"), Value::string("192.168.1.1")]
+                )
+                .unwrap(),
+            Value::bool(false)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "cidr_intersects",
+                    &[Value::string("10.0.0.0/16"), Value::string("10.0.0.0/24")]
+                )
+                .unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "cidr_intersects",
+                    &[Value::string("10.0.0.0/8"), Value::string("192.168.0.0/16")]
+                )
+                .unwrap(),
+            Value::bool(false)
+        );
+    }
+
+    #[test]
+    fn test_semver_functions() {
+        let registry = FunctionRegistry::new();
+
+        assert_eq!(
+            registry
+                .call(
+                    "semver_compare",
+                    &[Value::string("1.2.3"), Value::string("1.2.4")]
+                )
+                .unwrap(),
+            Value::int(-1)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "semver_compare",
+                    &[Value::string("2.0.0"), Value::string("1.9.9")]
+                )
+                .unwrap(),
+            Value::int(1)
+        );
+        assert_eq!(
+            registry
+                .call(
+                    "semver_compare",
+                    &[Value::string("1.0.0"), Value::string("1.0.0")]
+                )
+                .unwrap(),
+            Value::int(0)
+        );
+        assert_eq!(
+            registry
+                .call("semver_is_valid", &[Value::string("1.2.3")])
+                .unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            registry
+                .call("semver_is_valid", &[Value::string("not-a-version")])
+                .unwrap(),
+            Value::bool(false)
+        );
+    }
+
+    #[test]
+    fn test_graph_reachable() {
+        let registry = FunctionRegistry::new();
+
+        // Build a simple graph: a -> b -> c, a -> d
+        let graph = Value::object({
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                "a".to_string(),
+                Value::array(vec![Value::string("b"), Value::string("d")]),
+            );
+            m.insert("b".to_string(), Value::array(vec![Value::string("c")]));
+            m.insert("c".to_string(), Value::array(vec![]));
+            m.insert("d".to_string(), Value::array(vec![]));
+            m
+        });
+        let sources = Value::array(vec![Value::string("a")]);
+        let result = registry.call("graph_reachable", &[graph, sources]).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr.len(), 4); // a, b, c, d all reachable
+    }
+
+    #[test]
+    fn test_regex_find_all_and_split() {
+        let registry = FunctionRegistry::new();
+
+        let matches = registry
+            .call(
+                "regex_find_all",
+                &[Value::string(r"\d+"), Value::string("a1b23c456")],
+            )
+            .unwrap();
+        let arr = matches.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], Value::string("1"));
+        assert_eq!(arr[1], Value::string("23"));
+        assert_eq!(arr[2], Value::string("456"));
+
+        let parts = registry
+            .call(
+                "regex_split",
+                &[Value::string(r"\s+"), Value::string("hello  world   foo")],
+            )
+            .unwrap();
+        let arr = parts.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], Value::string("hello"));
+        assert_eq!(arr[1], Value::string("world"));
+        assert_eq!(arr[2], Value::string("foo"));
+    }
+
+    #[test]
+    fn test_sprintf() {
+        let registry = FunctionRegistry::new();
+
+        assert_eq!(
+            registry
+                .call(
+                    "sprintf",
+                    &[
+                        Value::string("Hello %s, you have %d items"),
+                        Value::array(vec![Value::string("Alice"), Value::int(5)])
+                    ]
+                )
+                .unwrap(),
+            Value::string("Hello Alice, you have 5 items")
+        );
+    }
+
+    #[test]
+    fn test_sprintf_mixed_placeholder_order() {
+        let registry = FunctionRegistry::new();
+        // %d appears before %s — must replace left-to-right
+        assert_eq!(
+            registry
+                .call(
+                    "sprintf",
+                    &[
+                        Value::string("%d items for %s"),
+                        Value::array(vec![Value::int(3), Value::string("Bob")])
+                    ]
+                )
+                .unwrap(),
+            Value::string("3 items for Bob")
+        );
+    }
+
+    #[test]
+    fn test_object_get_and_array_concat_and_flatten() {
+        let registry = FunctionRegistry::new();
+
+        // object_get with existing key
+        let obj = Value::object({
+            let mut m = std::collections::HashMap::new();
+            m.insert("x".to_string(), Value::int(1));
+            m
+        });
+        assert_eq!(
+            registry
+                .call(
+                    "object_get",
+                    &[obj.clone(), Value::string("x"), Value::int(0)]
+                )
+                .unwrap(),
+            Value::int(1)
+        );
+        // object_get with missing key returns default
+        assert_eq!(
+            registry
+                .call("object_get", &[obj, Value::string("y"), Value::int(99)])
+                .unwrap(),
+            Value::int(99)
+        );
+
+        // array_concat
+        let a = Value::array(vec![Value::int(1), Value::int(2)]);
+        let b = Value::array(vec![Value::int(3), Value::int(4)]);
+        assert_eq!(
+            registry.call("array_concat", &[a, b]).unwrap(),
+            Value::array(vec![
+                Value::int(1),
+                Value::int(2),
+                Value::int(3),
+                Value::int(4)
+            ])
+        );
+
+        // flatten
+        let nested = Value::array(vec![
+            Value::array(vec![Value::int(1), Value::int(2)]),
+            Value::int(3),
+            Value::array(vec![Value::int(4), Value::int(5)]),
+        ]);
+        assert_eq!(
+            registry.call("flatten", &[nested]).unwrap(),
+            Value::array(vec![
+                Value::int(1),
+                Value::int(2),
+                Value::int(3),
+                Value::int(4),
+                Value::int(5)
+            ])
         );
     }
 }

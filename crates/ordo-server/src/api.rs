@@ -1389,3 +1389,55 @@ pub async fn execute_pipeline(
         duration_us: start.elapsed().as_micros() as u64,
     }))
 }
+
+// ==================== Admin API ====================
+
+/// Manually trigger a full reload of all rules from disk.
+///
+/// This is useful when files are deployed externally (e.g. via CI/CD or
+/// config management) and you want immediate reload without waiting for
+/// the file watcher debounce or polling interval.
+pub async fn admin_reload(
+    State(state): State<AppState>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let start = Instant::now();
+
+    if state.config.rules_dir.is_none() {
+        return Err(ApiError::bad_request(
+            "Reload requires --rules-dir to be configured".to_string(),
+        ));
+    }
+
+    let mut store = state.store.write().await;
+    let count = store.load_from_dir().map_err(|e| {
+        metrics::record_hot_reload("admin_full", false);
+        ApiError::internal(format!("Reload failed: {}", e))
+    })?;
+
+    // Also reload external data
+    let data_count = store.load_data_from_dir().unwrap_or(0);
+
+    drop(store);
+
+    // Reload tenant config
+    if let Err(e) = state.tenant_manager.reload().await {
+        tracing::warn!("Tenant config reload failed during admin reload: {}", e);
+    }
+
+    metrics::record_hot_reload("admin_full", true);
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    tracing::info!(
+        rules = count,
+        data = data_count,
+        duration_ms = duration_ms,
+        "Admin reload completed"
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "reloaded",
+        "rules_loaded": count,
+        "data_loaded": data_count,
+        "duration_ms": duration_ms,
+    })))
+}

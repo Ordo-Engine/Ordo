@@ -6,6 +6,7 @@
 
 use crate::metrics;
 use crate::sync::event::SyncEvent;
+use crate::sync::file_watcher::RecentWrites;
 use once_cell::sync::Lazy;
 use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use ordo_core::signature::{strip_signature, RuleVerifier};
@@ -82,6 +83,9 @@ pub struct RuleStore {
     max_total_rules: Option<usize>,
     /// External reference data store (keyed by tenant:name)
     data: HashMap<String, Arc<ordo_core::context::Value>>,
+    /// Self-write tracker — paths written by this process are recorded here
+    /// so the file watcher can skip redundant reloads.
+    recent_writes: Option<Arc<RecentWrites>>,
 }
 
 /// Version information for a rule
@@ -123,6 +127,7 @@ impl RuleStore {
             max_rules_per_tenant: None,
             max_total_rules: None,
             data: HashMap::new(),
+            recent_writes: None,
         }
     }
 
@@ -142,6 +147,7 @@ impl RuleStore {
             max_rules_per_tenant: None,
             max_total_rules: None,
             data: HashMap::new(),
+            recent_writes: None,
         }
     }
 
@@ -167,6 +173,7 @@ impl RuleStore {
             max_rules_per_tenant: None,
             max_total_rules: None,
             data: HashMap::new(),
+            recent_writes: None,
         }
     }
 
@@ -190,6 +197,7 @@ impl RuleStore {
             max_rules_per_tenant: None,
             max_total_rules: None,
             data: HashMap::new(),
+            recent_writes: None,
         }
     }
 
@@ -235,6 +243,12 @@ impl RuleStore {
     pub fn set_signature_verifier(&mut self, verifier: RuleVerifier, allow_unsigned_local: bool) {
         self.signature_verifier = Some(verifier);
         self.allow_unsigned_local = allow_unsigned_local;
+    }
+
+    /// Set the self-write tracker so that file watcher can skip reloads
+    /// for files this process just persisted.
+    pub fn set_recent_writes(&mut self, recent_writes: Arc<RecentWrites>) {
+        self.recent_writes = Some(recent_writes);
     }
 
     /// Check if persistence is enabled
@@ -461,6 +475,11 @@ impl RuleStore {
         fs::write(&temp_path, &content)?;
         fs::rename(&temp_path, &path)?;
 
+        // Record self-write so file watcher doesn't trigger a redundant reload
+        if let Some(ref rw) = self.recent_writes {
+            rw.record(path.clone());
+        }
+
         debug!("Persisted rule '{}' to {:?}", name, path);
         Ok(())
     }
@@ -478,6 +497,9 @@ impl RuleStore {
             let path = rules_dir.join(&filename);
             if path.exists() {
                 fs::remove_file(&path)?;
+                if let Some(ref rw) = self.recent_writes {
+                    rw.record(path.clone());
+                }
                 debug!("Deleted rule file {:?}", path);
             }
         }
@@ -486,6 +508,9 @@ impl RuleStore {
         let yml_path = rules_dir.join(format!("{}.yml", name));
         if yml_path.exists() {
             fs::remove_file(&yml_path)?;
+            if let Some(ref rw) = self.recent_writes {
+                rw.record(yml_path.clone());
+            }
             debug!("Deleted rule file {:?}", yml_path);
         }
 

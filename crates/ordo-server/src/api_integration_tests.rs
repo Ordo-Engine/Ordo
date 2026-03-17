@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -54,6 +54,8 @@ async fn build_full_test_app() -> Router {
     tenant_manager.ensure_default("default").await.unwrap();
     let rate_limiter = Arc::new(RateLimiter::new());
     let config = Arc::new(ServerConfig::default());
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let webhook_manager = crate::webhook::WebhookManager::new(shutdown_rx);
 
     let request_timeout = Duration::from_secs(config.request_timeout_secs);
     let max_body = config.max_request_body_bytes;
@@ -68,6 +70,7 @@ async fn build_full_test_app() -> Router {
         debug_sessions,
         tenant_manager,
         rate_limiter,
+        webhook_manager,
     };
 
     // CORS — permissive for tests (matches debug_enabled=false production default)

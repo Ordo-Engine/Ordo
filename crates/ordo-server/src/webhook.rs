@@ -287,17 +287,16 @@ async fn deliver_with_retry(client: &reqwest::Client, job: DeliveryJob) {
     );
 }
 
-/// Simple hash-based signature for webhook verification.
-///
-/// Uses Rust's DefaultHasher for a lightweight, deterministic signature.
-/// For production with untrusted networks, consider adding `hmac` + `sha2` crates.
+/// Compute a real HMAC-SHA256 signature for webhook payload verification.
 fn hmac_sha256(key: &[u8], data: &[u8]) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    key.hash(&mut hasher);
-    data.hash(&mut hasher);
-    let hash = hasher.finish();
-    format!("{:016x}", hash)
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(data);
+    let result = mac.finalize();
+    hex::encode(result.into_bytes())
 }
 
 /// Generate a short random ID for webhooks.
@@ -454,8 +453,20 @@ mod tests {
         let sig1 = hmac_sha256(b"secret", b"data");
         let sig2 = hmac_sha256(b"secret", b"data");
         assert_eq!(sig1, sig2);
+        // Real HMAC-SHA256 produces 64 hex chars (256 bits)
+        assert_eq!(sig1.len(), 64);
 
         let sig3 = hmac_sha256(b"other", b"data");
         assert_ne!(sig1, sig3);
+    }
+
+    #[test]
+    fn test_hmac_sha256_matches_known_vector() {
+        // Known HMAC-SHA256("key", "The quick brown fox jumps over the lazy dog")
+        let sig = hmac_sha256(b"key", b"The quick brown fox jumps over the lazy dog");
+        assert_eq!(
+            sig,
+            "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+        );
     }
 }

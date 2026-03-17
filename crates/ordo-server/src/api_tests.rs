@@ -42,6 +42,8 @@ async fn build_test_app() -> Router {
     tenant_manager.ensure_default("default").await.unwrap();
     let rate_limiter = Arc::new(RateLimiter::new());
     let config = Arc::new(ServerConfig::default());
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let webhook_manager = crate::webhook::WebhookManager::new(shutdown_rx);
 
     let state = AppState {
         store,
@@ -53,6 +55,7 @@ async fn build_test_app() -> Router {
         debug_sessions,
         tenant_manager,
         rate_limiter,
+        webhook_manager,
     };
 
     Router::new()
@@ -384,6 +387,8 @@ async fn test_admin_reload_with_persistence() {
     let mut config = ServerConfig::default();
     config.rules_dir = Some(dir.path().to_path_buf());
     let config = Arc::new(config);
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let webhook_manager = crate::webhook::WebhookManager::new(shutdown_rx);
 
     let state = AppState {
         store,
@@ -395,6 +400,7 @@ async fn test_admin_reload_with_persistence() {
         debug_sessions,
         tenant_manager,
         rate_limiter,
+        webhook_manager,
     };
 
     let app = Router::new()

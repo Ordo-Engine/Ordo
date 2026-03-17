@@ -21,25 +21,24 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Get version from tag
         id: get_version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
+
+      - name: Install git-cliff
+        uses: kenji-miyake/setup-git-cliff@v2
+
       - name: Generate changelog
         id: changelog
         run: |
-          # Get commits since last tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD)
-          else
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)")
-          fi
+          CHANGELOG=$(git cliff --latest --strip header)
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-      
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -47,10 +46,8 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Ordo ${{ github.ref_name }}
           body: |
-            ## What's Changed
-            
             ${{ steps.changelog.outputs.changelog }}
-            
+
             ## Installation
             
             Download the appropriate binary for your platform below.

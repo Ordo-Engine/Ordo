@@ -7,14 +7,15 @@
 //! files they just persisted themselves (self-write suppression).
 //! If the watcher fails to start, falls back to a 30-second full-scan polling loop.
 
+use crate::metrics;
 use crate::store::RuleStore;
 use crate::tenant::TenantManager;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{watch, Mutex, RwLock};
+use tokio::sync::{watch, RwLock};
 use tracing::{debug, error, info, warn};
 
 /// How long to remember self-writes to suppress watcher echoes.
@@ -28,6 +29,9 @@ const DEBOUNCE_WINDOW: Duration = Duration::from_millis(200);
 
 /// Tracks files recently written by **this** process so the watcher
 /// doesn't trigger a redundant reload.
+///
+/// Uses `std::sync::Mutex` (not tokio) so it can be called from both
+/// sync (`RuleStore::persist_ruleset`) and async contexts.
 #[derive(Debug)]
 pub struct RecentWrites {
     entries: Mutex<Vec<(PathBuf, Instant)>>,
@@ -41,17 +45,15 @@ impl RecentWrites {
     }
 
     /// Record that we just wrote `path`. The entry expires after [`SELF_WRITE_TTL`].
-    /// Called by `RuleStore::persist_ruleset` on writer instances to suppress watcher echoes.
-    #[allow(dead_code)]
-    pub async fn record(&self, path: PathBuf) {
-        let mut entries = self.entries.lock().await;
+    pub fn record(&self, path: PathBuf) {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         entries.retain(|(_, ts)| ts.elapsed() < SELF_WRITE_TTL);
         entries.push((path, Instant::now()));
     }
 
     /// Returns `true` if `path` was written by us recently.
-    pub async fn contains(&self, path: &Path) -> bool {
-        let mut entries = self.entries.lock().await;
+    pub fn contains(&self, path: &Path) -> bool {
+        let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         entries.retain(|(_, ts)| ts.elapsed() < SELF_WRITE_TTL);
         entries.iter().any(|(p, _)| p == path)
     }
@@ -200,7 +202,7 @@ async fn process_changes(
     recent_writes: &Arc<RecentWrites>,
 ) {
     for path in paths {
-        if recent_writes.contains(&path).await {
+        if recent_writes.contains(&path) {
             debug!("Skipping self-written file {:?}", path);
             continue;
         }
@@ -208,19 +210,30 @@ async fn process_changes(
         if is_tenant_config(&path) {
             if let Err(e) = tenant_manager.reload().await {
                 error!("Failed to reload tenant config from {:?}: {}", path, e);
+                metrics::record_hot_reload("tenant_config", false);
+            } else {
+                metrics::record_hot_reload("tenant_config", true);
             }
             continue;
         }
 
         if path.exists() {
             let mut store_guard = store.write().await;
-            if let Err(e) = store_guard.reload_file(&path) {
-                error!("Failed to reload rule from {:?}: {}", path, e);
+            match store_guard.reload_file(&path) {
+                Ok(()) => metrics::record_hot_reload("rule", true),
+                Err(e) => {
+                    error!("Failed to reload rule from {:?}: {}", path, e);
+                    metrics::record_hot_reload("rule", false);
+                }
             }
         } else {
             let mut store_guard = store.write().await;
-            if let Err(e) = store_guard.remove_by_path(&path) {
-                error!("Failed to remove rule for deleted file {:?}: {}", path, e);
+            match store_guard.remove_by_path(&path) {
+                Ok(()) => metrics::record_hot_reload("rule_delete", true),
+                Err(e) => {
+                    error!("Failed to remove rule for deleted file {:?}: {}", path, e);
+                    metrics::record_hot_reload("rule_delete", false);
+                }
             }
         }
     }
@@ -283,13 +296,13 @@ mod tests {
         assert!(!is_tenant_config(Path::new("/data/rules/payment.json")));
     }
 
-    #[tokio::test]
-    async fn test_recent_writes() {
+    #[test]
+    fn test_recent_writes() {
         let rw = RecentWrites::new();
         let path = PathBuf::from("/tmp/test.json");
 
-        assert!(!rw.contains(&path).await);
-        rw.record(path.clone()).await;
-        assert!(rw.contains(&path).await);
+        assert!(!rw.contains(&path));
+        rw.record(path.clone());
+        assert!(rw.contains(&path));
     }
 }

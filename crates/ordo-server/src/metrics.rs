@@ -171,6 +171,21 @@ lazy_static! {
         "Unix timestamp of the last successful sync event"
     ).unwrap();
 
+    // ==================== Hot Reload Metrics ====================
+
+    /// Total hot reload operations
+    pub static ref HOT_RELOADS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_hot_reloads_total",
+        "Total hot reload operations triggered by file watcher or admin API",
+        &["kind", "result"]
+    ).unwrap();
+
+    /// Timestamp of the last successful hot reload (epoch seconds)
+    pub static ref LAST_RELOAD_TIMESTAMP: Gauge = register_gauge!(
+        "ordo_last_reload_timestamp_seconds",
+        "Unix timestamp of the last successful hot reload"
+    ).unwrap();
+
     // ==================== Batch Execution Metrics ====================
 
     /// Total batch executions counter
@@ -338,6 +353,20 @@ pub fn set_tenant_rules_count(tenant_id: &str, count: i64) {
         .with_label_values(&[tenant_id])
         .set(count as f64);
 }
+/// Record a hot reload operation (from file watcher or admin API)
+pub fn record_hot_reload(kind: &str, success: bool) {
+    let result = if success { "success" } else { "error" };
+    HOT_RELOADS_TOTAL.with_label_values(&[kind, result]).inc();
+    if success {
+        LAST_RELOAD_TIMESTAMP.set(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64(),
+        );
+    }
+}
+
 /// Record batch execution metrics
 pub fn record_batch_execution(
     ruleset: &str,

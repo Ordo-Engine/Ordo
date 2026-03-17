@@ -18,6 +18,14 @@ unmaintained = "none"
 # Warn on crates that have been yanked
 yanked = "warn"
 
+# protobuf v2.28.0 vulnerability (RUSTSEC-2024-0437): crash via uncontrolled recursion.
+# Pulled in transitively by prometheus v0.13.4 which depends on protobuf v2.x.
+# The fix requires protobuf >=3.7.2 which is incompatible with prometheus 0.13.x.
+# Ordo is an internal service and does not parse untrusted protobuf input directly.
+ignore = [
+    "RUSTSEC-2024-0437",
+]
+
 # ------------------------------------------------------------------------
 # License checks
 # ------------------------------------------------------------------------
@@ -40,6 +48,11 @@ allow = [
     "OpenSSL",
 ]
 
+# Workspace crates are marked publish = false and should be ignored
+# for license checks (they inherit license from workspace.package.license).
+[licenses.private]
+ignore = true
+
 # ------------------------------------------------------------------------
 # Crate bans
 # ------------------------------------------------------------------------
@@ -50,6 +63,9 @@ multiple-versions = "warn"
 wildcards = "deny"
 # Highlight the longest path each duplicate dependency takes
 highlight = "simplest-path"
+
+# Allow wildcard (path) dependencies for workspace-internal crates
+allow-wildcard-paths = true
 
 # ------------------------------------------------------------------------
 # Source checks

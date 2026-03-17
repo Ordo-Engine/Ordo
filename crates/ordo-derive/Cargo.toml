@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2021"
 description = "Procedural macros for Ordo rule engine"
 license = "MIT"
+publish = false
 
 [lib]
 proc-macro = true

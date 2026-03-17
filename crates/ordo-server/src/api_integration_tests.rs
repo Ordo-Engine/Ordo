@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -17,6 +19,9 @@ use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::{
@@ -33,7 +38,7 @@ use crate::{
 };
 use ordo_core::prelude::RuleExecutor;
 
-/// Build a full test app with all API routes (matching main.rs router).
+/// Build a full test app with all API routes and middleware (matching main.rs router).
 async fn build_full_test_app() -> Router {
     let store = Arc::new(RwLock::new(RuleStore::new()));
     let executor = Arc::new(RuleExecutor::new());
@@ -50,6 +55,9 @@ async fn build_full_test_app() -> Router {
     let rate_limiter = Arc::new(RateLimiter::new());
     let config = Arc::new(ServerConfig::default());
 
+    let request_timeout = Duration::from_secs(config.request_timeout_secs);
+    let max_body = config.max_request_body_bytes;
+
     let state = AppState {
         store,
         audit_logger,
@@ -61,6 +69,16 @@ async fn build_full_test_app() -> Router {
         tenant_manager,
         rate_limiter,
     };
+
+    // CORS — permissive for tests (matches debug_enabled=false production default)
+    let cors = CorsLayer::new()
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+        ])
+        .allow_headers([axum::http::header::CONTENT_TYPE]);
 
     Router::new()
         .route("/health", get(readiness_check))
@@ -106,11 +124,18 @@ async fn build_full_test_app() -> Router {
                 .put(api::update_tenant)
                 .delete(api::delete_tenant),
         )
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::role::read_only_middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::tenant::tenant_middleware,
         ))
+        .layer(TimeoutLayer::new(request_timeout))
+        .layer(RequestBodyLimitLayer::new(max_body))
         .layer(CatchPanicLayer::new())
         .with_state(state)
 }

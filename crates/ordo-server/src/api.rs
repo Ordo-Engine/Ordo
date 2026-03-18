@@ -1643,3 +1643,21 @@ pub async fn admin_reload(State(state): State<AppState>) -> ApiResult<Json<serde
         "duration_ms": duration_ms,
     })))
 }
+
+// ==================== Rule Testing API ====================
+
+/// Run a test suite against a named ruleset.
+pub async fn test_ruleset(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    Json(suite): Json<ordo_core::testing::TestSuite>,
+) -> ApiResult<Json<ordo_core::testing::TestSuiteResult>> {
+    let store = state.store.read().await;
+    let ruleset = store
+        .get_for_tenant(&tenant.id, &name)
+        .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+
+    let result = ordo_core::testing::run_test_suite(&state.executor, &ruleset, &suite);
+    Ok(Json(result))
+}

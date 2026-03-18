@@ -57,6 +57,7 @@ pub mod filter;
 pub mod rule;
 #[cfg(feature = "signature")]
 pub mod signature;
+pub mod testing;
 pub mod trace;
 
 /// Prelude module for convenient imports

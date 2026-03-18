@@ -667,6 +667,11 @@ async fn start_http_server(
             "/api/v1/rulesets/:name/filter",
             post(api::compile_filter),
         )
+        // Rule testing
+        .route(
+            "/api/v1/rulesets/:name/test",
+            post(api::test_ruleset),
+        )
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Audit configuration

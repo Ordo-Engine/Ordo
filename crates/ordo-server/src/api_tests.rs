@@ -42,6 +42,8 @@ async fn build_test_app() -> Router {
     tenant_manager.ensure_default("default").await.unwrap();
     let rate_limiter = Arc::new(RateLimiter::new());
     let config = Arc::new(ServerConfig::default());
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let webhook_manager = crate::webhook::WebhookManager::new(shutdown_rx);
 
     let state = AppState {
         store,
@@ -53,6 +55,7 @@ async fn build_test_app() -> Router {
         debug_sessions,
         tenant_manager,
         rate_limiter,
+        webhook_manager,
     };
 
     Router::new()
@@ -71,6 +74,7 @@ async fn build_test_app() -> Router {
             post(api::execute_ruleset_batch),
         )
         .route("/api/v1/eval", post(api::eval_expression))
+        .route("/api/v1/admin/reload", post(api::admin_reload))
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -347,4 +351,68 @@ async fn test_eval_expression_false_result() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["result"], false);
+}
+
+#[tokio::test]
+async fn test_admin_reload_no_persistence() {
+    let app = build_test_app().await;
+    let (status, body) = post_json(&app, "/api/v1/admin/reload", &json!({})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body["message"].as_str().unwrap().contains("rules-dir"));
+}
+
+#[tokio::test]
+async fn test_admin_reload_with_persistence() {
+    let dir = tempfile::tempdir().unwrap();
+    // Write a rule file
+    let rule = test_ruleset("reload-test");
+    let path = dir.path().join("reload-test.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&rule).unwrap()).unwrap();
+
+    let store = Arc::new(RwLock::new(RuleStore::new_with_persistence(
+        dir.path().to_path_buf(),
+    )));
+    let executor = Arc::new(RuleExecutor::new());
+    let metric_sink = Arc::new(PrometheusMetricSink::new());
+    let audit_logger = Arc::new(AuditLogger::new(None, 0));
+    let debug_sessions = Arc::new(DebugSessionManager::new());
+    let defaults = TenantDefaults {
+        default_qps_limit: None,
+        default_burst_limit: None,
+        default_timeout_ms: 100,
+    };
+    let tenant_manager = Arc::new(TenantManager::new(None, defaults).await.unwrap());
+    tenant_manager.ensure_default("default").await.unwrap();
+    let rate_limiter = Arc::new(RateLimiter::new());
+    let mut config = ServerConfig::default();
+    config.rules_dir = Some(dir.path().to_path_buf());
+    let config = Arc::new(config);
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let webhook_manager = crate::webhook::WebhookManager::new(shutdown_rx);
+
+    let state = AppState {
+        store,
+        audit_logger,
+        metric_sink,
+        executor,
+        config,
+        signature_verifier: None,
+        debug_sessions,
+        tenant_manager,
+        rate_limiter,
+        webhook_manager,
+    };
+
+    let app = Router::new()
+        .route("/api/v1/admin/reload", post(api::admin_reload))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::tenant::tenant_middleware,
+        ))
+        .with_state(state);
+
+    let (status, body) = post_json(&app, "/api/v1/admin/reload", &json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "reloaded");
+    assert_eq!(body["rules_loaded"], 1);
 }

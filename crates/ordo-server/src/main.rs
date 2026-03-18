@@ -63,6 +63,7 @@ mod telemetry;
 mod tenant;
 #[cfg(unix)]
 mod uds;
+pub mod webhook;
 
 use audit::AuditLogger;
 use config::ServerConfig;
@@ -95,6 +96,8 @@ pub struct AppState {
     pub tenant_manager: Arc<TenantManager>,
     /// Tenant rate limiter
     pub rate_limiter: Arc<RateLimiter>,
+    /// Webhook manager
+    pub webhook_manager: Arc<webhook::WebhookManager>,
 }
 
 fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<RuleVerifier>> {
@@ -230,6 +233,18 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        // Load external data from data/ subdirectory
+        match store.load_data_from_dir() {
+            Ok(count) => {
+                if count > 0 {
+                    info!("Loaded {} external data entries", count);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to load external data: {}", e);
+            }
+        }
+
         Arc::new(RwLock::new(store))
     } else {
         info!("Initializing in-memory store (no persistence)");
@@ -297,8 +312,16 @@ async fn main() -> anyhow::Result<()> {
     let rate_limiter = Arc::new(RateLimiter::new());
     let recent_writes = Arc::new(RecentWrites::new());
 
+    // Wire up self-write suppression so file watcher skips files this process persisted
+    {
+        let mut store_guard = store.write().await;
+        store_guard.set_recent_writes(recent_writes.clone());
+    }
+
     // Shutdown broadcast channel — signal handlers and servers share this.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let webhook_manager = webhook::WebhookManager::new(shutdown_rx.clone());
 
     // Log server started event
     {
@@ -320,6 +343,7 @@ async fn main() -> anyhow::Result<()> {
         let http_debug_sessions = debug_sessions.clone();
         let http_tenant_manager = tenant_manager.clone();
         let http_rate_limiter = rate_limiter.clone();
+        let http_webhook_manager = webhook_manager.clone();
         let http_addr = config.http_addr();
         let http_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
@@ -334,6 +358,7 @@ async fn main() -> anyhow::Result<()> {
                 http_debug_sessions,
                 http_tenant_manager,
                 http_rate_limiter,
+                http_webhook_manager,
                 http_shutdown_rx,
             )
             .await
@@ -586,6 +611,7 @@ async fn start_http_server(
     debug_sessions: Arc<debug::DebugSessionManager>,
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
+    webhook_manager: Arc<webhook::WebhookManager>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
@@ -600,6 +626,7 @@ async fn start_http_server(
         debug_sessions,
         tenant_manager,
         rate_limiter,
+        webhook_manager,
     };
 
     // Build base router
@@ -633,6 +660,8 @@ async fn start_http_server(
             "/api/v1/execute/:name/batch",
             post(api::execute_ruleset_batch),
         )
+        // Pipeline execution (rule composition)
+        .route("/api/v1/execute-pipeline", post(api::execute_pipeline))
         // Data Filter API (partial evaluation → SQL/JSON predicate)
         .route(
             "/api/v1/rulesets/:name/filter",
@@ -645,6 +674,27 @@ async fn start_http_server(
             "/api/v1/config/audit-sample-rate",
             get(api::get_audit_sample_rate).put(api::set_audit_sample_rate),
         )
+        // External data management
+        .route("/api/v1/data", get(api::list_data))
+        .route(
+            "/api/v1/data/:name",
+            get(api::get_data)
+                .put(api::put_data)
+                .delete(api::delete_data),
+        )
+        // Webhook management
+        .route(
+            "/api/v1/webhooks",
+            get(api::list_webhooks).post(api::create_webhook),
+        )
+        .route(
+            "/api/v1/webhooks/:id",
+            get(api::get_webhook)
+                .put(api::update_webhook)
+                .delete(api::delete_webhook),
+        )
+        // Admin API
+        .route("/api/v1/admin/reload", post(api::admin_reload))
         // Metrics
         .route("/metrics", get(prometheus_metrics))
         // Tenant management
@@ -858,6 +908,7 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
             "sync": {
                 "nats_configured": state.config.nats_enabled(),
                 "watch_rules": state.config.watch_rules,
+                "last_reload_timestamp": metrics::LAST_RELOAD_TIMESTAMP.get(),
             },
             "debug_mode": state.config.debug_enabled()
         })),
@@ -901,3 +952,6 @@ mod tests {
 
 #[cfg(test)]
 mod api_tests;
+
+#[cfg(test)]
+mod api_integration_tests;

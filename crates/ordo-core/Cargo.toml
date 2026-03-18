@@ -44,13 +44,19 @@ hmac = { workspace = true, optional = true }
 md-5 = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 urlencoding = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+semver = { workspace = true, optional = true }
+ipnetwork = { workspace = true, optional = true }
+glob = { workspace = true, optional = true }
+data-encoding = { workspace = true, optional = true }
 
 [features]
 default = ["derive", "jit", "signature", "extended-functions"]
 derive = ["ordo-derive"]
 jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native", "cranelift-codegen"]
 signature = ["ed25519-dalek", "rand", "base64", "getrandom"]
-extended-functions = ["sha2", "hmac", "md-5", "uuid", "urlencoding", "base64"]
+extended-functions = ["sha2", "hmac", "md-5", "uuid", "urlencoding", "base64", "hex", "jsonwebtoken", "semver", "ipnetwork", "glob", "data-encoding"]
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }

@@ -23,6 +23,9 @@ pub enum SyncEvent {
     /// Tenant configuration was changed (create/update/delete).
     /// Carries the full tenants map so readers can replace atomically.
     TenantConfigChanged { config_json: String },
+    /// Runtime configuration was changed via the admin API.
+    /// Carries the full [`RuntimeConfig`] as JSON so every node applies it atomically.
+    RuntimeConfigChanged { config_json: String },
 }
 
 impl SyncEvent {
@@ -32,6 +35,7 @@ impl SyncEvent {
             SyncEvent::RulePut { .. } => "RulePut",
             SyncEvent::RuleDeleted { .. } => "RuleDeleted",
             SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
+            SyncEvent::RuntimeConfigChanged { .. } => "RuntimeConfigChanged",
         }
     }
 }
@@ -73,6 +77,9 @@ impl SyncMessage {
             }
             SyncEvent::TenantConfigChanged { .. } => {
                 format!("{}.tenants", prefix)
+            }
+            SyncEvent::RuntimeConfigChanged { .. } => {
+                format!("{}.runtime-config", prefix)
             }
         }
     }

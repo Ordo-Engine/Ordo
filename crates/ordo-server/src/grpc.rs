@@ -113,7 +113,7 @@ impl OrdoGrpcService {
         if !self.multi_tenancy_enabled {
             return Ok(TenantConfig::default_for_id(
                 tenant_id,
-                self.tenant_manager.defaults(),
+                &self.tenant_manager.defaults(),
             ));
         }
 

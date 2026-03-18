@@ -25,7 +25,7 @@ pub async fn tenant_middleware(
     if is_tenant_management_path(path) {
         // This is a tenant management endpoint, use default tenant context
         let tenant_id = state.config.default_tenant.clone();
-        let config = TenantConfig::default_for_id(&tenant_id, state.tenant_manager.defaults());
+        let config = TenantConfig::default_for_id(&tenant_id, &state.tenant_manager.defaults());
         req.extensions_mut().insert(TenantContext {
             id: tenant_id,
             config,
@@ -36,7 +36,7 @@ pub async fn tenant_middleware(
     let tenant_id = extract_tenant_id(&req).unwrap_or_else(|| state.config.default_tenant.clone());
 
     if !state.config.multi_tenancy_enabled {
-        let config = TenantConfig::default_for_id(&tenant_id, state.tenant_manager.defaults());
+        let config = TenantConfig::default_for_id(&tenant_id, &state.tenant_manager.defaults());
         req.extensions_mut().insert(TenantContext {
             id: tenant_id,
             config,

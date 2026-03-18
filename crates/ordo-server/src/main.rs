@@ -57,6 +57,7 @@ mod json;
 mod metrics;
 mod middleware;
 mod rate_limiter;
+mod runtime_config;
 mod store;
 mod sync;
 mod telemetry;
@@ -73,6 +74,7 @@ use ordo_core::prelude::{RuleExecutor, TraceConfig};
 use ordo_core::signature::ed25519::decode_public_key;
 use ordo_core::signature::RuleVerifier;
 use rate_limiter::RateLimiter;
+use runtime_config::SharedRuntimeConfig;
 use std::fs;
 use store::RuleStore;
 use sync::file_watcher::RecentWrites;
@@ -86,8 +88,10 @@ pub struct AppState {
     pub metric_sink: Arc<PrometheusMetricSink>,
     /// Shared executor for rule execution (avoids holding lock during execution)
     pub executor: Arc<RuleExecutor>,
-    /// Server configuration
+    /// Server configuration (immutable after startup)
     pub config: Arc<ServerConfig>,
+    /// Runtime-mutable configuration (hot-reloadable via admin API)
+    pub runtime_config: SharedRuntimeConfig,
     /// Signature verifier (if enabled)
     pub signature_verifier: Option<RuleVerifier>,
     /// Debug session manager (only active in debug mode)
@@ -98,6 +102,12 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     /// Webhook manager
     pub webhook_manager: Arc<webhook::WebhookManager>,
+    /// NATS sync sender — `None` when NATS is not configured.
+    /// Used to broadcast runtime config changes cluster-wide.
+    /// Wrapped in RwLock because NATS connects after servers are spawned.
+    pub sync_tx: Arc<
+        tokio::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<sync::event::SyncEvent>>>,
+    >,
 }
 
 fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<RuleVerifier>> {
@@ -323,6 +333,17 @@ async fn main() -> anyhow::Result<()> {
 
     let webhook_manager = webhook::WebhookManager::new(shutdown_rx.clone());
 
+    // Runtime-mutable config (hot-reloadable; shared across all servers).
+    let runtime_cfg = runtime_config::new_shared(&config);
+
+    // Shared NATS sync sender — None until NATS connects (populated below,
+    // before any request is processed). Admin API uses this to broadcast
+    // runtime config changes cluster-wide. Use a RwLock so it can be set
+    // after the Arc is distributed to the server tasks.
+    let shared_sync_tx: Arc<
+        tokio::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<sync::event::SyncEvent>>>,
+    > = Arc::new(tokio::sync::RwLock::new(None));
+
     // Log server started event
     {
         let store_guard = store.read().await;
@@ -339,11 +360,13 @@ async fn main() -> anyhow::Result<()> {
         let http_metric_sink = metric_sink.clone();
         let http_executor = executor.clone();
         let http_config = config.clone();
+        let http_runtime_cfg = runtime_cfg.clone();
         let http_signature_verifier = signature_verifier.clone();
         let http_debug_sessions = debug_sessions.clone();
         let http_tenant_manager = tenant_manager.clone();
         let http_rate_limiter = rate_limiter.clone();
         let http_webhook_manager = webhook_manager.clone();
+        let http_sync_tx = shared_sync_tx.clone();
         let http_addr = config.http_addr();
         let http_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
@@ -354,11 +377,13 @@ async fn main() -> anyhow::Result<()> {
                 http_metric_sink,
                 http_executor,
                 http_config,
+                http_runtime_cfg,
                 http_signature_verifier,
                 http_debug_sessions,
                 http_tenant_manager,
                 http_rate_limiter,
                 http_webhook_manager,
+                http_sync_tx,
                 http_shutdown_rx,
             )
             .await
@@ -479,7 +504,9 @@ async fn main() -> anyhow::Result<()> {
                             let mut store_guard = store.write().await;
                             store_guard.set_sync_tx(sync_tx.clone());
                         }
-                        tenant_manager.set_sync_tx(sync_tx).await;
+                        tenant_manager.set_sync_tx(sync_tx.clone()).await;
+                        // Share the sender with HTTP handlers for runtime config broadcast.
+                        *shared_sync_tx.write().await = Some(sync_tx);
                         info!("NATS publisher started (writer mode)");
                     }
 
@@ -492,6 +519,7 @@ async fn main() -> anyhow::Result<()> {
                                     instance_id.clone(),
                                     store.clone(),
                                     tenant_manager.clone(),
+                                    runtime_cfg.clone(),
                                 );
                                 nats_subscriber_handle =
                                     Some(subscriber.start(shutdown_rx.clone()));
@@ -607,11 +635,15 @@ async fn start_http_server(
     metric_sink: Arc<PrometheusMetricSink>,
     executor: Arc<RuleExecutor>,
     config: Arc<ServerConfig>,
+    runtime_config: SharedRuntimeConfig,
     signature_verifier: Option<RuleVerifier>,
     debug_sessions: Arc<debug::DebugSessionManager>,
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     webhook_manager: Arc<webhook::WebhookManager>,
+    sync_tx: Arc<
+        tokio::sync::RwLock<Option<tokio::sync::mpsc::UnboundedSender<sync::event::SyncEvent>>>,
+    >,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
@@ -622,11 +654,13 @@ async fn start_http_server(
         metric_sink,
         executor,
         config,
+        runtime_config,
         signature_verifier,
         debug_sessions,
         tenant_manager,
         rate_limiter,
         webhook_manager,
+        sync_tx,
     };
 
     // Build base router
@@ -700,6 +734,10 @@ async fn start_http_server(
         )
         // Admin API
         .route("/api/v1/admin/reload", post(api::admin_reload))
+        .route(
+            "/api/v1/admin/config",
+            get(api::get_runtime_config).put(api::put_runtime_config),
+        )
         // Metrics
         .route("/metrics", get(prometheus_metrics))
         // Tenant management

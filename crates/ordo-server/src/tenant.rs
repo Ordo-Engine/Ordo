@@ -82,7 +82,8 @@ impl TenantStore {
 pub struct TenantManager {
     tenants: RwLock<HashMap<String, TenantConfig>>,
     store: Option<TenantStore>,
-    defaults: TenantDefaults,
+    /// Defaults for new tenants — hot-reloadable via the admin API.
+    defaults: parking_lot::RwLock<TenantDefaults>,
     /// Sync channel for publishing tenant config changes to NATS.
     sync_tx: RwLock<Option<mpsc::UnboundedSender<SyncEvent>>>,
 }
@@ -97,19 +98,27 @@ impl TenantManager {
         Ok(Self {
             tenants: RwLock::new(tenants),
             store,
-            defaults,
+            defaults: parking_lot::RwLock::new(defaults),
             sync_tx: RwLock::new(None),
         })
     }
 
-    pub fn defaults(&self) -> &TenantDefaults {
-        &self.defaults
+    pub fn defaults(&self) -> parking_lot::RwLockReadGuard<'_, TenantDefaults> {
+        self.defaults.read()
+    }
+
+    /// Update the tenant defaults used when creating new tenants.
+    ///
+    /// Does not affect existing tenants; only influences calls to
+    /// [`ensure_default`] and [`TenantConfig::default_for_id`] made afterwards.
+    pub fn update_defaults(&self, new_defaults: TenantDefaults) {
+        *self.defaults.write() = new_defaults;
     }
 
     pub async fn ensure_default(&self, tenant_id: &str) -> io::Result<()> {
         let mut guard = self.tenants.write().await;
         if !guard.contains_key(tenant_id) {
-            let config = TenantConfig::default_for_id(tenant_id, &self.defaults);
+            let config = TenantConfig::default_for_id(tenant_id, &self.defaults.read());
             guard.insert(tenant_id.to_string(), config);
             if let Some(store) = &self.store {
                 store.save(&guard).await?;
@@ -267,11 +276,11 @@ mod tests {
         let mut tenants = HashMap::new();
         tenants.insert(
             "default".to_string(),
-            TenantConfig::default_for_id("default", manager.defaults()),
+            TenantConfig::default_for_id("default", &manager.defaults()),
         );
         tenants.insert(
             "new-tenant".to_string(),
-            TenantConfig::default_for_id("new-tenant", manager.defaults()),
+            TenantConfig::default_for_id("new-tenant", &manager.defaults()),
         );
         let data = serde_json::to_vec_pretty(&tenants).unwrap();
         tokio::fs::write(&store_path, data).await.unwrap();

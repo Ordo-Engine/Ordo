@@ -139,6 +139,7 @@ pub struct NatsSubscriber {
     instance_id: String,
     store: Arc<RwLock<RuleStore>>,
     tenant_manager: Arc<TenantManager>,
+    runtime_config: crate::runtime_config::SharedRuntimeConfig,
 }
 
 impl NatsSubscriber {
@@ -147,12 +148,14 @@ impl NatsSubscriber {
         instance_id: String,
         store: Arc<RwLock<RuleStore>>,
         tenant_manager: Arc<TenantManager>,
+        runtime_config: crate::runtime_config::SharedRuntimeConfig,
     ) -> Self {
         Self {
             consumer,
             instance_id,
             store,
             tenant_manager,
+            runtime_config,
         }
     }
 
@@ -253,6 +256,9 @@ impl NatsSubscriber {
             SyncEvent::TenantConfigChanged { config_json } => {
                 self.apply_tenant_config_changed(config_json).await;
             }
+            SyncEvent::RuntimeConfigChanged { config_json } => {
+                self.apply_runtime_config_changed(config_json).await;
+            }
         }
     }
 
@@ -317,6 +323,37 @@ impl NatsSubscriber {
                 metrics::record_sync_failed("TenantConfigChanged", "apply");
             }
         }
+    }
+
+    async fn apply_runtime_config_changed(&self, config_json: &str) {
+        let new_cfg: crate::runtime_config::RuntimeConfig = match serde_json::from_str(config_json)
+        {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to deserialize RuntimeConfigChanged: {}", e);
+                metrics::record_sync_failed("RuntimeConfigChanged", "deserialize");
+                return;
+            }
+        };
+
+        // Apply to all mutable components on this node.
+        {
+            let mut guard = self.runtime_config.write().await;
+            *guard = new_cfg.clone();
+        }
+        self.tenant_manager
+            .update_defaults(crate::tenant::TenantDefaults {
+                default_qps_limit: new_cfg.default_tenant_qps,
+                default_burst_limit: new_cfg.default_tenant_burst,
+                default_timeout_ms: new_cfg.default_tenant_timeout_ms,
+            });
+        {
+            let mut store = self.store.write().await;
+            store.set_resource_limits(new_cfg.max_rules_per_tenant, new_cfg.max_total_rules);
+        }
+
+        info!("Applied sync RuntimeConfigChanged");
+        metrics::record_sync_applied("RuntimeConfigChanged");
     }
 }
 

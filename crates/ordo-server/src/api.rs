@@ -1644,6 +1644,71 @@ pub async fn admin_reload(State(state): State<AppState>) -> ApiResult<Json<serde
     })))
 }
 
+// ==================== Runtime Config API ====================
+
+/// GET /api/v1/admin/config — return the current runtime configuration.
+pub async fn get_runtime_config(
+    State(state): State<AppState>,
+) -> Json<crate::runtime_config::RuntimeConfig> {
+    let cfg = state.runtime_config.read().await;
+    Json(cfg.clone())
+}
+
+/// PUT /api/v1/admin/config — apply a new runtime configuration cluster-wide.
+pub async fn put_runtime_config(
+    State(state): State<AppState>,
+    Json(new_cfg): Json<crate::runtime_config::RuntimeConfig>,
+) -> ApiResult<Json<crate::runtime_config::RuntimeConfig>> {
+    new_cfg.validate().map_err(ApiError::bad_request)?;
+
+    // 1. Persist to in-memory store
+    {
+        let mut guard = state.runtime_config.write().await;
+        *guard = new_cfg.clone();
+    }
+
+    // 2. Apply to AuditLogger
+    state
+        .audit_logger
+        .set_sample_rate(new_cfg.audit_sample_rate);
+
+    // 3. Apply resource limits to RuleStore
+    {
+        let mut store = state.store.write().await;
+        store.set_resource_limits(new_cfg.max_rules_per_tenant, new_cfg.max_total_rules);
+    }
+
+    // 4. Apply tenant defaults to TenantManager
+    state
+        .tenant_manager
+        .update_defaults(crate::tenant::TenantDefaults {
+            default_qps_limit: new_cfg.default_tenant_qps,
+            default_burst_limit: new_cfg.default_tenant_burst,
+            default_timeout_ms: new_cfg.default_tenant_timeout_ms,
+        });
+
+    // 5. Broadcast to cluster via NATS (if enabled)
+    {
+        let tx_guard = state.sync_tx.read().await;
+        if let Some(tx) = tx_guard.as_ref() {
+            if let Ok(json) = serde_json::to_string(&new_cfg) {
+                let _ = tx.send(crate::sync::event::SyncEvent::RuntimeConfigChanged {
+                    config_json: json,
+                });
+            }
+        }
+    }
+
+    tracing::info!(
+        audit_sample_rate = new_cfg.audit_sample_rate,
+        max_rules_per_tenant = ?new_cfg.max_rules_per_tenant,
+        max_total_rules = ?new_cfg.max_total_rules,
+        "Runtime config updated"
+    );
+
+    Ok(Json(new_cfg))
+}
+
 // ==================== Rule Testing API ====================
 
 /// Run a test suite against a named ruleset.

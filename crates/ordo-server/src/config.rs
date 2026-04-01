@@ -39,6 +39,11 @@
 //! | `ORDO_REQUEST_TIMEOUT_SECS` | HTTP request timeout | `30` |
 //! | `ORDO_MAX_RULES_PER_TENANT` | Max rulesets per tenant | unlimited |
 //! | `ORDO_MAX_TOTAL_RULES` | Max rulesets across all tenants | unlimited |
+//! | `ORDO_GRPC_TLS_ENABLED` | Enable TLS for gRPC | `false` |
+//! | `ORDO_GRPC_TLS_CERT` | Server certificate PEM path | - |
+//! | `ORDO_GRPC_TLS_KEY` | Server private key PEM path | - |
+//! | `ORDO_GRPC_MTLS_ENABLED` | Enable mutual TLS for gRPC | `false` |
+//! | `ORDO_GRPC_TLS_CLIENT_CA` | Client CA certificate PEM path | - |
 
 use clap::Parser;
 use std::fmt;
@@ -275,6 +280,30 @@ pub struct ServerConfig {
     /// When this limit is reached, new PUT requests are rejected with 422.
     #[arg(long, env = "ORDO_MAX_TOTAL_RULES")]
     pub max_total_rules: Option<usize>,
+
+    // ── gRPC TLS ──────────────────────────────────────────────────────
+    /// Enable TLS for the gRPC server.
+    /// Requires --grpc-tls-cert and --grpc-tls-key.
+    #[arg(long, default_value = "false", env = "ORDO_GRPC_TLS_ENABLED")]
+    pub grpc_tls_enabled: bool,
+
+    /// Path to the PEM-encoded server certificate for gRPC TLS.
+    #[arg(long, env = "ORDO_GRPC_TLS_CERT")]
+    pub grpc_tls_cert: Option<PathBuf>,
+
+    /// Path to the PEM-encoded private key (PKCS8) for gRPC TLS.
+    #[arg(long, env = "ORDO_GRPC_TLS_KEY")]
+    pub grpc_tls_key: Option<PathBuf>,
+
+    /// Enable mutual TLS (mTLS) for the gRPC server.
+    /// Clients must present a certificate signed by the CA specified in --grpc-tls-client-ca.
+    /// Implies --grpc-tls-enabled.
+    #[arg(long, default_value = "false", env = "ORDO_GRPC_MTLS_ENABLED")]
+    pub grpc_mtls_enabled: bool,
+
+    /// Path to the PEM-encoded CA certificate for verifying client certificates (mTLS).
+    #[arg(long, env = "ORDO_GRPC_TLS_CLIENT_CA")]
+    pub grpc_tls_client_ca: Option<PathBuf>,
 }
 
 impl ServerConfig {
@@ -409,7 +438,22 @@ impl ServerConfig {
             tracing::warn!("--signature-require has no effect without --signature-enabled");
         }
 
+        // gRPC TLS validation
+        if (self.grpc_tls_enabled || self.grpc_mtls_enabled)
+            && (self.grpc_tls_cert.is_none() || self.grpc_tls_key.is_none())
+        {
+            return Err("gRPC TLS requires both --grpc-tls-cert and --grpc-tls-key".to_string());
+        }
+        if self.grpc_mtls_enabled && self.grpc_tls_client_ca.is_none() {
+            return Err("gRPC mTLS requires --grpc-tls-client-ca".to_string());
+        }
+
         Ok(())
+    }
+
+    /// Returns true when gRPC TLS should be enabled (explicit flag or implied by mTLS).
+    pub fn grpc_tls_active(&self) -> bool {
+        self.grpc_tls_enabled || self.grpc_mtls_enabled
     }
 }
 
@@ -453,6 +497,11 @@ impl Default for ServerConfig {
             request_timeout_secs: 30,
             max_rules_per_tenant: None,
             max_total_rules: None,
+            grpc_tls_enabled: false,
+            grpc_tls_cert: None,
+            grpc_tls_key: None,
+            grpc_mtls_enabled: false,
+            grpc_tls_client_ca: None,
         }
     }
 }
@@ -576,5 +625,68 @@ mod tests {
             InstanceRole::Reader
         );
         assert!("invalid".parse::<InstanceRole>().is_err());
+    }
+
+    #[test]
+    fn test_grpc_tls_defaults_disabled() {
+        let config = ServerConfig::default();
+        assert!(!config.grpc_tls_enabled);
+        assert!(!config.grpc_mtls_enabled);
+        assert!(!config.grpc_tls_active());
+    }
+
+    #[test]
+    fn test_grpc_tls_active_implied_by_mtls() {
+        let config = ServerConfig {
+            grpc_mtls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            grpc_tls_client_ca: Some(PathBuf::from("/tmp/ca.pem")),
+            ..Default::default()
+        };
+        assert!(config.grpc_tls_active());
+    }
+
+    #[test]
+    fn test_grpc_tls_validate_missing_cert() {
+        let config = ServerConfig {
+            grpc_tls_enabled: true,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_grpc_mtls_validate_missing_ca() {
+        let config = ServerConfig {
+            grpc_mtls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_grpc_tls_validate_ok() {
+        let config = ServerConfig {
+            grpc_tls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_grpc_mtls_validate_ok() {
+        let config = ServerConfig {
+            grpc_mtls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            grpc_tls_client_ca: Some(PathBuf::from("/tmp/ca.pem")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
     }
 }

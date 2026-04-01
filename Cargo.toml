@@ -66,7 +66,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["trace", "cors", "limit", "timeout"] }
 
 # gRPC
-tonic = "0.10"
+tonic = { version = "0.10", features = ["tls"] }
 prost = "0.12"
 
 # 监控

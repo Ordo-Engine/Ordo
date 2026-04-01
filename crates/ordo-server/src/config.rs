@@ -542,6 +542,10 @@ impl Default for ServerConfig {
             grpc_tls_key: None,
             grpc_mtls_enabled: false,
             grpc_tls_client_ca: None,
+            wal_dir: None,
+            wal_disabled: false,
+            wal_max_segment_bytes: 67108864,
+            wal_max_closed_segments: 3,
         }
     }
 }

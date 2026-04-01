@@ -125,6 +125,49 @@ fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<Rule
     Ok(Some(RuleVerifier::new(keys, config.signature_require)))
 }
 
+/// Build TLS config for the gRPC server from CLI/env settings.
+fn build_grpc_tls_config(
+    config: &ServerConfig,
+) -> anyhow::Result<Option<tonic::transport::ServerTlsConfig>> {
+    if !config.grpc_tls_active() {
+        return Ok(None);
+    }
+
+    let cert_path = config
+        .grpc_tls_cert
+        .as_ref()
+        .expect("validated by ServerConfig::validate");
+    let key_path = config
+        .grpc_tls_key
+        .as_ref()
+        .expect("validated by ServerConfig::validate");
+
+    let cert_pem = std::fs::read(cert_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read gRPC TLS cert {:?}: {}", cert_path, e))?;
+    let key_pem = std::fs::read(key_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read gRPC TLS key {:?}: {}", key_path, e))?;
+
+    let identity = tonic::transport::Identity::from_pem(cert_pem, key_pem);
+    let mut tls = tonic::transport::ServerTlsConfig::new().identity(identity);
+
+    if config.grpc_mtls_enabled {
+        let ca_path = config
+            .grpc_tls_client_ca
+            .as_ref()
+            .expect("validated by ServerConfig::validate");
+        let ca_pem = std::fs::read(ca_path).map_err(|e| {
+            anyhow::anyhow!("Failed to read gRPC client CA cert {:?}: {}", ca_path, e)
+        })?;
+        let ca_cert = tonic::transport::Certificate::from_pem(ca_pem);
+        tls = tls.client_ca_root(ca_cert);
+        info!("gRPC mTLS enabled (client certificate required)");
+    } else {
+        info!("gRPC TLS enabled");
+    }
+
+    Ok(Some(tls))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Install panic hook first — before any other setup — so panics are always logged.
@@ -367,6 +410,7 @@ async fn main() -> anyhow::Result<()> {
 
     // gRPC Server
     if config.grpc_enabled() {
+        let grpc_tls_config = build_grpc_tls_config(&config)?;
         let grpc_store = store.clone();
         let grpc_executor = executor.clone();
         let grpc_addr = config.grpc_addr();
@@ -390,6 +434,7 @@ async fn main() -> anyhow::Result<()> {
                 grpc_max_body,
                 grpc_role,
                 grpc_writer_addr,
+                grpc_tls_config,
                 grpc_shutdown_rx,
             )
             .await
@@ -667,6 +712,11 @@ async fn start_http_server(
             "/api/v1/rulesets/:name/filter",
             post(api::compile_filter),
         )
+        // Rule testing
+        .route(
+            "/api/v1/rulesets/:name/test",
+            post(api::test_ruleset),
+        )
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Audit configuration
@@ -809,6 +859,7 @@ async fn start_grpc_server(
     max_request_body_bytes: usize,
     role: config::InstanceRole,
     writer_addr: Option<String>,
+    tls_config: Option<tonic::transport::ServerTlsConfig>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let grpc_service = OrdoGrpcService::new(
@@ -821,12 +872,19 @@ async fn start_grpc_server(
     )
     .with_role(role, writer_addr);
 
-    info!("gRPC server listening on {}", addr);
-
-    TonicServer::builder()
+    let mut builder = TonicServer::builder()
         .tcp_keepalive(Some(Duration::from_secs(60)))
         .http2_keepalive_interval(Some(Duration::from_secs(30)))
-        .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+        .http2_keepalive_timeout(Some(Duration::from_secs(20)));
+
+    if let Some(tls) = tls_config {
+        builder = builder.tls_config(tls)?;
+        info!("gRPC server listening on {} (TLS)", addr);
+    } else {
+        info!("gRPC server listening on {}", addr);
+    }
+
+    builder
         .add_service(
             OrdoServiceServer::new(grpc_service).max_decoding_message_size(max_request_body_bytes),
         )

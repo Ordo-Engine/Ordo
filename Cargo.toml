@@ -2,8 +2,9 @@
 resolver = "2"
 members = [
     "crates/ordo-core",
+    "crates/ordo-cli",
     "crates/ordo-derive",
-    "crates/ordo-proto", 
+    "crates/ordo-proto",
     "crates/ordo-server",
     "crates/ordo-wasm",
 ]
@@ -91,6 +92,10 @@ lru = "0.12"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+colored = "2"
 
 # Internal crates
 ordo-derive = { version = "0.3.0", path = "crates/ordo-derive" }

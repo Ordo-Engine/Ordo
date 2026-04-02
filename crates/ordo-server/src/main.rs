@@ -63,6 +63,7 @@ mod telemetry;
 mod tenant;
 #[cfg(unix)]
 mod uds;
+pub mod wal;
 pub mod webhook;
 
 use audit::AuditLogger;
@@ -77,6 +78,7 @@ use std::fs;
 use store::RuleStore;
 use sync::file_watcher::RecentWrites;
 use tenant::{default_tenant_store_path, TenantDefaults, TenantManager, TenantStore};
+use wal::WalManager;
 
 /// Application state shared between HTTP handlers
 #[derive(Clone)]
@@ -255,6 +257,42 @@ async fn main() -> anyhow::Result<()> {
         }
         store.set_resource_limits(config.max_rules_per_tenant, config.max_total_rules);
 
+        // ── WAL: open, replay uncommitted entries, then load rules ───
+        let store_dir_for_wal = if config.multi_tenancy_enabled {
+            rules_dir.join("tenants")
+        } else {
+            rules_dir.clone()
+        };
+        let wal_opt: Option<Arc<WalManager>> = if !config.wal_disabled {
+            let wal_dir = config
+                .wal_dir
+                .clone()
+                .unwrap_or_else(|| store_dir_for_wal.join("wal"));
+            match WalManager::open(
+                wal_dir.clone(),
+                config.wal_max_segment_bytes,
+                config.wal_max_closed_segments,
+            ) {
+                Ok(wal) => {
+                    info!("WAL opened at {:?}", wal_dir);
+                    let wal = Arc::new(wal);
+                    // Replay any uncommitted entries before loading rules from disk
+                    replay_wal(&mut store, &wal);
+                    Some(wal)
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Failed to open WAL at {:?}: {}",
+                        wal_dir,
+                        e
+                    ));
+                }
+            }
+        } else {
+            warn!("WAL is disabled; crash-safe persistence is not guaranteed");
+            None
+        };
+
         // Load existing rules from directory
         match store.load_from_dir() {
             Ok(count) => {
@@ -286,6 +324,12 @@ async fn main() -> anyhow::Result<()> {
             Err(e) => {
                 warn!("Failed to load external data: {}", e);
             }
+        }
+
+        // Attach WAL for ongoing writes (after load_from_dir so replay is clean)
+        if let Some(ref wal) = wal_opt {
+            store.set_wal(wal.clone());
+            info!("WAL attached; crash-safe persistence enabled");
         }
 
         Arc::new(RwLock::new(store))
@@ -992,6 +1036,107 @@ async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse 
         )],
         format!("{}\n{}", standard_metrics, custom_metrics),
     )
+}
+
+/// Replay uncommitted WAL entries into the store before `load_from_dir`.
+///
+/// For each `Prepared` entry without a matching `Committed`:
+/// - **Put**: verify CRC32, deserialize RuleSet, re-run `persist_ruleset`.
+/// - **Delete**: re-run `delete_file` (idempotent — no error if already gone).
+///
+/// After replaying, a `Committed` marker is written so the entry is not
+/// replayed again on the next startup.
+fn replay_wal(store: &mut store::RuleStore, wal_mgr: &WalManager) {
+    use ordo_core::prelude::RuleSet;
+
+    let pending = match wal::scan_pending(wal_mgr) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to scan WAL for pending entries: {}", e);
+            return;
+        }
+    };
+
+    if pending.puts.is_empty() && pending.deletes.is_empty() {
+        tracing::debug!("WAL: no uncommitted entries to replay");
+        return;
+    }
+
+    tracing::info!(
+        puts = pending.puts.len(),
+        deletes = pending.deletes.len(),
+        "WAL: replaying uncommitted entries"
+    );
+
+    for put in pending.puts {
+        // Verify CRC32 before applying
+        let actual_crc = wal::crc32(put.ruleset_json.as_bytes());
+        if actual_crc != put.crc32 {
+            tracing::warn!(
+                seq = put.seq,
+                tenant_id = %put.tenant_id,
+                name = %put.name,
+                "WAL replay: CRC32 mismatch — skipping corrupted entry"
+            );
+            metrics::record_wal_replay("put", "error");
+            continue;
+        }
+
+        match serde_json::from_str::<RuleSet>(&put.ruleset_json) {
+            Ok(ruleset) => match store.persist_ruleset(&put.tenant_id, &put.name, &ruleset) {
+                Ok(()) => {
+                    tracing::info!(
+                        seq = put.seq,
+                        tenant_id = %put.tenant_id,
+                        name = %put.name,
+                        "WAL replay: recovered uncommitted put"
+                    );
+                    metrics::record_wal_replay("put", "recovered");
+                    if let Err(e) =
+                        wal_mgr.commit(put.seq, &wal::WalOpKind::Put, &put.tenant_id, &put.name)
+                    {
+                        tracing::warn!(seq = put.seq, error = %e, "WAL: failed to write commit marker after replay");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        seq = put.seq,
+                        tenant_id = %put.tenant_id,
+                        name = %put.name,
+                        error = %e,
+                        "WAL replay: failed to re-persist rule"
+                    );
+                    metrics::record_wal_replay("put", "error");
+                }
+            },
+            Err(e) => {
+                tracing::error!(
+                    seq = put.seq,
+                    tenant_id = %put.tenant_id,
+                    name = %put.name,
+                    error = %e,
+                    "WAL replay: failed to deserialize ruleset JSON"
+                );
+                metrics::record_wal_replay("put", "error");
+            }
+        }
+    }
+
+    for del in pending.deletes {
+        // delete_file is idempotent — ignore "not found" errors
+        let _ = store.delete_file(&del.tenant_id, &del.name);
+        tracing::info!(
+            seq = del.seq,
+            tenant_id = %del.tenant_id,
+            name = %del.name,
+            "WAL replay: recovered uncommitted delete"
+        );
+        metrics::record_wal_replay("delete", "recovered");
+        if let Err(e) = wal_mgr.commit(del.seq, &wal::WalOpKind::Delete, &del.tenant_id, &del.name)
+        {
+            tracing::warn!(seq = del.seq, error = %e, "WAL: failed to write commit marker after replay");
+        }
+    }
 }
 
 #[cfg(test)]

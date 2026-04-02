@@ -219,7 +219,81 @@ lazy_static! {
         "Total number of individual results in batch executions",
         &["ruleset", "result"]
     ).unwrap();
+
+    // ==================== WAL Metrics ====================
+
+    /// Total size of all WAL segment files in bytes
+    pub static ref WAL_SIZE_BYTES: Gauge = register_gauge!(
+        "ordo_wal_size_bytes",
+        "Total size of WAL segment files in bytes"
+    ).unwrap();
+
+    /// Number of WAL segment files on disk
+    pub static ref WAL_SEGMENTS_TOTAL: IntGauge = register_int_gauge!(
+        "ordo_wal_segments_total",
+        "Number of WAL segment files on disk"
+    ).unwrap();
+
+    /// WAL entries that are prepared but not yet committed
+    pub static ref WAL_PENDING_ENTRIES: IntGauge = register_int_gauge!(
+        "ordo_wal_pending_entries",
+        "WAL entries that are prepared but not yet committed"
+    ).unwrap();
+
+    /// Total WAL write operations (labels: op=put|delete, state=prepared|committed)
+    pub static ref WAL_WRITES_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_wal_writes_total",
+        "Total WAL write operations",
+        &["op", "state"]
+    ).unwrap();
+
+    /// Total WAL entries replayed at startup (labels: op=put|delete, result=recovered|skipped|error)
+    pub static ref WAL_REPLAYS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_wal_replays_total",
+        "Total WAL entries replayed at startup",
+        &["op", "result"]
+    ).unwrap();
+
+    /// Total WAL segment rotation events
+    pub static ref WAL_ROTATIONS_TOTAL: IntGauge = register_int_gauge!(
+        "ordo_wal_rotations_total",
+        "Total WAL segment rotation events"
+    ).unwrap();
 }
+
+// ── WAL metric helpers ────────────────────────────────────────────────────
+
+/// Record a WAL write (prepare or commit).
+pub fn record_wal_write(op: &str, state: &str) {
+    WAL_WRITES_TOTAL.with_label_values(&[op, state]).inc();
+}
+
+/// Record a WAL replay outcome at startup.
+pub fn record_wal_replay(op: &str, result: &str) {
+    WAL_REPLAYS_TOTAL.with_label_values(&[op, result]).inc();
+}
+
+/// Update total WAL size metric.
+pub fn set_wal_size_bytes(bytes: u64) {
+    WAL_SIZE_BYTES.set(bytes as f64);
+}
+
+/// Update WAL pending entries metric.
+pub fn set_wal_pending_entries(count: i64) {
+    WAL_PENDING_ENTRIES.set(count);
+}
+
+/// Update WAL segment count metric.
+pub fn set_wal_segments_total(count: i64) {
+    WAL_SEGMENTS_TOTAL.set(count);
+}
+
+/// Increment the WAL rotation counter.
+pub fn inc_wal_rotations() {
+    WAL_ROTATIONS_TOTAL.inc();
+}
+
+// ── General helpers ───────────────────────────────────────────────────────
 
 /// Initialize metrics (call once at startup)
 pub fn init() {

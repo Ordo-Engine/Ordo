@@ -44,6 +44,10 @@
 //! | `ORDO_GRPC_TLS_KEY` | Server private key PEM path | - |
 //! | `ORDO_GRPC_MTLS_ENABLED` | Enable mutual TLS for gRPC | `false` |
 //! | `ORDO_GRPC_TLS_CLIENT_CA` | Client CA certificate PEM path | - |
+//! | `ORDO_WAL_DIR` | WAL directory override | `{rules-dir}/wal/` |
+//! | `ORDO_WAL_DISABLED` | Disable WAL (not recommended) | `false` |
+//! | `ORDO_WAL_MAX_SEGMENT_BYTES` | Max bytes per WAL segment | `67108864` (64MiB) |
+//! | `ORDO_WAL_MAX_CLOSED_SEGMENTS` | Closed WAL segments to retain | `3` |
 
 use clap::Parser;
 use std::fmt;
@@ -281,6 +285,29 @@ pub struct ServerConfig {
     #[arg(long, env = "ORDO_MAX_TOTAL_RULES")]
     pub max_total_rules: Option<usize>,
 
+    // ── WAL ───────────────────────────────────────────────────────────
+    /// Override the Write-Ahead Log directory.
+    /// Defaults to `{rules-dir}/wal/` when --rules-dir is set.
+    /// Has no effect when --rules-dir is not configured.
+    #[arg(long, env = "ORDO_WAL_DIR")]
+    pub wal_dir: Option<PathBuf>,
+
+    /// Disable the Write-Ahead Log.
+    /// Not recommended for production; crash-safe persistence is not guaranteed
+    /// when the WAL is disabled.
+    #[arg(long, default_value = "false", env = "ORDO_WAL_DISABLED")]
+    pub wal_disabled: bool,
+
+    /// Maximum size of a single WAL segment file before rotation (bytes).
+    /// Default: 64 MiB.
+    #[arg(long, default_value = "67108864", env = "ORDO_WAL_MAX_SEGMENT_BYTES")]
+    pub wal_max_segment_bytes: u64,
+
+    /// Number of fully-committed closed WAL segments to retain after rotation.
+    /// Older segments are deleted automatically.
+    #[arg(long, default_value = "3", env = "ORDO_WAL_MAX_CLOSED_SEGMENTS")]
+    pub wal_max_closed_segments: usize,
+
     // ── gRPC TLS ──────────────────────────────────────────────────────
     /// Enable TLS for the gRPC server.
     /// Requires --grpc-tls-cert and --grpc-tls-key.
@@ -420,6 +447,18 @@ impl ServerConfig {
             tracing::warn!("--watch-rules has no effect without --rules-dir");
         }
 
+        // WAL disabled with persistence: warn about reduced crash safety
+        if self.wal_disabled && self.rules_dir.is_some() {
+            tracing::warn!(
+                "--wal-disabled: Write-Ahead Log is off. Crash-safe persistence is not guaranteed."
+            );
+        }
+
+        // WAL dir override without rules-dir
+        if self.wal_dir.is_some() && self.rules_dir.is_none() {
+            tracing::warn!("--wal-dir has no effect without --rules-dir");
+        }
+
         // max-versions without rules-dir
         if self.max_versions != 10 && self.rules_dir.is_none() {
             tracing::warn!("--max-versions has no effect without --rules-dir");
@@ -502,6 +541,10 @@ impl Default for ServerConfig {
             grpc_tls_key: None,
             grpc_mtls_enabled: false,
             grpc_tls_client_ca: None,
+            wal_dir: None,
+            wal_disabled: false,
+            wal_max_segment_bytes: 67108864,
+            wal_max_closed_segments: 3,
         }
     }
 }

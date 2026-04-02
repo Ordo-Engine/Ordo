@@ -7,6 +7,7 @@
 use crate::metrics;
 use crate::sync::event::SyncEvent;
 use crate::sync::file_watcher::RecentWrites;
+use crate::wal::{WalManager, WalOpKind};
 use once_cell::sync::Lazy;
 use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use ordo_core::signature::{strip_signature, RuleVerifier};
@@ -86,6 +87,8 @@ pub struct RuleStore {
     /// Self-write tracker — paths written by this process are recorded here
     /// so the file watcher can skip redundant reloads.
     recent_writes: Option<Arc<RecentWrites>>,
+    /// Write-Ahead Log manager (None = WAL disabled or no rules_dir).
+    wal: Option<Arc<WalManager>>,
 }
 
 /// Version information for a rule
@@ -128,6 +131,7 @@ impl RuleStore {
             max_total_rules: None,
             data: HashMap::new(),
             recent_writes: None,
+            wal: None,
         }
     }
 
@@ -148,6 +152,7 @@ impl RuleStore {
             max_total_rules: None,
             data: HashMap::new(),
             recent_writes: None,
+            wal: None,
         }
     }
 
@@ -174,6 +179,7 @@ impl RuleStore {
             max_total_rules: None,
             data: HashMap::new(),
             recent_writes: None,
+            wal: None,
         }
     }
 
@@ -198,6 +204,7 @@ impl RuleStore {
             max_total_rules: None,
             data: HashMap::new(),
             recent_writes: None,
+            wal: None,
         }
     }
 
@@ -249,6 +256,12 @@ impl RuleStore {
     /// for files this process just persisted.
     pub fn set_recent_writes(&mut self, recent_writes: Arc<RecentWrites>) {
         self.recent_writes = Some(recent_writes);
+    }
+
+    /// Attach a WAL manager.  After this call, every `put_for_tenant` and
+    /// `delete_for_tenant` will record a prepare/commit entry in the WAL.
+    pub fn set_wal(&mut self, wal: Arc<WalManager>) {
+        self.wal = Some(wal);
     }
 
     /// Check if persistence is enabled
@@ -613,7 +626,12 @@ impl RuleStore {
     }
 
     /// Persist a ruleset to disk
-    fn persist_ruleset(&self, tenant_id: &str, name: &str, ruleset: &RuleSet) -> io::Result<()> {
+    pub(crate) fn persist_ruleset(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        ruleset: &RuleSet,
+    ) -> io::Result<()> {
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -649,7 +667,7 @@ impl RuleStore {
     }
 
     /// Delete a ruleset file from disk
-    fn delete_file(&self, tenant_id: &str, name: &str) -> io::Result<()> {
+    pub(crate) fn delete_file(&self, tenant_id: &str, name: &str) -> io::Result<()> {
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -1001,6 +1019,29 @@ impl RuleStore {
             }
         }
 
+        // ── WAL: record intent before any disk mutation ──────────────
+        let wal_seq: Option<u64> = if let Some(ref wal) = self.wal {
+            if self.rules_dir.is_some() {
+                match serde_json::to_string(&ruleset) {
+                    Ok(json) => match wal.prepare(WalOpKind::Put, tenant_id, &name, Some(&json)) {
+                        Ok(seq) => Some(seq),
+                        Err(e) => {
+                            error!("WAL prepare failed for '{}': {}", name, e);
+                            return Err(vec![format!("WAL prepare error: {}", e)]);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to serialize ruleset '{}' for WAL: {}", name, e);
+                        return Err(vec![format!("Serialization error: {}", e)]);
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Backup current version if it exists (for version history)
         if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
             if let Err(e) = self.backup_current_version(tenant_id, &name) {
@@ -1013,6 +1054,15 @@ impl RuleStore {
         if let Err(e) = self.persist_ruleset(tenant_id, &name, &ruleset) {
             error!("Failed to persist rule '{}': {}", name, e);
             return Err(vec![format!("Persistence error: {}", e)]);
+        }
+
+        // ── WAL: mark committed after successful disk write ───────────
+        if let (Some(ref wal), Some(seq)) = (&self.wal, wal_seq) {
+            if let Err(e) = wal.commit(seq, &WalOpKind::Put, tenant_id, &name) {
+                // Non-fatal: the rename already succeeded.  On next startup the
+                // uncommitted prepare entry will be replayed, which is idempotent.
+                warn!("WAL commit failed for '{}' (non-fatal): {}", name, e);
+            }
         }
 
         // Cleanup old versions beyond the limit
@@ -1076,6 +1126,23 @@ impl RuleStore {
             // Record store operation metric
             metrics::record_store_operation("delete");
 
+            // ── WAL: record delete intent before removing files ───────
+            let wal_seq: Option<u64> = if let Some(ref wal) = self.wal {
+                if self.rules_dir.is_some() {
+                    match wal.prepare(WalOpKind::Delete, tenant_id, name, None) {
+                        Ok(seq) => Some(seq),
+                        Err(e) => {
+                            warn!("WAL prepare for delete of '{}' failed: {}", name, e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             // Delete current file
             if let Err(e) = self.delete_file(tenant_id, name) {
                 error!("Failed to delete rule file for '{}': {}", name, e);
@@ -1084,6 +1151,16 @@ impl RuleStore {
             // Delete all version files
             if let Err(e) = self.delete_all_versions(tenant_id, name) {
                 error!("Failed to delete version files for '{}': {}", name, e);
+            }
+
+            // ── WAL: commit after successful file deletion ────────────
+            if let (Some(ref wal), Some(seq)) = (&self.wal, wal_seq) {
+                if let Err(e) = wal.commit(seq, &WalOpKind::Delete, tenant_id, name) {
+                    warn!(
+                        "WAL commit for delete of '{}' failed (non-fatal): {}",
+                        name, e
+                    );
+                }
             }
 
             // Publish sync event (non-blocking, best-effort)

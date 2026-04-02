@@ -626,7 +626,12 @@ impl RuleStore {
     }
 
     /// Persist a ruleset to disk
-    pub(crate) fn persist_ruleset(&self, tenant_id: &str, name: &str, ruleset: &RuleSet) -> io::Result<()> {
+    pub(crate) fn persist_ruleset(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        ruleset: &RuleSet,
+    ) -> io::Result<()> {
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -1151,7 +1156,10 @@ impl RuleStore {
             // ── WAL: commit after successful file deletion ────────────
             if let (Some(ref wal), Some(seq)) = (&self.wal, wal_seq) {
                 if let Err(e) = wal.commit(seq, &WalOpKind::Delete, tenant_id, name) {
-                    warn!("WAL commit for delete of '{}' failed (non-fatal): {}", name, e);
+                    warn!(
+                        "WAL commit for delete of '{}' failed (non-fatal): {}",
+                        name, e
+                    );
                 }
             }
 

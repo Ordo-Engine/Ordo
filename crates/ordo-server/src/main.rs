@@ -68,7 +68,6 @@ pub mod webhook;
 
 use audit::AuditLogger;
 use config::ServerConfig;
-use wal::WalManager;
 use grpc::OrdoGrpcService;
 use metrics::PrometheusMetricSink;
 use ordo_core::prelude::{RuleExecutor, TraceConfig};
@@ -79,6 +78,7 @@ use std::fs;
 use store::RuleStore;
 use sync::file_watcher::RecentWrites;
 use tenant::{default_tenant_store_path, TenantDefaults, TenantManager, TenantStore};
+use wal::WalManager;
 
 /// Application state shared between HTTP handlers
 #[derive(Clone)]
@@ -281,7 +281,11 @@ async fn main() -> anyhow::Result<()> {
                     Some(wal)
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Failed to open WAL at {:?}: {}", wal_dir, e));
+                    return Err(anyhow::anyhow!(
+                        "Failed to open WAL at {:?}: {}",
+                        wal_dir,
+                        e
+                    ));
                 }
             }
         } else {
@@ -1079,32 +1083,32 @@ fn replay_wal(store: &mut store::RuleStore, wal_mgr: &WalManager) {
         }
 
         match serde_json::from_str::<RuleSet>(&put.ruleset_json) {
-            Ok(ruleset) => {
-                match store.persist_ruleset(&put.tenant_id, &put.name, &ruleset) {
-                    Ok(()) => {
-                        tracing::info!(
-                            seq = put.seq,
-                            tenant_id = %put.tenant_id,
-                            name = %put.name,
-                            "WAL replay: recovered uncommitted put"
-                        );
-                        metrics::record_wal_replay("put", "recovered");
-                        if let Err(e) = wal_mgr.commit(put.seq, &wal::WalOpKind::Put, &put.tenant_id, &put.name) {
-                            tracing::warn!(seq = put.seq, error = %e, "WAL: failed to write commit marker after replay");
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            seq = put.seq,
-                            tenant_id = %put.tenant_id,
-                            name = %put.name,
-                            error = %e,
-                            "WAL replay: failed to re-persist rule"
-                        );
-                        metrics::record_wal_replay("put", "error");
+            Ok(ruleset) => match store.persist_ruleset(&put.tenant_id, &put.name, &ruleset) {
+                Ok(()) => {
+                    tracing::info!(
+                        seq = put.seq,
+                        tenant_id = %put.tenant_id,
+                        name = %put.name,
+                        "WAL replay: recovered uncommitted put"
+                    );
+                    metrics::record_wal_replay("put", "recovered");
+                    if let Err(e) =
+                        wal_mgr.commit(put.seq, &wal::WalOpKind::Put, &put.tenant_id, &put.name)
+                    {
+                        tracing::warn!(seq = put.seq, error = %e, "WAL: failed to write commit marker after replay");
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::error!(
+                        seq = put.seq,
+                        tenant_id = %put.tenant_id,
+                        name = %put.name,
+                        error = %e,
+                        "WAL replay: failed to re-persist rule"
+                    );
+                    metrics::record_wal_replay("put", "error");
+                }
+            },
             Err(e) => {
                 tracing::error!(
                     seq = put.seq,
@@ -1128,7 +1132,8 @@ fn replay_wal(store: &mut store::RuleStore, wal_mgr: &WalManager) {
             "WAL replay: recovered uncommitted delete"
         );
         metrics::record_wal_replay("delete", "recovered");
-        if let Err(e) = wal_mgr.commit(del.seq, &wal::WalOpKind::Delete, &del.tenant_id, &del.name) {
+        if let Err(e) = wal_mgr.commit(del.seq, &wal::WalOpKind::Delete, &del.tenant_id, &del.name)
+        {
             tracing::warn!(seq = del.seq, error = %e, "WAL: failed to write commit marker after replay");
         }
     }

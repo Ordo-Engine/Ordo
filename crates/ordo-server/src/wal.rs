@@ -176,13 +176,7 @@ impl WalManager {
     /// Commit failures are non-fatal: the disk mutation has already succeeded.
     /// On the next restart the uncommitted entry will be replayed, which is
     /// idempotent (the file already exists with the correct content).
-    pub fn commit(
-        &self,
-        seq: u64,
-        op: &WalOpKind,
-        tenant_id: &str,
-        name: &str,
-    ) -> io::Result<()> {
+    pub fn commit(&self, seq: u64, op: &WalOpKind, tenant_id: &str, name: &str) -> io::Result<()> {
         let entry = WalEntry {
             seq,
             timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -634,7 +628,10 @@ mod tests {
         wal.prepare(WalOpKind::Put, "t", "r2", Some("{}")).unwrap();
 
         let segs = list_segments(tmp.path()).unwrap();
-        assert!(segs.len() >= 2, "expected at least 2 segments after rotation");
+        assert!(
+            segs.len() >= 2,
+            "expected at least 2 segments after rotation"
+        );
     }
 
     #[test]
@@ -642,17 +639,13 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         {
             let wal = open_wal(tmp.path());
-            let seq = wal
-                .prepare(WalOpKind::Put, "t", "r", Some("{}"))
-                .unwrap();
+            let seq = wal.prepare(WalOpKind::Put, "t", "r", Some("{}")).unwrap();
             wal.commit(seq, &WalOpKind::Put, "t", "r").unwrap();
             assert_eq!(seq, 1);
         }
         // Reopen — next seq must be > 1
         let wal2 = open_wal(tmp.path());
-        let seq2 = wal2
-            .prepare(WalOpKind::Put, "t", "r2", Some("{}"))
-            .unwrap();
+        let seq2 = wal2.prepare(WalOpKind::Put, "t", "r2", Some("{}")).unwrap();
         assert!(seq2 > 1, "next_seq should continue from previous session");
     }
 
@@ -708,9 +701,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let wal = open_wal(tmp.path());
 
-        let seq = wal
-            .prepare(WalOpKind::Put, "t", "r", Some("{}"))
-            .unwrap();
+        let seq = wal.prepare(WalOpKind::Put, "t", "r", Some("{}")).unwrap();
         wal.commit(seq, &WalOpKind::Put, "t", "r").unwrap();
 
         let pending = scan_pending(&wal).unwrap();
@@ -730,7 +721,10 @@ mod tests {
 
         let wal2 = open_wal(tmp.path());
         let pending = scan_pending(&wal2).unwrap();
-        assert!(pending.puts.is_empty(), "put should be superseded by delete");
+        assert!(
+            pending.puts.is_empty(),
+            "put should be superseded by delete"
+        );
         assert_eq!(pending.deletes.len(), 1);
     }
 }

@@ -286,7 +286,6 @@ pub struct ServerConfig {
     pub max_total_rules: Option<usize>,
 
     // ── WAL ───────────────────────────────────────────────────────────
-
     /// Override the Write-Ahead Log directory.
     /// Defaults to `{rules-dir}/wal/` when --rules-dir is set.
     /// Has no effect when --rules-dir is not configured.

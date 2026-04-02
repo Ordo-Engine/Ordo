@@ -79,7 +79,6 @@ pub struct WalEntry {
 // ---------------------------------------------------------------------------
 
 struct SegmentWriter {
-    path: PathBuf,
     file: BufWriter<File>,
     bytes_written: u64,
     segment_number: u64,
@@ -120,7 +119,6 @@ impl WalManager {
             .open(&seg_path)?;
         let bytes_written = file.metadata()?.len();
         let writer = SegmentWriter {
-            path: seg_path,
             file: BufWriter::new(file),
             bytes_written,
             segment_number: current_seg_num,
@@ -308,7 +306,6 @@ impl WalManager {
             .append(true)
             .open(&next_path)?;
         *w = SegmentWriter {
-            path: next_path,
             file: BufWriter::new(file),
             bytes_written: 0,
             segment_number: next_num,

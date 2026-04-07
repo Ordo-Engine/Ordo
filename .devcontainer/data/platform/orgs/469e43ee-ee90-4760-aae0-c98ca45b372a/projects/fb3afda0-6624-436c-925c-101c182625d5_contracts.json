@@ -1,0 +1,62 @@
+[
+  {
+    "ruleset_name": "ecommerce_coupon",
+    "version_pattern": "1.x",
+    "owner": "checkout-team",
+    "sla_p99_ms": 10,
+    "input_fields": [
+      {
+        "name": "user_id",
+        "data_type": "string",
+        "required": true,
+        "description": "购物用户唯一标识，不可为空，用于审计追踪。"
+      },
+      {
+        "name": "user_vip_level",
+        "data_type": "number",
+        "required": false,
+        "description": "VIP 等级，整数 0–5，缺失时默认为 0（普通用户）。"
+      },
+      {
+        "name": "cart_amount",
+        "data_type": "number",
+        "required": true,
+        "description": "购物车小计，单位为最小货币单位（如分）。必须 >= 0。"
+      },
+      {
+        "name": "cart_items_count",
+        "data_type": "number",
+        "required": false,
+        "description": "购物车中不同商品行数量，可选字段，当前决策逻辑不使用，但会记录供数据分析。"
+      },
+      {
+        "name": "promotion_active",
+        "data_type": "boolean",
+        "required": false,
+        "description": "当前是否处于营销促销窗口。缺失时默认为 false，决策直接走 NOT_ELIGIBLE 分支。"
+      }
+    ],
+    "output_fields": [
+      {
+        "name": "coupon_type",
+        "data_type": "string",
+        "required": true,
+        "description": "发放的优惠券档位：'vip'、'standard' 或 'none'。"
+      },
+      {
+        "name": "discount_rate",
+        "data_type": "number",
+        "required": false,
+        "description": "折扣比例（0.2 表示 20%）。仅在 coupon_type 为 'vip' 或 'standard' 时输出。"
+      },
+      {
+        "name": "original_amount",
+        "data_type": "number",
+        "required": false,
+        "description": "评估时的购物车金额，回传给下游用于计算折扣金额。"
+      }
+    ],
+    "notes": "P99 延迟 SLA 为 10 ms（仅引擎，不含网络）。cart_items_count 字段会接收但不参与决策——引入阶梯数量促销时再扩展。",
+    "updated_at": "2026-04-15T07:46:08.432704333Z"
+  }
+]

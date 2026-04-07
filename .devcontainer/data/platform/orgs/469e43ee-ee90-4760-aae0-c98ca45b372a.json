@@ -1,0 +1,17 @@
+{
+  "id": "469e43ee-ee90-4760-aae0-c98ca45b372a",
+  "name": "Pay Team",
+  "description": "支付团队",
+  "created_at": "2026-04-11T16:36:14.953715538Z",
+  "created_by": "b6463cc4-d59e-495e-acec-b81544a19681",
+  "members": [
+    {
+      "user_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+      "email": "admin@ordo.dev",
+      "display_name": "Admin",
+      "role": "owner",
+      "invited_at": "2026-04-11T16:36:14.953718618Z",
+      "invited_by": "b6463cc4-d59e-495e-acec-b81544a19681"
+    }
+  ]
+}

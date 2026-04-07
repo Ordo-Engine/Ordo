@@ -1,0 +1,124 @@
+[
+  {
+    "id": "62dad050-aaf9-42c5-9fb6-6604a21b26e7",
+    "name": "VIP 用户 — 发放优惠券",
+    "description": "VIP 3 级，购物车 350 元，促销进行中 → GRANTED，享 20% VIP 折扣。",
+    "input": {
+      "cart_amount": 350,
+      "promotion_active": true,
+      "user_vip_level": 3
+    },
+    "expect": {
+      "code": "GRANTED",
+      "message": null,
+      "output": {
+        "coupon_type": "vip",
+        "discount_rate": 0.2
+      }
+    },
+    "tags": [
+      "vip",
+      "happy-path"
+    ],
+    "created_at": "2026-04-15T07:48:48.748527901Z",
+    "updated_at": "2026-04-15T07:48:48.748527901Z",
+    "created_by": "b6463cc4-d59e-495e-acec-b81544a19681"
+  },
+  {
+    "id": "babd3809-2e13-485d-9b29-3a952ac619b1",
+    "name": "普通用户 — 发放优惠券",
+    "description": "VIP 1 级，购物车 600 元，促销进行中 → GRANTED，享 10% 普通折扣。",
+    "input": {
+      "cart_amount": 600,
+      "promotion_active": true,
+      "user_vip_level": 1
+    },
+    "expect": {
+      "code": "GRANTED",
+      "message": null,
+      "output": {
+        "coupon_type": "standard",
+        "discount_rate": 0.1
+      }
+    },
+    "tags": [
+      "standard",
+      "happy-path"
+    ],
+    "created_at": "2026-04-15T07:48:48.748527901Z",
+    "updated_at": "2026-04-15T07:48:48.748527901Z",
+    "created_by": "b6463cc4-d59e-495e-acec-b81544a19681"
+  },
+  {
+    "id": "f3710f91-9a3e-4870-bb62-2587ae505c58",
+    "name": "普通用户 — 未达门槛",
+    "description": "VIP 1 级，购物车 100 元，促销进行中 → NO_COUPON（未达 500 元普通门槛）。",
+    "input": {
+      "cart_amount": 100,
+      "promotion_active": true,
+      "user_vip_level": 1
+    },
+    "expect": {
+      "code": "NO_COUPON",
+      "message": null,
+      "output": {
+        "coupon_type": "none"
+      }
+    },
+    "tags": [
+      "edge-case"
+    ],
+    "created_at": "2026-04-15T07:48:48.748527901Z",
+    "updated_at": "2026-04-15T07:48:48.748527901Z",
+    "created_by": "b6463cc4-d59e-495e-acec-b81544a19681"
+  },
+  {
+    "id": "c27d58ad-8154-45af-8da0-830ca83bf7a4",
+    "name": "促销窗口未开启",
+    "description": "VIP 3 级，购物车 500 元，促销关闭 → NOT_ELIGIBLE，不受用户等级影响。",
+    "input": {
+      "cart_amount": 500,
+      "promotion_active": false,
+      "user_vip_level": 3
+    },
+    "expect": {
+      "code": "NOT_ELIGIBLE",
+      "message": null,
+      "output": {
+        "coupon_type": "none"
+      }
+    },
+    "tags": [
+      "edge-case",
+      "promotion-off"
+    ],
+    "created_at": "2026-04-15T07:48:48.748527901Z",
+    "updated_at": "2026-04-15T07:48:48.748527901Z",
+    "created_by": "b6463cc4-d59e-495e-acec-b81544a19681"
+  },
+  {
+    "id": "a3e3c6a2-4ef2-446b-a48b-81ff9321f51a",
+    "name": "VIP 门槛边界值",
+    "description": "VIP 2 级恰好 200 元购物车 → 应刚好触发 VIP 门槛，获得 20% 折扣。",
+    "input": {
+      "cart_amount": 200,
+      "promotion_active": true,
+      "user_vip_level": 2
+    },
+    "expect": {
+      "code": "GRANTED",
+      "message": null,
+      "output": {
+        "coupon_type": "vip",
+        "discount_rate": 0.2
+      }
+    },
+    "tags": [
+      "vip",
+      "boundary"
+    ],
+    "created_at": "2026-04-15T07:48:48.748527901Z",
+    "updated_at": "2026-04-15T07:48:48.748527901Z",
+    "created_by": "b6463cc4-d59e-495e-acec-b81544a19681"
+  }
+]

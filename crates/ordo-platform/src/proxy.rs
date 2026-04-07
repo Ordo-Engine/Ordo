@@ -108,7 +108,7 @@ pub async fn proxy_engine(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Find which org owns the project and return the caller's role in that org.
-async fn find_project_membership(
+pub async fn find_project_membership(
     state: &AppState,
     project_id: &str,
     user_id: &str,

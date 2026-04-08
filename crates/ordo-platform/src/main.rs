@@ -25,7 +25,9 @@ use tower_http::{
 use tracing::info;
 
 mod auth;
+mod catalog;
 mod config;
+mod contract;
 mod error;
 mod member;
 mod middleware;
@@ -33,11 +35,16 @@ mod models;
 mod org;
 mod project;
 mod proxy;
+mod ruleset_history;
 mod store;
+mod template;
+mod templates_api;
+mod testing;
 
 use config::PlatformConfig;
 use middleware::require_auth;
 use store::PlatformStore;
+use template::TemplateStore;
 
 /// Shared application state
 #[derive(Clone)]
@@ -45,6 +52,7 @@ pub struct AppState {
     pub store: Arc<PlatformStore>,
     pub config: Arc<PlatformConfig>,
     pub http_client: reqwest::Client,
+    pub templates: Arc<TemplateStore>,
 }
 
 #[tokio::main]
@@ -80,10 +88,23 @@ async fn main() -> anyhow::Result<()> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
+    // Load rule templates (best-effort — missing dir just disables the feature)
+    let templates = Arc::new(
+        TemplateStore::load_from_dir(&config.templates_dir).unwrap_or_else(|e| {
+            tracing::warn!(
+                "Failed to load templates from {:?}: {:#}",
+                config.templates_dir,
+                e
+            );
+            TemplateStore::default()
+        }),
+    );
+
     let state = AppState {
         store,
         config: config.clone(),
         http_client,
+        templates,
     };
 
     // CORS
@@ -112,8 +133,9 @@ async fn main() -> anyhow::Result<()> {
     // Routes that require authentication
     let protected_routes = Router::new()
         // Auth
-        .route("/api/v1/auth/me", get(auth::me))
+        .route("/api/v1/auth/me", get(auth::me).put(auth::update_profile))
         .route("/api/v1/auth/refresh", post(auth::refresh))
+        .route("/api/v1/auth/change-password", post(auth::change_password))
         // Organizations
         .route("/api/v1/orgs", post(org::create_org).get(org::list_orgs))
         .route(
@@ -139,6 +161,70 @@ async fn main() -> anyhow::Result<()> {
             get(project::get_project)
                 .put(project::update_project)
                 .delete(project::delete_project),
+        )
+        // Rule templates (M1.1)
+        .route("/api/v1/templates", get(templates_api::list_templates))
+        .route("/api/v1/templates/:id", get(templates_api::get_template))
+        .route(
+            "/api/v1/orgs/:oid/projects/from-template",
+            post(templates_api::create_from_template),
+        )
+        // Fact Catalog (project-scoped)
+        .route(
+            "/api/v1/projects/:pid/facts",
+            get(catalog::list_facts).post(catalog::upsert_fact),
+        )
+        .route(
+            "/api/v1/projects/:pid/facts/:name",
+            axum::routing::delete(catalog::delete_fact),
+        )
+        // Concept Registry (project-scoped)
+        .route(
+            "/api/v1/projects/:pid/concepts",
+            get(catalog::list_concepts).post(catalog::upsert_concept),
+        )
+        .route(
+            "/api/v1/projects/:pid/concepts/:name",
+            axum::routing::delete(catalog::delete_concept),
+        )
+        // Decision Contracts (project-scoped)
+        .route(
+            "/api/v1/projects/:pid/contracts",
+            get(contract::list_contracts),
+        )
+        .route(
+            "/api/v1/projects/:pid/contracts/:name",
+            put(contract::upsert_contract).delete(contract::delete_contract),
+        )
+        // Ruleset history (project-scoped)
+        .route(
+            "/api/v1/projects/:pid/rulesets/:name/history",
+            get(ruleset_history::list_ruleset_history).post(ruleset_history::append_ruleset_history),
+        )
+        // Test cases (M1.2)
+        .route(
+            "/api/v1/projects/:pid/rulesets/:name/tests",
+            get(testing::list_tests).post(testing::create_test),
+        )
+        .route(
+            "/api/v1/projects/:pid/rulesets/:name/tests/run",
+            post(testing::run_ruleset_tests),
+        )
+        .route(
+            "/api/v1/projects/:pid/rulesets/:name/tests/export",
+            get(testing::export_tests),
+        )
+        .route(
+            "/api/v1/projects/:pid/rulesets/:name/tests/:tid",
+            put(testing::update_test).delete(testing::delete_test),
+        )
+        .route(
+            "/api/v1/projects/:pid/rulesets/:name/tests/:tid/run",
+            post(testing::run_one_test),
+        )
+        .route(
+            "/api/v1/projects/:pid/tests/run",
+            get(testing::run_project_tests),
         )
         // Engine proxy: /api/v1/engine/:project_id/*path → ordo-server
         .route("/api/v1/engine/:project_id/*path", any(proxy::proxy_engine))

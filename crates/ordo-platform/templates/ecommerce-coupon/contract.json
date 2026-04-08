@@ -1,0 +1,60 @@
+{
+  "ruleset_name": "ecommerce_coupon",
+  "version_pattern": "1.x",
+  "owner": "checkout-team",
+  "sla_p99_ms": 10,
+  "input_fields": [
+    {
+      "name": "user_id",
+      "data_type": "string",
+      "required": true,
+      "description": "i18n:template.ecommerce-coupon.contract.in.user-id"
+    },
+    {
+      "name": "user_vip_level",
+      "data_type": "number",
+      "required": false,
+      "description": "i18n:template.ecommerce-coupon.contract.in.user-vip-level"
+    },
+    {
+      "name": "cart_amount",
+      "data_type": "number",
+      "required": true,
+      "description": "i18n:template.ecommerce-coupon.contract.in.cart-amount"
+    },
+    {
+      "name": "cart_items_count",
+      "data_type": "number",
+      "required": false,
+      "description": "i18n:template.ecommerce-coupon.contract.in.cart-items-count"
+    },
+    {
+      "name": "promotion_active",
+      "data_type": "boolean",
+      "required": false,
+      "description": "i18n:template.ecommerce-coupon.contract.in.promotion-active"
+    }
+  ],
+  "output_fields": [
+    {
+      "name": "coupon_type",
+      "data_type": "string",
+      "required": true,
+      "description": "i18n:template.ecommerce-coupon.contract.out.coupon-type"
+    },
+    {
+      "name": "discount_rate",
+      "data_type": "number",
+      "required": false,
+      "description": "i18n:template.ecommerce-coupon.contract.out.discount-rate"
+    },
+    {
+      "name": "original_amount",
+      "data_type": "number",
+      "required": false,
+      "description": "i18n:template.ecommerce-coupon.contract.out.original-amount"
+    }
+  ],
+  "notes": "i18n:template.ecommerce-coupon.contract.notes",
+  "updated_at": "2026-04-14T00:00:00Z"
+}

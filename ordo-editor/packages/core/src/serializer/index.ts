@@ -82,6 +82,7 @@ export function deserializeRuleSet(json: string): RuleSet {
       outputSchema: data.config.outputSchema,
       enableTrace: data.config.enableTrace,
       timeout: data.config.timeout,
+      metadata: data.config.metadata,
     },
     startStepId: data.startStepId,
     steps: data.steps.map(deserializeStep),
@@ -133,7 +134,7 @@ function deserializeStep(data: unknown): Step {
         externalCalls: step.externalCalls as Step['type'] extends 'action'
           ? NonNullable<Extract<Step, { type: 'action' }>['externalCalls']>
           : never,
-        logging: step.logging as { message: Expr; level?: string } | undefined,
+        logging: step.logging as { message: Expr; level?: 'debug' | 'info' | 'warn' | 'error' } | undefined,
         nextStepId: step.nextStepId as string,
       };
 

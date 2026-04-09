@@ -268,6 +268,8 @@ export interface RuleSetConfig {
   enableTrace?: boolean;
   /** Timeout in milliseconds */
   timeout?: number;
+  /** Arbitrary string metadata (persisted via engine config.metadata) */
+  metadata?: Record<string, string>;
 }
 
 /** RuleSet - the main rule definition */

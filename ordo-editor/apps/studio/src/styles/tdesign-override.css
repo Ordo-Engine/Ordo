@@ -1,0 +1,161 @@
+/**
+ * TDesign Vue Next — theme token overrides
+ *
+ * TDesign uses CSS variables in the format --td-xxx.
+ * We remap them to our ordo palette so all TDesign components
+ * automatically use our color system.
+ *
+ * Reference: https://tdesign.tencent.com/vue-next/design-token
+ */
+
+:root,
+[data-theme='light'] {
+  /* Brand / primary */
+  --td-brand-color: var(--ordo-accent);
+  --td-brand-color-1: var(--ordo-accent-bg);
+  --td-brand-color-2: #cce0f5;
+  --td-brand-color-3: #99c2eb;
+  --td-brand-color-4: #66a3e0;
+  --td-brand-color-5: #3385d6;
+  --td-brand-color-6: var(--ordo-accent);
+  --td-brand-color-7: var(--ordo-accent-hover);
+  --td-brand-color-8: #004d8a;
+
+  /* Status colors */
+  --td-success-color: var(--ordo-success);
+  --td-warning-color: var(--ordo-warning);
+  --td-error-color: var(--ordo-error);
+  --td-info-color: var(--ordo-info);
+
+  /* Text */
+  --td-text-color-primary: var(--ordo-text-primary);
+  --td-text-color-secondary: var(--ordo-text-secondary);
+  --td-text-color-placeholder: var(--ordo-text-tertiary);
+  --td-text-color-disabled: var(--ordo-gray-400);
+  --td-text-color-anti: var(--ordo-text-inverse);
+  --td-text-color-brand: var(--ordo-accent);
+  --td-text-color-link: var(--ordo-accent);
+
+  /* Background */
+  --td-bg-color-page: var(--ordo-bg-app);
+  --td-bg-color-container: var(--ordo-bg-panel);
+  --td-bg-color-container-hover: var(--ordo-bg-item-hover);
+  --td-bg-color-container-select: var(--ordo-bg-selected);
+  --td-bg-color-component: var(--ordo-gray-100);
+  --td-bg-color-component-hover: var(--ordo-gray-200);
+  --td-bg-color-component-disabled: var(--ordo-gray-100);
+  --td-bg-color-secondarycontainer: var(--ordo-gray-50);
+  --td-bg-color-input: var(--ordo-bg-input);
+
+  /* Border */
+  --td-component-border: var(--ordo-border-color);
+  --td-border-level-1-color: var(--ordo-border-color);
+  --td-border-level-2-color: var(--ordo-border-light);
+
+  /* Radius */
+  --td-radius-small: var(--ordo-radius-sm);
+  --td-radius-medium: var(--ordo-radius-md);
+  --td-radius-large: var(--ordo-radius-lg);
+  --td-radius-extraLarge: var(--ordo-radius-xl);
+
+  /* Shadow */
+  --td-shadow-1: var(--ordo-shadow-sm);
+  --td-shadow-2: var(--ordo-shadow-md);
+  --td-shadow-3: var(--ordo-shadow-lg);
+
+  /* Font */
+  --td-font-family: var(--ordo-font-sans);
+}
+
+[data-theme='dark'] {
+  --td-brand-color: var(--ordo-accent);
+  --td-brand-color-1: rgba(55, 148, 255, 0.08);
+  --td-brand-color-6: var(--ordo-accent);
+  --td-brand-color-7: var(--ordo-accent-hover);
+
+  --td-success-color: var(--ordo-success);
+  --td-warning-color: var(--ordo-warning);
+  --td-error-color: var(--ordo-error);
+  --td-info-color: var(--ordo-info);
+
+  --td-text-color-primary: var(--ordo-text-primary);
+  --td-text-color-secondary: var(--ordo-text-secondary);
+  --td-text-color-placeholder: var(--ordo-text-tertiary);
+  --td-text-color-disabled: var(--ordo-gray-500);
+  --td-text-color-anti: var(--ordo-text-inverse);
+
+  --td-bg-color-page: var(--ordo-bg-app);
+  --td-bg-color-container: var(--ordo-bg-panel);
+  --td-bg-color-container-hover: var(--ordo-bg-item-hover);
+  --td-bg-color-container-select: var(--ordo-bg-selected);
+  --td-bg-color-component: var(--ordo-gray-300);
+  --td-bg-color-input: var(--ordo-bg-input);
+
+  --td-component-border: var(--ordo-border-color);
+  --td-border-level-1-color: var(--ordo-border-color);
+  --td-border-level-2-color: var(--ordo-border-light);
+}
+
+/* ── Fine-tune TDesign component appearance ── */
+
+/* Menu / sidebar nav — match our sidebar dark background */
+.td-menu {
+  background: var(--ordo-bg-sidebar) !important;
+}
+.td-menu .td-menu__item {
+  color: var(--ordo-text-on-sidebar);
+  border-radius: var(--ordo-radius-md);
+}
+.td-menu .td-menu__item:hover,
+.td-menu .td-menu__item.t-is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+.td-menu .td-menu__item.t-is-active {
+  color: var(--ordo-accent);
+}
+
+/* Layout header */
+.td-layout__header {
+  border-bottom: 1px solid var(--ordo-border-color);
+  background: var(--ordo-bg-panel);
+}
+
+/* Table — compact density */
+.t-table th,
+.t-table td {
+  font-size: 13px;
+}
+
+/* Reduce button border-radius to match ordo sharp style */
+.t-button {
+  border-radius: var(--ordo-radius-md) !important;
+}
+
+/* Button icon + text always on the same baseline */
+.t-button__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.t-button .t-icon {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* Dialog */
+.t-dialog {
+  border-radius: var(--ordo-radius-xl) !important;
+}
+
+/* Input */
+.t-input__inner {
+  font-size: 13px;
+}
+
+/* Tag */
+.t-tag {
+  border-radius: var(--ordo-radius-sm) !important;
+  font-size: 11px;
+}

@@ -99,7 +99,7 @@ export function convertToEngineFormat(editorRuleset: RuleSet): EngineRuleSet {
     max_depth: 100,
     timeout_ms: editorRuleset.config.timeout || 0,
     enable_trace: editorRuleset.config.enableTrace ?? true,
-    metadata: {},
+    metadata: editorRuleset.config.metadata ?? {},
   };
 
   return {
@@ -281,18 +281,21 @@ function convertActionStep(step: ActionStep): EngineStep {
   // Convert logging
   if (step.logging) {
     // Extract message string from logging object
-    let message = step.logging.message;
-    if (typeof message === 'object' && message !== null) {
-      if (message.type === 'literal') {
-        message = String(message.value);
+    const msg = step.logging.message;
+    let messageStr: string;
+    if (typeof msg === 'object' && msg !== null) {
+      if (msg.type === 'literal') {
+        messageStr = String((msg as any).value);
       } else {
-        message = JSON.stringify(message);
+        messageStr = JSON.stringify(msg);
       }
+    } else {
+      messageStr = String(msg);
     }
 
     actions.push({
       action: 'log',
-      message: message,
+      message: messageStr,
       level: (step.logging.level as any) || 'info',
       description: '',
     });
@@ -503,7 +506,7 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
         break;
 
       default:
-        errors.push(`Step '${step.id}' has unknown type: ${(step as any).type}`);
+        errors.push(`Step '${(step as Step).id}' has unknown type: ${(step as any).type}`);
     }
   }
 

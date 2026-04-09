@@ -35,9 +35,9 @@ const enrichedSuggestions = computed((): FieldSuggestion[] => {
   const base = [...props.suggestions];
   if (props.schemaContext) {
     for (const field of props.schemaContext.getAllFields()) {
-      if (!base.find((s) => s.value === field.fullPath)) {
+      if (!base.find((s) => s.path === field.fullPath)) {
         base.push({
-          value: field.fullPath,
+          path: field.fullPath,
           label: `${field.fullPath} (${field.type})`,
           description: field.description,
         });
@@ -168,7 +168,7 @@ function updateExprValue(val: string): any {
         <input
           :value="modelValue.code"
           :disabled="disabled"
-          placeholder="CODE"
+          :placeholder="t('step.codePlaceholder')"
           class="ordo-input-base code-font"
           @input="updateCode"
           @blur="handleCodeBlur"
@@ -180,7 +180,7 @@ function updateExprValue(val: string): any {
           :model-value="getExprValue(modelValue.message)"
           :suggestions="enrichedSuggestions"
           :disabled="disabled"
-          placeholder="Message expression..."
+          :placeholder="t('step.messageExpr')"
           @update:model-value="updateMessage"
         />
       </div>
@@ -199,8 +199,8 @@ function updateExprValue(val: string): any {
         <table class="ordo-data-table" v-if="modelValue.output?.length">
           <thead>
             <tr>
-              <th width="30%">Field</th>
-              <th width="60%">Value</th>
+              <th width="30%">{{ t('common.field') }}</th>
+              <th width="60%">{{ t('common.value') }}</th>
               <th width="10%"></th>
             </tr>
           </thead>
@@ -238,7 +238,7 @@ function updateExprValue(val: string): any {
             </tr>
           </tbody>
         </table>
-        <div v-else class="ordo-empty-state">No output fields.</div>
+        <div v-else class="ordo-empty-state">{{ t('step.noOutputFields') }}</div>
       </div>
     </div>
   </div>

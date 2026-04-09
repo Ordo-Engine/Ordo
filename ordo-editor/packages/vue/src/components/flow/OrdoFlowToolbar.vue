@@ -3,9 +3,12 @@
  * OrdoFlowToolbar - Flow editor toolbar
  * 流程编辑器工具栏
  */
+import { ref } from 'vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { LayoutDirection } from './utils/layout';
+
+type NodeType = 'decision' | 'action' | 'terminal';
 
 export interface Props {
   edgeStyle: 'bezier' | 'step';
@@ -17,30 +20,70 @@ defineProps<Props>();
 
 const emit = defineEmits<{
   'add-node': [type: 'decision' | 'action' | 'terminal'];
+  'start-node-drag': [type: NodeType];
+  'end-node-drag': [];
   'add-group': [];
   'delete-node': [];
   'auto-layout': [];
-  'toggle-edge-style': [];
+  'set-edge-style': [style: 'bezier' | 'step'];
   'set-layout-direction': [direction: LayoutDirection];
 }>();
 
 const { t } = useI18n();
+
+const FLOW_NODE_DRAG_TYPE = 'application/x-ordo-flow-node';
+const dragImageEl = ref<HTMLDivElement | null>(null);
+
+function startNodeDrag(event: DragEvent, type: NodeType) {
+  if (!event.dataTransfer) return;
+
+  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.setData(FLOW_NODE_DRAG_TYPE, type);
+  event.dataTransfer.setData('text/plain', type);
+  if (dragImageEl.value) {
+    event.dataTransfer.setDragImage(dragImageEl.value, 0, 0);
+  }
+  emit('start-node-drag', type);
+}
 </script>
 
 <template>
   <div class="flow-toolbar">
+    <div ref="dragImageEl" class="drag-image-placeholder" aria-hidden="true"></div>
+
     <!-- Add Node Group -->
     <div class="toolbar-group">
       <span class="toolbar-label">{{ t('flow.add') }}</span>
-      <button class="toolbar-btn" :title="t('step.decision')" @click="emit('add-node', 'decision')">
+      <button
+        class="toolbar-btn"
+        :title="t('step.decision')"
+        draggable="true"
+        @click="emit('add-node', 'decision')"
+        @dragstart="startNodeDrag($event, 'decision')"
+        @dragend="emit('end-node-drag')"
+      >
         <OrdoIcon name="decision" :size="16" class="icon-decision" />
         <span class="btn-text">{{ t('step.decision') }}</span>
       </button>
-      <button class="toolbar-btn" :title="t('step.action')" @click="emit('add-node', 'action')">
+      <button
+        class="toolbar-btn"
+        :title="t('step.action')"
+        draggable="true"
+        @click="emit('add-node', 'action')"
+        @dragstart="startNodeDrag($event, 'action')"
+        @dragend="emit('end-node-drag')"
+      >
         <OrdoIcon name="action" :size="16" class="icon-action" />
         <span class="btn-text">{{ t('step.action') }}</span>
       </button>
-      <button class="toolbar-btn" :title="t('step.terminal')" @click="emit('add-node', 'terminal')">
+      <button
+        class="toolbar-btn"
+        :title="t('step.terminal')"
+        draggable="true"
+        @click="emit('add-node', 'terminal')"
+        @dragstart="startNodeDrag($event, 'terminal')"
+        @dragend="emit('end-node-drag')"
+      >
         <OrdoIcon name="terminal" :size="16" class="icon-terminal" />
         <span class="btn-text">{{ t('step.terminal') }}</span>
       </button>
@@ -113,7 +156,7 @@ const { t } = useI18n();
         class="toolbar-btn"
         :class="{ active: edgeStyle === 'bezier' }"
         :title="t('flow.bezier')"
-        @click="emit('toggle-edge-style')"
+        @click="emit('set-edge-style', 'bezier')"
       >
         <svg
           width="16"
@@ -131,7 +174,7 @@ const { t } = useI18n();
         class="toolbar-btn"
         :class="{ active: edgeStyle === 'step' }"
         :title="t('flow.step')"
-        @click="emit('toggle-edge-style')"
+        @click="emit('set-edge-style', 'step')"
       >
         <svg
           width="16"
@@ -280,5 +323,15 @@ const { t } = useI18n();
   height: 20px;
   background: var(--ordo-border-color);
   margin: 0 4px;
+}
+
+.drag-image-placeholder {
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 </style>

@@ -52,6 +52,12 @@ const operators: { value: SimpleCondition['operator']; label: string }[] = [
 const isSimple = computed(() => props.modelValue.type === 'simple');
 const isLogical = computed(() => props.modelValue.type === 'logical');
 const isExpression = computed(() => props.modelValue.type === 'expression');
+const expressionValue = computed(() => {
+  if (props.modelValue.type === 'expression') {
+    return (props.modelValue as { type: 'expression'; expression: string }).expression || '';
+  }
+  return '';
+});
 
 // Get simple condition parts
 const simpleCondition = computed(() => {
@@ -119,7 +125,7 @@ function updateSimpleRight(value: string) {
   if (!simpleCondition.value) return;
 
   // Try to parse as literal
-  let rightExpr = Expr.string(value);
+  let rightExpr: import('@ordo-engine/editor-core').ExprUnion = Expr.string(value);
   if (value.startsWith('$.') || value.startsWith('$')) {
     rightExpr = Expr.variable(value);
   } else if (value === 'true') {
@@ -360,7 +366,7 @@ function getExprValue(expr: { type: string; path?: string; value?: unknown }): s
     <!-- Expression condition -->
     <div v-if="isExpression" class="ordo-condition-builder__expression">
       <OrdoExpressionInput
-        :model-value="(modelValue as { expression: string }).expression || ''"
+        :model-value="expressionValue"
         :suggestions="suggestions"
         :disabled="disabled"
         :multiline="true"

@@ -1,0 +1,57 @@
+[
+  {
+    "name": "user_id",
+    "data_type": "string",
+    "source": "i18n:template.ecommerce-coupon.fact.source",
+    "latency_ms": 1,
+    "null_policy": "error",
+    "description": "i18n:template.ecommerce-coupon.fact.user-id.desc",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "user_vip_level",
+    "data_type": "number",
+    "source": "i18n:template.ecommerce-coupon.fact.source",
+    "latency_ms": 5,
+    "null_policy": "default",
+    "description": "i18n:template.ecommerce-coupon.fact.user-vip-level.desc",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "cart_amount",
+    "data_type": "number",
+    "source": "i18n:template.ecommerce-coupon.fact.source",
+    "latency_ms": 1,
+    "null_policy": "error",
+    "description": "i18n:template.ecommerce-coupon.fact.cart-amount.desc",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "cart_items_count",
+    "data_type": "number",
+    "source": "i18n:template.ecommerce-coupon.fact.source",
+    "latency_ms": 1,
+    "null_policy": "default",
+    "description": "i18n:template.ecommerce-coupon.fact.cart-items-count.desc",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "promotion_active",
+    "data_type": "boolean",
+    "source": "i18n:template.ecommerce-coupon.fact.source",
+    "latency_ms": 1,
+    "null_policy": "default",
+    "description": "i18n:template.ecommerce-coupon.fact.promotion-active.desc",
+    "owner": "marketing-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  }
+]

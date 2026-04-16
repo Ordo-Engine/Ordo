@@ -1,0 +1,29 @@
+[
+  {
+    "name": "is_vip",
+    "data_type": "boolean",
+    "expression": "user_vip_level >= 2",
+    "dependencies": ["user_vip_level"],
+    "description": "i18n:template.ecommerce-coupon.concept.is-vip.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "meets_vip_threshold",
+    "data_type": "boolean",
+    "expression": "cart_amount >= 200",
+    "dependencies": ["cart_amount"],
+    "description": "i18n:template.ecommerce-coupon.concept.meets-vip-threshold.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "meets_normal_threshold",
+    "data_type": "boolean",
+    "expression": "cart_amount >= 500",
+    "dependencies": ["cart_amount"],
+    "description": "i18n:template.ecommerce-coupon.concept.meets-normal-threshold.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  }
+]

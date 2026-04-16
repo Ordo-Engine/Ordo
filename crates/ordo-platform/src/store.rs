@@ -5,7 +5,10 @@
 //!   {platform_dir}/orgs/{org_id}.json      — org + members
 //!   {platform_dir}/orgs/{org_id}/projects/{project_id}.json
 
-use crate::models::{Member, Organization, Project, Role, User};
+use crate::models::{
+    ConceptDefinition, DecisionContract, FactDefinition, Member, Organization, Project, Role,
+    RulesetHistoryEntry, TestCase, User,
+};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -197,6 +200,153 @@ impl PlatformStore {
         }
     }
 
+    // ── Fact Catalog ──────────────────────────────────────────────────────────
+
+    pub async fn get_facts(&self, org_id: &str, project_id: &str) -> Result<Vec<FactDefinition>> {
+        let path = self.project_asset_path(org_id, project_id, "facts");
+        Ok(read_json_opt::<Vec<FactDefinition>>(path)
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub async fn save_facts(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        facts: &[FactDefinition],
+    ) -> Result<()> {
+        let path = self.project_asset_path(org_id, project_id, "facts");
+        write_json(&path, facts).await
+    }
+
+    // ── Concept Registry ──────────────────────────────────────────────────────
+
+    pub async fn get_concepts(
+        &self,
+        org_id: &str,
+        project_id: &str,
+    ) -> Result<Vec<ConceptDefinition>> {
+        let path = self.project_asset_path(org_id, project_id, "concepts");
+        Ok(read_json_opt::<Vec<ConceptDefinition>>(path)
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub async fn save_concepts(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        concepts: &[ConceptDefinition],
+    ) -> Result<()> {
+        let path = self.project_asset_path(org_id, project_id, "concepts");
+        write_json(&path, concepts).await
+    }
+
+    // ── Decision Contracts ────────────────────────────────────────────────────
+
+    pub async fn get_contracts(
+        &self,
+        org_id: &str,
+        project_id: &str,
+    ) -> Result<Vec<DecisionContract>> {
+        let path = self.project_asset_path(org_id, project_id, "contracts");
+        Ok(read_json_opt::<Vec<DecisionContract>>(path)
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub async fn save_contracts(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        contracts: &[DecisionContract],
+    ) -> Result<()> {
+        let path = self.project_asset_path(org_id, project_id, "contracts");
+        write_json(&path, contracts).await
+    }
+
+    // ── Ruleset Change History ───────────────────────────────────────────────
+
+    pub async fn get_ruleset_history(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        ruleset_name: &str,
+    ) -> Result<Vec<RulesetHistoryEntry>> {
+        let path = self.ruleset_history_path(org_id, project_id, ruleset_name);
+        Ok(read_json_opt::<Vec<RulesetHistoryEntry>>(path)
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub async fn append_ruleset_history(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        ruleset_name: &str,
+        entries: &[RulesetHistoryEntry],
+    ) -> Result<Vec<RulesetHistoryEntry>> {
+        let mut history = self
+            .get_ruleset_history(org_id, project_id, ruleset_name)
+            .await?;
+
+        for entry in entries {
+            if history.iter().any(|existing| existing.id == entry.id) {
+                continue;
+            }
+            history.push(entry.clone());
+        }
+
+        const MAX_RULESET_HISTORY_ENTRIES: usize = 500;
+        if history.len() > MAX_RULESET_HISTORY_ENTRIES {
+            let start = history.len() - MAX_RULESET_HISTORY_ENTRIES;
+            history = history.split_off(start);
+        }
+
+        let path = self.ruleset_history_path(org_id, project_id, ruleset_name);
+        write_json(&path, &history).await?;
+        Ok(history)
+    }
+
+    // ── Test Cases ────────────────────────────────────────────────────────────
+
+    pub async fn get_tests(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        ruleset_name: &str,
+    ) -> Result<Vec<TestCase>> {
+        let path = self.test_cases_path(org_id, project_id, ruleset_name);
+        Ok(read_json_opt::<Vec<TestCase>>(path)
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub async fn save_tests(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        ruleset_name: &str,
+        tests: &[TestCase],
+    ) -> Result<()> {
+        let path = self.test_cases_path(org_id, project_id, ruleset_name);
+        write_json(&path, tests).await
+    }
+
+    fn test_cases_path(&self, org_id: &str, project_id: &str, ruleset_name: &str) -> PathBuf {
+        let safe_name: String = ruleset_name
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        self.project_asset_path(org_id, project_id, &format!("tests_{}", safe_name))
+    }
+
     // ── Paths ─────────────────────────────────────────────────────────────────
 
     fn user_path(&self, user_id: &str) -> PathBuf {
@@ -210,11 +360,41 @@ impl PlatformStore {
     fn org_projects_dir(&self, org_id: &str) -> PathBuf {
         self.root.join("orgs").join(org_id).join("projects")
     }
+
+    /// Public accessor for the projects directory (used by testing.rs for discovery).
+    pub fn org_projects_dir_pub(&self, org_id: &str) -> PathBuf {
+        self.org_projects_dir(org_id)
+    }
+
+    /// Path for a project-scoped asset file: `projects/{pid}_{asset}.json`
+    fn project_asset_path(&self, org_id: &str, project_id: &str, asset: &str) -> PathBuf {
+        self.org_projects_dir(org_id)
+            .join(format!("{}_{}.json", project_id, asset))
+    }
+
+    fn ruleset_history_path(&self, org_id: &str, project_id: &str, ruleset_name: &str) -> PathBuf {
+        let safe_ruleset_name: String = ruleset_name
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+
+        self.project_asset_path(
+            org_id,
+            project_id,
+            &format!("ruleset_history_{}", safe_ruleset_name),
+        )
+    }
 }
 
 // ── JSON helpers ─────────────────────────────────────────────────────────────
 
-async fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
+async fn write_json<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> Result<()> {
     let json = serde_json::to_string_pretty(value)?;
     // Atomic write: write to temp file, then rename
     let tmp = path.with_extension("json.tmp");

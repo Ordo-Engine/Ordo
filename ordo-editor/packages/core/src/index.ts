@@ -30,4 +30,4 @@ export * from './schema';
 export * from './store';
 
 // Version
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';

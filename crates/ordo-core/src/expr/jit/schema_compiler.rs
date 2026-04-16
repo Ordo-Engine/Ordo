@@ -192,10 +192,8 @@ impl SchemaJITCompiler {
     /// Collect all field accesses from an expression
     fn collect_field_accesses(expr: &Expr, fields: &mut Vec<String>) {
         match expr {
-            Expr::Field(name) => {
-                if !fields.contains(name) {
-                    fields.push(name.clone());
-                }
+            Expr::Field(name) if !fields.contains(name) => {
+                fields.push(name.clone());
             }
             Expr::Binary { left, right, .. } => {
                 Self::collect_field_accesses(left, fields);
@@ -218,10 +216,8 @@ impl SchemaJITCompiler {
                     Self::collect_field_accesses(arg, fields);
                 }
             }
-            Expr::Exists(field_name) => {
-                if !fields.contains(field_name) {
-                    fields.push(field_name.clone());
-                }
+            Expr::Exists(field_name) if !fields.contains(field_name) => {
+                fields.push(field_name.clone());
             }
             _ => {}
         }

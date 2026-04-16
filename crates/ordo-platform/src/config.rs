@@ -68,6 +68,15 @@ pub struct PlatformConfig {
     /// Log level (trace, debug, info, warn, error)
     #[arg(long, default_value = "info", env = "ORDO_LOG_LEVEL")]
     pub log_level: String,
+
+    /// Directory containing rule templates (manifest.json + per-template dirs).
+    /// If the path does not exist, the template system is disabled gracefully.
+    #[arg(
+        long = "templates-dir",
+        default_value = "./templates",
+        env = "ORDO_PLATFORM_TEMPLATES_DIR"
+    )]
+    pub templates_dir: PathBuf,
 }
 
 impl PlatformConfig {

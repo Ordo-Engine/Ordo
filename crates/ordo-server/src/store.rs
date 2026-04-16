@@ -336,10 +336,8 @@ impl RuleStore {
                 .collect();
 
             let mut entries: Vec<_> = entries.into_iter().map(|e| e.path()).collect();
-            entries.sort_by(|a, b| {
-                let a_is_json = a.extension().map(|e| e == "json").unwrap_or(false);
-                let b_is_json = b.extension().map(|e| e == "json").unwrap_or(false);
-                b_is_json.cmp(&a_is_json)
+            entries.sort_by_key(|a| {
+                std::cmp::Reverse(a.extension().map(|e| e == "json").unwrap_or(false))
             });
 
             for path in entries {
@@ -763,7 +761,7 @@ impl RuleStore {
         }
 
         // Sort by seq descending (newest first)
-        versions.sort_by(|a, b| b.0.cmp(&a.0));
+        versions.sort_by_key(|v| std::cmp::Reverse(v.0));
         Ok(versions)
     }
 

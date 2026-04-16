@@ -1,0 +1,105 @@
+[
+  {
+    "id": "tc-001",
+    "name": "i18n:template.ecommerce-coupon.test.vip-grant",
+    "description": "i18n:template.ecommerce-coupon.test.vip-grant-desc",
+    "input": {
+      "user_vip_level": 3,
+      "cart_amount": 350,
+      "promotion_active": true
+    },
+    "expect": {
+      "code": "GRANTED",
+      "output": {
+        "coupon_type": "vip",
+        "discount_rate": 0.2
+      }
+    },
+    "tags": ["vip", "happy-path"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-002",
+    "name": "i18n:template.ecommerce-coupon.test.normal-grant",
+    "description": "i18n:template.ecommerce-coupon.test.normal-grant-desc",
+    "input": {
+      "user_vip_level": 1,
+      "cart_amount": 600,
+      "promotion_active": true
+    },
+    "expect": {
+      "code": "GRANTED",
+      "output": {
+        "coupon_type": "standard",
+        "discount_rate": 0.1
+      }
+    },
+    "tags": ["standard", "happy-path"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-003",
+    "name": "i18n:template.ecommerce-coupon.test.no-coupon",
+    "description": "i18n:template.ecommerce-coupon.test.no-coupon-desc",
+    "input": {
+      "user_vip_level": 1,
+      "cart_amount": 100,
+      "promotion_active": true
+    },
+    "expect": {
+      "code": "NO_COUPON",
+      "output": {
+        "coupon_type": "none"
+      }
+    },
+    "tags": ["edge-case"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-004",
+    "name": "i18n:template.ecommerce-coupon.test.not-eligible",
+    "description": "i18n:template.ecommerce-coupon.test.not-eligible-desc",
+    "input": {
+      "user_vip_level": 3,
+      "cart_amount": 500,
+      "promotion_active": false
+    },
+    "expect": {
+      "code": "NOT_ELIGIBLE",
+      "output": {
+        "coupon_type": "none"
+      }
+    },
+    "tags": ["edge-case", "promotion-off"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-005",
+    "name": "i18n:template.ecommerce-coupon.test.vip-boundary",
+    "description": "i18n:template.ecommerce-coupon.test.vip-boundary-desc",
+    "input": {
+      "user_vip_level": 2,
+      "cart_amount": 200,
+      "promotion_active": true
+    },
+    "expect": {
+      "code": "GRANTED",
+      "output": {
+        "coupon_type": "vip",
+        "discount_rate": 0.2
+      }
+    },
+    "tags": ["vip", "boundary"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  }
+]

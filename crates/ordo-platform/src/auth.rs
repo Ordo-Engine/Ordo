@@ -29,6 +29,17 @@ pub struct RegisterRequest {
 }
 
 #[derive(Deserialize)]
+pub struct UpdateProfileRequest {
+    pub display_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Deserialize)]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
@@ -149,6 +160,71 @@ pub async fn me(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("User not found"))?;
     Ok(Json(UserInfo::from(&user)))
+}
+
+pub async fn update_profile(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<UpdateProfileRequest>,
+) -> ApiResult<Json<UserInfo>> {
+    let mut user = state
+        .store
+        .get_user(&claims.sub)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("User not found"))?;
+    if let Some(name) = req.display_name {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(PlatformError::bad_request("Display name cannot be empty"));
+        }
+        user.display_name = name;
+    }
+    state
+        .store
+        .update_user(&user)
+        .await
+        .map_err(PlatformError::Internal)?;
+    Ok(Json(UserInfo::from(&user)))
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<ChangePasswordRequest>,
+) -> ApiResult<axum::http::StatusCode> {
+    let mut user = state
+        .store
+        .get_user(&claims.sub)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("User not found"))?;
+
+    // Verify current password
+    let parsed = PasswordHash::new(&user.password_hash)
+        .map_err(|_| PlatformError::internal("Invalid stored password hash"))?;
+    Argon2::default()
+        .verify_password(req.current_password.as_bytes(), &parsed)
+        .map_err(|_| PlatformError::unauthorized("Current password is incorrect"))?;
+
+    if req.new_password.len() < 8 {
+        return Err(PlatformError::bad_request(
+            "New password must be at least 8 characters",
+        ));
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    user.password_hash = Argon2::default()
+        .hash_password(req.new_password.as_bytes(), &salt)
+        .map_err(|e| PlatformError::internal(format!("Failed to hash password: {}", e)))?
+        .to_string();
+
+    state
+        .store
+        .update_user(&user)
+        .await
+        .map_err(PlatformError::Internal)?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 pub async fn refresh(

@@ -69,7 +69,10 @@ pub async fn upsert_contract(
 
     let now = Utc::now();
 
-    if let Some(existing) = contracts.iter_mut().find(|c| c.ruleset_name == ruleset_name) {
+    if let Some(existing) = contracts
+        .iter_mut()
+        .find(|c| c.ruleset_name == ruleset_name)
+    {
         existing.version_pattern = req.version_pattern;
         existing.owner = req.owner;
         existing.sla_p99_ms = req.sla_p99_ms;

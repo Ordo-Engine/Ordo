@@ -11,8 +11,7 @@ use ordo_core::rule::RuleSet;
 fn ecommerce_coupon_ruleset_parses_with_ordo_core() {
     // The tests binary runs from the crate root, so this is a relative path.
     let path = std::path::Path::new("templates/ecommerce-coupon/ruleset.json");
-    let text = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
 
     let ruleset = RuleSet::from_json(&text).expect("ruleset should parse");
     ruleset

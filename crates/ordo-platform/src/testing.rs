@@ -254,7 +254,8 @@ pub async fn run_one_test(
         .find(|t| t.id == test_id)
         .ok_or_else(|| PlatformError::not_found("Test case not found"))?;
 
-    let mut results = execute_tests(&state, &project_id, &ruleset_name, std::slice::from_ref(tc)).await?;
+    let mut results =
+        execute_tests(&state, &project_id, &ruleset_name, std::slice::from_ref(tc)).await?;
     Ok(Json(results.remove(0)))
 }
 
@@ -365,8 +366,8 @@ pub async fn export_tests(
             .map_err(|e| PlatformError::internal(format!("YAML serialization failed: {}", e)))?;
         (yaml.into_bytes(), "application/yaml", "yaml")
     } else {
-        let json = serde_json::to_string_pretty(&suite)
-            .map_err(|e| PlatformError::Internal(e.into()))?;
+        let json =
+            serde_json::to_string_pretty(&suite).map_err(|e| PlatformError::Internal(e.into()))?;
         (json.into_bytes(), "application/json", "json")
     };
 
@@ -479,8 +480,10 @@ async fn execute_tests(
                             // Assert code
                             if let Some(ref expected_code) = tc.expect.code {
                                 match &actual_code {
-                                    None => failures
-                                        .push(format!("expected code \"{}\" but got none", expected_code)),
+                                    None => failures.push(format!(
+                                        "expected code \"{}\" but got none",
+                                        expected_code
+                                    )),
                                     Some(got) if got != expected_code => failures.push(format!(
                                         "expected code \"{}\", got \"{}\"",
                                         expected_code, got
@@ -548,14 +551,8 @@ async fn execute_tests(
 
 /// Discover all ruleset names that have test case files for this project.
 /// Scans files matching `{project_id}_tests_{name}.json` in the projects dir.
-async fn list_test_ruleset_names(
-    state: &AppState,
-    org_id: &str,
-    project_id: &str,
-) -> Vec<String> {
-    let projects_dir = state
-        .store
-        .org_projects_dir_pub(org_id);
+async fn list_test_ruleset_names(state: &AppState, org_id: &str, project_id: &str) -> Vec<String> {
+    let projects_dir = state.store.org_projects_dir_pub(org_id);
 
     let prefix = format!("{}_tests_", project_id);
     let mut names = Vec::new();
@@ -573,4 +570,3 @@ async fn list_test_ruleset_names(
 
     names
 }
-

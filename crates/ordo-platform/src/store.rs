@@ -202,11 +202,7 @@ impl PlatformStore {
 
     // ── Fact Catalog ──────────────────────────────────────────────────────────
 
-    pub async fn get_facts(
-        &self,
-        org_id: &str,
-        project_id: &str,
-    ) -> Result<Vec<FactDefinition>> {
+    pub async fn get_facts(&self, org_id: &str, project_id: &str) -> Result<Vec<FactDefinition>> {
         let path = self.project_asset_path(org_id, project_id, "facts");
         Ok(read_json_opt::<Vec<FactDefinition>>(path)
             .await?

@@ -165,12 +165,7 @@ impl TemplateStore {
         tracing::info!(
             "Template store ready: {} templates, locales=[{}]",
             store.templates.len(),
-            store
-                .i18n
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
+            store.i18n.keys().cloned().collect::<Vec<_>>().join(", ")
         );
 
         Ok(store)
@@ -281,7 +276,11 @@ impl TemplateStore {
     fn translate_metadata(&self, m: &mut TemplateMetadata, locale: &str) {
         m.name = self.resolve_string(&m.name, locale);
         m.description = self.resolve_string(&m.description, locale);
-        m.tags = m.tags.iter().map(|t| self.resolve_string(t, locale)).collect();
+        m.tags = m
+            .tags
+            .iter()
+            .map(|t| self.resolve_string(t, locale))
+            .collect();
         m.features = m
             .features
             .iter()
@@ -316,7 +315,8 @@ impl TemplateStore {
     /// Resolve a single `i18n:<key>` token. If `s` is not a token, returns `s`
     /// unchanged.
     fn resolve_string(&self, s: &str, locale: &str) -> String {
-        self.maybe_translate(s, locale).unwrap_or_else(|| s.to_string())
+        self.maybe_translate(s, locale)
+            .unwrap_or_else(|| s.to_string())
     }
 
     fn maybe_translate(&self, s: &str, locale: &str) -> Option<String> {

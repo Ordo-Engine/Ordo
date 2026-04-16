@@ -9,7 +9,7 @@
 
 use crate::{
     error::{ApiResult, PlatformError},
-    models::{Claims, ConceptDefinition, FactDefinition, NullPolicy, FactDataType, Role},
+    models::{Claims, ConceptDefinition, FactDataType, FactDefinition, NullPolicy, Role},
     proxy::find_project_membership,
     AppState,
 };

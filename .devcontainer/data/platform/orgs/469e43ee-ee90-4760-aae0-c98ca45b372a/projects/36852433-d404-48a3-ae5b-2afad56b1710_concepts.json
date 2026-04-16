@@ -1,0 +1,35 @@
+[
+  {
+    "name": "is_vip",
+    "data_type": "boolean",
+    "expression": "user_vip_level >= 2",
+    "dependencies": [
+      "user_vip_level"
+    ],
+    "description": "当 user_vip_level >= 2 时为真——决定是否走 VIP 阈值分支。",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "meets_vip_threshold",
+    "data_type": "boolean",
+    "expression": "cart_amount >= 200",
+    "dependencies": [
+      "cart_amount"
+    ],
+    "description": "购物车金额达到 VIP 优惠门槛（>= 200）。",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "meets_normal_threshold",
+    "data_type": "boolean",
+    "expression": "cart_amount >= 500",
+    "dependencies": [
+      "cart_amount"
+    ],
+    "description": "购物车金额达到普通优惠门槛（>= 500）。",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  }
+]

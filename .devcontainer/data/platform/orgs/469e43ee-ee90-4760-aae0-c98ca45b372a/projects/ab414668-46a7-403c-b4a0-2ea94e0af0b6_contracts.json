@@ -1,0 +1,26 @@
+[
+  {
+    "ruleset_name": "test",
+    "version_pattern": "1.x",
+    "owner": "测试",
+    "sla_p99_ms": 5,
+    "input_fields": [
+      {
+        "name": "name",
+        "data_type": "string",
+        "required": true,
+        "description": "名字"
+      }
+    ],
+    "output_fields": [
+      {
+        "name": "code",
+        "data_type": "number",
+        "required": true,
+        "description": "状态码"
+      }
+    ],
+    "notes": null,
+    "updated_at": "2026-04-11T17:43:53.600258415Z"
+  }
+]

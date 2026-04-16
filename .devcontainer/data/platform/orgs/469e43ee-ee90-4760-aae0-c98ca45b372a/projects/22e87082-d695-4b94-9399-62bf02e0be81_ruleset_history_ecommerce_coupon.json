@@ -1,0 +1,5880 @@
+[
+  {
+    "id": "history_mnxhucji_03pia6",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:55:57.054Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:55:56.602Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhuiw1_z1jrgh",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:56:05.281Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:56:04.829Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhv6lo_q80o03",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:56:36.012Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:56:35.561Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhwil7_63nt75",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:57:38.203Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:57:37.751Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhwkpl_059u3k",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:57:40.953Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:57:40.500Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhwqme_97me1g",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:57:48.614Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:57:48.162Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhx3p8_oe22oz",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:58:05.564Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:58:05.111Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == true",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhx4ox_wrcagj",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:58:06.850Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:58:06.390Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == true",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhxabe_t8sp4o",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:58:14.138Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:58:13.685Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhxnx9_4sj2dr",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:58:31.773Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:58:31.321Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxhxuzw_h225u3",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-13T17:58:40.940Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-13T17:58:40.488Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxxxnr4_k23fsk",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:26:25.408Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxxx9lu_linhrr\",\"fieldPath\":\"promotion_active\",\"label\":\"promotion_active\",\"type\":\"string\"},{\"id\":\"col_in_mnxxx9lu_elzp9g\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"string\"},{\"id\":\"col_in_mnxxx9lu_yy69jd\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"string\"}],\"outputColumns\":[{\"id\":\"col_out_mnxxx9lu_7duigw\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxxx9lu_paqxqy\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"string\"},{\"id\":\"col_out_mnxxx9lu_thcfwr\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxxx9lu_qur3g6\",\"priority\":1,\"inputValues\":{\"col_in_mnxxx9lu_linhrr\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxxx9lu_elzp9g\":{\"type\":\"any\"},\"col_in_mnxxx9lu_yy69jd\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxxx9lu_7duigw\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxxx9lu_paqxqy\":{\"type\":\"any\"},\"col_out_mnxxx9lu_thcfwr\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxxx9lu_hg6tqb\",\"priority\":2,\"inputValues\":{\"col_in_mnxxx9lu_linhrr\":{\"type\":\"any\"},\"col_in_mnxxx9lu_elzp9g\":{\"type\":\"range\",\"min\":2,\"minInclusive\":true},\"col_in_mnxxx9lu_yy69jd\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxxx9lu_7duigw\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxxx9lu_paqxqy\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxxx9lu_thcfwr\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxxx9lu_hp6zcq\",\"priority\":3,\"inputValues\":{\"col_in_mnxxx9lu_linhrr\":{\"type\":\"any\"},\"col_in_mnxxx9lu_elzp9g\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxxx9lu_yy69jd\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxxx9lu_7duigw\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxxx9lu_paqxqy\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxxx9lu_thcfwr\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxxx9lu_c4efkf\",\"priority\":4,\"inputValues\":{\"col_in_mnxxx9lu_linhrr\":{\"type\":\"any\"},\"col_in_mnxxx9lu_elzp9g\":{\"type\":\"any\"},\"col_in_mnxxx9lu_yy69jd\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxxx9lu_7duigw\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxxx9lu_paqxqy\":{\"type\":\"any\"},\"col_out_mnxxx9lu_thcfwr\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "startStepId": "dt_decision_mnxxxnej_7uskwf",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxxxnej_hhvkxh",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxxxnej_eg7rhm"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxxxnej_c5dmay",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxxxnej_6x66ss"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxxxnej_hv3e3w",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxxxnej_rbvd2r"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxxxnej_ydny0q",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxxxnej_u99zlu"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxxxnej_01ke6j",
+          "id": "dt_decision_mnxxxnej_7uskwf",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxxxnej_eg7rhm",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxxxnej_6x66ss",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxxxnej_rbvd2r",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxxxnej_u99zlu",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxxxnej_01ke6j",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxxyihj_fesvx1",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-14T01:27:05.239Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-14T01:27:04.787Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 480
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 720
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 260
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 240
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy1qkt_zz9c9t",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-14T01:29:35.693Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-14T01:29:35.242Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 480
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 720
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776102929691-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "expression": "user_vip_level >= 2 && cart_amount >= 200",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "expression": "user_vip_level < 2 && cart_amount >= 500",
+                "type": "expression"
+              },
+              "id": "b-1776102929691-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 260
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 240
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy29xb_jjhj5j",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:30:00.767Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy1xkh_5d88fl\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_t5na4s\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_wm553r\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"string\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy1xkh_j21o9z\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_vj8myo\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_0e2oou\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy1xkh_xe5g9b\",\"priority\":1,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy1xkh_47gyg5\",\"priority\":2,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"min\":2,\"minInclusive\":true,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy1xkh_ktyc70\",\"priority\":3,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy1xkh_vk909o\",\"priority\":4,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "startStepId": "dt_decision_mnxy29kp_5lpzaf",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy29kp_2jx8p3",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy29kp_qudr43"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy29kq_vm3n48",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy29kp_6qnm2j"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy29kq_aeoyx3",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy29kq_kwaz3c"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy29kq_fvtjxu",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy29kq_2mbspe"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy29kp_j4ra76",
+          "id": "dt_decision_mnxy29kp_5lpzaf",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy29kp_qudr43",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy29kp_6qnm2j",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy29kq_kwaz3c",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy29kq_2mbspe",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy29kp_j4ra76",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy2d4k_222xvv",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:30:04.916Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy1xkh_5d88fl\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_t5na4s\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_wm553r\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"string\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy1xkh_j21o9z\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_vj8myo\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_0e2oou\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy1xkh_xe5g9b\",\"priority\":1,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy1xkh_47gyg5\",\"priority\":2,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"min\":2,\"minInclusive\":true,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy1xkh_ktyc70\",\"priority\":3,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy1xkh_vk909o\",\"priority\":4,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "startStepId": "dt_decision_mnxy2cs0_shx7wt",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy2cs0_53g25k",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy2cs0_o1dkya"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy2cs0_wz578l",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy2cs0_rvkk99"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy2cs0_0b4soc",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy2cs0_xvuspm"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy2cs0_qyug78",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy2cs0_f8xt4b"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy2cs0_hrgvkt",
+          "id": "dt_decision_mnxy2cs0_shx7wt",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy2cs0_o1dkya",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy2cs0_rvkk99",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy2cs0_xvuspm",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy2cs0_f8xt4b",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy2cs0_hrgvkt",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy3234_uf6fdb",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:30:37.264Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy1xkh_5d88fl\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_t5na4s\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_wm553r\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"string\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy1xkh_j21o9z\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_vj8myo\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_0e2oou\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy1xkh_xe5g9b\",\"priority\":1,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy1xkh_47gyg5\",\"priority\":2,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy1xkh_ktyc70\",\"priority\":3,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy1xkh_vk909o\",\"priority\":4,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "startStepId": "dt_decision_mnxy31qj_psgaxl",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy31qk_6gn1rm",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy31qj_iff15o"
+            },
+            {
+              "condition": {
+                "left": {
+                  "path": "cart_amount",
+                  "type": "variable"
+                },
+                "operator": "gte",
+                "right": {
+                  "type": "literal",
+                  "value": 200,
+                  "valueType": "number"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy31qk_bdl4yz",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy31qk_585qqe"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy31qk_odgdyr",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy31qk_ovi9op"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy31qk_35qjm0",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy31qk_uhnkcn"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy31qj_ejxmon",
+          "id": "dt_decision_mnxy31qj_psgaxl",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy31qj_iff15o",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy31qk_585qqe",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy31qk_ovi9op",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy31qk_uhnkcn",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy31qj_ejxmon",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy33x8_pmy7xr",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:30:39.644Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy1xkh_5d88fl\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_t5na4s\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_wm553r\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"string\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy1xkh_j21o9z\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_vj8myo\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_0e2oou\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy1xkh_xe5g9b\",\"priority\":1,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy1xkh_47gyg5\",\"priority\":2,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true,\"maxInclusive\":false}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy1xkh_ktyc70\",\"priority\":3,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy1xkh_vk909o\",\"priority\":4,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "startStepId": "dt_decision_mnxy33kn_hbfsn3",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy33kn_nfp6k9",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy33kn_a0h4mx"
+            },
+            {
+              "condition": {
+                "left": {
+                  "path": "cart_amount",
+                  "type": "variable"
+                },
+                "operator": "gte",
+                "right": {
+                  "type": "literal",
+                  "value": 200,
+                  "valueType": "number"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy33kn_qbtfnt",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy33kn_c4u3x3"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy33kn_iecurh",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy33kn_4jnyko"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy33kn_1ottrj",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy33kn_bfbquu"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy33kn_645mov",
+          "id": "dt_decision_mnxy33kn_hbfsn3",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy33kn_a0h4mx",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy33kn_c4u3x3",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy33kn_4jnyko",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy33kn_bfbquu",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy33kn_645mov",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy35y4_7olz2j",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:30:42.268Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy1xkh_5d88fl\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_t5na4s\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"string\"},{\"id\":\"col_in_mnxy1xkh_wm553r\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"string\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy1xkh_j21o9z\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_vj8myo\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"string\"},{\"id\":\"col_out_mnxy1xkh_0e2oou\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy1xkh_xe5g9b\",\"priority\":1,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy1xkh_47gyg5\",\"priority\":2,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true,\"maxInclusive\":false}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy1xkh_ktyc70\",\"priority\":3,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy1xkh_vk909o\",\"priority\":4,\"inputValues\":{\"col_in_mnxy1xkh_5d88fl\":{\"type\":\"any\"},\"col_in_mnxy1xkh_t5na4s\":{\"type\":\"any\"},\"col_in_mnxy1xkh_wm553r\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy1xkh_j21o9z\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy1xkh_vj8myo\":{\"type\":\"any\"},\"col_out_mnxy1xkh_0e2oou\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "startStepId": "dt_decision_mnxy35lk_pzef9j",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy35lk_d85avk",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy35lk_w8ab35"
+            },
+            {
+              "condition": {
+                "left": {
+                  "path": "cart_amount",
+                  "type": "variable"
+                },
+                "operator": "gte",
+                "right": {
+                  "type": "literal",
+                  "value": 200,
+                  "valueType": "number"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy35lk_67ycwx",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy35lk_oqwv6c"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy35lk_9i5ybl",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy35lk_lf6x3f"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy35lk_78mr4p",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy35lk_qyxgxd"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy35lk_265pf5",
+          "id": "dt_decision_mnxy35lk_pzef9j",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy35lk_w8ab35",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy35lk_oqwv6c",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy35lk_lf6x3f",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy35lk_qyxgxd",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy35lk_265pf5",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy5w7t_zhkpez",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-14T01:32:49.625Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "bezier",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-14T01:32:49.172Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776130275847-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "b-1776130275847-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "b-1776130275847-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy6675_f68h94",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑流程图",
+    "source": "edit",
+    "created_at": "2026-04-14T01:33:02.561Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "step",
+          "_flowLayoutDirection": "LR"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-14T01:33:02.107Z"
+      },
+      "startStepId": "check_eligibility",
+      "steps": [
+        {
+          "code": "GRANTED",
+          "id": "terminal_normal_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放普通优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 483
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "terminal_no_coupon",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "不发放优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 717
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "b-1776130275847-0",
+              "label": "promotion_active == false",
+              "nextStepId": "terminal_not_eligible"
+            }
+          ],
+          "defaultNextStepId": "check_user_type",
+          "id": "check_eligibility",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 80,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "terminal_not_eligible",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "不在促销窗口",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            }
+          ],
+          "position": {
+            "x": 480,
+            "y": 80
+          },
+          "type": "terminal"
+        },
+        {
+          "branches": [
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "b-1776130275847-1",
+              "label": "user_vip_level >= 2 && cart_amount >= 200",
+              "nextStepId": "terminal_vip_grant"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "b-1776130275847-2",
+              "label": "user_vip_level < 2 && cart_amount >= 500",
+              "nextStepId": "terminal_normal_grant"
+            }
+          ],
+          "defaultNextStepId": "terminal_no_coupon",
+          "id": "check_user_type",
+          "name": "评估用户和购物车",
+          "position": {
+            "x": 480,
+            "y": 262
+          },
+          "type": "decision"
+        },
+        {
+          "code": "GRANTED",
+          "id": "terminal_vip_grant",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "发放 VIP 优惠券",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 880,
+            "y": 249
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy8ezy_cgz9yq",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:34:47.278Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "step",
+          "_flowLayoutDirection": "LR",
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy65uk_hrvn7z\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"boolean\"},{\"id\":\"col_in_mnxy65uk_b3ik0t\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"number\"},{\"id\":\"col_in_mnxy65uk_ws0i9k\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"number\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy65uk_old9aw\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy65uk_ly77g6\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"number\"},{\"id\":\"col_out_mnxy65uk_a1oljr\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy65uk_eve4d1\",\"priority\":1,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"any\"},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"any\"},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy65uk_8z0hzd\",\"priority\":2,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"any\"},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"range\",\"min\":2,\"minInclusive\":true,\"maxInclusive\":false},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy65uk_jnp9xb\",\"priority\":3,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"any\"},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy65uk_zvc4f2\",\"priority\":4,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"any\"},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"any\"},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"any\"},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-14T01:33:02.107Z"
+      },
+      "startStepId": "dt_decision_mnxy8ene_t0fqv1",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy8ene_fxz8m6",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy8ene_yh076z"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy8ene_ttpjz3",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy8ene_s5pmab"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy8ene_2rcnzh",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy8ene_8a4247"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy8ene_rnhpnx",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy8ene_kthut1"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy8ene_ctf8wl",
+          "id": "dt_decision_mnxy8ene_t0fqv1",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy8ene_yh076z",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy8ene_s5pmab",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy8ene_8a4247",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy8ene_kthut1",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy8ene_ctf8wl",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history_mnxy8h2n_edbw8z",
+    "ruleset_name": "ecommerce_coupon",
+    "action": "编辑决策表",
+    "source": "edit",
+    "created_at": "2026-04-14T01:34:49.967Z",
+    "author_id": "b6463cc4-d59e-495e-acec-b81544a19681",
+    "author_email": "admin@ordo.dev",
+    "author_display_name": "Admin",
+    "snapshot": {
+      "config": {
+        "description": "根据购物车金额、VIP 等级和促销时间窗口发放不同档位的优惠券。一个真正可跑通的决策流程，几分钟即可接入你的下单链路。",
+        "enableTrace": false,
+        "metadata": {
+          "_flowEdgeStyle": "step",
+          "_flowLayoutDirection": "LR",
+          "_table": "{\"name\":\"检查促销窗口\",\"hitPolicy\":\"first\",\"inputColumns\":[{\"id\":\"col_in_mnxy65uk_hrvn7z\",\"fieldPath\":\"promotion_active\",\"label\":\"Promotion Active\",\"type\":\"boolean\"},{\"id\":\"col_in_mnxy65uk_b3ik0t\",\"fieldPath\":\"user_vip_level\",\"label\":\"User Vip Level\",\"type\":\"number\"},{\"id\":\"col_in_mnxy65uk_ws0i9k\",\"fieldPath\":\"cart_amount\",\"label\":\"Cart Amount\",\"type\":\"number\"}],\"outputColumns\":[{\"id\":\"col_out_mnxy65uk_old9aw\",\"fieldName\":\"coupon_type\",\"label\":\"Coupon Type\",\"type\":\"string\"},{\"id\":\"col_out_mnxy65uk_ly77g6\",\"fieldName\":\"discount_rate\",\"label\":\"Discount Rate\",\"type\":\"number\"},{\"id\":\"col_out_mnxy65uk_a1oljr\",\"fieldName\":\"original_amount\",\"label\":\"Original Amount\",\"type\":\"string\"}],\"rows\":[{\"id\":\"row_mnxy65uk_eve4d1\",\"priority\":1,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"exact\",\"value\":false},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"any\"},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"any\"},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"any\"}},\"resultCode\":\"NOT_ELIGIBLE\",\"resultMessage\":\"当前无正在进行的促销活动。\"},{\"id\":\"row_mnxy65uk_8z0hzd\",\"priority\":2,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"any\"},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"range\",\"min\":2,\"minInclusive\":true,\"maxInclusive\":false},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"range\",\"min\":200,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"vip\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"exact\",\"value\":0.2},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放 VIP 优惠券（20% 折扣）。\"},{\"id\":\"row_mnxy65uk_jnp9xb\",\"priority\":3,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"any\"},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"range\",\"max\":2,\"maxInclusive\":false},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"range\",\"min\":500,\"minInclusive\":true}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"standard\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"exact\",\"value\":0.1},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"expression\",\"expr\":\"cart_amount\"}},\"resultCode\":\"GRANTED\",\"resultMessage\":\"已发放普通优惠券（10% 折扣）。\"},{\"id\":\"row_mnxy65uk_zvc4f2\",\"priority\":4,\"inputValues\":{\"col_in_mnxy65uk_hrvn7z\":{\"type\":\"any\"},\"col_in_mnxy65uk_b3ik0t\":{\"type\":\"any\"},\"col_in_mnxy65uk_ws0i9k\":{\"type\":\"any\"}},\"outputValues\":{\"col_out_mnxy65uk_old9aw\":{\"type\":\"exact\",\"value\":\"none\"},\"col_out_mnxy65uk_ly77g6\":{\"type\":\"any\"},\"col_out_mnxy65uk_a1oljr\":{\"type\":\"any\"}},\"resultCode\":\"NO_COUPON\",\"resultMessage\":\"购物车未达到任何阈值。\"}]}"
+        },
+        "name": "ecommerce_coupon",
+        "timeout": 5000,
+        "version": "1.0.0"
+      },
+      "metadata": {
+        "updatedAt": "2026-04-14T01:33:02.107Z"
+      },
+      "startStepId": "dt_decision_mnxy8gq2_k1t449",
+      "steps": [
+        {
+          "branches": [
+            {
+              "condition": {
+                "left": {
+                  "path": "promotion_active",
+                  "type": "variable"
+                },
+                "operator": "eq",
+                "right": {
+                  "type": "literal",
+                  "value": false,
+                  "valueType": "boolean"
+                },
+                "type": "simple"
+              },
+              "id": "dt_branch_mnxy8gq2_u2kdu8",
+              "label": "NOT_ELIGIBLE",
+              "nextStepId": "dt_terminal_mnxy8gq2_wsuw9d"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 200,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy8gq2_h7cqs3",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy8gq2_jpdjsl"
+            },
+            {
+              "condition": {
+                "conditions": [
+                  {
+                    "left": {
+                      "path": "user_vip_level",
+                      "type": "variable"
+                    },
+                    "operator": "lt",
+                    "right": {
+                      "type": "literal",
+                      "value": 2,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  },
+                  {
+                    "left": {
+                      "path": "cart_amount",
+                      "type": "variable"
+                    },
+                    "operator": "gte",
+                    "right": {
+                      "type": "literal",
+                      "value": 500,
+                      "valueType": "number"
+                    },
+                    "type": "simple"
+                  }
+                ],
+                "operator": "and",
+                "type": "logical"
+              },
+              "id": "dt_branch_mnxy8gq2_ucv2ho",
+              "label": "GRANTED",
+              "nextStepId": "dt_terminal_mnxy8gq2_ggweys"
+            },
+            {
+              "condition": {
+                "type": "constant",
+                "value": true
+              },
+              "id": "dt_branch_mnxy8gq2_f7tty2",
+              "label": "NO_COUPON",
+              "nextStepId": "dt_terminal_mnxy8gq2_cq56h4"
+            }
+          ],
+          "defaultNextStepId": "dt_nomatch_mnxy8gq2_9npctf",
+          "id": "dt_decision_mnxy8gq2_k1t449",
+          "name": "检查促销窗口",
+          "position": {
+            "x": 200,
+            "y": 80
+          },
+          "type": "decision"
+        },
+        {
+          "code": "NOT_ELIGIBLE",
+          "id": "dt_terminal_mnxy8gq2_wsuw9d",
+          "message": {
+            "type": "literal",
+            "value": "当前无正在进行的促销活动。",
+            "valueType": "string"
+          },
+          "name": "NOT_ELIGIBLE",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy8gq2_jpdjsl",
+          "message": {
+            "type": "literal",
+            "value": "已发放 VIP 优惠券（20% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "vip",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.2,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 680,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "GRANTED",
+          "id": "dt_terminal_mnxy8gq2_ggweys",
+          "message": {
+            "type": "literal",
+            "value": "已发放普通优惠券（10% 折扣）。",
+            "valueType": "string"
+          },
+          "name": "GRANTED",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "standard",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": 0.1,
+                "valueType": "number"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "path": "cart_amount",
+                "type": "variable"
+              }
+            }
+          ],
+          "position": {
+            "x": 960,
+            "y": 200
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_COUPON",
+          "id": "dt_terminal_mnxy8gq2_cq56h4",
+          "message": {
+            "type": "literal",
+            "value": "购物车未达到任何阈值。",
+            "valueType": "string"
+          },
+          "name": "NO_COUPON",
+          "output": [
+            {
+              "name": "coupon_type",
+              "value": {
+                "type": "literal",
+                "value": "none",
+                "valueType": "string"
+              }
+            },
+            {
+              "name": "discount_rate",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            },
+            {
+              "name": "original_amount",
+              "value": {
+                "type": "literal",
+                "value": null,
+                "valueType": "null"
+              }
+            }
+          ],
+          "position": {
+            "x": 400,
+            "y": 320
+          },
+          "type": "terminal"
+        },
+        {
+          "code": "NO_MATCH",
+          "id": "dt_nomatch_mnxy8gq2_9npctf",
+          "message": {
+            "type": "literal",
+            "value": "No matching rule found",
+            "valueType": "string"
+          },
+          "name": "No Match",
+          "output": [],
+          "position": {
+            "x": 400,
+            "y": 680
+          },
+          "type": "terminal"
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,44 @@
+# ── Build stage ──────────────────────────────────────────────────────────────
+FROM rust:1.85-slim-bookworm AS builder
+
+WORKDIR /app
+
+# System deps (protoc needed by ordo-proto which is a workspace dep)
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependency cache layer — copy manifests only, then build deps
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Build release binary (only ordo-platform; other crates build as deps)
+RUN cargo build --release --package ordo-platform
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -r -s /bin/false ordo
+
+COPY --from=builder /app/target/release/ordo-platform /app/ordo-platform
+
+# Data dir created at runtime via volume
+RUN mkdir -p /data/platform && chown ordo:ordo /data/platform
+
+USER ordo
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3001/api/v1/health 2>/dev/null || \
+        curl -f http://localhost:3001/ 2>/dev/null || exit 1
+
+ENTRYPOINT ["/app/ordo-platform"]
+CMD ["--platform-dir", "/data/platform", "--addr", "0.0.0.0:3001"]

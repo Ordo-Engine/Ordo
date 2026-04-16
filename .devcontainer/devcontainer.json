@@ -1,0 +1,66 @@
+{
+  "name": "Ordo Dev",
+
+  // Build a self-contained container with Rust + Node + all tools
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // Forward all service ports so they're accessible from the host
+  "forwardPorts": [3001, 3002, 8080],
+  "portsAttributes": {
+    "3001": { "label": "ordo-platform (API gateway)", "onAutoForward": "notify" },
+    "3002": { "label": "Ordo Studio (Vite)", "onAutoForward": "openBrowser" },
+    "8080": { "label": "ordo-server (engine, internal)", "onAutoForward": "ignore" }
+  },
+
+  // Install devcontainer features
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20",
+      "nodeGypDependencies": false
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "stable",
+      "profile": "default"
+    }
+  },
+
+  // Run once after the container is created
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  // Run every time the container starts — launch backend services + studio
+  "postStartCommand": "DATA_DIR=/data ORDO_JWT_SECRET=${ORDO_JWT_SECRET:-dev-secret-devcontainer-not-for-production} make dev-all",
+
+  // VS Code settings and extensions inside the devcontainer
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.formatOnSave": true,
+        "rust-analyzer.cargo.buildScripts.enable": true,
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "[rust]": { "editor.defaultFormatter": "rust-lang.rust-analyzer" },
+        "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+        "[vue]": { "editor.defaultFormatter": "esbenp.prettier-vscode" }
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        "Vue.volar",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens"
+      ]
+    }
+  },
+
+  "remoteUser": "vscode"
+}

@@ -5,4 +5,5 @@
 
 export * from './types';
 export * from './adapter';
+export * from './reverse-adapter';
 export * from './executor';

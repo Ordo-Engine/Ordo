@@ -23,6 +23,7 @@ export type FlowNodeType = 'decision' | 'action' | 'terminal' | 'group';
 
 /** Edge types */
 export type FlowEdgeType = 'exec' | 'exec-branch' | 'data';
+export type EdgeRenderStyle = 'bezier' | 'step';
 
 /** Custom node data for step nodes */
 export interface FlowNodeData {
@@ -53,6 +54,7 @@ export interface FlowEdgeData {
   isDefault?: boolean;
   edgeType: FlowEdgeType;
   condition?: string; // Full condition expression for tooltip
+  renderStyle?: EdgeRenderStyle;
 }
 
 /** Flow edge with typed data */
@@ -85,7 +87,7 @@ export function getEdgeStyle(edgeType: FlowEdgeType): { stroke: string; strokeWi
  * Convert RuleSet to Vue Flow nodes and edges
  * 将 RuleSet 转换为 Vue Flow 节点和边
  */
-export function rulesetToFlow(ruleset: RuleSet): FlowData {
+export function rulesetToFlow(ruleset: RuleSet, renderStyle: EdgeRenderStyle = 'bezier'): FlowData {
   const nodes: FlowNode[] = [];
   const edges: FlowEdge[] = [];
   const groups: FlowGroupNode[] = [];
@@ -129,6 +131,7 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
                 isDefault: false,
                 edgeType: 'exec-branch',
                 condition: conditionStr,
+                renderStyle,
               },
             });
           }
@@ -148,6 +151,7 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
             data: {
               isDefault: true,
               edgeType: 'exec',
+              renderStyle,
             },
           });
         }
@@ -166,6 +170,7 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
             style: edgeStyle,
             data: {
               edgeType: 'exec',
+              renderStyle,
             },
           });
         }
@@ -420,6 +425,7 @@ export function createEdge(
     sourceHandle?: string;
     targetHandle?: string;
     condition?: string;
+    renderStyle?: EdgeRenderStyle;
   }
 ): FlowEdge {
   const edgeId = options?.branchId
@@ -447,6 +453,7 @@ export function createEdge(
       isDefault: options?.isDefault,
       edgeType,
       condition: options?.condition,
+      renderStyle: options?.renderStyle ?? 'bezier',
     },
   };
 }

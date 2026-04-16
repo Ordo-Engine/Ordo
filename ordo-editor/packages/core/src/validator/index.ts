@@ -206,7 +206,7 @@ export function validateRuleSet(
 function validateStep(
   step: Step,
   index: number,
-  ruleset: RuleSet,
+  _ruleset: RuleSet,
   opts: ValidationOptions,
   addError: (e: Omit<ValidationError, 'severity'>) => void,
   addWarning: (e: Omit<ValidationError, 'severity'>) => void,
@@ -252,7 +252,7 @@ function validateStep(
         code: 'INVALID_STEP_TYPE',
         message: `Invalid step type: "${(step as Step).type}"`,
         path: `${basePath}.type`,
-        stepId: step.id,
+        stepId: (step as Step).id,
       });
   }
 }

@@ -38,14 +38,7 @@ const resultCode = computed(() => props.data.step.code || 'RESULT');
 /** Format output value for display */
 function formatOutputValue(output: OutputField): string {
   if (output.value !== undefined) {
-    const val = output.value;
-    if (typeof val === 'string') return `"${val}"`;
-    if (typeof val === 'boolean') return val ? 'true' : 'false';
-    if (typeof val === 'object') return JSON.stringify(val);
-    return String(val);
-  }
-  if (output.expression) {
-    const exprStr = exprToString(output.expression);
+    const exprStr = exprToString(output.value);
     return exprStr.length > 15 ? exprStr.slice(0, 15) + '...' : exprStr;
   }
   return '?';
@@ -85,23 +78,23 @@ function formatOutputValue(output: OutputField): string {
     <div class="node-section outputs-section" v-if="outputs.length > 0">
       <div
         v-for="output in outputs"
-        :key="output.field"
+        :key="output.name"
         class="output-row"
-        :title="`${output.field} = ${formatOutputValue(output)}`"
+        :title="`${output.name} = ${formatOutputValue(output)}`"
       >
         <!-- Data Input (for expression dependencies) -->
         <Handle
           type="target"
           :position="Position.Left"
           class="pin pin-data pin-input"
-          :id="`data-in-${output.field}`"
+          :id="`data-in-${output.name}`"
         >
           <svg class="pin-shape" width="8" height="8" viewBox="0 0 8 8">
             <circle cx="4" cy="4" r="3.5" :fill="PIN_COLORS.dataPin" class="pin-fill" />
           </svg>
         </Handle>
 
-        <span class="output-name">{{ output.field }}</span>
+        <span class="output-name">{{ output.name }}</span>
         <span class="output-op">=</span>
         <span class="output-value">{{ formatOutputValue(output) }}</span>
       </div>

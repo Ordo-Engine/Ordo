@@ -34,18 +34,12 @@ const displayTitle = computed(() => {
 
 const assignments = computed<VariableAssignment[]>(() => props.data.step.assignments || []);
 const hasLogging = computed(() => !!props.data.step.logging);
-const hasExternalCall = computed(() => !!props.data.step.externalCall);
+const hasExternalCall = computed(() => (props.data.step.externalCalls?.length ?? 0) > 0);
 
 /** Format assignment value for display */
 function formatValue(assignment: VariableAssignment): string {
   if (assignment.value !== undefined) {
-    const val = assignment.value;
-    if (typeof val === 'string') return `"${val}"`;
-    if (typeof val === 'object') return JSON.stringify(val);
-    return String(val);
-  }
-  if (assignment.expression) {
-    const exprStr = exprToString(assignment.expression);
+    const exprStr = exprToString(assignment.value);
     return exprStr.length > 15 ? exprStr.slice(0, 15) + '...' : exprStr;
   }
   return '?';
@@ -80,23 +74,23 @@ function formatValue(assignment: VariableAssignment): string {
     <div class="node-section vars-section" v-if="assignments.length > 0">
       <div
         v-for="assign in assignments"
-        :key="assign.variable"
+        :key="assign.name"
         class="var-row"
-        :title="`${assign.variable} = ${formatValue(assign)}`"
+        :title="`${assign.name} = ${formatValue(assign)}`"
       >
         <!-- Data Input (optional, for expression dependencies) -->
         <Handle
           type="target"
           :position="Position.Left"
           class="pin pin-data pin-input"
-          :id="`data-in-${assign.variable}`"
+          :id="`data-in-${assign.name}`"
         >
           <svg class="pin-shape" width="8" height="8" viewBox="0 0 8 8">
             <circle cx="4" cy="4" r="3.5" :fill="PIN_COLORS.dataPin" class="pin-fill" />
           </svg>
         </Handle>
 
-        <span class="var-name">{{ assign.variable }}</span>
+        <span class="var-name">{{ assign.name }}</span>
         <span class="var-op">=</span>
         <span class="var-value">{{ formatValue(assign) }}</span>
 
@@ -105,7 +99,7 @@ function formatValue(assignment: VariableAssignment): string {
           type="source"
           :position="Position.Right"
           class="pin pin-data pin-output"
-          :id="`data-out-${assign.variable}`"
+          :id="`data-out-${assign.name}`"
         >
           <svg class="pin-shape" width="8" height="8" viewBox="0 0 8 8">
             <circle cx="4" cy="4" r="3.5" :fill="PIN_COLORS.dataPin" class="pin-fill" />
@@ -117,9 +111,9 @@ function formatValue(assignment: VariableAssignment): string {
     <!-- Info chips (logging, external call) -->
     <div class="node-section info-section" v-if="hasLogging || hasExternalCall">
       <div class="info-row">
-        <span class="info-chip" v-if="hasLogging"> <OrdoIcon name="check" :size="10" /> log </span>
+        <span class="info-chip" v-if="hasLogging"> <OrdoIcon name="check" :size="10" /> {{ t('step.logging') }} </span>
         <span class="info-chip external" v-if="hasExternalCall">
-          <OrdoIcon name="action" :size="10" /> call
+          <OrdoIcon name="action" :size="10" /> {{ t('flow.externalCall') }}
         </span>
       </div>
     </div>

@@ -150,8 +150,8 @@ export interface StepTrace {
   result?: string;
 }
 
-/** Validation result */
-export interface ValidationResult {
+/** Engine validation result */
+export interface EngineValidationResult {
   /** Whether validation passed */
   valid: boolean;
   /** Validation errors (if any) */

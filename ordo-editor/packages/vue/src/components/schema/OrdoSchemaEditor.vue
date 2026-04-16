@@ -152,6 +152,10 @@ function loadSample() {
   protoContent.value = generateSampleProto();
 }
 
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text);
+}
+
 // Generate Rust TypedContext code
 const generatedRustCode = computed(() => {
   const s = schema.value;
@@ -404,7 +408,7 @@ function getDisplayType(type: JITFieldType): string {
     <!-- Preview Tab -->
     <div v-if="activeTab === 'preview'" class="tab-content preview-tab">
       <pre class="rust-code">{{ generatedRustCode }}</pre>
-      <button class="copy-btn" @click="navigator.clipboard.writeText(generatedRustCode)">
+      <button class="copy-btn" @click="copyToClipboard(generatedRustCode)">
         Copy to Clipboard
       </button>
     </div>

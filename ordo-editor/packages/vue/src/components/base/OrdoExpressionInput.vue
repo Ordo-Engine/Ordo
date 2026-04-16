@@ -8,6 +8,8 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 export interface FieldSuggestion {
   /** Field path (e.g., "user.name") */
   path: string;
+  /** Alias for path — used by action/terminal editors */
+  value?: string;
   /** Display label */
   label: string;
   /** Field type */
@@ -79,8 +81,6 @@ const validationError = ref<string | null>(null);
 
 // JIT compatibility state
 const internalJitAnalysis = ref<JITAnalysisResult | null>(null);
-const isAnalyzingJit = ref(false);
-
 // Use external analysis if provided, otherwise use internal
 const jitResult = computed(() => props.jitAnalysis ?? internalJitAnalysis.value);
 

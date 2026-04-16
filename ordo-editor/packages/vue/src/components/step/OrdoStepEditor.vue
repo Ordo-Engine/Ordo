@@ -15,6 +15,7 @@ import OrdoDecisionEditor from './OrdoDecisionEditor.vue';
 import OrdoActionEditor from './OrdoActionEditor.vue';
 import OrdoTerminalEditor from './OrdoTerminalEditor.vue';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
+import { useI18n } from '../../locale';
 
 export interface Props {
   /** Step data */
@@ -59,6 +60,8 @@ function handleChange(step: Step) {
   emit('change', step);
 }
 
+const { t } = useI18n();
+
 function handleDelete() {
   emit('delete', props.modelValue.id);
 }
@@ -71,7 +74,7 @@ function handleDelete() {
       v-if="showDelete && !disabled"
       type="button"
       class="ordo-step-editor__delete"
-      title="Delete step"
+      :title="t('common.deleteStep')"
       @click="handleDelete"
     >
       🗑

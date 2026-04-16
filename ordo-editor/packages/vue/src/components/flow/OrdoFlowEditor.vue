@@ -3,7 +3,7 @@
  * OrdoFlowEditor - Flow-based ruleset editor
  * 流程图模式规则集编辑器
  */
-import { ref, computed, watch, onMounted, markRaw, provide } from 'vue';
+import { ref, computed, inject, watch, onMounted, markRaw, provide } from 'vue';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
@@ -20,6 +20,7 @@ import {
   flowToRuleset,
   createNodeFromStep,
   createEdge,
+  type EdgeRenderStyle,
   createGroupNode,
 } from './utils/converter';
 import {
@@ -31,6 +32,7 @@ import {
 } from './utils/layout';
 import { useI18n, LOCALE_KEY, type Lang } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
+type NodeCreationType = 'decision' | 'action' | 'terminal';
 
 /** Execution trace data for overlay */
 export interface ExecutionTraceData {
@@ -67,7 +69,6 @@ export interface Props {
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
   disabled: false,
-  locale: 'en',
   executionTrace: null,
 });
 
@@ -76,14 +77,24 @@ const emit = defineEmits<{
   change: [value: RuleSet];
 }>();
 
-// Provide locale using the shared key
-const currentLocale = ref<Lang>(props.locale);
-watch(
-  () => props.locale,
-  (val) => {
-    currentLocale.value = val;
-  }
-);
+const FLOW_EDGE_STYLE_KEY = '_flowEdgeStyle';
+const FLOW_LAYOUT_DIRECTION_KEY = '_flowLayoutDirection';
+const FLOW_NODE_DRAG_TYPE = 'application/x-ordo-flow-node';
+const DEFAULT_NODE_DROP_OFFSET = { x: 90, y: 40 };
+
+function getStoredEdgeStyle(ruleset: RuleSet): EdgeRenderStyle {
+  const stored = ruleset.config.metadata?.[FLOW_EDGE_STYLE_KEY];
+  return stored === 'step' ? 'step' : 'bezier';
+}
+
+function getStoredLayoutDirection(ruleset: RuleSet): LayoutDirection {
+  const stored = ruleset.config.metadata?.[FLOW_LAYOUT_DIRECTION_KEY];
+  return stored === 'TB' || stored === 'RL' || stored === 'BT' ? stored : 'LR';
+}
+
+// Inherit locale from parent provider unless the caller explicitly overrides it.
+const inheritedLocale = inject(LOCALE_KEY, ref<Lang>('en'));
+const currentLocale = computed<Lang>(() => props.locale ?? inheritedLocale.value);
 provide(LOCALE_KEY, currentLocale);
 
 const { t } = useI18n();
@@ -103,6 +114,7 @@ const {
   updateEdge,
   removeEdges,
   addEdges,
+  screenToFlowCoordinate,
 } = useVueFlow();
 
 // Edge update state
@@ -135,12 +147,19 @@ const groupNodes = ref<any[]>([]);
 const selectedNodeId = ref<string | null>(null);
 const selectedNodeIds = ref<string[]>([]); // For multi-select
 const selectedEdgeId = ref<string | null>(null); // For edge context menu
-const edgeStyle = ref<'bezier' | 'step'>('bezier');
-const layoutDirection = ref<LayoutDirection>('LR');
+const edgeStyle = ref<EdgeRenderStyle>(getStoredEdgeStyle(props.modelValue));
+const layoutDirection = ref<LayoutDirection>(getStoredLayoutDirection(props.modelValue));
 
 // Context menu state
 const showContextMenu = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
+const flowCanvasContainer = ref<HTMLElement | null>(null);
+const draggedNodeType = ref<NodeCreationType | null>(null);
+const nodeDragPreview = ref<{
+  type: NodeCreationType;
+  x: number;
+  y: number;
+} | null>(null);
 
 // Flag to prevent re-initialization during internal updates
 const isInternalUpdate = ref(false);
@@ -173,9 +192,38 @@ const selectedGroupNode = computed(() => {
   return node;
 });
 
+const nodeDragPreviewLabel = computed(() => {
+  if (!nodeDragPreview.value) return '';
+
+  switch (nodeDragPreview.value.type) {
+    case 'decision':
+      return t('step.decision');
+    case 'action':
+      return t('step.action');
+    case 'terminal':
+      return t('step.terminal');
+  }
+});
+
+const nodeDragPreviewTypeLabel = computed(() => {
+  if (!nodeDragPreview.value) return '';
+
+  switch (nodeDragPreview.value.type) {
+    case 'decision':
+      return t('step.typeDecision');
+    case 'action':
+      return t('step.typeAction');
+    case 'terminal':
+      return t('step.typeTerminal');
+  }
+});
+
 // Initialize from ruleset
 function initFromRuleset(forceLayout = false) {
-  const flowData = rulesetToFlow(props.modelValue);
+  edgeStyle.value = getStoredEdgeStyle(props.modelValue);
+  layoutDirection.value = getStoredLayoutDirection(props.modelValue);
+
+  const flowData = rulesetToFlow(props.modelValue, edgeStyle.value);
 
   // Add zIndex to group nodes to keep them at bottom
   // NOTE: Do NOT set draggable here - let it inherit from VueFlow's nodes-draggable prop
@@ -202,6 +250,17 @@ function initFromRuleset(forceLayout = false) {
   }
 }
 
+function buildFlowConfig() {
+  return {
+    ...props.modelValue.config,
+    metadata: {
+      ...(props.modelValue.config.metadata ?? {}),
+      [FLOW_EDGE_STYLE_KEY]: edgeStyle.value,
+      [FLOW_LAYOUT_DIRECTION_KEY]: layoutDirection.value,
+    },
+  };
+}
+
 // Sync back to ruleset
 function syncToRuleset() {
   // Set flag to prevent watch from re-initializing
@@ -214,7 +273,7 @@ function syncToRuleset() {
   const newRuleset = flowToRuleset(
     stepNodes,
     edges.value,
-    props.modelValue.config,
+    buildFlowConfig(),
     props.modelValue.startStepId,
     currentGroupNodes
   );
@@ -608,6 +667,7 @@ onConnect((params) => {
   const newEdge = createEdge(params.source, params.target, {
     sourceHandle: params.sourceHandle || undefined,
     targetHandle: params.targetHandle || undefined,
+    renderStyle: edgeStyle.value,
   });
   edges.value.push(newEdge);
   syncToRuleset();
@@ -744,42 +804,142 @@ onNodeDragStop(({ node }) => {
   }
 });
 
-// Add new node
-function addNode(type: 'decision' | 'action' | 'terminal') {
-  const id = generateId('step');
-  let step: Step;
-
+function createStep(type: NodeCreationType, id: string): Step {
   switch (type) {
     case 'decision':
-      step = StepFactory.decision({
+      return StepFactory.decision({
         id,
         name: t('step.decision'),
         branches: [],
         defaultNextStepId: '',
       });
-      break;
     case 'action':
-      step = StepFactory.action({
+      return StepFactory.action({
         id,
         name: t('step.action'),
         nextStepId: '',
       });
-      break;
     case 'terminal':
-      step = StepFactory.terminal({
+      return StepFactory.terminal({
         id,
         name: t('step.terminal'),
         code: 'RESULT',
       });
-      break;
   }
+}
 
-  const position = getSuggestedPosition(nodes.value, selectedNodeId.value || undefined);
+function addNodeAtPosition(type: NodeCreationType, position: { x: number; y: number }) {
+  const id = generateId('step');
+  const step = createStep(type, id);
   const newNode = createNodeFromStep(step, position, nodes.value.length === 0);
 
   nodes.value.push(newNode);
   selectedNodeId.value = id;
+  selectedNodeIds.value = [id];
+  selectedEdgeId.value = null;
   syncToRuleset();
+}
+
+function getVisibleCanvasCenterPosition() {
+  if (!flowCanvasContainer.value) {
+    return getSuggestedPosition(nodes.value, selectedNodeId.value || undefined);
+  }
+
+  const rect = flowCanvasContainer.value.getBoundingClientRect();
+  const centerPosition = screenToFlowCoordinate({
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  });
+
+  return {
+    x: centerPosition.x - DEFAULT_NODE_DROP_OFFSET.x,
+    y: centerPosition.y - DEFAULT_NODE_DROP_OFFSET.y,
+  };
+}
+
+// Add new node
+function addNode(type: NodeCreationType) {
+  const position = getVisibleCanvasCenterPosition();
+  addNodeAtPosition(type, position);
+}
+
+function isNodeCreationType(value: string): value is NodeCreationType {
+  return value === 'decision' || value === 'action' || value === 'terminal';
+}
+
+function clearNodeDragPreview() {
+  nodeDragPreview.value = null;
+}
+
+function endNodeDrag() {
+  draggedNodeType.value = null;
+  clearNodeDragPreview();
+}
+
+function updateNodeDragPreview(event: DragEvent, type: NodeCreationType) {
+  const container = event.currentTarget as HTMLElement | null;
+  if (!container) return;
+
+  const rect = container.getBoundingClientRect();
+
+  nodeDragPreview.value = {
+    type,
+    x: event.clientX - rect.left - DEFAULT_NODE_DROP_OFFSET.x,
+    y: event.clientY - rect.top - DEFAULT_NODE_DROP_OFFSET.y,
+  };
+}
+
+function onCanvasDragOver(event: DragEvent) {
+  if (!event.dataTransfer || props.disabled) return;
+
+  const isToolbarNodeDrag = Array.from(event.dataTransfer.types).includes(FLOW_NODE_DRAG_TYPE);
+  if (!isToolbarNodeDrag || !draggedNodeType.value) return;
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  updateNodeDragPreview(event, draggedNodeType.value);
+}
+
+function onCanvasDragLeave(event: DragEvent) {
+  if (!nodeDragPreview.value) return;
+
+  const container = event.currentTarget as HTMLElement | null;
+  if (!container) {
+    clearNodeDragPreview();
+    return;
+  }
+
+  const rect = container.getBoundingClientRect();
+  const hasLeftContainer =
+    event.clientX <= rect.left ||
+    event.clientX >= rect.right ||
+    event.clientY <= rect.top ||
+    event.clientY >= rect.bottom;
+
+  if (hasLeftContainer) {
+    clearNodeDragPreview();
+  }
+}
+
+function onCanvasDrop(event: DragEvent) {
+  if (props.disabled || !event.dataTransfer) return;
+
+  const droppedType = event.dataTransfer.getData(FLOW_NODE_DRAG_TYPE);
+  const type = droppedType || draggedNodeType.value;
+  if (!type || !isNodeCreationType(type)) return;
+
+  event.preventDefault();
+  clearNodeDragPreview();
+
+  const flowPosition = screenToFlowCoordinate({
+    x: event.clientX,
+    y: event.clientY,
+  });
+
+  addNodeAtPosition(type, {
+    x: flowPosition.x - DEFAULT_NODE_DROP_OFFSET.x,
+    y: flowPosition.y - DEFAULT_NODE_DROP_OFFSET.y,
+  });
 }
 
 // Delete selected node
@@ -849,7 +1009,7 @@ function addGroup() {
     size = { width: 300, height: 200 };
   }
 
-  const newGroup = createGroupNode('New Group', position, size);
+  const newGroup = createGroupNode(t('flow.newGroup'), position, size);
 
   // Add zIndex to keep at bottom
   const groupWithZIndex = {
@@ -970,6 +1130,7 @@ function reverseSelectedEdge() {
   const newEdge = createEdge(edge.target, edge.source, {
     sourceHandle: edge.targetHandle || undefined,
     targetHandle: edge.sourceHandle || undefined,
+    renderStyle: edgeStyle.value,
   });
 
   // Remove old edge and add new edge using Vue Flow methods
@@ -1039,7 +1200,7 @@ function setAsStart(nodeId: string) {
     },
   }));
 
-  const newRuleset = flowToRuleset(nodes.value, edges.value, props.modelValue.config, nodeId);
+  const newRuleset = flowToRuleset(nodes.value, edges.value, buildFlowConfig(), nodeId);
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
@@ -1078,6 +1239,7 @@ function autoLayout() {
 
       const newRuleset = {
         ...props.modelValue,
+        config: buildFlowConfig(),
         groups: updatedGroups,
       };
       emit('update:modelValue', newRuleset);
@@ -1140,9 +1302,24 @@ function updateGroupName(newName: string) {
   syncToRuleset();
 }
 
-// Toggle edge style
-function toggleEdgeStyle() {
-  edgeStyle.value = edgeStyle.value === 'bezier' ? 'step' : 'bezier';
+function setEdgeStyle(style: EdgeRenderStyle) {
+  if (edgeStyle.value === style) return;
+
+  edgeStyle.value = style;
+  edges.value = edges.value.map((edge) => ({
+    ...edge,
+    data: {
+      ...edge.data,
+      renderStyle: style,
+    },
+  }));
+  syncToRuleset();
+}
+
+function setLayoutDirectionAndPersist(direction: LayoutDirection) {
+  if (layoutDirection.value === direction) return;
+  layoutDirection.value = direction;
+  syncToRuleset();
 }
 
 // Computed edge type for Vue Flow
@@ -1170,15 +1347,24 @@ onMounted(() => {
       :layout-direction="layoutDirection"
       :has-selection="!!selectedNodeId"
       @add-node="addNode"
+      @start-node-drag="draggedNodeType = $event"
+      @end-node-drag="endNodeDrag"
       @add-group="addGroup"
       @delete-node="deleteSelectedNode"
       @auto-layout="autoLayout"
-      @toggle-edge-style="toggleEdgeStyle"
-      @set-layout-direction="layoutDirection = $event"
+      @set-edge-style="setEdgeStyle"
+      @set-layout-direction="setLayoutDirectionAndPersist"
     />
 
     <!-- Main Canvas -->
-    <div class="flow-canvas-container" @contextmenu="onPaneContextMenu">
+    <div
+      ref="flowCanvasContainer"
+      class="flow-canvas-container"
+      @contextmenu="onPaneContextMenu"
+      @dragover="onCanvasDragOver"
+      @dragleave="onCanvasDragLeave"
+      @drop="onCanvasDrop"
+    >
       <VueFlow
         v-model:nodes="nodes"
         v-model:edges="edges"
@@ -1206,6 +1392,21 @@ onMounted(() => {
         <Controls />
         <MiniMap />
       </VueFlow>
+
+      <div
+        v-if="nodeDragPreview"
+        class="node-drag-preview"
+        :class="`type-${nodeDragPreview.type}`"
+        :style="{
+          transform: `translate(${nodeDragPreview.x}px, ${nodeDragPreview.y}px)`,
+        }"
+      >
+        <div class="node-drag-preview-header">
+          <OrdoIcon :name="nodeDragPreview.type" :size="14" class="node-drag-preview-icon" />
+          <span class="node-drag-preview-title">{{ nodeDragPreviewLabel }}</span>
+          <span class="node-drag-preview-badge">{{ nodeDragPreviewTypeLabel }}</span>
+        </div>
+      </div>
 
       <!-- Context Menu -->
       <div
@@ -1430,6 +1631,72 @@ onMounted(() => {
 .flow-canvas {
   width: 100%;
   height: 100%;
+}
+
+.node-drag-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 180px;
+  max-width: 220px;
+  border: 2px dashed var(--ordo-border-color);
+  border-top-width: 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ordo-bg-item) 88%, transparent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  z-index: 20;
+  opacity: 0.95;
+}
+
+.node-drag-preview.type-decision {
+  border-color: var(--ordo-node-decision, #b76e00);
+}
+
+.node-drag-preview.type-action {
+  border-color: var(--ordo-node-action, #0066b8);
+}
+
+.node-drag-preview.type-terminal {
+  border-color: var(--ordo-node-terminal, #388a34);
+}
+
+.node-drag-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.node-drag-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-primary);
+  flex: 1;
+}
+
+.node-drag-preview-badge {
+  font-size: 9px;
+  color: var(--ordo-text-tertiary);
+  background: var(--ordo-bg-panel);
+  padding: 2px 5px;
+  border-radius: 999px;
+}
+
+.node-drag-preview-icon {
+  flex-shrink: 0;
+}
+
+.node-drag-preview.type-decision .node-drag-preview-icon {
+  color: var(--ordo-node-decision, #b76e00);
+}
+
+.node-drag-preview.type-action .node-drag-preview-icon {
+  color: var(--ordo-node-action, #0066b8);
+}
+
+.node-drag-preview.type-terminal .node-drag-preview-icon {
+  color: var(--ordo-node-terminal, #388a34);
 }
 
 /* Vue Flow overrides */

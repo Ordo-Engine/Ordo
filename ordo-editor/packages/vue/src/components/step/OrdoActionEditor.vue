@@ -7,7 +7,6 @@ import { computed } from 'vue';
 import type { ActionStep, VariableAssignment, Step, SchemaContext } from '@ordo-engine/editor-core';
 import { Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoExpressionInput from '../base/OrdoExpressionInput.vue';
-import OrdoSchemaFieldPicker from '../base/OrdoSchemaFieldPicker.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
@@ -39,9 +38,9 @@ const enrichedSuggestions = computed((): FieldSuggestion[] => {
   const base = [...props.suggestions];
   if (props.schemaContext) {
     for (const field of props.schemaContext.getAllFields()) {
-      if (!base.find((s) => s.value === field.fullPath)) {
+      if (!base.find((s) => s.path === field.fullPath)) {
         base.push({
-          value: field.fullPath,
+          path: field.fullPath,
           label: `${field.fullPath} (${field.type})`,
           description: field.description,
         });
@@ -52,8 +51,8 @@ const enrichedSuggestions = computed((): FieldSuggestion[] => {
   if (props.modelValue.assignments) {
     for (const assign of props.modelValue.assignments) {
       const varPath = `$.${assign.name}`;
-      if (!base.find((s) => s.value === varPath)) {
-        base.push({ value: varPath, label: `${varPath} (variable)` });
+      if (!base.find((s) => s.path === varPath)) {
+        base.push({ path: varPath, label: `${varPath} (${t('common.variable')})` });
       }
     }
   }
@@ -67,10 +66,23 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+function getStepTypeLabel(type: Step['type']) {
+  switch (type) {
+    case 'decision':
+      return t('step.typeDecision');
+    case 'action':
+      return t('step.typeAction');
+    case 'terminal':
+      return t('step.typeTerminal');
+    default:
+      return type;
+  }
+}
+
 const stepOptions = computed(() => {
   return props.availableSteps
     .filter((s) => s.id !== props.modelValue.id)
-    .map((s) => ({ value: s.id, label: `${s.name} (${s.type})` }));
+    .map((s) => ({ value: s.id, label: `${s.name} (${getStepTypeLabel(s.type)})` }));
 });
 
 // ... (Existing logic same) ...
@@ -217,8 +229,8 @@ function updateExprValue(val: string): any {
         <table class="ordo-data-table" v-if="modelValue.assignments?.length">
           <thead>
             <tr>
-              <th width="30%">Name</th>
-              <th width="60%">Value</th>
+              <th width="30%">{{ t('common.name') }}</th>
+              <th width="60%">{{ t('common.value') }}</th>
               <th width="10%"></th>
             </tr>
           </thead>
@@ -258,7 +270,7 @@ function updateExprValue(val: string): any {
             </tr>
           </tbody>
         </table>
-        <div v-else class="ordo-empty-state">No variable assignments.</div>
+        <div v-else class="ordo-empty-state">{{ t('step.noAssignments') }}</div>
       </div>
     </div>
 
@@ -274,17 +286,17 @@ function updateExprValue(val: string): any {
           class="ordo-input-base level-select"
           @change="updateLogging({ level: ($event.target as HTMLSelectElement).value as any })"
         >
-          <option value="">None</option>
-          <option value="debug">Debug</option>
-          <option value="info">Info</option>
-          <option value="warn">Warn</option>
-          <option value="error">Error</option>
+          <option value="">{{ t('common.none') }}</option>
+          <option value="debug">{{ t('step.logLevelDebug') }}</option>
+          <option value="info">{{ t('step.logLevelInfo') }}</option>
+          <option value="warn">{{ t('step.logLevelWarn') }}</option>
+          <option value="error">{{ t('step.logLevelError') }}</option>
         </select>
         <OrdoExpressionInput
           :model-value="getExprValue(modelValue.logging?.message)"
           :suggestions="enrichedSuggestions"
           :disabled="disabled"
-          placeholder="Log message..."
+          :placeholder="t('step.logMessage')"
           @update:model-value="updateLogging({ message: updateExprValue($event) })"
         />
       </div>
@@ -300,7 +312,7 @@ function updateExprValue(val: string): any {
           class="ordo-input-base"
           @change="updateNextStep"
         >
-          <option value="">-- End Flow --</option>
+          <option value="">{{ t('common.endFlow') }}</option>
           <option v-for="opt in stepOptions" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>

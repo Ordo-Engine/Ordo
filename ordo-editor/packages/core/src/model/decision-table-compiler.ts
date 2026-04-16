@@ -173,7 +173,7 @@ function buildTerminalStep(
   row: DecisionTableRow,
   outputColumns: OutputColumn[],
   rowIndex: number,
-  totalRows: number
+  _totalRows: number
 ): TerminalStep {
   const output: OutputField[] = [];
 
@@ -392,6 +392,36 @@ export function decompileStepsToTable(
       resultMessage: extractLiteralString(path.terminal.message),
     };
   });
+
+  // --- Infer column types from cell data when schema was not provided ---
+  // If the schema typed the column already, this is a no-op.
+  for (const col of inputColumns) {
+    if (col.type !== 'string') continue;
+    for (const row of rows) {
+      const cell = row.inputValues[col.id];
+      if (!cell) continue;
+      if (cell.type === 'range') {
+        col.type = 'number';
+        break;
+      }
+      if (cell.type === 'exact') {
+        if (typeof cell.value === 'number') { col.type = 'number'; break; }
+        if (typeof cell.value === 'boolean') { col.type = 'boolean'; break; }
+      }
+    }
+  }
+
+  for (const col of outputColumns) {
+    if (col.type !== 'string') continue;
+    for (const row of rows) {
+      const cell = row.outputValues[col.id];
+      if (!cell) continue;
+      if (cell.type === 'exact') {
+        if (typeof cell.value === 'number') { col.type = 'number'; break; }
+        if (typeof cell.value === 'boolean') { col.type = 'boolean'; break; }
+      }
+    }
+  }
 
   return {
     name: startStep.name || 'Decision Table',

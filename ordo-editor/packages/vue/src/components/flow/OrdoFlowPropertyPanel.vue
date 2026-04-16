@@ -34,8 +34,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const step = computed(() => props.node.data.step);
-const isStart = computed(() => props.node.data.isStart);
+const step = computed(() => props.node.data!.step);
+const isStart = computed(() => props.node.data!.isStart);
 
 const nodeTypeLabel = computed(() => {
   switch (step.value.type) {

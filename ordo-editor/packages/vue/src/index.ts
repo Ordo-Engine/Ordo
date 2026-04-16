@@ -47,7 +47,7 @@ export type {
   RuleSet,
   RuleSetConfig,
   SchemaField,
-  FieldType,
+  JITFieldType,
   StepUnion,
   StepType,
   DecisionStep,
@@ -80,9 +80,8 @@ export type {
   ValidationError,
 } from '@ordo-engine/editor-core';
 
-// Re-export type aliases that have same-name values
-// These need explicit type/value separation for isolatedModules
-export type { Step, Condition, Expr } from '@ordo-engine/editor-core';
+// Note: Step, Condition, Expr are exported as values below (factory objects).
+// Their types are available via StepUnion, ConditionUnion, ExprUnion re-exports above.
 
 // Re-export store types
 export type {

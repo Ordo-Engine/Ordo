@@ -42,11 +42,14 @@ for crate in ordo-core ordo-server ordo-proto ordo-wasm ordo-derive ordo-platfor
     fi
 done
 
-# Internal crate dep references in ordo-server
-sed -i.bak "s/ordo-core = { version = \"[^\"]*\"/ordo-core = { version = \"$VERSION\"/" \
-    "$ROOT_DIR/crates/ordo-server/Cargo.toml"
-sed -i.bak "s/ordo-proto = { version = \"[^\"]*\"/ordo-proto = { version = \"$VERSION\"/" \
-    "$ROOT_DIR/crates/ordo-server/Cargo.toml"
+# Internal crate dep references — update in every crate that references another ordo-* crate
+for crate in ordo-core ordo-server ordo-proto ordo-wasm ordo-derive ordo-platform ordo-cli; do
+    TOML="$ROOT_DIR/crates/$crate/Cargo.toml"
+    [ -f "$TOML" ] || continue
+    for dep in ordo-core ordo-proto ordo-derive ordo-server ordo-wasm ordo-platform ordo-cli; do
+        sed -i.bak "s/${dep} = { version = \"[^\"]*\"/${dep} = { version = \"$VERSION\"/" "$TOML"
+    done
+done
 
 # Clean up Rust backup files
 find "$ROOT_DIR/crates" "$ROOT_DIR" -maxdepth 1 -name "*.bak" -delete

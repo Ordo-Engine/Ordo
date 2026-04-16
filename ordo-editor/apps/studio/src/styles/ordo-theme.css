@@ -1,0 +1,202 @@
+/**
+ * Ordo design tokens — same palette as packages/vue/src/styles/theme.css
+ * Duplicated here so the Studio app can use them independently.
+ */
+
+:root,
+[data-theme='light'] {
+  --ordo-gray-50: #fbfcfd;
+  --ordo-gray-100: #f0f1f4;
+  --ordo-gray-200: #e2e4e9;
+  --ordo-gray-300: #cdd0d6;
+  --ordo-gray-400: #9fa4ad;
+  --ordo-gray-500: #707682;
+  --ordo-gray-600: #555a64;
+  --ordo-gray-700: #3e424a;
+  --ordo-gray-800: #282b31;
+  --ordo-gray-900: #181a1f;
+
+  --ordo-accent: #0066b8;
+  --ordo-accent-hover: #005ba1;
+  --ordo-accent-bg: #e6f1fc;
+  --ordo-accent-alpha: rgba(0, 102, 184, 0.1);
+
+  --ordo-success: #388a34;
+  --ordo-warning: #b76e00;
+  --ordo-error: #e51400;
+  --ordo-info: #0066b8;
+
+  --ordo-bg-app: #f5f5f5;
+  --ordo-bg-panel: #ffffff;
+  --ordo-bg-editor: #ffffff;
+  --ordo-bg-item: #ffffff;
+  --ordo-bg-item-hover: #f0f0f0;
+  --ordo-bg-input: #ffffff;
+  --ordo-bg-selected: #e8f4fd;
+  --ordo-bg-sidebar: #1e2025;
+  --ordo-hover-bg: rgba(0, 0, 0, 0.05);
+  --ordo-active-bg: rgba(0, 102, 184, 0.08);
+
+  --ordo-border-color: #e1e4e8;
+  --ordo-border-light: #eff1f3;
+  --ordo-border-focus: #0066b8;
+
+  --ordo-text-primary: #24292e;
+  --ordo-text-secondary: #586069;
+  --ordo-text-tertiary: #6a737d;
+  --ordo-text-inverse: #ffffff;
+  --ordo-text-on-sidebar: #cccccc;
+
+  --ordo-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --ordo-font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  --ordo-radius-sm: 2px;
+  --ordo-radius-md: 4px;
+  --ordo-radius-lg: 6px;
+  --ordo-radius-xl: 8px;
+
+  --ordo-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --ordo-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --ordo-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  /* Sidebar specific */
+  --studio-sidebar-width: 220px;
+  --studio-header-height: 48px;
+  --studio-statusbar-height: 22px;
+
+  /* ── Aliases for packages/vue component variables ── */
+  --ordo-bg-card: #ffffff;
+  --ordo-bg-secondary: #f5f5f5;
+  --ordo-bg-tertiary: #eeeeee;
+  --ordo-bg-popup: #ffffff;
+  --ordo-bg-elevated: #ffffff;
+  --ordo-bg-hover: var(--ordo-bg-item-hover);
+  --ordo-bg-disabled: #f5f5f5;
+
+  --ordo-primary-50: var(--ordo-accent-bg);
+  --ordo-primary-400: #3385d6;
+  --ordo-primary-500: #0077cc;
+  --ordo-primary-600: var(--ordo-accent);
+  --ordo-primary-700: var(--ordo-accent-hover);
+
+  --ordo-border-hover: var(--ordo-accent);
+  --ordo-focus-ring: 0 0 0 2px var(--ordo-accent-alpha);
+
+  --ordo-space-xs: 4px;
+  --ordo-space-sm: 8px;
+  --ordo-space-md: 12px;
+
+  --ordo-font-size-xs: 12px;
+  --ordo-font-size-sm: 13px;
+  --ordo-font-size-md: 15px;
+
+  --ordo-radius-xs: 2px;
+
+  --ordo-transition-base: all 0.15s ease;
+
+  --ordo-error-alpha: rgba(229, 20, 0, 0.15);
+  --ordo-error-bg: rgba(229, 20, 0, 0.08);
+  --ordo-success-bg: rgba(56, 138, 52, 0.08);
+  --ordo-accent-secondary: #7c5ac2;
+
+  --ordo-node-decision: var(--ordo-warning);
+  --ordo-node-action: var(--ordo-accent);
+  --ordo-node-terminal: var(--ordo-success);
+
+  --ordo-keyword: var(--ordo-accent);
+  --ordo-variable: #d4860e;
+
+  --ordo-z-dropdown: 1000;
+}
+
+[data-theme='dark'] {
+  --ordo-gray-50: #1e1e1e;
+  --ordo-gray-100: #252526;
+  --ordo-gray-200: #2d2d2d;
+  --ordo-gray-300: #333333;
+  --ordo-gray-400: #3e3e42;
+  --ordo-gray-500: #505050;
+  --ordo-gray-600: #858585;
+  --ordo-gray-700: #bbbbbb;
+  --ordo-gray-800: #cccccc;
+  --ordo-gray-900: #ffffff;
+
+  --ordo-accent: #3794ff;
+  --ordo-accent-hover: #1f8ad2;
+  --ordo-accent-bg: rgba(55, 148, 255, 0.15);
+  --ordo-accent-alpha: rgba(55, 148, 255, 0.2);
+
+  --ordo-success: #89d185;
+  --ordo-warning: #cca700;
+  --ordo-error: #f48771;
+  --ordo-info: #3794ff;
+
+  --ordo-bg-app: #1e1e1e;
+  --ordo-bg-panel: #252526;
+  --ordo-bg-editor: #1e1e1e;
+  --ordo-bg-item: #2d2d2d;
+  --ordo-bg-item-hover: #2a2d2e;
+  --ordo-bg-input: #3c3c3c;
+  --ordo-bg-selected: #37373d;
+  --ordo-bg-sidebar: #1a1a1e;
+  --ordo-hover-bg: rgba(255, 255, 255, 0.06);
+  --ordo-active-bg: rgba(55, 148, 255, 0.12);
+
+  --ordo-border-color: #454545;
+  --ordo-border-light: #2d2d2d;
+  --ordo-border-focus: #007fd4;
+
+  --ordo-text-primary: #cccccc;
+  --ordo-text-secondary: #858585;
+  --ordo-text-tertiary: #606060;
+  --ordo-text-inverse: #1e1e1e;
+  --ordo-text-on-sidebar: #cccccc;
+
+  --ordo-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --ordo-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --ordo-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+
+  /* ── Aliases for packages/vue component variables (dark) ── */
+  --ordo-bg-card: #2d2d2d;
+  --ordo-bg-secondary: #1a1a1a;
+  --ordo-bg-tertiary: #141414;
+  --ordo-bg-popup: #252526;
+  --ordo-bg-elevated: #2a2d2e;
+  --ordo-bg-hover: rgba(255, 255, 255, 0.06);
+  --ordo-bg-disabled: #2d2d2d;
+
+  --ordo-primary-50: rgba(55, 148, 255, 0.12);
+  --ordo-primary-400: #5ba8ff;
+  --ordo-primary-500: #4b9eff;
+  --ordo-primary-600: var(--ordo-accent);
+  --ordo-primary-700: var(--ordo-accent-hover);
+
+  --ordo-border-hover: var(--ordo-accent);
+  --ordo-focus-ring: 0 0 0 2px var(--ordo-accent-alpha);
+
+  --ordo-space-xs: 4px;
+  --ordo-space-sm: 8px;
+  --ordo-space-md: 12px;
+
+  --ordo-font-size-xs: 12px;
+  --ordo-font-size-sm: 13px;
+  --ordo-font-size-md: 15px;
+
+  --ordo-radius-xs: 2px;
+
+  --ordo-transition-base: all 0.15s ease;
+
+  --ordo-error-alpha: rgba(244, 135, 113, 0.2);
+  --ordo-error-bg: rgba(244, 135, 113, 0.1);
+  --ordo-success-bg: rgba(137, 209, 133, 0.1);
+  --ordo-accent-secondary: #9d82d9;
+
+  --ordo-node-decision: var(--ordo-warning);
+  --ordo-node-action: var(--ordo-accent);
+  --ordo-node-terminal: var(--ordo-success);
+
+  --ordo-keyword: var(--ordo-accent);
+  --ordo-variable: #ffd27f;
+
+  --ordo-z-dropdown: 1000;
+}

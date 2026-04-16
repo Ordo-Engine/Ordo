@@ -188,7 +188,11 @@ pub async fn delete_project(
 /// Register a new tenant in ordo-server when a project is created.
 /// This is a best-effort call — if ordo-server is unreachable, the project
 /// is still created and the tenant can be registered later.
-async fn register_tenant_in_engine(state: &AppState, tenant_id: &str, name: &str) -> ApiResult<()> {
+pub(crate) async fn register_tenant_in_engine(
+    state: &AppState,
+    tenant_id: &str,
+    name: &str,
+) -> ApiResult<()> {
     let url = format!("{}/api/v1/tenants", state.config.engine_url);
     let body = serde_json::json!({
         "id": tenant_id,
@@ -216,6 +220,51 @@ async fn register_tenant_in_engine(state: &AppState, tenant_id: &str, name: &str
                 e
             );
             Ok(()) // Non-fatal — engine may not be running yet
+        }
+    }
+}
+
+/// Push a RuleSet JSON blob to ordo-server for the given tenant.
+///
+/// Used by the templates API when cloning a template into a new project.
+/// The caller is responsible for setting `config.tenant_id` in the payload
+/// before calling — ordo-server validates that the body's tenant_id matches
+/// the `X-Tenant-ID` header.
+pub(crate) async fn push_ruleset_to_engine(
+    state: &AppState,
+    tenant_id: &str,
+    ruleset: &serde_json::Value,
+) -> ApiResult<()> {
+    let url = format!("{}/api/v1/rulesets", state.config.engine_url);
+    match state
+        .http_client
+        .post(&url)
+        .header("X-Tenant-ID", tenant_id)
+        .json(ruleset)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => Ok(()),
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            tracing::error!(
+                "Engine rejected template ruleset for tenant {}: {} — {}",
+                tenant_id,
+                status,
+                body
+            );
+            Err(PlatformError::internal(format!(
+                "Engine rejected template ruleset: HTTP {}",
+                status
+            )))
+        }
+        Err(e) => {
+            tracing::error!("Failed to push template ruleset to engine: {}", e);
+            Err(PlatformError::internal(format!(
+                "Could not reach engine to push template ruleset: {}",
+                e
+            )))
         }
     }
 }

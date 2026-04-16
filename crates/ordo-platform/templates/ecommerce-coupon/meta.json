@@ -1,0 +1,17 @@
+{
+  "id": "ecommerce-coupon",
+  "name": "i18n:template.ecommerce-coupon.name",
+  "description": "i18n:template.ecommerce-coupon.description",
+  "tags": [
+    "i18n:template.tag.ecommerce",
+    "i18n:template.tag.decision",
+    "i18n:template.tag.beginner"
+  ],
+  "icon": "shopping-cart",
+  "difficulty": "beginner",
+  "features": [
+    "i18n:template.ecommerce-coupon.feature.multi-tier",
+    "i18n:template.ecommerce-coupon.feature.vip",
+    "i18n:template.ecommerce-coupon.feature.time-window"
+  ]
+}

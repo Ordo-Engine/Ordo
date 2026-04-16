@@ -146,7 +146,7 @@ importers:
         version: 0.3.7(vue@3.5.26)
       tdesign-vue-next:
         specifier: ^1.10.0
-        version: 1.18.6(vue@3.5.26)
+        version: 1.19.1(vue@3.5.26)
       vue:
         specifier: ^3.3.0
         version: 3.5.26(typescript@5.8.2)
@@ -4906,8 +4906,8 @@ packages:
       vue: 3.5.26(typescript@5.8.2)
     dev: false
 
-  /tdesign-vue-next@1.18.6(vue@3.5.26):
-    resolution: {integrity: sha512-oc7wOE5awfWd0/mqCVOESv3rg1Nh6HJGr9vAvgjUkRTp6/KS9gexiKU2qR1hBKqh6cmBQkbFMWmX8MLnJJ6zLQ==}
+  /tdesign-vue-next@1.19.1(vue@3.5.26):
+    resolution: {integrity: sha512-OKf2/2vDfOThvkiYne9X+DViTA2dOvYO8BY05/9xWjvU3+x+bcV2HAUdY4yBs9IQCYZEz10L5X7SXMu4ztAyCA==}
     engines: {node: '>= 18'}
     peerDependencies:
       vue: '>=3.1.0'

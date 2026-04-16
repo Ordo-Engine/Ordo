@@ -1,0 +1,36 @@
+{
+  "name": "@ordo-engine/studio",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Ordo Decision Management Platform — Studio",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@ordo-engine/editor-core": "workspace:*",
+    "@ordo-engine/editor-vue": "workspace:*",
+    "@vue-flow/background": "^1.3.2",
+    "@vue-flow/controls": "^1.1.3",
+    "@vue-flow/core": "^1.48.1",
+    "@vue-flow/minimap": "^1.5.4",
+    "@vue-flow/node-resizer": "^1.5.0",
+    "dagre": "^0.8.5",
+    "pinia": "^2.1.7",
+    "tdesign-icons-vue-next": "^0.3.0",
+    "tdesign-vue-next": "^1.10.0",
+    "vue": "^3.3.0",
+    "vue-i18n": "^9.13.0",
+    "vue-router": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/dagre": "^0.7.53",
+    "@vitejs/plugin-vue": "^4.5.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0",
+    "vue-tsc": "^3.2.6"
+  }
+}

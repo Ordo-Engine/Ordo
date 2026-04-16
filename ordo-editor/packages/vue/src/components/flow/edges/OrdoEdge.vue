@@ -4,7 +4,7 @@
  * 自定义边组件，支持条件提示
  */
 import { computed, ref } from 'vue';
-import { getBezierPath, Position } from '@vue-flow/core';
+import { getBezierPath, getSmoothStepPath, Position } from '@vue-flow/core';
 import type { EdgeProps } from '@vue-flow/core';
 import type { FlowEdgeData } from '../utils/converter';
 import { EDGE_COLORS } from '../types';
@@ -52,8 +52,22 @@ const strokeWidth = computed(() => {
 /** Has condition to show */
 const hasCondition = computed(() => !!props.data?.condition);
 
-/** Get path for the edge - using Bezier curves for smooth flow visualization */
+/** Get path for the edge */
 const edgePath = computed(() => {
+  if (props.data?.renderStyle === 'step') {
+    const [path] = getSmoothStepPath({
+      sourceX: props.sourceX,
+      sourceY: props.sourceY,
+      sourcePosition: props.sourcePosition,
+      targetX: props.targetX,
+      targetY: props.targetY,
+      targetPosition: props.targetPosition,
+      borderRadius: 10,
+      offset: 20,
+    });
+    return path;
+  }
+
   // Calculate curvature based on vertical distance (more curve for longer vertical spans)
   const verticalDistance = Math.abs(props.targetY - props.sourceY);
   const horizontalDistance = Math.abs(props.targetX - props.sourceX);
@@ -184,7 +198,7 @@ function handleMouseMove(event: MouseEvent) {
           top: tooltipPosition.y + 'px',
         }"
       >
-        <div class="tooltip-header">Condition</div>
+        <div class="tooltip-header">{{ t('flow.conditionLabel') }}</div>
         <div class="tooltip-content">{{ data?.condition }}</div>
       </div>
     </Teleport>

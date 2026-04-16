@@ -21,7 +21,7 @@
     "build": "vite build",
     "dev": "vite build --watch",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.check.json"
   },
   "dependencies": {
     "@ordo-engine/editor-core": "workspace:*"

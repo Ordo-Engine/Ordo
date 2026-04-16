@@ -9,7 +9,6 @@ import type {
   DecisionTableRow,
   CellValue,
   InputColumn,
-  OutputColumn,
   SchemaFieldType,
   HitPolicy,
 } from '@ordo-engine/editor-core';
@@ -42,6 +41,38 @@ const { t } = useI18n();
 const editingCell = ref<{ rowId: string; columnId: string } | null>(null);
 const dragRowId = ref<string | null>(null);
 const dropTargetRowId = ref<string | null>(null);
+
+// Column header inline editing
+const editingColId = ref<string | null>(null);
+const editingColField = ref('');
+
+function startEditCol(colId: string, currentField: string) {
+  if (props.disabled) return;
+  editingColId.value = colId;
+  editingColField.value = currentField;
+}
+
+function commitEditCol() {
+  const colId = editingColId.value;
+  if (!colId) return;
+  const field = editingColField.value.trim();
+  if (!field) { editingColId.value = null; return; }
+
+  const inputIdx = props.modelValue.inputColumns.findIndex((c) => c.id === colId);
+  if (inputIdx !== -1) {
+    const cols = [...props.modelValue.inputColumns];
+    cols[inputIdx] = { ...cols[inputIdx], fieldPath: field, label: field };
+    emitTable({ ...props.modelValue, inputColumns: cols });
+  } else {
+    const outputIdx = props.modelValue.outputColumns.findIndex((c) => c.id === colId);
+    if (outputIdx !== -1) {
+      const cols = [...props.modelValue.outputColumns];
+      cols[outputIdx] = { ...cols[outputIdx], fieldName: field, label: field };
+      emitTable({ ...props.modelValue, outputColumns: cols });
+    }
+  }
+  editingColId.value = null;
+}
 
 const allColumns = computed(() => [
   ...props.modelValue.inputColumns.map((c) => ({ ...c, kind: 'input' as const })),
@@ -240,14 +271,6 @@ function getCellValue(
   return map[columnId] ?? { type: 'any' };
 }
 
-function getColumnType(columnId: string): SchemaFieldType {
-  const input = props.modelValue.inputColumns.find((c) => c.id === columnId);
-  if (input) return input.type;
-  const output = props.modelValue.outputColumns.find((c) => c.id === columnId);
-  if (output) return output.type;
-  return 'string';
-}
-
 function updateCellValue(
   rowId: string,
   columnId: string,
@@ -362,6 +385,25 @@ function cellTypeClass(cell: CellValue): string {
     <div v-else class="ordo-decision-table__scroll">
       <table class="ordo-decision-table__table">
         <thead>
+          <!-- Section group row -->
+          <tr class="ordo-decision-table__group-row">
+            <th class="ordo-decision-table__group-spacer"></th>
+            <th
+              v-if="modelValue.inputColumns.length > 0"
+              :colspan="modelValue.inputColumns.length"
+              class="ordo-decision-table__group-th ordo-decision-table__group-th--input"
+            >{{ t('table.groupInput') }}</th>
+            <th
+              v-if="modelValue.outputColumns.length > 0"
+              :colspan="modelValue.outputColumns.length"
+              class="ordo-decision-table__group-th ordo-decision-table__group-th--output"
+            >{{ t('table.groupOutput') }}</th>
+            <th colspan="2" class="ordo-decision-table__group-th ordo-decision-table__group-th--result">
+              {{ t('table.groupResult') }}
+            </th>
+            <th v-if="!disabled" class="ordo-decision-table__group-spacer"></th>
+          </tr>
+
           <tr>
             <th class="ordo-decision-table__th ordo-decision-table__th--handle">#</th>
             <!-- Input columns -->
@@ -396,14 +438,27 @@ function cellTypeClass(cell: CellValue): string {
                   </svg>
                 </button>
               </div>
-              <div class="ordo-decision-table__col-path">{{ col.fieldPath }}</div>
+              <div class="ordo-decision-table__col-path" @click="startEditCol(col.id, col.fieldPath)">
+                <input
+                  v-if="editingColId === col.id"
+                  class="ordo-decision-table__col-input"
+                  v-model="editingColField"
+                  @blur="commitEditCol"
+                  @keydown.enter="commitEditCol"
+                  @keydown.esc="editingColId = null"
+                  @click.stop
+                  autofocus
+                />
+                <span v-else>{{ col.fieldPath }}</span>
+              </div>
             </th>
 
             <!-- Output columns -->
             <th
-              v-for="col in modelValue.outputColumns"
+              v-for="(col, index) in modelValue.outputColumns"
               :key="col.id"
               class="ordo-decision-table__th ordo-decision-table__th--output"
+              :class="{ 'col-group-start--output': index === 0 }"
             >
               <div class="ordo-decision-table__col-header">
                 <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--output"
@@ -431,11 +486,23 @@ function cellTypeClass(cell: CellValue): string {
                   </svg>
                 </button>
               </div>
-              <div class="ordo-decision-table__col-path">{{ col.fieldName }}</div>
+              <div class="ordo-decision-table__col-path" @click="startEditCol(col.id, col.fieldName)">
+                <input
+                  v-if="editingColId === col.id"
+                  class="ordo-decision-table__col-input"
+                  v-model="editingColField"
+                  @blur="commitEditCol"
+                  @keydown.enter="commitEditCol"
+                  @keydown.esc="editingColId = null"
+                  @click.stop
+                  autofocus
+                />
+                <span v-else>{{ col.fieldName }}</span>
+              </div>
             </th>
 
             <!-- Result columns -->
-            <th class="ordo-decision-table__th ordo-decision-table__th--result">
+            <th class="ordo-decision-table__th ordo-decision-table__th--result col-group-start--result">
               <div class="ordo-decision-table__col-header">
                 <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--result"
                   >CODE</span
@@ -525,9 +592,10 @@ function cellTypeClass(cell: CellValue): string {
 
             <!-- Output cells -->
             <td
-              v-for="col in modelValue.outputColumns"
+              v-for="(col, index) in modelValue.outputColumns"
               :key="col.id"
               class="ordo-decision-table__td ordo-decision-table__td--output"
+              :class="{ 'col-group-start--output': index === 0 }"
               @click="startEditing(row.id, col.id)"
             >
               <OrdoTableCellEditor
@@ -549,7 +617,7 @@ function cellTypeClass(cell: CellValue): string {
             </td>
 
             <!-- Result Code -->
-            <td class="ordo-decision-table__td ordo-decision-table__td--result">
+            <td class="ordo-decision-table__td ordo-decision-table__td--result col-group-start--result">
               <input
                 :value="row.resultCode || ''"
                 class="ordo-decision-table__inline-input"
@@ -664,6 +732,55 @@ function cellTypeClass(cell: CellValue): string {
   table-layout: auto;
 }
 
+/* ---- Section group row ---- */
+
+.ordo-decision-table__group-row {
+  border-bottom: none;
+}
+
+.ordo-decision-table__group-spacer {
+  background: var(--ordo-bg-secondary);
+  border-bottom: 1px solid var(--ordo-border-color);
+  padding: 0;
+}
+
+.ordo-decision-table__group-th {
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  text-align: center;
+  border-bottom: 1px solid var(--ordo-border-color);
+}
+
+.ordo-decision-table__group-th--input {
+  background: color-mix(in srgb, var(--ordo-warning) 14%, var(--ordo-bg-secondary));
+  color: var(--ordo-warning);
+  border-right: 3px solid var(--ordo-warning);
+}
+
+.ordo-decision-table__group-th--output {
+  background: color-mix(in srgb, var(--ordo-success) 14%, var(--ordo-bg-secondary));
+  color: var(--ordo-success);
+  border-right: 3px solid var(--ordo-success);
+}
+
+.ordo-decision-table__group-th--result {
+  background: color-mix(in srgb, var(--ordo-info) 14%, var(--ordo-bg-secondary));
+  color: var(--ordo-info);
+}
+
+/* ---- Column group separators ---- */
+
+.col-group-start--output {
+  border-left: 3px solid color-mix(in srgb, var(--ordo-success) 50%, var(--ordo-border-color)) !important;
+}
+
+.col-group-start--result {
+  border-left: 3px solid color-mix(in srgb, var(--ordo-info) 50%, var(--ordo-border-color)) !important;
+}
+
 /* ---- Header ---- */
 
 .ordo-decision-table__th {
@@ -773,6 +890,21 @@ function cellTypeClass(cell: CellValue): string {
   font-family: var(--ordo-font-mono);
   color: var(--ordo-text-tertiary);
   margin-top: 2px;
+  cursor: text;
+  min-height: 14px;
+}
+
+.ordo-decision-table__col-input {
+  width: 100%;
+  font-size: 10px;
+  font-family: var(--ordo-font-mono);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-input);
+  border: 1px solid var(--ordo-border-focus);
+  border-radius: 2px;
+  padding: 1px 4px;
+  outline: none;
+  box-sizing: border-box;
 }
 
 /* ---- Body ---- */
@@ -926,12 +1058,6 @@ function cellTypeClass(cell: CellValue): string {
 .ordo-decision-table__row-actions {
   display: flex;
   gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.ordo-decision-table__row:hover .ordo-decision-table__row-actions {
-  opacity: 1;
 }
 
 .ordo-decision-table__row-btn {

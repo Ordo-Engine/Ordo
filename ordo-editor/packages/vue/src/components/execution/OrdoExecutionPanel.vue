@@ -4,7 +4,7 @@
  * 规则执行底部面板（类似终端）
  */
 import { ref, computed, watch } from 'vue';
-import type { RuleSet, JITSchema, JITRulesetAnalysis } from '@ordo-engine/editor-core';
+import type { RuleSet, JITRulesetAnalysis } from '@ordo-engine/editor-core';
 import {
   RuleExecutor,
   type ExecutionResult,
@@ -97,6 +97,15 @@ watch(
   (newVal) => {
     if (newVal && inputJson.value === '{\n  \n}' && props.sampleInput) {
       inputJson.value = props.sampleInput;
+    }
+  }
+);
+
+watch(
+  () => props.height,
+  (newVal) => {
+    if (typeof newVal === 'number' && !isResizing.value) {
+      panelHeight.value = newVal;
     }
   }
 );
@@ -432,7 +441,7 @@ function stopResize() {
           <select v-model="executionMode" class="mode-select" :title="t('execution.mode')">
             <option value="wasm">WASM</option>
             <option value="http">HTTP</option>
-            <option value="jit" :disabled="jitAnalysis && !jitAnalysis.overallCompatible">
+            <option value="jit" :disabled="!!(jitAnalysis && !jitAnalysis.overallCompatible)">
               JIT
             </option>
           </select>

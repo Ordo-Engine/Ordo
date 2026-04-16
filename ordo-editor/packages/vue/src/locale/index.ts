@@ -1,6 +1,6 @@
-import { ref, inject, provide, computed, type InjectionKey, type Ref } from 'vue';
+import { ref, inject, type InjectionKey, type Ref } from 'vue';
 
-export type Lang = 'en' | 'zh-CN';
+export type Lang = 'en' | 'zh-CN' | 'zh-TW';
 
 export interface LocaleMessages {
   common: {
@@ -17,6 +17,12 @@ export interface LocaleMessages {
     optional: string;
     unknown: string;
     close: string;
+    field: string;
+    value: string;
+    none: string;
+    variable: string;
+    deleteStep: string;
+    endFlow: string;
   };
   condition: {
     selectField: string;
@@ -63,6 +69,9 @@ export interface LocaleMessages {
     columnType: string;
     addColumn: string;
     showAsFlow: string;
+    groupInput: string;
+    groupOutput: string;
+    groupResult: string;
   };
   step: {
     decision: string;
@@ -86,6 +95,19 @@ export interface LocaleMessages {
     branch: string;
     default: string;
     next: string;
+    branchLabel: string;
+    ifLabel: string;
+    thenLabel: string;
+    noBranches: string;
+    noAssignments: string;
+    noOutputFields: string;
+    logMessage: string;
+    messageExpr: string;
+    codePlaceholder: string;
+    logLevelDebug: string;
+    logLevelInfo: string;
+    logLevelWarn: string;
+    logLevelError: string;
   };
   flow: {
     createGroup: string;
@@ -117,6 +139,9 @@ export interface LocaleMessages {
     moveTo: string;
     noSteps: string;
     noStepsYet: string;
+    newGroup: string;
+    externalCall: string;
+    conditionLabel: string;
   };
   validation: {
     valid: string;
@@ -175,6 +200,12 @@ const en: LocaleMessages = {
     optional: 'Optional',
     unknown: 'Unknown',
     close: 'Close',
+    field: 'Field',
+    value: 'Value',
+    none: 'None',
+    variable: 'variable',
+    deleteStep: 'Delete step',
+    endFlow: '-- End Flow --',
   },
   condition: {
     selectField: 'Select field',
@@ -221,6 +252,9 @@ const en: LocaleMessages = {
     columnType: 'Type',
     addColumn: 'Add Column',
     showAsFlow: 'Show as Flow',
+    groupInput: 'Conditions',
+    groupOutput: 'Outputs',
+    groupResult: 'Result',
   },
   step: {
     decision: 'Decision',
@@ -244,6 +278,19 @@ const en: LocaleMessages = {
     branch: 'Branch',
     default: 'Default',
     next: 'Next',
+    branchLabel: 'Branch Label',
+    ifLabel: 'If',
+    thenLabel: 'Then',
+    noBranches: 'No branches defined.',
+    noAssignments: 'No variable assignments.',
+    noOutputFields: 'No output fields.',
+    logMessage: 'Log message...',
+    messageExpr: 'Message expression...',
+    codePlaceholder: 'CODE',
+    logLevelDebug: 'Debug',
+    logLevelInfo: 'Info',
+    logLevelWarn: 'Warn',
+    logLevelError: 'Error',
   },
   flow: {
     createGroup: 'Create Group',
@@ -275,6 +322,9 @@ const en: LocaleMessages = {
     moveTo: 'Move to...',
     noSteps: 'No steps in this stage',
     noStepsYet: 'No steps yet. Add a step to get started.',
+    newGroup: 'New Group',
+    externalCall: 'Call',
+    conditionLabel: 'Condition',
   },
   validation: {
     valid: 'Valid',
@@ -333,6 +383,12 @@ const zhCN: LocaleMessages = {
     optional: '可选',
     unknown: '未知',
     close: '关闭',
+    field: '字段',
+    value: '值',
+    none: '无',
+    variable: '变量',
+    deleteStep: '删除步骤',
+    endFlow: '-- 结束流程 --',
   },
   condition: {
     selectField: '选择字段',
@@ -379,6 +435,9 @@ const zhCN: LocaleMessages = {
     columnType: '类型',
     addColumn: '添加列',
     showAsFlow: '显示为流程图',
+    groupInput: '条件',
+    groupOutput: '输出',
+    groupResult: '结果',
   },
   step: {
     decision: '决策节点',
@@ -402,6 +461,19 @@ const zhCN: LocaleMessages = {
     branch: '分支',
     default: '默认',
     next: '下一步',
+    branchLabel: '分支标签',
+    ifLabel: '如果',
+    thenLabel: '则',
+    noBranches: '暂无分支条件。',
+    noAssignments: '暂无变量赋值。',
+    noOutputFields: '暂无输出字段。',
+    logMessage: '日志消息...',
+    messageExpr: '消息表达式...',
+    codePlaceholder: '返回码',
+    logLevelDebug: '调试',
+    logLevelInfo: '信息',
+    logLevelWarn: '警告',
+    logLevelError: '错误',
   },
   flow: {
     createGroup: '创建分组',
@@ -433,6 +505,9 @@ const zhCN: LocaleMessages = {
     moveTo: '移动到...',
     noSteps: '此阶段暂无步骤',
     noStepsYet: '暂无步骤。请添加步骤开始。',
+    newGroup: '新分组',
+    externalCall: '调用',
+    conditionLabel: '条件',
   },
   validation: {
     valid: '有效',
@@ -476,9 +551,193 @@ const zhCN: LocaleMessages = {
   },
 };
 
+const zhTW: LocaleMessages = {
+  common: {
+    add: '新增',
+    delete: '刪除',
+    save: '儲存',
+    cancel: '取消',
+    confirm: '確認',
+    edit: '編輯',
+    search: '搜尋...',
+    description: '描述',
+    name: '名稱',
+    version: '版本',
+    optional: '可選',
+    unknown: '未知',
+    close: '關閉',
+    field: '欄位',
+    value: '值',
+    none: '無',
+    variable: '變數',
+    deleteStep: '刪除步驟',
+    endFlow: '-- 結束流程 --',
+  },
+  condition: {
+    selectField: '選擇欄位',
+    selectOperator: '選擇運算子',
+    enterValue: '輸入值',
+    switchToExpression: '切換至運算式',
+    switchToSmart: '切換至智慧模式',
+    fieldReference: '欄位參照',
+    literalValue: '字面值',
+  },
+  valueInput: {
+    true: '真',
+    false: '假',
+    null: '空',
+  },
+  table: {
+    addRow: '新增列',
+    addInputColumn: '新增輸入欄',
+    addOutputColumn: '新增輸出欄',
+    deleteRow: '刪除列',
+    deleteColumn: '刪除欄',
+    duplicateRow: '複製列',
+    hitPolicy: '命中策略',
+    hitPolicyFirst: '首次匹配',
+    hitPolicyAll: '全部匹配',
+    hitPolicyCollect: '收集',
+    importFromSchema: '從 Schema 匯入',
+    exportJson: '匯出 JSON',
+    validate: '驗證',
+    resultCode: '結果碼',
+    resultMessage: '結果訊息',
+    noRows: '尚無規則。點擊「新增列」建立第一條規則。',
+    noColumns: '尚無欄位定義。請新增輸入欄和輸出欄以開始。',
+    cellExact: '精確',
+    cellRange: '範圍',
+    cellList: '清單',
+    cellAny: '任意',
+    cellExpression: '運算式',
+    inputColumns: '輸入欄',
+    outputColumns: '輸出欄',
+    priority: '優先順序',
+    columnField: '欄位路徑',
+    columnLabel: '標籤',
+    columnType: '類型',
+    addColumn: '新增欄',
+    showAsFlow: '顯示為流程圖',
+    groupInput: '條件',
+    groupOutput: '輸出',
+    groupResult: '結果',
+  },
+  step: {
+    decision: '決策節點',
+    action: '動作節點',
+    terminal: '結束節點',
+    start: '起始',
+    setAsStart: '設為起始',
+    branches: '分支條件',
+    nextStep: '下一步',
+    defaultNext: '預設分支 (Else)',
+    addBranch: '新增分支',
+    assignments: '變數賦值',
+    addAssignment: '新增變數',
+    logging: '日誌記錄',
+    resultCode: '回傳碼',
+    resultMessage: '回傳訊息',
+    outputFields: '輸出欄位',
+    typeDecision: '決策',
+    typeAction: '動作',
+    typeTerminal: '終結',
+    branch: '分支',
+    default: '預設',
+    next: '下一步',
+    branchLabel: '分支標籤',
+    ifLabel: '如果',
+    thenLabel: '則',
+    noBranches: '尚無分支條件。',
+    noAssignments: '尚無變數賦值。',
+    noOutputFields: '尚無輸出欄位。',
+    logMessage: '日誌訊息...',
+    messageExpr: '訊息運算式...',
+    codePlaceholder: '回傳碼',
+    logLevelDebug: '除錯',
+    logLevelInfo: '資訊',
+    logLevelWarn: '警告',
+    logLevelError: '錯誤',
+  },
+  flow: {
+    createGroup: '建立群組',
+    setAsStart: '設為起始',
+    duplicate: '複製',
+    group: '群組',
+    ungroupNodes: '取消群組',
+    reverseEdge: '反轉方向',
+    deleteEdge: '刪除連線',
+    add: '新增',
+    layout: '佈局',
+    autoLayout: '自動佈局',
+    auto: '自動',
+    edge: '連線',
+    bezier: '貝茲',
+    step: '階梯',
+    direction: '方向',
+    lr: '左 → 右',
+    tb: '上 → 下',
+    rl: '右 → 左',
+    bt: '下 → 上',
+    deleteSelected: '刪除所選',
+    stepsInGroup: '群組內步驟',
+    deleteGroup: '刪除群組',
+    groupDropZone: '拖曳節點至此處，或右鍵點擊所選節點來建立群組',
+    steps: '個步驟',
+    ungroupedSteps: '未分組步驟',
+    allSteps: '所有步驟',
+    moveTo: '移至...',
+    noSteps: '此階段尚無步驟',
+    noStepsYet: '尚無步驟。請新增步驟以開始。',
+    newGroup: '新群組',
+    externalCall: '呼叫',
+    conditionLabel: '條件',
+  },
+  validation: {
+    valid: '有效',
+    invalid: '無效',
+    passed: '驗證通過',
+    failed: '驗證失敗',
+  },
+  execution: {
+    title: '執行規則',
+    input: '輸入資料',
+    inputPlaceholder: '輸入 JSON 格式的資料...',
+    mode: '執行模式',
+    modeWasm: '本機執行 (WASM)',
+    modeHttp: '遠端執行 (HTTP)',
+    httpEndpoint: 'HTTP 端點',
+    execute: '執行',
+    executing: '執行中...',
+    includeTrace: '包含執行軌跡',
+    result: '執行結果',
+    trace: '執行軌跡',
+    error: '錯誤',
+    duration: '耗時',
+    code: '結果碼',
+    message: '訊息',
+    output: '輸出',
+    path: '路徑',
+    stepId: '步驟 ID',
+    stepName: '步驟名稱',
+    stepDuration: '耗時',
+    parseError: 'JSON 解析失敗',
+    executionError: '執行失敗',
+    compatibilityError: '相容性錯誤',
+    noResult: '尚無執行結果。點擊「執行」按鈕運行規則。',
+    noTrace: '尚無執行軌跡。請在執行前啟用「Trace」選項。',
+    history: '歷史紀錄',
+    noHistory: '尚無執行歷史。',
+    clearHistory: '清空歷史',
+    loadSample: '載入範例',
+    showInFlow: '在流程圖中顯示',
+    hideFromFlow: '隱藏流程圖追蹤',
+  },
+};
+
 const messages: Record<Lang, LocaleMessages> = {
   en,
   'zh-CN': zhCN,
+  'zh-TW': zhTW,
 };
 
 // Export the key so it can be used by providers

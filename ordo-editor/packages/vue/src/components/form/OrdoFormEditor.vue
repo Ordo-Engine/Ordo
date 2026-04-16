@@ -3,7 +3,7 @@
  * OrdoFormEditor - Form-based ruleset editor (IDE Style)
  * 表单模式规则集编辑器
  */
-import { computed, ref, provide, watch, type Ref } from 'vue';
+import { computed, ref, provide, inject } from 'vue';
 import type { RuleSet, SchemaField } from '@ordo-engine/editor-core';
 import { validateRuleSet, type ValidationResult } from '@ordo-engine/editor-core';
 import OrdoStepList from './OrdoStepList.vue';
@@ -27,7 +27,6 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   autoValidate: true,
   showValidation: true,
-  locale: 'en',
 });
 
 const emit = defineEmits<{
@@ -36,14 +35,9 @@ const emit = defineEmits<{
   validate: [result: ValidationResult];
 }>();
 
-// Provide locale using the shared key
-const currentLocale = ref<Lang>(props.locale);
-watch(
-  () => props.locale,
-  (val) => {
-    currentLocale.value = val;
-  }
-);
+// Inherit locale from parent provider unless the caller explicitly overrides it.
+const inheritedLocale = inject(LOCALE_KEY, ref<Lang>('en'));
+const currentLocale = computed<Lang>(() => props.locale ?? inheritedLocale.value);
 provide(LOCALE_KEY, currentLocale);
 
 // Use i18n inside this component as well

@@ -1,0 +1,31 @@
+[package]
+name = "ordo-platform"
+version = "0.3.0"
+edition = "2021"
+license = "MIT"
+description = "Ordo decision management platform — organization, project, auth, and governance APIs"
+
+[[bin]]
+name = "ordo-platform"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+argon2.workspace = true
+axum.workspace = true
+chrono.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+jsonwebtoken.workspace = true
+rand.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tower-http = { workspace = true, features = ["trace", "cors", "catch-panic"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

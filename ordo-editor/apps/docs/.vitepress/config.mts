@@ -54,8 +54,9 @@ export default withMermaid(defineConfig({
           { text: 'Guide', link: '/en/guide/getting-started' },
           { text: 'API', link: '/en/api/http-api' },
           { text: 'Reference', link: '/en/reference/cli' },
-          { 
-            text: 'Playground', 
+          { text: 'Roadmap', link: '/en/roadmap' },
+          {
+            text: 'Playground',
             link: 'https://pama-lee.github.io/Ordo/',
             target: '_self'
           },
@@ -146,8 +147,9 @@ export default withMermaid(defineConfig({
           { text: '指南', link: '/zh/guide/getting-started' },
           { text: 'API', link: '/zh/api/http-api' },
           { text: '参考', link: '/zh/reference/cli' },
-          { 
-            text: '演练场', 
+          { text: '路线图', link: '/zh/roadmap' },
+          {
+            text: '演练场',
             link: 'https://pama-lee.github.io/Ordo/',
             target: '_self'
           },

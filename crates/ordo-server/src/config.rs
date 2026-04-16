@@ -308,6 +308,13 @@ pub struct ServerConfig {
     #[arg(long, default_value = "3", env = "ORDO_WAL_MAX_CLOSED_SEGMENTS")]
     pub wal_max_closed_segments: usize,
 
+    // ── CORS ──────────────────────────────────────────────────────────
+    /// Allowed CORS origins (comma-separated). Only applies when debug mode is disabled.
+    /// Use `*` to allow all origins, or specify domains like `https://studio.example.com`.
+    /// If not set, cross-origin requests are rejected in non-debug mode.
+    #[arg(long, env = "ORDO_CORS_ORIGINS", value_delimiter = ',')]
+    pub cors_allowed_origins: Vec<String>,
+
     // ── gRPC TLS ──────────────────────────────────────────────────────
     /// Enable TLS for the gRPC server.
     /// Requires --grpc-tls-cert and --grpc-tls-key.
@@ -545,6 +552,7 @@ impl Default for ServerConfig {
             wal_disabled: false,
             wal_max_segment_bytes: 67108864,
             wal_max_closed_segments: 3,
+            cors_allowed_origins: Vec::new(),
         }
     }
 }

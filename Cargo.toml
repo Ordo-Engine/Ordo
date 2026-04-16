@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Ordo Team"]
 license = "MIT"
@@ -100,7 +100,7 @@ clap = { version = "4", features = ["derive"] }
 colored = "2"
 
 # Internal crates
-ordo-derive = { version = "0.3.0", path = "crates/ordo-derive" }
+ordo-derive = { version = "0.4.0", path = "crates/ordo-derive" }
 
 # OpenTelemetry
 opentelemetry = "0.22"

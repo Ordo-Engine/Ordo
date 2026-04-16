@@ -1,77 +1,150 @@
 #!/bin/bash
 # sync-version.sh - Synchronize version across all packages
 #
-# Usage: ./scripts/sync-version.sh 0.2.0
+# Usage: ./scripts/sync-version.sh 0.4.0
 #
-# This script updates version numbers in:
-# - Cargo.toml files (Rust crates)
-# - package.json files (NPM packages)
-# - VERSION constants in TypeScript
+# Updates:
+#   - Rust: workspace Cargo.toml + all crate Cargo.toml files
+#   - NPM:  ordo-editor packages (core/vue/react/wasm) + apps/studio
+#   - TypeScript VERSION constants
+#   - ordo-web: package.json + i18n badge strings
+#   - VitePress docs: version badge in config
 
 set -e
 
 if [ -z "$1" ]; then
     echo "Usage: $0 <version>"
-    echo "Example: $0 0.2.0"
+    echo "Example: $0 0.4.0"
     exit 1
 fi
 
 VERSION="$1"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+WEB_DIR="$(cd "$ROOT_DIR/../ordo-web" 2>/dev/null && pwd)" || WEB_DIR=""
 
 echo "Syncing version to $VERSION..."
+echo ""
 
-# Update root Cargo.toml
+# ── Rust Cargo.toml files ─────────────────────────────────────────────────────
+
 echo "Updating Cargo.toml files..."
+
+# Workspace root: version + ordo-derive dep reference
 sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$ROOT_DIR/Cargo.toml"
-sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-core/Cargo.toml"
-sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-server/Cargo.toml"
-sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-proto/Cargo.toml"
-sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-wasm/Cargo.toml"
-sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-derive/Cargo.toml"
+sed -i.bak "s/ordo-derive = { version = \"[^\"]*\"/ordo-derive = { version = \"$VERSION\"/" "$ROOT_DIR/Cargo.toml"
 
-# Update internal crate dependencies
-sed -i.bak "s/ordo-core = { version = \"[^\"]*\"/ordo-core = { version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-server/Cargo.toml"
-sed -i.bak "s/ordo-proto = { version = \"[^\"]*\"/ordo-proto = { version = \"$VERSION\"/" "$ROOT_DIR/crates/ordo-server/Cargo.toml"
+# Individual crates
+for crate in ordo-core ordo-server ordo-proto ordo-wasm ordo-derive ordo-platform; do
+    TOML="$ROOT_DIR/crates/$crate/Cargo.toml"
+    if [ -f "$TOML" ]; then
+        sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$TOML"
+        echo "  Updated crates/$crate/Cargo.toml"
+    fi
+done
 
-# Update NPM package.json files
+# Internal crate dep references — update in every crate that references another ordo-* crate
+for crate in ordo-core ordo-server ordo-proto ordo-wasm ordo-derive ordo-platform ordo-cli; do
+    TOML="$ROOT_DIR/crates/$crate/Cargo.toml"
+    [ -f "$TOML" ] || continue
+    for dep in ordo-core ordo-proto ordo-derive ordo-server ordo-wasm ordo-platform ordo-cli; do
+        sed -i.bak "s/${dep} = { version = \"[^\"]*\"/${dep} = { version = \"$VERSION\"/" "$TOML"
+    done
+done
+
+# Clean up Rust backup files
+find "$ROOT_DIR/crates" "$ROOT_DIR" -maxdepth 1 -name "*.bak" -delete
+
+# ── NPM package.json files ────────────────────────────────────────────────────
+
+echo ""
 echo "Updating package.json files..."
-for pkg in "$ROOT_DIR/ordo-editor/packages/core" \
-           "$ROOT_DIR/ordo-editor/packages/vue" \
-           "$ROOT_DIR/ordo-editor/packages/react" \
-           "$ROOT_DIR/ordo-editor/packages/wasm" \
-           "$ROOT_DIR/ordo-editor"; do
+
+NPM_TARGETS=(
+    "$ROOT_DIR/ordo-editor/packages/core"
+    "$ROOT_DIR/ordo-editor/packages/vue"
+    "$ROOT_DIR/ordo-editor/packages/react"
+    "$ROOT_DIR/ordo-editor/packages/wasm"
+    "$ROOT_DIR/ordo-editor/apps/studio"
+    "$ROOT_DIR/ordo-editor"
+)
+
+for pkg in "${NPM_TARGETS[@]}"; do
     if [ -f "$pkg/package.json" ]; then
-        # Use node to update JSON properly
         node -e "
             const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('$pkg/package.json', 'utf8'));
-            pkg.version = '$VERSION';
-            fs.writeFileSync('$pkg/package.json', JSON.stringify(pkg, null, 2) + '\n');
+            const p = JSON.parse(fs.readFileSync('$pkg/package.json', 'utf8'));
+            p.version = '$VERSION';
+            fs.writeFileSync('$pkg/package.json', JSON.stringify(p, null, 2) + '\n');
         "
         echo "  Updated $pkg/package.json"
     fi
 done
 
-# Update VERSION constants in TypeScript
+# ── TypeScript VERSION constants ──────────────────────────────────────────────
+
+echo ""
 echo "Updating TypeScript VERSION constants..."
-sed -i.bak "s/VERSION = '[^']*'/VERSION = '$VERSION'/" "$ROOT_DIR/ordo-editor/packages/core/src/index.ts"
-sed -i.bak "s/VERSION = '[^']*'/VERSION = '$VERSION'/" "$ROOT_DIR/ordo-editor/packages/vue/src/index.ts"
 
-# Clean up backup files
-find "$ROOT_DIR" -name "*.bak" -delete
+for ts_file in \
+    "$ROOT_DIR/ordo-editor/packages/core/src/index.ts" \
+    "$ROOT_DIR/ordo-editor/packages/vue/src/index.ts"; do
+    if [ -f "$ts_file" ]; then
+        sed -i.bak "s/VERSION = '[^']*'/VERSION = '$VERSION'/" "$ts_file"
+        sed -i.bak "s/VERSION = \"[^\"]*\"/VERSION = \"$VERSION\"/" "$ts_file"
+        echo "  Updated $ts_file"
+    fi
+done
+
+find "$ROOT_DIR/ordo-editor" -name "*.bak" -delete
+
+# ── ordo-web ──────────────────────────────────────────────────────────────────
+
+if [ -n "$WEB_DIR" ] && [ -d "$WEB_DIR" ]; then
+    echo ""
+    echo "Updating ordo-web..."
+
+    # package.json
+    if [ -f "$WEB_DIR/package.json" ]; then
+        node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('$WEB_DIR/package.json', 'utf8'));
+            p.version = '$VERSION';
+            fs.writeFileSync('$WEB_DIR/package.json', JSON.stringify(p, null, 2) + '\n');
+        "
+        echo "  Updated ordo-web/package.json"
+    fi
+
+    # i18n badge strings: "v0.x.y Released" / "v0.x.y 已发布" / "v0.x.y 已發布"
+    find "$WEB_DIR/src/i18n" -name "*.json" 2>/dev/null | while read f; do
+        sed -i.bak "s/v[0-9]\+\.[0-9]\+\.[0-9]\+ Released/v$VERSION Released/" "$f"
+        sed -i.bak "s/v[0-9]\+\.[0-9]\+\.[0-9]\+ 已发布/v$VERSION 已发布/" "$f"
+        sed -i.bak "s/v[0-9]\+\.[0-9]\+\.[0-9]\+ 已發布/v$VERSION 已發布/" "$f"
+        echo "  Updated $f"
+    done
+    find "$WEB_DIR/src" -name "*.bak" -delete
+else
+    echo ""
+    echo "  ordo-web not found at $WEB_DIR, skipping"
+fi
+
+# ── VitePress docs ────────────────────────────────────────────────────────────
+
+DOCS_CONFIG="$ROOT_DIR/ordo-editor/apps/docs/.vitepress/config.mts"
+if [ -f "$DOCS_CONFIG" ]; then
+    echo ""
+    echo "Updating VitePress docs..."
+    sed -i.bak "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v$VERSION/g" "$DOCS_CONFIG"
+    find "$ROOT_DIR/ordo-editor/apps/docs/.vitepress" -name "*.bak" -delete
+    echo "  Updated $DOCS_CONFIG"
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
 
 echo ""
-echo "Version synced to $VERSION"
-echo ""
-echo "Files updated:"
-echo "  - Cargo.toml (root and crates)"
-echo "  - ordo-editor/package.json"
-echo "  - ordo-editor/packages/*/package.json"
-echo "  - TypeScript VERSION constants"
+echo "✓ Version synced to $VERSION"
 echo ""
 echo "Next steps:"
-echo "  1. Review changes: git diff"
-echo "  2. Commit: git commit -am 'chore: bump version to $VERSION'"
-echo "  3. Tag: git tag v$VERSION"
-echo "  4. Push: git push && git push --tags"
+echo "  1. Review changes : git diff"
+echo "  2. Commit         : git commit -am 'chore: bump version to $VERSION'"
+echo "  3. Tag            : git tag v$VERSION"
+echo "  4. Push           : git push && git push --tags"

@@ -1,6 +1,6 @@
 [package]
 name = "ordo-platform"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "Ordo decision management platform — organization, project, auth, and governance APIs"

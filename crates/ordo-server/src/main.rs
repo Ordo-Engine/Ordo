@@ -840,21 +840,44 @@ async fn start_http_server(
             );
     }
 
-    // CORS configuration - permissive for debug mode, restrictive otherwise
+    // CORS configuration - permissive for debug mode, configurable otherwise
     let cors = if debug_enabled {
         CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
     } else {
-        CorsLayer::new()
-            .allow_methods([
-                axum::http::Method::GET,
-                axum::http::Method::POST,
-                axum::http::Method::PUT,
-                axum::http::Method::DELETE,
-            ])
-            .allow_headers([axum::http::header::CONTENT_TYPE])
+        let allow_headers = [
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-tenant-id"),
+            axum::http::HeaderName::from_static("x-ordo-signature"),
+            axum::http::HeaderName::from_static("x-ordo-public-key"),
+        ];
+        let methods = [
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+        ];
+        let origins = &state.config.cors_allowed_origins;
+        if origins.iter().any(|o| o == "*") {
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(methods)
+                .allow_headers(allow_headers)
+        } else if !origins.is_empty() {
+            let parsed: Vec<axum::http::HeaderValue> =
+                origins.iter().filter_map(|o| o.parse().ok()).collect();
+            CorsLayer::new()
+                .allow_origin(parsed)
+                .allow_methods(methods)
+                .allow_headers(allow_headers)
+        } else {
+            CorsLayer::new()
+                .allow_methods(methods)
+                .allow_headers([axum::http::header::CONTENT_TYPE])
+        }
     };
 
     let request_timeout = Duration::from_secs(state.config.request_timeout_secs);

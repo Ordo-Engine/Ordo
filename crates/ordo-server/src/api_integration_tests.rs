@@ -65,12 +65,14 @@ async fn build_full_test_app() -> Router {
         audit_logger,
         metric_sink,
         executor,
+        runtime_config: crate::runtime_config::new_shared(&config),
         config,
         signature_verifier: None,
         debug_sessions,
         tenant_manager,
         rate_limiter,
         webhook_manager,
+        sync_tx: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
     };
 
     // CORS — permissive for tests (matches debug_enabled=false production default)

@@ -14,6 +14,11 @@
 *~
 .DS_Store
 
+# Local AI/agent tooling
+.claude/
+.codex
+.aider*
+
 # Internal documentation (not for public)
 /docs/
 
@@ -36,6 +41,12 @@
 *.temp
 /tmp/
 
+# Temporary/dropped image files at repo root
+/image.png
+/screenshot*.png
+/*.jpg
+/*.jpeg
+
 # OS generated files
 Thumbs.db
 ehthumbs.db
@@ -54,3 +65,4 @@ dist/
 # VitePress docs build artifacts (keep config.mts)
 **/.vitepress/cache/
 **/.vitepress/dist/
+DESIGN.md

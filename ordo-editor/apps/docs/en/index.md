@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: 'High-Performance Rule Engine'
-  tagline: Sub-microsecond latency, 500K+ QPS, with visual editor
+  text: 'Open-Source Decision Platform'
+  tagline: Author, test, and govern business rules — with Studio, platform governance, and a fast engine under the hood.
   image:
     src: /logo.png
     alt: Ordo
@@ -20,24 +20,24 @@ hero:
       link: https://github.com/Pama-Lee/Ordo
 
 features:
-  - icon: ⚡
-    title: Blazing Fast
-    details: 1.63µs average execution time (50-80ns with JIT). 600x faster than 1ms target. Zero-allocation hot path.
+  - icon: 🏛️
+    title: Decision Platform
+    details: Org & project management, fact catalog, typed decision contracts, and full version history. Own your decision logic — don't scatter it across codebases and spreadsheets.
   - icon: 🎨
-    title: Visual Editor
-    details: Design complex rules with drag-and-drop flow editor. Real-time execution with WASM. Import/export .ordo files.
-  - icon: 🔧
-    title: Flexible Rules
-    details: Step flow model, rich expressions, built-in functions, and field coalescing. Compiled binary format for rule protection.
+    title: Studio
+    details: Drag-and-drop flow editor, decision tables, one-click template instantiation, and test case management. Author rules without friction.
+  - icon: 🧪
+    title: Test Management
+    details: Create, run, and export test suites per ruleset. CI-compatible YAML. Know your rules work before they ship.
+  - icon: ⚡
+    title: Fast Engine
+    details: Sub-microsecond execution with Cranelift JIT. Runs as HTTP · gRPC · WASM · CLI or embedded in any Rust application.
   - icon: 🛡️
-    title: Production Ready
-    details: Deterministic execution, full tracing, hot reload, Ed25519 rule signing, audit logging, and multi-tenancy support.
+    title: Governance
+    details: Typed input/output contracts, audit logging, Ed25519 rule signing, and rollback. Traceable and compliant by default.
   - icon: 🔌
-    title: Easy Integration
-    details: HTTP REST API, gRPC support, WebAssembly for browser, and npm packages (@ordo/editor-vue, @ordo/editor-core).
-  - icon: 📊
-    title: Observable
-    details: Prometheus metrics, health checks, structured audit logs, and rule versioning with rollback.
+    title: Runs Everywhere
+    details: Single binary server, browser via WebAssembly, embedded in Rust apps. One engine across every deployment target.
 ---
 
 ## Quick Example
@@ -71,12 +71,3 @@ features:
 }
 ```
 
-## Performance
-
-| Metric                              | Result           |
-| ----------------------------------- | ---------------- |
-| Single rule execution (interpreter) | **1.63 µs**      |
-| Single rule execution (JIT)         | **50-80 ns**     |
-| Expression evaluation               | **79-211 ns**    |
-| HTTP API throughput                 | **54,000 QPS**   |
-| Projected multi-thread              | **500,000+ QPS** |

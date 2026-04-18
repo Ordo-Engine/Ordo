@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: '高性能规则引擎'
-  tagline: 亚微秒级延迟，50万+ QPS，配备可视化编辑器
+  text: '开源决策平台'
+  tagline: 编写、测试、治理业务规则 — Studio 可视化编辑、平台级治理，底层引擎快到感觉不到。
   image:
     src: /logo.png
     alt: Ordo
@@ -20,24 +20,24 @@ hero:
       link: https://github.com/Pama-Lee/Ordo
 
 features:
-  - icon: ⚡
-    title: 极速性能
-    details: 1.63µs 平均执行时间（JIT 编译后 50-80ns）。比 1ms 目标快 600 倍。零分配热路径。
+  - icon: 🏛️
+    title: 决策平台
+    details: 组织与项目管理、事实目录、带类型的决策契约，以及完整的版本历史。让团队真正拥有自己的决策逻辑，而不是散落在代码库和电子表格里。
   - icon: 🎨
-    title: 可视化编辑器
-    details: 使用拖放流程编辑器设计复杂规则。通过 WASM 实时执行。支持 .ordo 文件导入/导出。
-  - icon: 🔧
-    title: 灵活规则
-    details: 步骤流模型，丰富的表达式，内置函数和字段合并。编译二进制格式保护规则逻辑。
+    title: Studio
+    details: 拖拽式流程编辑器、决策表、一键实例化模板，以及测试用例管理。低摩擦地编写规则。
+  - icon: 🧪
+    title: 测试管理
+    details: 为每个规则集创建、运行、导出测试套件。兼容 ordo-cli 的 YAML 格式，直接接入 CI/CD。上线前确保规则正确。
+  - icon: ⚡
+    title: 高性能引擎
+    details: 亚微秒级执行，Cranelift JIT 编译。支持 HTTP · gRPC · WASM · CLI，或嵌入任意 Rust 应用。
   - icon: 🛡️
-    title: 生产就绪
-    details: 确定性执行，完整追踪，热重载，Ed25519 规则签名，审计日志和多租户支持。
+    title: 治理
+    details: 带类型的输入/输出契约、审计日志、Ed25519 规则签名与一键回滚。默认可追溯、合规。
   - icon: 🔌
-    title: 易于集成
-    details: HTTP REST API，gRPC 支持，浏览器 WebAssembly，以及 npm 包（@ordo/editor-vue, @ordo/editor-core）。
-  - icon: 📊
-    title: 可观测性
-    details: Prometheus 指标，健康检查，结构化审计日志，以及规则版本管理与回滚。
+    title: 随处运行
+    details: 单二进制服务器、浏览器端 WebAssembly、嵌入式 Rust 集成。同一个引擎覆盖所有部署场景。
 ---
 
 ## 快速示例
@@ -71,12 +71,3 @@ features:
 }
 ```
 
-## 性能
-
-| 指标                 | 结果             |
-| -------------------- | ---------------- |
-| 单规则执行（解释器） | **1.63 µs**      |
-| 单规则执行（JIT）    | **50-80 ns**     |
-| 表达式评估           | **79-211 ns**    |
-| HTTP API 吞吐量      | **54,000 QPS**   |
-| 预计多线程           | **500,000+ QPS** |

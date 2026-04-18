@@ -2,7 +2,10 @@
 
 use crate::{
     error::{ApiResult, PlatformError},
-    models::{AssignRoleRequest, Claims, CreateRoleRequest, OrgRole, Organization, UpdateRoleRequest, UserRoleAssignment},
+    models::{
+        AssignRoleRequest, Claims, CreateRoleRequest, OrgRole, Organization, UpdateRoleRequest,
+        UserRoleAssignment,
+    },
     project::{sync_tenant_delete, sync_tenant_upsert},
     rbac::{require_permission, PERM_ROLE_MANAGE, PERM_ROLE_VIEW},
     AppState,

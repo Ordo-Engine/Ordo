@@ -574,7 +574,13 @@ async fn main() -> anyhow::Result<()> {
 
                     // All NATS-enabled instances subscribe so platform-published
                     // events reach standalone, writer, and reader nodes uniformly.
-                    match sync::nats_sync::create_consumer(&jetstream, &instance_id, &config.nats_subject_prefix).await {
+                    match sync::nats_sync::create_consumer(
+                        &jetstream,
+                        &instance_id,
+                        &config.nats_subject_prefix,
+                    )
+                    .await
+                    {
                         Ok(consumer) => {
                             let subscriber = sync::nats_sync::NatsSubscriber::new(
                                 consumer,

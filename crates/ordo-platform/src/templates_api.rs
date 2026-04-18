@@ -83,7 +83,11 @@ pub async fn install_template_detail(
         created_by: claims.sub.clone(),
         server_id: None,
     };
-    state.store.save_project(&project).await.map_err(PlatformError::Internal)?;
+    state
+        .store
+        .save_project(&project)
+        .await
+        .map_err(PlatformError::Internal)?;
 
     macro_rules! rollback {
         ($err:expr) => {{
@@ -92,42 +96,82 @@ pub async fn install_template_detail(
         }};
     }
 
-    if let Err(e) = state.store.save_facts(org_id, &project.id, &tpl.facts).await { rollback!(e) }
-    if let Err(e) = state.store.save_concepts(org_id, &project.id, &tpl.concepts).await { rollback!(e) }
+    if let Err(e) = state
+        .store
+        .save_facts(org_id, &project.id, &tpl.facts)
+        .await
+    {
+        rollback!(e)
+    }
+    if let Err(e) = state
+        .store
+        .save_concepts(org_id, &project.id, &tpl.concepts)
+        .await
+    {
+        rollback!(e)
+    }
 
     let mut ruleset = tpl.ruleset.clone();
     if let Some(cfg) = ruleset.get_mut("config").and_then(|c| c.as_object_mut()) {
-        cfg.insert("tenant_id".to_string(), serde_json::Value::String(project.id.clone()));
+        cfg.insert(
+            "tenant_id".to_string(),
+            serde_json::Value::String(project.id.clone()),
+        );
     }
     let ruleset_name = ruleset
-        .get("config").and_then(|c| c.get("name")).and_then(|n| n.as_str())
+        .get("config")
+        .and_then(|c| c.get("name"))
+        .and_then(|n| n.as_str())
         .unwrap_or(source_label)
         .to_string();
 
     if let Some(mut contract) = tpl.contract {
         contract.ruleset_name = ruleset_name.clone();
         contract.updated_at = Utc::now();
-        if let Err(e) = state.store.save_contracts(org_id, &project.id, &[contract]).await { rollback!(e) }
+        if let Err(e) = state
+            .store
+            .save_contracts(org_id, &project.id, &[contract])
+            .await
+        {
+            rollback!(e)
+        }
     }
 
     if !tpl.tests.is_empty() {
         let now = Utc::now();
-        let tests: Vec<crate::models::TestCase> = tpl.tests.into_iter().map(|mut tc| {
-            tc.id = Uuid::new_v4().to_string();
-            tc.created_by = claims.sub.clone();
-            tc.created_at = now;
-            tc.updated_at = now;
-            tc
-        }).collect();
-        if let Err(e) = state.store.save_tests(org_id, &project.id, &ruleset_name, &tests).await { rollback!(e) }
+        let tests: Vec<crate::models::TestCase> = tpl
+            .tests
+            .into_iter()
+            .map(|mut tc| {
+                tc.id = Uuid::new_v4().to_string();
+                tc.created_by = claims.sub.clone();
+                tc.created_at = now;
+                tc.updated_at = now;
+                tc
+            })
+            .collect();
+        if let Err(e) = state
+            .store
+            .save_tests(org_id, &project.id, &ruleset_name, &tests)
+            .await
+        {
+            rollback!(e)
+        }
     }
 
     if let Err(e) = append_history_entry_for_actor(
-        state, org_id, &project.id, &ruleset_name,
+        state,
+        org_id,
+        &project.id,
+        &ruleset_name,
         crate::models::RulesetHistorySource::Create,
         format!("Created from '{}'", source_label),
-        ruleset.clone(), &claims.sub, &claims.email,
-    ).await {
+        ruleset.clone(),
+        &claims.sub,
+        &claims.email,
+    )
+    .await
+    {
         let _ = state.store.delete_project(org_id, &project.id).await;
         return Err(e);
     }

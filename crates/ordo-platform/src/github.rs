@@ -76,7 +76,13 @@ impl MarketplaceCache {
 
     async fn set_search(&self, key: String, value: serde_json::Value) {
         let mut cache = self.searches.lock().await;
-        cache.insert(key, CacheEntry { data: value, expires_at: Instant::now() + Duration::from_secs(300) });
+        cache.insert(
+            key,
+            CacheEntry {
+                data: value,
+                expires_at: Instant::now() + Duration::from_secs(300),
+            },
+        );
         // Evict expired entries to bound memory usage
         cache.retain(|_, e| e.expires_at > Instant::now());
     }
@@ -91,7 +97,13 @@ impl MarketplaceCache {
 
     async fn set_manifest(&self, key: String, value: serde_json::Value) {
         let mut cache = self.manifests.lock().await;
-        cache.insert(key, CacheEntry { data: value, expires_at: Instant::now() + Duration::from_secs(600) });
+        cache.insert(
+            key,
+            CacheEntry {
+                data: value,
+                expires_at: Instant::now() + Duration::from_secs(600),
+            },
+        );
         cache.retain(|_, e| e.expires_at > Instant::now());
     }
 }
@@ -281,14 +293,12 @@ pub async fn get_connect_url(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let client_id = state
-        .config
-        .github_client_id
-        .as_deref()
-        .ok_or_else(|| PlatformError::bad_request("GitHub OAuth is not configured on this server"))?;
+    let client_id = state.config.github_client_id.as_deref().ok_or_else(|| {
+        PlatformError::bad_request("GitHub OAuth is not configured on this server")
+    })?;
 
-    let state_token = make_oauth_state(&claims.sub, &state.config.jwt_secret)
-        .map_err(PlatformError::Internal)?;
+    let state_token =
+        make_oauth_state(&claims.sub, &state.config.jwt_secret).map_err(PlatformError::Internal)?;
 
     let url = format!(
         "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope=read:user&state={}",
@@ -497,7 +507,9 @@ fn decode_file_content(file: GhFileContent) -> ApiResult<Vec<u8>> {
         let cleaned = file.content.replace(['\n', '\r', ' '], "");
         base64::engine::general_purpose::STANDARD
             .decode(&cleaned)
-            .map_err(|e| PlatformError::bad_request(&format!("Invalid base64 in GitHub content: {}", e)))
+            .map_err(|e| {
+                PlatformError::bad_request(&format!("Invalid base64 in GitHub content: {}", e))
+            })
     } else {
         Ok(file.content.into_bytes())
     }
@@ -524,10 +536,14 @@ async fn fetch_manifest(
 
     let content_bytes = decode_file_content(file)?;
 
-    let manifest: serde_json::Value = serde_json::from_slice(&content_bytes)
-        .map_err(|e| PlatformError::bad_request(&format!("Invalid JSON in ordo-template.json: {}", e)))?;
+    let manifest: serde_json::Value = serde_json::from_slice(&content_bytes).map_err(|e| {
+        PlatformError::bad_request(&format!("Invalid JSON in ordo-template.json: {}", e))
+    })?;
 
-    state.marketplace_cache.set_manifest(cache_key, manifest.clone()).await;
+    state
+        .marketplace_cache
+        .set_manifest(cache_key, manifest.clone())
+        .await;
     Ok(manifest)
 }
 
@@ -538,13 +554,7 @@ async fn fetch_repo_json_file(
     path: &str,
     token: Option<&str>,
 ) -> ApiResult<serde_json::Value> {
-    let file_url = format!(
-        "{}/repos/{}/{}/contents/{}",
-        GITHUB_API,
-        owner,
-        repo,
-        path
-    );
+    let file_url = format!("{}/repos/{}/{}/contents/{}", GITHUB_API, owner, repo, path);
     let file: GhFileContent = gh_get(&state.http_client, &file_url, token)
         .await
         .map_err(|_| PlatformError::not_found(&format!("{} not found in this repository", path)))?;
@@ -573,19 +583,28 @@ async fn fetch_template_source_manifest(
     repo: &str,
     token: Option<&str>,
 ) -> ApiResult<Option<serde_json::Value>> {
-    let Some(meta) = fetch_repo_json_file_optional(state, owner, repo, "template/meta.json", token).await? else {
+    let Some(meta) =
+        fetch_repo_json_file_optional(state, owner, repo, "template/meta.json", token).await?
+    else {
         return Ok(None);
     };
     let facts = fetch_repo_json_file(state, owner, repo, "template/facts.json", token).await?;
-    let concepts = fetch_repo_json_file(state, owner, repo, "template/concepts.json", token).await?;
+    let concepts =
+        fetch_repo_json_file(state, owner, repo, "template/concepts.json", token).await?;
     let ruleset = fetch_repo_json_file(state, owner, repo, "template/ruleset.json", token).await?;
     let samples = fetch_repo_json_file(state, owner, repo, "template/samples.json", token).await?;
-    let contract = fetch_repo_json_file_optional(state, owner, repo, "template/contract.json", token).await?;
-    let tests = fetch_repo_json_file_optional(state, owner, repo, "template/tests.json", token).await?;
+    let contract =
+        fetch_repo_json_file_optional(state, owner, repo, "template/contract.json", token).await?;
+    let tests =
+        fetch_repo_json_file_optional(state, owner, repo, "template/tests.json", token).await?;
 
     let mut manifest = match meta {
         serde_json::Value::Object(obj) => obj,
-        _ => return Err(PlatformError::bad_request("template/meta.json must be a JSON object")),
+        _ => {
+            return Err(PlatformError::bad_request(
+                "template/meta.json must be a JSON object",
+            ))
+        }
     };
     manifest.insert("facts".into(), facts);
     manifest.insert("concepts".into(), concepts);
@@ -594,7 +613,10 @@ async fn fetch_template_source_manifest(
     if let Some(contract) = contract {
         manifest.insert("contract".into(), contract);
     }
-    manifest.insert("tests".into(), tests.unwrap_or_else(|| serde_json::json!([])));
+    manifest.insert(
+        "tests".into(),
+        tests.unwrap_or_else(|| serde_json::json!([])),
+    );
 
     Ok(Some(serde_json::Value::Object(manifest)))
 }
@@ -615,8 +637,12 @@ async fn fetch_i18n_bundle(
         Err(_) => return Ok(HashMap::new()),
     };
     let content = decode_file_content(file)?;
-    let bundle: HashMap<String, String> = serde_json::from_slice(&content)
-        .map_err(|e| PlatformError::bad_request(&format!("Invalid JSON in template/i18n/{}.json: {}", locale, e)))?;
+    let bundle: HashMap<String, String> = serde_json::from_slice(&content).map_err(|e| {
+        PlatformError::bad_request(&format!(
+            "Invalid JSON in template/i18n/{}.json: {}",
+            locale, e
+        ))
+    })?;
     Ok(bundle)
 }
 
@@ -717,10 +743,13 @@ pub async fn search_marketplace(
         format!("topic:ordo-template {}", q_extra)
     };
 
-    let cache_key = format!("search:{}:{}:{}:{}:{}", locale, search_query, sort, page, per_page);
+    let cache_key = format!(
+        "search:{}:{}:{}:{}:{}",
+        locale, search_query, sort, page, per_page
+    );
     if let Some(cached) = state.marketplace_cache.get_search(&cache_key).await {
-        let result: MarketplaceSearchResponse = serde_json::from_value(cached)
-            .map_err(|e| PlatformError::Internal(e.into()))?;
+        let result: MarketplaceSearchResponse =
+            serde_json::from_value(cached).map_err(|e| PlatformError::Internal(e.into()))?;
         return Ok(Json(result));
     }
 
@@ -739,15 +768,24 @@ pub async fn search_marketplace(
 
     let mut items = Vec::new();
     for r in gh_resp.items {
-        let localized = fetch_localized_manifest(&state, &r.owner.login, &r.name, locale, token.as_deref()).await.ok();
-        let metadata = localized
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<crate::models::TemplateMetadata>(v.clone()).ok());
+        let localized =
+            fetch_localized_manifest(&state, &r.owner.login, &r.name, locale, token.as_deref())
+                .await
+                .ok();
+        let metadata = localized.as_ref().and_then(|v| {
+            serde_json::from_value::<crate::models::TemplateMetadata>(v.clone()).ok()
+        });
         items.push(MarketplaceItem {
             id: r.full_name.clone(),
-            name: metadata.as_ref().map(|m| m.name.clone()).unwrap_or(r.name.clone()),
+            name: metadata
+                .as_ref()
+                .map(|m| m.name.clone())
+                .unwrap_or(r.name.clone()),
             full_name: r.full_name,
-            description: metadata.as_ref().map(|m| m.description.clone()).or(r.description),
+            description: metadata
+                .as_ref()
+                .map(|m| m.description.clone())
+                .or(r.description),
             html_url: r.html_url,
             stars: r.stargazers_count,
             topics: r.topics.unwrap_or_default(),
@@ -756,8 +794,14 @@ pub async fn search_marketplace(
             owner_avatar: r.owner.avatar_url,
             icon: metadata.as_ref().and_then(|m| m.icon.clone()),
             difficulty: metadata.as_ref().map(|m| m.difficulty.clone()),
-            tags: metadata.as_ref().map(|m| m.tags.clone()).unwrap_or_default(),
-            features: metadata.as_ref().map(|m| m.features.clone()).unwrap_or_default(),
+            tags: metadata
+                .as_ref()
+                .map(|m| m.tags.clone())
+                .unwrap_or_default(),
+            features: metadata
+                .as_ref()
+                .map(|m| m.features.clone())
+                .unwrap_or_default(),
         });
     }
 
@@ -768,8 +812,12 @@ pub async fn search_marketplace(
         per_page,
     };
 
-    let cached_val = serde_json::to_value(&result).map_err(|e| PlatformError::Internal(e.into()))?;
-    state.marketplace_cache.set_search(cache_key, cached_val).await;
+    let cached_val =
+        serde_json::to_value(&result).map_err(|e| PlatformError::Internal(e.into()))?;
+    state
+        .marketplace_cache
+        .set_search(cache_key, cached_val)
+        .await;
 
     Ok(Json(result))
 }
@@ -793,17 +841,24 @@ pub async fn get_marketplace_item(
         .await
         .map_err(|_| PlatformError::not_found("GitHub repository not found"))?;
 
-    let mut manifest = fetch_localized_manifest(&state, &owner, &repo, locale, token.as_deref()).await?;
+    let mut manifest =
+        fetch_localized_manifest(&state, &owner, &repo, locale, token.as_deref()).await?;
 
     // Enrich manifest with live GitHub metadata
     if let Some(obj) = manifest.as_object_mut() {
         obj.insert("github_url".into(), serde_json::json!(gh_repo.html_url));
         obj.insert("stars".into(), serde_json::json!(gh_repo.stargazers_count));
         obj.insert("owner_login".into(), serde_json::json!(gh_repo.owner.login));
-        obj.insert("owner_avatar".into(), serde_json::json!(gh_repo.owner.avatar_url));
+        obj.insert(
+            "owner_avatar".into(),
+            serde_json::json!(gh_repo.owner.avatar_url),
+        );
         obj.insert("full_name".into(), serde_json::json!(gh_repo.full_name));
         obj.insert("updated_at".into(), serde_json::json!(gh_repo.updated_at));
-        obj.insert("topics".into(), serde_json::json!(gh_repo.topics.unwrap_or_default()));
+        obj.insert(
+            "topics".into(),
+            serde_json::json!(gh_repo.topics.unwrap_or_default()),
+        );
     }
 
     Ok(Json(manifest))
@@ -841,7 +896,15 @@ pub async fn install_marketplace_item(
     // Strip GitHub-enriched fields before deserializing into TemplateDetail
     let mut clean = manifest.clone();
     if let Some(obj) = clean.as_object_mut() {
-        for key in &["github_url", "stars", "owner_login", "owner_avatar", "full_name", "updated_at", "topics"] {
+        for key in &[
+            "github_url",
+            "stars",
+            "owner_login",
+            "owner_avatar",
+            "full_name",
+            "updated_at",
+            "topics",
+        ] {
             obj.remove(*key);
         }
     }

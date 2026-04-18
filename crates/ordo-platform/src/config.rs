@@ -98,7 +98,6 @@ pub struct PlatformConfig {
     pub templates_dir: PathBuf,
 
     // ── GitHub OAuth ─────────────────────────────────────────────────────────
-
     /// GitHub OAuth App client ID (register at github.com/settings/developers)
     #[arg(long = "github-client-id", env = "ORDO_GITHUB_CLIENT_ID")]
     pub github_client_id: Option<String>,

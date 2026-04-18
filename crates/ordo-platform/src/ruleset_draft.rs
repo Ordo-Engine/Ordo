@@ -67,7 +67,9 @@ pub async fn get_draft(
         .await
         .map_err(PlatformError::Internal)?;
 
-    seeded.map(Json).ok_or_else(|| PlatformError::not_found("Ruleset not found"))
+    seeded
+        .map(Json)
+        .ok_or_else(|| PlatformError::not_found("Ruleset not found"))
 }
 
 /// PUT /api/v1/orgs/:oid/projects/:pid/rulesets/:name
@@ -145,8 +147,14 @@ pub async fn publish_draft(
     Path((org_id, project_id, ruleset_name)): Path<(String, String, String)>,
     Json(req): Json<PublishRequest>,
 ) -> ApiResult<Json<RulesetDeployment>> {
-    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_RULESET_PUBLISH)
-        .await?;
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_RULESET_PUBLISH,
+    )
+    .await?;
 
     // Load draft
     let draft = state
@@ -208,11 +216,7 @@ pub async fn publish_draft(
     let final_status = match publish_result {
         Ok(()) => DeploymentStatus::Success,
         Err(ref e) => {
-            tracing::error!(
-                "NATS publish failed for deployment {}: {}",
-                dep_id,
-                e
-            );
+            tracing::error!("NATS publish failed for deployment {}: {}", dep_id, e);
             DeploymentStatus::Failed
         }
     };
@@ -286,8 +290,14 @@ pub async fn list_ruleset_deployments(
     Path((org_id, project_id, ruleset_name)): Path<(String, String, String)>,
     Query(q): Query<DeploymentListQuery>,
 ) -> ApiResult<Json<Vec<RulesetDeployment>>> {
-    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_DEPLOYMENT_VIEW)
-        .await?;
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_DEPLOYMENT_VIEW,
+    )
+    .await?;
     let deployments = state
         .store
         .list_deployments(&project_id, Some(&ruleset_name), q.limit.unwrap_or(50))
@@ -303,8 +313,14 @@ pub async fn list_project_deployments(
     Path((org_id, project_id)): Path<(String, String)>,
     Query(q): Query<DeploymentListQuery>,
 ) -> ApiResult<Json<Vec<RulesetDeployment>>> {
-    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_DEPLOYMENT_VIEW)
-        .await?;
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_DEPLOYMENT_VIEW,
+    )
+    .await?;
     let deployments = state
         .store
         .list_deployments(&project_id, None, q.limit.unwrap_or(100))
@@ -451,7 +467,11 @@ async fn seed_draft_from_server(
         state.config.engine_url.clone()
     };
 
-    let url = format!("{}/api/v1/rulesets/{}", engine_url.trim_end_matches('/'), ruleset_name);
+    let url = format!(
+        "{}/api/v1/rulesets/{}",
+        engine_url.trim_end_matches('/'),
+        ruleset_name
+    );
     let resp = state
         .http_client
         .get(&url)
@@ -484,9 +504,7 @@ impl axum::response::IntoResponse for DraftSaveResponse {
     fn into_response(self) -> axum::response::Response {
         match self {
             DraftSaveResponse::Err(e) => e.into_response(),
-            DraftSaveResponse::Conflict(body) => {
-                (StatusCode::CONFLICT, body).into_response()
-            }
+            DraftSaveResponse::Conflict(body) => (StatusCode::CONFLICT, body).into_response(),
         }
     }
 }

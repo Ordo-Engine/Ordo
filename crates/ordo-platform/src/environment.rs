@@ -5,8 +5,14 @@
 
 use crate::{
     error::{ApiResult, PlatformError},
-    models::{Claims, CreateEnvironmentRequest, ProjectEnvironment, SetCanaryRequest, UpdateEnvironmentRequest},
-    rbac::{require_project_permission, PERM_CANARY_MANAGE, PERM_ENVIRONMENT_MANAGE, PERM_ENVIRONMENT_VIEW},
+    models::{
+        Claims, CreateEnvironmentRequest, ProjectEnvironment, SetCanaryRequest,
+        UpdateEnvironmentRequest,
+    },
+    rbac::{
+        require_project_permission, PERM_CANARY_MANAGE, PERM_ENVIRONMENT_MANAGE,
+        PERM_ENVIRONMENT_VIEW,
+    },
     AppState,
 };
 use axum::{
@@ -24,8 +30,14 @@ pub async fn list_environments(
     Extension(claims): Extension<Claims>,
     Path((org_id, project_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Vec<ProjectEnvironment>>> {
-    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_ENVIRONMENT_VIEW)
-        .await?;
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_ENVIRONMENT_VIEW,
+    )
+    .await?;
     let envs = state
         .store
         .list_environments(&project_id)
@@ -134,8 +146,14 @@ pub async fn set_canary(
     Path((org_id, project_id, env_id)): Path<(String, String, String)>,
     Json(req): Json<SetCanaryRequest>,
 ) -> ApiResult<Json<ProjectEnvironment>> {
-    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_CANARY_MANAGE)
-        .await?;
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_CANARY_MANAGE,
+    )
+    .await?;
 
     if !(0..=100).contains(&req.canary_percentage) {
         return Err(PlatformError::bad_request(

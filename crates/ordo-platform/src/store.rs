@@ -2,11 +2,11 @@
 
 use crate::models::{
     ConceptDefinition, ContractField, CreateEnvironmentRequest, CreateRoleRequest,
-    DecisionContract, DeploymentStatus, FactDataType, FactDefinition, Member, NullPolicy,
-    OrgRole, Organization, Project, ProjectEnvironment, ProjectRuleset, ProjectRulesetMeta,
-    Role, RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource,
-    ServerNode, ServerStatus, TestCase, TestExpectation, UpdateEnvironmentRequest,
-    UpdateRoleRequest, User, UserRoleAssignment,
+    DecisionContract, DeploymentStatus, FactDataType, FactDefinition, Member, NullPolicy, OrgRole,
+    Organization, Project, ProjectEnvironment, ProjectRuleset, ProjectRulesetMeta, Role,
+    RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource, ServerNode, ServerStatus,
+    TestCase, TestExpectation, UpdateEnvironmentRequest, UpdateRoleRequest, User,
+    UserRoleAssignment,
 };
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -709,7 +709,10 @@ impl PlatformStore {
         Ok(())
     }
 
-    pub async fn get_github_connection(&self, user_id: &str) -> Result<Option<crate::github::GitHubConnectionRow>> {
+    pub async fn get_github_connection(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<crate::github::GitHubConnectionRow>> {
         let row = sqlx::query(
             "SELECT user_id, github_user_id, login, name, avatar_url, connected_at
              FROM github_connections WHERE user_id = $1",
@@ -719,12 +722,12 @@ impl PlatformStore {
         .await?;
 
         Ok(row.map(|r| crate::github::GitHubConnectionRow {
-            user_id:         r.get("user_id"),
-            github_user_id:  r.get("github_user_id"),
-            login:           r.get("login"),
-            name:            r.get("name"),
-            avatar_url:      r.get("avatar_url"),
-            connected_at:    r.get("connected_at"),
+            user_id: r.get("user_id"),
+            github_user_id: r.get("github_user_id"),
+            login: r.get("login"),
+            name: r.get("name"),
+            avatar_url: r.get("avatar_url"),
+            connected_at: r.get("connected_at"),
         }))
     }
 
@@ -1230,10 +1233,7 @@ impl PlatformStore {
         .bind(is_system)
         .execute(&self.pool)
         .await?;
-        Ok(self
-            .get_org_role(org_id, id)
-            .await?
-            .expect("just inserted"))
+        Ok(self.get_org_role(org_id, id).await?.expect("just inserted"))
     }
 
     pub async fn update_org_role(
@@ -1314,12 +1314,7 @@ impl PlatformStore {
         Ok(())
     }
 
-    pub async fn revoke_role(
-        &self,
-        org_id: &str,
-        user_id: &str,
-        role_id: &str,
-    ) -> Result<bool> {
+    pub async fn revoke_role(&self, org_id: &str, user_id: &str, role_id: &str) -> Result<bool> {
         let result = sqlx::query(
             "DELETE FROM user_org_roles WHERE user_id = $1 AND org_id = $2 AND role_id = $3",
         )
@@ -1356,47 +1351,91 @@ impl PlatformStore {
         let has = |name: &str| existing.iter().any(|r| r.name == name && r.is_system);
 
         let system_roles: &[(&str, &str, &[&str])] = &[
-            ("owner", "Organization owner — full access", &[
-                "org:view", "org:manage",
-                "member:view", "member:invite", "member:remove",
-                "role:view", "role:manage",
-                "project:view", "project:create", "project:manage", "project:delete",
-                "ruleset:view", "ruleset:edit", "ruleset:publish",
-                "environment:view", "environment:manage",
-                "server:view", "server:manage",
-                "test:run",
-                "deployment:view", "deployment:redeploy",
-                "canary:manage",
-            ]),
-            ("admin", "Administrator — manages members and deployments", &[
-                "org:view", "org:manage",
-                "member:view", "member:invite", "member:remove",
-                "role:view", "role:manage",
-                "project:view", "project:create", "project:manage",
-                "ruleset:view", "ruleset:edit", "ruleset:publish",
-                "environment:view", "environment:manage",
-                "server:view", "server:manage",
-                "test:run",
-                "deployment:view", "deployment:redeploy",
-                "canary:manage",
-            ]),
-            ("editor", "Editor — edits and tests rulesets", &[
-                "org:view", "member:view", "role:view",
-                "project:view",
-                "ruleset:view", "ruleset:edit",
-                "environment:view",
-                "server:view",
-                "test:run",
-                "deployment:view",
-            ]),
-            ("viewer", "Viewer — read-only access", &[
-                "org:view", "member:view", "role:view",
-                "project:view",
-                "ruleset:view",
-                "environment:view",
-                "server:view",
-                "deployment:view",
-            ]),
+            (
+                "owner",
+                "Organization owner — full access",
+                &[
+                    "org:view",
+                    "org:manage",
+                    "member:view",
+                    "member:invite",
+                    "member:remove",
+                    "role:view",
+                    "role:manage",
+                    "project:view",
+                    "project:create",
+                    "project:manage",
+                    "project:delete",
+                    "ruleset:view",
+                    "ruleset:edit",
+                    "ruleset:publish",
+                    "environment:view",
+                    "environment:manage",
+                    "server:view",
+                    "server:manage",
+                    "test:run",
+                    "deployment:view",
+                    "deployment:redeploy",
+                    "canary:manage",
+                ],
+            ),
+            (
+                "admin",
+                "Administrator — manages members and deployments",
+                &[
+                    "org:view",
+                    "org:manage",
+                    "member:view",
+                    "member:invite",
+                    "member:remove",
+                    "role:view",
+                    "role:manage",
+                    "project:view",
+                    "project:create",
+                    "project:manage",
+                    "ruleset:view",
+                    "ruleset:edit",
+                    "ruleset:publish",
+                    "environment:view",
+                    "environment:manage",
+                    "server:view",
+                    "server:manage",
+                    "test:run",
+                    "deployment:view",
+                    "deployment:redeploy",
+                    "canary:manage",
+                ],
+            ),
+            (
+                "editor",
+                "Editor — edits and tests rulesets",
+                &[
+                    "org:view",
+                    "member:view",
+                    "role:view",
+                    "project:view",
+                    "ruleset:view",
+                    "ruleset:edit",
+                    "environment:view",
+                    "server:view",
+                    "test:run",
+                    "deployment:view",
+                ],
+            ),
+            (
+                "viewer",
+                "Viewer — read-only access",
+                &[
+                    "org:view",
+                    "member:view",
+                    "role:view",
+                    "project:view",
+                    "ruleset:view",
+                    "environment:view",
+                    "server:view",
+                    "deployment:view",
+                ],
+            ),
         ];
 
         for (name, desc, perms) in system_roles {
@@ -1427,15 +1466,18 @@ impl PlatformStore {
         legacy_role: &Role,
     ) -> Result<()> {
         let role_name = legacy_role.to_string();
-        let row = sqlx::query("SELECT id FROM org_roles WHERE org_id = $1 AND name = $2 AND is_system = true")
-            .bind(org_id)
-            .bind(&role_name)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT id FROM org_roles WHERE org_id = $1 AND name = $2 AND is_system = true",
+        )
+        .bind(org_id)
+        .bind(&role_name)
+        .fetch_optional(&self.pool)
+        .await?;
 
         let Some(row) = row else { return Ok(()) };
         let role_id: String = row.get("id");
-        self.assign_role(org_id, user_id, &role_id, "system-migration").await
+        self.assign_role(org_id, user_id, &role_id, "system-migration")
+            .await
     }
 
     // ── Startup migration helpers ─────────────────────────────────────────────

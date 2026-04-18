@@ -68,7 +68,9 @@ pub async fn require_permission(
         .unwrap_or(false);
 
     if !is_member {
-        return Err(PlatformError::forbidden("Not a member of this organization"));
+        return Err(PlatformError::forbidden(
+            "Not a member of this organization",
+        ));
     }
 
     let perms = state

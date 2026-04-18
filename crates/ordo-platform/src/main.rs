@@ -130,15 +130,26 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!("seed_system_roles failed for org {}: {}", org.id, e);
             }
             for member in &org.members {
-                if let Err(e) = store.migrate_legacy_role(&org.id, &member.user_id, &member.role).await {
-                    tracing::warn!("migrate_legacy_role failed for {}/{}: {}", org.id, member.user_id, e);
+                if let Err(e) = store
+                    .migrate_legacy_role(&org.id, &member.user_id, &member.role)
+                    .await
+                {
+                    tracing::warn!(
+                        "migrate_legacy_role failed for {}/{}: {}",
+                        org.id,
+                        member.user_id,
+                        e
+                    );
                 }
             }
         }
 
         let all_projects = store.list_all_projects().await.unwrap_or_default();
         for project in all_projects {
-            if let Err(e) = store.migrate_project_server_to_environment(&project.id, project.server_id.as_deref()).await {
+            if let Err(e) = store
+                .migrate_project_server_to_environment(&project.id, project.server_id.as_deref())
+                .await
+            {
                 tracing::warn!("migrate env failed for project {}: {}", project.id, e);
             }
         }

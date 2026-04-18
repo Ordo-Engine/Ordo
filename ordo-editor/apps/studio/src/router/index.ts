@@ -38,6 +38,11 @@ const router = createRouter({
           name: 'settings',
           component: () => import('@/views/settings/SettingsView.vue'),
         },
+        {
+          path: 'servers',
+          name: 'servers',
+          component: () => import('@/views/server/ServerRegistryView.vue'),
+        },
 
         // Organizations
         {
@@ -55,12 +60,36 @@ const router = createRouter({
           name: 'org-members',
           component: () => import('@/views/org/MembersView.vue'),
         },
+        {
+          path: 'orgs/:orgId/roles',
+          name: 'org-roles',
+          component: () => import('@/views/org/RolesView.vue'),
+        },
 
         // Projects list (org-scoped)
         {
           path: 'orgs/:orgId/projects',
           name: 'projects',
           component: () => import('@/views/project/ProjectListView.vue'),
+        },
+
+        // Server registry (org-scoped)
+        {
+          path: 'orgs/:orgId/servers',
+          name: 'org-servers',
+          component: () => import('@/views/server/ServerRegistryView.vue'),
+        },
+
+        // Marketplace
+        {
+          path: 'marketplace',
+          name: 'marketplace',
+          component: () => import('@/views/marketplace/MarketplaceView.vue'),
+        },
+        {
+          path: 'marketplace/:owner/:repo',
+          name: 'marketplace-detail',
+          component: () => import('@/views/marketplace/MarketplaceDetailView.vue'),
         },
 
         // Project sub-pages (org-scoped)
@@ -105,9 +134,24 @@ const router = createRouter({
               component: () => import('@/views/project/VersionHistoryView.vue'),
             },
             {
+              path: 'instances',
+              name: 'project-instances',
+              component: () => import('@/views/project/ProjectInstancesView.vue'),
+            },
+            {
               path: 'settings',
               name: 'project-settings',
               component: () => import('@/views/project/ProjectSettingsView.vue'),
+            },
+            {
+              path: 'deployments',
+              name: 'project-deployments',
+              component: () => import('@/views/project/DeploymentsView.vue'),
+            },
+            {
+              path: 'environments',
+              name: 'project-environments',
+              component: () => import('@/views/project/EnvironmentsView.vue'),
             },
           ],
         },

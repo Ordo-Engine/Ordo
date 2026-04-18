@@ -28,15 +28,21 @@ mod auth;
 mod catalog;
 mod config;
 mod contract;
+mod environment;
 mod error;
+mod github;
 mod member;
 mod middleware;
 mod models;
 mod org;
 mod project;
 mod proxy;
+mod rbac;
+mod ruleset_draft;
 mod ruleset_history;
+mod server_registry;
 mod store;
+mod sync;
 mod template;
 mod templates_api;
 mod testing;
@@ -46,6 +52,29 @@ use middleware::require_auth;
 use store::PlatformStore;
 use template::TemplateStore;
 
+fn resolve_templates_dir(configured: &std::path::Path) -> std::path::PathBuf {
+    if configured.exists() {
+        return configured.to_path_buf();
+    }
+
+    let fallbacks = [
+        std::path::PathBuf::from("./crates/ordo-platform/templates"),
+        std::path::PathBuf::from("./templates"),
+        std::path::PathBuf::from("/app/templates"),
+    ];
+
+    if let Some(path) = fallbacks.into_iter().find(|path| path.exists()) {
+        tracing::info!(
+            configured = %configured.display(),
+            resolved = %path.display(),
+            "Using fallback templates directory",
+        );
+        return path;
+    }
+
+    configured.to_path_buf()
+}
+
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
@@ -53,6 +82,8 @@ pub struct AppState {
     pub config: Arc<PlatformConfig>,
     pub http_client: reqwest::Client,
     pub templates: Arc<TemplateStore>,
+    pub sync_publisher: Option<Arc<sync::NatsPublisher>>,
+    pub marketplace_cache: Arc<github::MarketplaceCache>,
 }
 
 #[tokio::main]
@@ -78,10 +109,53 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting ordo-platform on {}", config.listen_addr);
     info!("Engine URL: {}", config.engine_url);
-    info!("Platform dir: {:?}", config.platform_dir);
+    if config.nats_enabled() {
+        info!(
+            "NATS sync enabled (url={}, prefix={})",
+            config.nats_url.as_deref().unwrap_or(""),
+            config.nats_subject_prefix
+        );
+    }
 
-    // Init store
-    let store = Arc::new(PlatformStore::new(config.platform_dir.clone()).await?);
+    // Init database pool and run migrations
+    let pool = sqlx::PgPool::connect(&config.database_url).await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    let store = Arc::new(PlatformStore::new(pool).await?);
+
+    // Startup migrations: seed RBAC system roles and migrate legacy data
+    {
+        let orgs = store.list_all_orgs().await.unwrap_or_default();
+        for org in &orgs {
+            if let Err(e) = store.seed_system_roles(&org.id).await {
+                tracing::warn!("seed_system_roles failed for org {}: {}", org.id, e);
+            }
+            for member in &org.members {
+                if let Err(e) = store.migrate_legacy_role(&org.id, &member.user_id, &member.role).await {
+                    tracing::warn!("migrate_legacy_role failed for {}/{}: {}", org.id, member.user_id, e);
+                }
+            }
+        }
+
+        let all_projects = store.list_all_projects().await.unwrap_or_default();
+        for project in all_projects {
+            if let Err(e) = store.migrate_project_server_to_environment(&project.id, project.server_id.as_deref()).await {
+                tracing::warn!("migrate env failed for project {}: {}", project.id, e);
+            }
+        }
+    }
+
+    // Background task: mark servers offline when they stop heartbeating
+    {
+        let store_bg = store.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let threshold = chrono::Utc::now() - chrono::Duration::seconds(90);
+                let _ = store_bg.mark_stale_servers_offline(threshold).await;
+            }
+        });
+    }
 
     // HTTP client for engine proxy
     let http_client = reqwest::Client::builder()
@@ -89,22 +163,39 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     // Load rule templates (best-effort — missing dir just disables the feature)
+    let templates_dir = resolve_templates_dir(&config.templates_dir);
     let templates = Arc::new(
-        TemplateStore::load_from_dir(&config.templates_dir).unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to load templates from {:?}: {:#}",
-                config.templates_dir,
-                e
-            );
+        TemplateStore::load_from_dir(&templates_dir).unwrap_or_else(|e| {
+            tracing::warn!("Failed to load templates from {:?}: {:#}", templates_dir, e);
             TemplateStore::default()
         }),
     );
+
+    let sync_publisher = if let Some(nats_url) = config.nats_url.as_deref() {
+        let jetstream = sync::connect(nats_url)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to NATS at {}: {}", nats_url, e))?;
+        sync::ensure_stream(&jetstream, &config.nats_subject_prefix)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to ensure NATS stream: {}", e))?;
+        Some(Arc::new(sync::NatsPublisher::new(
+            jetstream,
+            config.nats_subject_prefix.clone(),
+            config.resolve_instance_id(),
+        )))
+    } else {
+        None
+    };
+
+    let marketplace_cache = github::MarketplaceCache::new();
 
     let state = AppState {
         store,
         config: config.clone(),
         http_client,
         templates,
+        sync_publisher,
+        marketplace_cache,
     };
 
     // CORS
@@ -128,7 +219,12 @@ async fn main() -> anyhow::Result<()> {
     // Routes that don't require authentication
     let public_routes = Router::new()
         .route("/api/v1/auth/register", post(auth::register))
-        .route("/api/v1/auth/login", post(auth::login));
+        .route("/api/v1/auth/login", post(auth::login))
+        // GitHub OAuth callback (public — GitHub redirects here)
+        .route("/api/v1/github/callback", get(github::github_callback))
+        // Internal: called by ordo-server (token auth inside handler)
+        .route("/api/v1/internal/register", post(server_registry::register_server))
+        .route("/api/v1/internal/heartbeat", post(server_registry::server_heartbeat));
 
     // Routes that require authentication
     let protected_routes = Router::new()
@@ -225,6 +321,85 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/projects/:pid/tests/run",
             get(testing::run_project_tests),
+        )
+        // Server registry
+        .route("/api/v1/servers", get(server_registry::list_servers))
+        .route("/api/v1/servers/:id", get(server_registry::get_server).delete(server_registry::delete_server))
+        .route("/api/v1/servers/:id/metrics", get(server_registry::get_server_metrics))
+        .route("/api/v1/servers/:id/health", get(server_registry::get_server_health))
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/server",
+            axum::routing::put(server_registry::bind_project_server),
+        )
+        // GitHub OAuth (protected)
+        .route("/api/v1/github/connect", get(github::get_connect_url))
+        .route("/api/v1/github/status", get(github::get_status))
+        .route("/api/v1/github/disconnect", axum::routing::delete(github::disconnect))
+        // GitHub Marketplace
+        .route("/api/v1/marketplace/search", get(github::search_marketplace))
+        .route("/api/v1/marketplace/repos/:owner/:repo", get(github::get_marketplace_item))
+        .route(
+            "/api/v1/marketplace/install/:owner/:repo",
+            post(github::install_marketplace_item),
+        )
+        // RBAC: org roles
+        .route(
+            "/api/v1/orgs/:oid/roles",
+            get(org::list_roles).post(org::create_role),
+        )
+        .route(
+            "/api/v1/orgs/:oid/roles/:rid",
+            put(org::update_role).delete(org::delete_role),
+        )
+        // RBAC: member role assignments
+        .route(
+            "/api/v1/orgs/:oid/members/:uid/roles",
+            get(org::list_member_roles).post(org::assign_member_role),
+        )
+        .route(
+            "/api/v1/orgs/:oid/members/:uid/roles/:rid",
+            axum::routing::delete(org::revoke_member_role),
+        )
+        // Environments
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/environments",
+            get(environment::list_environments).post(environment::create_environment),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/environments/:eid",
+            put(environment::update_environment).delete(environment::delete_environment),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/environments/:eid/canary",
+            put(environment::set_canary),
+        )
+        // Draft rulesets
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets",
+            get(ruleset_draft::list_drafts),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name",
+            get(ruleset_draft::get_draft)
+                .put(ruleset_draft::save_draft)
+                .delete(ruleset_draft::delete_draft),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/publish",
+            post(ruleset_draft::publish_draft),
+        )
+        // Deployment history
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/deployments",
+            get(ruleset_draft::list_project_deployments),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/deployments",
+            get(ruleset_draft::list_ruleset_deployments),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/deployments/:did/redeploy",
+            post(ruleset_draft::redeploy),
         )
         // Engine proxy: /api/v1/engine/:project_id/*path → ordo-server
         .route("/api/v1/engine/:project_id/*path", any(proxy::proxy_engine))

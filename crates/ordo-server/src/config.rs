@@ -338,6 +338,30 @@ pub struct ServerConfig {
     /// Path to the PEM-encoded CA certificate for verifying client certificates (mTLS).
     #[arg(long, env = "ORDO_GRPC_TLS_CLIENT_CA")]
     pub grpc_tls_client_ca: Option<PathBuf>,
+
+    // ── Platform Registration ──────────────────────────────────────────────
+    /// ordo-platform URL to register this server with (e.g. http://ordo-platform:3001).
+    /// When set together with --server-token, the server registers on startup and
+    /// sends heartbeats every 30 s so the platform can track health and metrics.
+    #[arg(long = "platform-url", env = "ORDO_PLATFORM_URL")]
+    pub platform_url: Option<String>,
+
+    /// Human-readable name for this server in the platform registry.
+    #[arg(
+        long = "server-name",
+        default_value = "ordo-server",
+        env = "ORDO_SERVER_NAME"
+    )]
+    pub server_name: String,
+
+    /// Shared secret token for platform registration (must be unique per server).
+    #[arg(long = "server-token", env = "ORDO_SERVER_TOKEN")]
+    pub server_token: Option<String>,
+
+    /// Public HTTP URL of this server as reachable by the platform.
+    /// Defaults to http://<http-addr> when not set.
+    #[arg(long = "server-url", env = "ORDO_SERVER_URL")]
+    pub server_url: Option<String>,
 }
 
 impl ServerConfig {
@@ -553,6 +577,10 @@ impl Default for ServerConfig {
             wal_max_segment_bytes: 67108864,
             wal_max_closed_segments: 3,
             cors_allowed_origins: Vec::new(),
+            platform_url: None,
+            server_name: "ordo-server".to_string(),
+            server_token: None,
+            server_url: None,
         }
     }
 }

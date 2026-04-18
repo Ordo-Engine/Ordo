@@ -226,17 +226,22 @@ impl NatsSubscriber {
                 continue;
             }
 
-            self.apply_event(&sync_msg.event).await;
-
-            if let Err(e) = msg.ack().await {
-                warn!("Failed to ack sync message: {}", e);
+            if self.apply_event(&sync_msg.event).await {
+                if let Err(e) = msg.ack().await {
+                    warn!("Failed to ack sync message: {}", e);
+                }
+            } else if let Err(e) = msg
+                .ack_with(async_nats::jetstream::AckKind::Nak(None))
+                .await
+            {
+                warn!("Failed to nack sync message: {}", e);
             }
         }
 
         Ok(())
     }
 
-    async fn apply_event(&self, event: &SyncEvent) {
+    async fn apply_event(&self, event: &SyncEvent) -> bool {
         match event {
             SyncEvent::RulePut {
                 tenant_id,
@@ -245,18 +250,30 @@ impl NatsSubscriber {
                 version,
             } => {
                 self.apply_rule_put(tenant_id, name, ruleset_json, version)
-                    .await;
+                    .await
             }
             SyncEvent::RuleDeleted { tenant_id, name } => {
-                self.apply_rule_deleted(tenant_id, name).await;
+                self.apply_rule_deleted(tenant_id, name).await
             }
+            SyncEvent::TenantUpsert {
+                tenant_id,
+                name,
+                enabled,
+            } => self.apply_tenant_upsert(tenant_id, name, *enabled).await,
+            SyncEvent::TenantDeleted { tenant_id } => self.apply_tenant_deleted(tenant_id).await,
             SyncEvent::TenantConfigChanged { config_json } => {
-                self.apply_tenant_config_changed(config_json).await;
+                self.apply_tenant_config_changed(config_json).await
             }
         }
     }
 
-    async fn apply_rule_put(&self, tenant_id: &str, name: &str, ruleset_json: &str, version: &str) {
+    async fn apply_rule_put(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        ruleset_json: &str,
+        version: &str,
+    ) -> bool {
         // Idempotency: check if we already have this version.
         {
             let store = self.store.read().await;
@@ -266,7 +283,7 @@ impl NatsSubscriber {
                         "Skipping duplicate RulePut for '{}' v{} (already present)",
                         name, version
                     );
-                    return;
+                    return true;
                 }
             }
         }
@@ -279,6 +296,7 @@ impl NatsSubscriber {
                     name, tenant_id, version
                 );
                 metrics::record_sync_applied("RulePut");
+                true
             }
             Err(e) => {
                 error!(
@@ -286,35 +304,116 @@ impl NatsSubscriber {
                     name, tenant_id, e
                 );
                 metrics::record_sync_failed("RulePut", "apply");
+                false
             }
         }
     }
 
-    async fn apply_rule_deleted(&self, tenant_id: &str, name: &str) {
+    async fn apply_rule_deleted(&self, tenant_id: &str, name: &str) -> bool {
         let mut store = self.store.write().await;
-        if store.delete_for_tenant(tenant_id, name) {
-            info!(
-                "Applied sync RuleDeleted: '{}' (tenant '{}')",
-                name, tenant_id
-            );
-            metrics::record_sync_applied("RuleDeleted");
-        } else {
-            debug!(
-                "Sync RuleDeleted for '{}' (tenant '{}') — already absent",
-                name, tenant_id
-            );
+        match store.apply_sync_delete(tenant_id, name) {
+            Ok(true) => {
+                info!(
+                    "Applied sync RuleDeleted: '{}' (tenant '{}')",
+                    name, tenant_id
+                );
+                metrics::record_sync_applied("RuleDeleted");
+                true
+            }
+            Ok(false) => {
+                debug!(
+                    "Sync RuleDeleted for '{}' (tenant '{}') — already absent",
+                    name, tenant_id
+                );
+                true
+            }
+            Err(e) => {
+                error!(
+                    "Failed to apply sync RuleDeleted for '{}' (tenant '{}'): {}",
+                    name, tenant_id, e
+                );
+                metrics::record_sync_failed("RuleDeleted", "apply");
+                false
+            }
         }
     }
 
-    async fn apply_tenant_config_changed(&self, config_json: &str) {
+    async fn apply_tenant_upsert(&self, tenant_id: &str, name: &str, enabled: bool) -> bool {
+        match self
+            .tenant_manager
+            .apply_sync_upsert(tenant_id, name, enabled)
+            .await
+        {
+            Ok(()) => {
+                info!("Applied sync TenantUpsert: '{}' ({})", tenant_id, name);
+                metrics::record_sync_applied("TenantUpsert");
+                true
+            }
+            Err(e) => {
+                error!(
+                    "Failed to apply sync TenantUpsert for '{}': {}",
+                    tenant_id, e
+                );
+                metrics::record_sync_failed("TenantUpsert", "apply");
+                false
+            }
+        }
+    }
+
+    async fn apply_tenant_deleted(&self, tenant_id: &str) -> bool {
+        let removed_rules = {
+            let mut store = self.store.write().await;
+            match store.apply_sync_delete_tenant(tenant_id) {
+                Ok(count) => count,
+                Err(e) => {
+                    error!(
+                        "Failed to purge rules for deleted tenant '{}': {}",
+                        tenant_id, e
+                    );
+                    metrics::record_sync_failed("TenantDeleted", "apply");
+                    return false;
+                }
+            }
+        };
+
+        match self.tenant_manager.apply_sync_delete(tenant_id).await {
+            Ok(true) => {
+                info!(
+                    "Applied sync TenantDeleted: '{}' (removed {} rulesets)",
+                    tenant_id, removed_rules
+                );
+                metrics::record_sync_applied("TenantDeleted");
+                true
+            }
+            Ok(false) => {
+                debug!(
+                    "Sync TenantDeleted for '{}' — tenant already absent (removed {} rulesets)",
+                    tenant_id, removed_rules
+                );
+                true
+            }
+            Err(e) => {
+                error!(
+                    "Failed to apply sync TenantDeleted for '{}': {}",
+                    tenant_id, e
+                );
+                metrics::record_sync_failed("TenantDeleted", "apply");
+                false
+            }
+        }
+    }
+
+    async fn apply_tenant_config_changed(&self, config_json: &str) -> bool {
         match self.tenant_manager.apply_sync_config(config_json).await {
             Ok(()) => {
                 info!("Applied sync TenantConfigChanged");
                 metrics::record_sync_applied("TenantConfigChanged");
+                true
             }
             Err(e) => {
                 error!("Failed to apply sync TenantConfigChanged: {}", e);
                 metrics::record_sync_failed("TenantConfigChanged", "apply");
+                false
             }
         }
     }
@@ -334,6 +433,7 @@ pub async fn ensure_stream(
             name: STREAM_NAME.to_string(),
             subjects,
             retention: RetentionPolicy::Limits,
+            storage: jetstream::stream::StorageType::File,
             max_age: Duration::from_secs(7 * 24 * 3600), // 7 days
             ..Default::default()
         })
@@ -347,13 +447,20 @@ pub async fn ensure_stream(
 }
 
 /// Create a durable pull consumer for a reader instance.
+///
+/// `subject_prefix` is used to create a `filter_subjects` filter so this
+/// instance only receives messages published to its own environment prefix.
+/// This enables multi-environment isolation: each ordo-server consumes only
+/// the events targeted at its NATS prefix.
 pub async fn create_consumer(
     jetstream: &jetstream::Context,
     instance_id: &str,
+    subject_prefix: &str,
 ) -> Result<PullConsumer, async_nats::Error> {
     let stream = jetstream.get_stream(STREAM_NAME).await?;
 
     let consumer_name = format!("ordo-{}", instance_id);
+    let filter = format!("{}.>", subject_prefix);
 
     let consumer = stream
         .get_or_create_consumer(
@@ -362,14 +469,18 @@ pub async fn create_consumer(
                 durable_name: Some(consumer_name.clone()),
                 ack_policy: jetstream::consumer::AckPolicy::Explicit,
                 deliver_policy: jetstream::consumer::DeliverPolicy::All,
+                ack_wait: Duration::from_secs(30),
+                max_deliver: 20,
+                max_ack_pending: 1_000,
+                filter_subject: filter.clone(),
                 ..Default::default()
             },
         )
         .await?;
 
     info!(
-        "JetStream consumer '{}' ready (replay from last acked)",
-        consumer_name
+        "JetStream consumer '{}' ready (filter: {}, replay from last acked)",
+        consumer_name, filter
     );
     Ok(consumer)
 }

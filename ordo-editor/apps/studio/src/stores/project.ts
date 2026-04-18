@@ -1,11 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { projectApi } from '@/api/platform-client'
+import { projectApi, rulesetDraftApi } from '@/api/platform-client'
 import { engineApi } from '@/api/engine-client'
 import { convertFromEngineFormat } from '@ordo-engine/editor-core'
 import { useAuthStore } from './auth'
 import { useOrgStore } from './org'
-import type { Project, RuleSetInfo } from '@/api/types'
+import type { DraftConflictResponse, Project, ProjectRulesetMeta, RuleSetInfo } from '@/api/types'
 import type { RuleSet } from '@ordo-engine/editor-core'
 
 const CURRENT_PROJECT_KEY = 'ordo_studio_current_project'
@@ -14,6 +14,8 @@ export interface OpenTab {
   name: string
   ruleset: RuleSet
   dirty: boolean
+  /** Platform draft sequence number for optimistic locking */
+  draft_seq: number
 }
 
 export const useProjectStore = defineStore('project', () => {
@@ -23,6 +25,7 @@ export const useProjectStore = defineStore('project', () => {
   const projects = ref<Project[]>([])
   const currentProject = ref<Project | null>(null)
   const rulesets = ref<RuleSetInfo[]>([])
+  const draftMetas = ref<ProjectRulesetMeta[]>([])
   const openTabs = ref<OpenTab[]>([])
   const activeTabName = ref<string | null>(null)
   const loading = ref(false)
@@ -54,6 +57,15 @@ export const useProjectStore = defineStore('project', () => {
   async function fetchRulesets() {
     if (!auth.token || !currentProject.value) return
     rulesets.value = await engineApi.listRulesets(auth.token, currentProject.value.id)
+    // Also fetch draft metadata from platform
+    const org = orgStore.currentOrg
+    if (org) {
+      try {
+        draftMetas.value = await rulesetDraftApi.list(auth.token, org.id, currentProject.value.id)
+      } catch {
+        draftMetas.value = []
+      }
+    }
   }
 
   async function openRuleset(name: string) {
@@ -64,10 +76,28 @@ export const useProjectStore = defineStore('project', () => {
       activeTabName.value = name
       return
     }
-    // Fetch from engine
-    const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
-    const ruleset = convertFromEngineFormat(engineData as any)
-    openTabs.value.push({ name, ruleset, dirty: false })
+
+    const org = orgStore.currentOrg
+    let ruleset: RuleSet
+    let draft_seq = 0
+
+    if (org) {
+      try {
+        // Load from platform draft API (seeds from engine if no draft exists)
+        const draft = await rulesetDraftApi.get(auth.token, org.id, currentProject.value.id, name)
+        ruleset = draft.draft as unknown as RuleSet
+        draft_seq = draft.draft_seq
+      } catch {
+        // Fall back to engine
+        const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
+        ruleset = convertFromEngineFormat(engineData as any)
+      }
+    } else {
+      const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
+      ruleset = convertFromEngineFormat(engineData as any)
+    }
+
+    openTabs.value.push({ name, ruleset, dirty: false, draft_seq })
     activeTabName.value = name
   }
 
@@ -86,17 +116,30 @@ export const useProjectStore = defineStore('project', () => {
     tab.dirty = dirty
   }
 
-  async function saveRuleset(name: string) {
+  /**
+   * Save as draft via platform API (optimistic locking).
+   * Returns null on success or a DraftConflictResponse if there's a seq conflict.
+   */
+  async function saveRuleset(name: string): Promise<DraftConflictResponse | null> {
     if (!auth.token || !currentProject.value) throw new Error('No active project')
     const tab = openTabs.value.find((t) => t.name === name)
     if (!tab) throw new Error('Ruleset not open')
 
-    const { convertToEngineFormat } = await import('@ordo-engine/editor-core')
-    const engineFormat = convertToEngineFormat(tab.ruleset)
-    await engineApi.saveRuleset(auth.token, currentProject.value.id, name, engineFormat)
+    const org = orgStore.currentOrg
+    if (!org) throw new Error('No active org')
+
+    const result = await rulesetDraftApi.save(auth.token, org.id, currentProject.value.id, name, {
+      ruleset: tab.ruleset as any,
+      expected_seq: tab.draft_seq,
+    })
+
+    if ('conflict' in result) {
+      return result
+    }
+
     tab.dirty = false
-    // Refresh ruleset list
-    await fetchRulesets()
+    tab.draft_seq = result.draft_seq
+    return null
   }
 
   async function createRuleset(ruleset: RuleSet) {
@@ -137,6 +180,7 @@ export const useProjectStore = defineStore('project', () => {
     if (currentProject.value?.id === projectId) {
       currentProject.value = null
       rulesets.value = []
+      draftMetas.value = []
       openTabs.value = []
       activeTabName.value = null
     }
@@ -147,6 +191,7 @@ export const useProjectStore = defineStore('project', () => {
     currentProject,
     currentProjectId,
     rulesets,
+    draftMetas,
     openTabs,
     activeTabName,
     activeTab,

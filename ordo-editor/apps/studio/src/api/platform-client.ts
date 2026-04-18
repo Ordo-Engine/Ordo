@@ -6,21 +6,44 @@
 import { i18n } from '@/i18n'
 import type {
   AppendRulesetHistoryEntry,
+  AssignRoleRequest,
   AuthResponse,
+  BindServerRequest,
+  CreateEnvironmentRequest,
   CreateFromTemplatePayload,
+  CreateRoleRequest,
+  DraftConflictResponse,
+  GitHubConnectUrlResponse,
+  GitHubStatus,
+  InstallMarketplacePayload,
+  MarketplaceDetail,
+  MarketplaceSearchResponse,
   Member,
   OrgResponse,
+  OrgRole,
   Organization,
   Project,
+  ProjectEnvironment,
+  ProjectRuleset,
+  ProjectRulesetMeta,
   ProjectTestRunResult,
+  PublishRequest,
+  RedeployRequest,
   Role,
+  RulesetDeployment,
   RulesetHistoryResponse,
+  SaveDraftRequest,
+  ServerInfo,
+  SetCanaryRequest,
   TemplateDetail,
   TemplateMetadata,
   TestCase,
   TestCaseInput,
   TestRunResult,
+  UpdateEnvironmentRequest,
+  UpdateRoleRequest,
   UserInfo,
+  UserRoleAssignment,
 } from './types'
 
 const BASE = '/api/v1'
@@ -64,6 +87,35 @@ async function request<T>(
   }
   if (resp.status === 204) return undefined as T
   return resp.json()
+}
+
+async function requestText(
+  path: string,
+  options: RequestInit & { token?: string } = {},
+): Promise<string> {
+  const { token, ...init } = options
+  const headers: Record<string, string> = {
+    'Accept-Language': currentLocale(),
+    ...(init.headers as Record<string, string>),
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const resp = await fetch(`${BASE}${path}`, { ...init, headers })
+  if (!resp.ok) {
+    let errMsg = `HTTP ${resp.status}`
+    try {
+      const body = await resp.json()
+      errMsg = body.error || errMsg
+    } catch {
+      // ignore parse errors
+    }
+    const err = new Error(errMsg) as Error & { status: number }
+    err.status = resp.status
+    throw err
+  }
+  return resp.text()
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -199,6 +251,19 @@ export const projectApi = {
   delete(token: string, orgId: string, projectId: string): Promise<void> {
     return request(`/orgs/${orgId}/projects/${projectId}`, { method: 'DELETE', token })
   },
+
+  bindServer(
+    token: string,
+    orgId: string,
+    projectId: string,
+    payload: BindServerRequest,
+  ): Promise<void> {
+    return request(`/orgs/${orgId}/projects/${projectId}/server`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(payload),
+    })
+  },
 }
 
 // ── Templates ────────────────────────────────────────────────────────────────
@@ -307,5 +372,271 @@ export const rulesetHistoryApi = {
       token,
       body: JSON.stringify({ entries }),
     })
+  },
+}
+
+// ── GitHub OAuth ──────────────────────────────────────────────────────────────
+
+export const githubApi = {
+  getConnectUrl(token: string): Promise<GitHubConnectUrlResponse> {
+    return request('/github/connect', { token })
+  },
+
+  getStatus(token: string): Promise<GitHubStatus> {
+    return request('/github/status', { token })
+  },
+
+  disconnect(token: string): Promise<void> {
+    return request('/github/disconnect', { method: 'DELETE', token })
+  },
+}
+
+// ── GitHub Marketplace ────────────────────────────────────────────────────────
+
+export const marketplaceApi = {
+  search(
+    token: string,
+    params: { q?: string; sort?: 'stars' | 'updated'; page?: number; per_page?: number },
+  ): Promise<MarketplaceSearchResponse> {
+    const qs = new URLSearchParams()
+    if (params.q) qs.set('q', params.q)
+    if (params.sort) qs.set('sort', params.sort)
+    if (params.page) qs.set('page', String(params.page))
+    if (params.per_page) qs.set('per_page', String(params.per_page))
+    return request(`/marketplace/search?${qs}`, { token })
+  },
+
+  getItem(token: string, owner: string, repo: string): Promise<MarketplaceDetail> {
+    return request(`/marketplace/repos/${owner}/${repo}`, { token })
+  },
+
+  install(
+    token: string,
+    owner: string,
+    repo: string,
+    payload: InstallMarketplacePayload,
+  ): Promise<Project> {
+    return request(`/marketplace/install/${owner}/${repo}`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(payload),
+    })
+  },
+}
+
+// ── Servers ───────────────────────────────────────────────────────────────────
+
+export const serverApi = {
+  list(token: string): Promise<ServerInfo[]> {
+    return request('/servers', { token })
+  },
+
+  get(token: string, id: string): Promise<ServerInfo> {
+    return request(`/servers/${id}`, { token })
+  },
+
+  getHealth(token: string, id: string): Promise<{ online: boolean; response?: string; error?: string; url: string }> {
+    return request(`/servers/${id}/health`, { token })
+  },
+
+  getMetrics(token: string, id: string): Promise<string> {
+    return requestText(`/servers/${id}/metrics`, { token })
+  },
+
+  delete(token: string, id: string): Promise<void> {
+    return request(`/servers/${id}`, { method: 'DELETE', token })
+  },
+}
+
+// ── Environments ──────────────────────────────────────────────────────────────
+
+export const environmentApi = {
+  list(token: string, orgId: string, projectId: string): Promise<ProjectEnvironment[]> {
+    return request(`/orgs/${orgId}/projects/${projectId}/environments`, { token })
+  },
+
+  create(
+    token: string,
+    orgId: string,
+    projectId: string,
+    req: CreateEnvironmentRequest,
+  ): Promise<ProjectEnvironment> {
+    return request(`/orgs/${orgId}/projects/${projectId}/environments`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  update(
+    token: string,
+    orgId: string,
+    projectId: string,
+    envId: string,
+    req: UpdateEnvironmentRequest,
+  ): Promise<ProjectEnvironment> {
+    return request(`/orgs/${orgId}/projects/${projectId}/environments/${envId}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  delete(token: string, orgId: string, projectId: string, envId: string): Promise<void> {
+    return request(`/orgs/${orgId}/projects/${projectId}/environments/${envId}`, {
+      method: 'DELETE',
+      token,
+    })
+  },
+
+  setCanary(
+    token: string,
+    orgId: string,
+    projectId: string,
+    envId: string,
+    req: SetCanaryRequest,
+  ): Promise<ProjectEnvironment> {
+    return request(`/orgs/${orgId}/projects/${projectId}/environments/${envId}/canary`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+}
+
+// ── Draft Rulesets ────────────────────────────────────────────────────────────
+
+export const rulesetDraftApi = {
+  list(token: string, orgId: string, projectId: string): Promise<ProjectRulesetMeta[]> {
+    return request(`/orgs/${orgId}/projects/${projectId}/rulesets`, { token })
+  },
+
+  get(token: string, orgId: string, projectId: string, name: string): Promise<ProjectRuleset> {
+    return request(`/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}`, { token })
+  },
+
+  /** Returns the saved draft on success, or a DraftConflictResponse (status 409) on conflict. */
+  async save(
+    token: string,
+    orgId: string,
+    projectId: string,
+    name: string,
+    req: SaveDraftRequest,
+  ): Promise<ProjectRuleset | DraftConflictResponse> {
+    const resp = await fetch(`${BASE}/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(req),
+    })
+    if (resp.status === 409) {
+      return resp.json() as Promise<DraftConflictResponse>
+    }
+    if (!resp.ok) {
+      let errMsg = `HTTP ${resp.status}`
+      try { const body = await resp.json(); errMsg = body.error || errMsg } catch {}
+      const err = new Error(errMsg) as Error & { status: number }
+      err.status = resp.status
+      throw err
+    }
+    return resp.json()
+  },
+
+  delete(token: string, orgId: string, projectId: string, name: string): Promise<void> {
+    return request(`/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      token,
+    })
+  },
+
+  publish(
+    token: string,
+    orgId: string,
+    projectId: string,
+    name: string,
+    req: PublishRequest,
+  ): Promise<RulesetDeployment> {
+    return request(
+      `/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}/publish`,
+      { method: 'POST', token, body: JSON.stringify(req) },
+    )
+  },
+
+  listDeployments(
+    token: string,
+    orgId: string,
+    projectId: string,
+    name: string,
+    limit?: number,
+  ): Promise<RulesetDeployment[]> {
+    const qs = limit ? `?limit=${limit}` : ''
+    return request(
+      `/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}/deployments${qs}`,
+      { token },
+    )
+  },
+
+  listProjectDeployments(
+    token: string,
+    orgId: string,
+    projectId: string,
+    limit?: number,
+  ): Promise<RulesetDeployment[]> {
+    const qs = limit ? `?limit=${limit}` : ''
+    return request(`/orgs/${orgId}/projects/${projectId}/deployments${qs}`, { token })
+  },
+
+  redeploy(
+    token: string,
+    orgId: string,
+    projectId: string,
+    name: string,
+    deploymentId: string,
+    req: RedeployRequest,
+  ): Promise<RulesetDeployment> {
+    return request(
+      `/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}/deployments/${deploymentId}/redeploy`,
+      { method: 'POST', token, body: JSON.stringify(req) },
+    )
+  },
+}
+
+// ── RBAC ──────────────────────────────────────────────────────────────────────
+
+export const roleApi = {
+  list(token: string, orgId: string): Promise<OrgRole[]> {
+    return request(`/orgs/${orgId}/roles`, { token })
+  },
+
+  create(token: string, orgId: string, req: CreateRoleRequest): Promise<OrgRole> {
+    return request(`/orgs/${orgId}/roles`, { method: 'POST', token, body: JSON.stringify(req) })
+  },
+
+  update(token: string, orgId: string, roleId: string, req: UpdateRoleRequest): Promise<OrgRole> {
+    return request(`/orgs/${orgId}/roles/${roleId}`, { method: 'PUT', token, body: JSON.stringify(req) })
+  },
+
+  delete(token: string, orgId: string, roleId: string): Promise<void> {
+    return request(`/orgs/${orgId}/roles/${roleId}`, { method: 'DELETE', token })
+  },
+}
+
+export const memberRoleApi = {
+  list(token: string, orgId: string, userId: string): Promise<UserRoleAssignment[]> {
+    return request(`/orgs/${orgId}/members/${userId}/roles`, { token })
+  },
+
+  assign(token: string, orgId: string, userId: string, req: AssignRoleRequest): Promise<void> {
+    return request(`/orgs/${orgId}/members/${userId}/roles`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  revoke(token: string, orgId: string, userId: string, roleId: string): Promise<void> {
+    return request(`/orgs/${orgId}/members/${userId}/roles/${roleId}`, { method: 'DELETE', token })
   },
 }

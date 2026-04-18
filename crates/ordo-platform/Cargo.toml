@@ -12,12 +12,16 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
+async-nats = "0.38"
 axum.workspace = true
 chrono.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
+hostname = "0.4"
 jsonwebtoken.workspace = true
 rand.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+urlencoding = "2"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
@@ -27,6 +31,7 @@ tower-http = { workspace = true, features = ["trace", "cors", "catch-panic"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4"] }
+sqlx.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

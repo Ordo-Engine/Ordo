@@ -934,6 +934,11 @@ impl RuleStore {
             .map(|r| r.config.version.clone())
             .unwrap_or_default();
         let to_version = version_ruleset.config.version.clone();
+        let sync_json = if self.sync_tx.is_some() {
+            serde_json::to_string(&version_ruleset).ok()
+        } else {
+            None
+        };
 
         // Backup current version first
         self.backup_current_version(tenant_id, name)?;
@@ -952,6 +957,15 @@ impl RuleStore {
             "Rolled back '{}' for tenant '{}' from {} to {} (seq {})",
             name, tenant_id, from_version, to_version, seq
         );
+
+        if let (Some(tx), Some(json)) = (&self.sync_tx, sync_json) {
+            let _ = tx.send(SyncEvent::RulePut {
+                tenant_id: tenant_id.to_string(),
+                name: name.to_string(),
+                ruleset_json: json,
+                version: to_version.clone(),
+            });
+        }
 
         Ok(Some((from_version, to_version)))
     }
@@ -1218,11 +1232,11 @@ impl RuleStore {
         self.sync_tx = Some(tx);
     }
 
-    /// Apply a rule put received via NATS sync (reader side).
+    /// Apply a rule put received via NATS sync.
     ///
     /// Deserializes the ruleset JSON, compiles expressions, and inserts into
-    /// the in-memory store. Does **not** persist to disk or publish further
-    /// sync events.
+    /// the in-memory store. Persists to disk when persistence is enabled, but
+    /// does **not** publish further sync events.
     pub fn apply_sync_put(&mut self, tenant_id: &str, ruleset_json: &str) -> io::Result<()> {
         let mut ruleset: RuleSet = serde_json::from_str(ruleset_json)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1234,11 +1248,90 @@ impl RuleStore {
         ruleset.config.tenant_id = Some(tenant_id.to_string());
 
         let name = ruleset.config.name.clone();
+        if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
+            if let Err(e) = self.backup_current_version(tenant_id, &name) {
+                warn!(
+                    "Failed to backup current version of '{}' during sync apply: {}",
+                    name, e
+                );
+            }
+        }
+        if let Err(e) = self.persist_ruleset(tenant_id, &name, &ruleset) {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to persist synced ruleset '{}': {}", name, e),
+            ));
+        }
+        if self.rules_dir.is_some() {
+            if let Err(e) = self.cleanup_old_versions(tenant_id, &name) {
+                warn!("Failed to cleanup synced versions of '{}': {}", name, e);
+            }
+        }
         let key = self.make_key(tenant_id, &name);
         self.rulesets.insert(key, Arc::new(ruleset));
         metrics::set_rules_count(self.rulesets.len() as i64);
+        metrics::set_tenant_rules_count(tenant_id, self.list_for_tenant(tenant_id).len() as i64);
 
         Ok(())
+    }
+
+    /// Apply a rule delete received via NATS sync without publishing another event.
+    pub fn apply_sync_delete(&mut self, tenant_id: &str, name: &str) -> io::Result<bool> {
+        let key = self.make_key(tenant_id, name);
+        let existed = self.rulesets.remove(&key).is_some();
+
+        if existed {
+            if let Err(e) = self.delete_file(tenant_id, name) {
+                warn!(
+                    "Failed to delete synced rule file for '{}' (tenant '{}'): {}",
+                    name, tenant_id, e
+                );
+            }
+            if let Err(e) = self.delete_all_versions(tenant_id, name) {
+                warn!(
+                    "Failed to delete synced version files for '{}' (tenant '{}'): {}",
+                    name, tenant_id, e
+                );
+            }
+            metrics::set_rules_count(self.rulesets.len() as i64);
+            metrics::set_tenant_rules_count(
+                tenant_id,
+                self.list_for_tenant(tenant_id).len() as i64,
+            );
+        }
+
+        Ok(existed)
+    }
+
+    /// Delete every ruleset for a tenant without republishing sync events.
+    pub fn apply_sync_delete_tenant(&mut self, tenant_id: &str) -> io::Result<usize> {
+        let names: Vec<String> = self
+            .list_for_tenant(tenant_id)
+            .into_iter()
+            .map(|info| info.name)
+            .collect();
+
+        let mut removed = 0usize;
+        for name in names {
+            if self.apply_sync_delete(tenant_id, &name)? {
+                removed += 1;
+            }
+        }
+
+        if removed > 0 {
+            if let Some(dir) = self.tenant_rules_dir(tenant_id) {
+                if let Err(e) = fs::remove_dir(&dir) {
+                    if e.kind() != io::ErrorKind::NotFound {
+                        debug!(
+                            "Tenant rules directory cleanup skipped for '{}' at {:?}: {}",
+                            tenant_id, dir, e
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(removed)
     }
 
     /// Get executor reference
@@ -1773,6 +1866,66 @@ steps:
 
         // Verify current is now 1.0.0
         assert_eq!(store.get("rollback-test").unwrap().config.version, "1.0.0");
+    }
+
+    #[test]
+    fn test_rollback_publishes_sync_event() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        store.set_sync_tx(tx);
+
+        for i in 1..=3 {
+            let ruleset = create_test_ruleset_with_version("rollback-sync", &format!("{}.0.0", i));
+            store.put(ruleset).unwrap();
+        }
+
+        while rx.try_recv().is_ok() {}
+
+        let result = store.rollback_to_version("rollback-sync", 1).unwrap();
+        assert!(result.is_some());
+
+        match rx.try_recv().unwrap() {
+            SyncEvent::RulePut {
+                tenant_id,
+                name,
+                version,
+                ..
+            } => {
+                assert_eq!(tenant_id, "default");
+                assert_eq!(name, "rollback-sync");
+                assert_eq!(version, "1.0.0");
+            }
+            other => panic!("unexpected sync event after rollback: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_apply_sync_delete_tenant_removes_rules() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        store.enable_multi_tenancy("default".to_string());
+
+        let mut alpha = create_test_ruleset_with_version("fraud", "1.0.0");
+        alpha.config.tenant_id = Some("tenant-a".to_string());
+        store.put(alpha).unwrap();
+
+        let mut beta = create_test_ruleset_with_version("risk", "1.0.0");
+        beta.config.tenant_id = Some("tenant-a".to_string());
+        store.put(beta).unwrap();
+
+        let mut other = create_test_ruleset_with_version("shared", "1.0.0");
+        other.config.tenant_id = Some("tenant-b".to_string());
+        store.put(other).unwrap();
+
+        let removed = store.apply_sync_delete_tenant("tenant-a").unwrap();
+        assert_eq!(removed, 2);
+        assert!(store.list_for_tenant("tenant-a").is_empty());
+        assert_eq!(store.list_for_tenant("tenant-b").len(), 1);
     }
 
     #[test]

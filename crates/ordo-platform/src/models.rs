@@ -140,6 +140,9 @@ pub struct Project {
     pub org_id: String,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
+    /// Bound ordo-server node ID (overrides platform's default engine_url when set)
+    #[serde(default)]
+    pub server_id: Option<String>,
 }
 
 // ── Ruleset Change History ───────────────────────────────────────────────────
@@ -152,6 +155,7 @@ pub enum RulesetHistorySource {
     Save,
     Restore,
     Create,
+    Publish,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -391,4 +395,285 @@ pub struct Claims {
     pub email: String,
     pub exp: usize, // expiry timestamp
     pub iat: usize, // issued at
+}
+
+// ── Server Registry ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerStatus {
+    Online,
+    Offline,
+    Degraded,
+}
+
+impl std::fmt::Display for ServerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServerStatus::Online => write!(f, "online"),
+            ServerStatus::Offline => write!(f, "offline"),
+            ServerStatus::Degraded => write!(f, "degraded"),
+        }
+    }
+}
+
+impl std::str::FromStr for ServerStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "online" => Ok(ServerStatus::Online),
+            "offline" => Ok(ServerStatus::Offline),
+            "degraded" => Ok(ServerStatus::Degraded),
+            other => Err(format!("invalid server status: {}", other)),
+        }
+    }
+}
+
+/// A registered ordo-server node (internal representation with token)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerNode {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    #[serde(skip_serializing)]
+    pub token: String,
+    pub org_id: Option<String>,
+    pub labels: JsonValue,
+    pub version: Option<String>,
+    pub status: ServerStatus,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub registered_at: DateTime<Utc>,
+}
+
+/// Public view of a server (no token, safe to return to clients)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub org_id: Option<String>,
+    pub labels: JsonValue,
+    pub version: Option<String>,
+    pub status: ServerStatus,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub registered_at: DateTime<Utc>,
+}
+
+impl From<ServerNode> for ServerInfo {
+    fn from(s: ServerNode) -> Self {
+        Self {
+            id: s.id,
+            name: s.name,
+            url: s.url,
+            org_id: s.org_id,
+            labels: s.labels,
+            version: s.version,
+            status: s.status,
+            last_seen: s.last_seen,
+            registered_at: s.registered_at,
+        }
+    }
+}
+
+// ── Project Environments ──────────────────────────────────────────────────────
+
+/// A deployment environment bound to a project (e.g. dev / staging / production).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectEnvironment {
+    pub id: String,
+    pub project_id: String,
+    /// Human-readable label, e.g. "production", "dev"
+    pub name: String,
+    /// Bound ordo-server; None = use platform default engine
+    pub server_id: Option<String>,
+    /// NATS subject prefix for this environment's ordo-server; None = platform global prefix
+    pub nats_subject_prefix: Option<String>,
+    /// Whether this is the project's default (production) environment
+    pub is_default: bool,
+    /// Canary: forward X% of execute traffic to this environment (on the default env)
+    pub canary_target_env_id: Option<String>,
+    /// 0-100; 0 = no canary
+    pub canary_percentage: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateEnvironmentRequest {
+    pub name: String,
+    pub server_id: Option<String>,
+    pub nats_subject_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateEnvironmentRequest {
+    pub name: Option<String>,
+    pub server_id: Option<String>,
+    pub nats_subject_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetCanaryRequest {
+    /// Target environment that receives the canary percentage of traffic
+    pub canary_target_env_id: Option<String>,
+    /// 0 clears canary; 1-100 sets percentage
+    pub canary_percentage: i32,
+}
+
+// ── Draft Rulesets ────────────────────────────────────────────────────────────
+
+/// Metadata summary of a draft ruleset (list view)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectRulesetMeta {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub draft_seq: i64,
+    pub draft_updated_at: DateTime<Utc>,
+    pub draft_updated_by: Option<String>,
+    pub published_version: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Full draft ruleset (detail view)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectRuleset {
+    #[serde(flatten)]
+    pub meta: ProjectRulesetMeta,
+    /// Full RuleSet JSON content
+    pub draft: JsonValue,
+}
+
+/// Body for saving a draft (includes optimistic-lock seq)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaveDraftRequest {
+    pub ruleset: JsonValue,
+    /// Client must echo back the current draft_seq; mismatch → 409
+    pub expected_seq: i64,
+}
+
+/// Returned on 409 conflict
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DraftConflictResponse {
+    pub conflict: bool,
+    pub server_draft: JsonValue,
+    pub server_seq: i64,
+}
+
+// ── Deployments ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum DeploymentStatus {
+    Queued,
+    Success,
+    Failed,
+}
+
+impl std::fmt::Display for DeploymentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeploymentStatus::Queued => write!(f, "queued"),
+            DeploymentStatus::Success => write!(f, "success"),
+            DeploymentStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+impl std::str::FromStr for DeploymentStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "queued" => Ok(DeploymentStatus::Queued),
+            "success" => Ok(DeploymentStatus::Success),
+            "failed" => Ok(DeploymentStatus::Failed),
+            other => Err(format!("invalid deployment status: {}", other)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RulesetDeployment {
+    pub id: String,
+    pub project_id: String,
+    pub environment_id: String,
+    /// Denormalized for convenience
+    pub environment_name: Option<String>,
+    pub ruleset_name: String,
+    pub version: String,
+    pub release_note: Option<String>,
+    pub snapshot: JsonValue,
+    pub deployed_at: DateTime<Utc>,
+    pub deployed_by: Option<String>,
+    pub status: DeploymentStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishRequest {
+    pub environment_id: String,
+    pub release_note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedeployRequest {
+    pub environment_id: String,
+    pub release_note: Option<String>,
+}
+
+// ── RBAC ──────────────────────────────────────────────────────────────────────
+
+/// A custom role scoped to an organization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrgRole {
+    pub id: String,
+    pub org_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// Permission bit strings, e.g. "ruleset:publish"
+    pub permissions: Vec<String>,
+    /// System roles are built-in and cannot be deleted
+    pub is_system: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateRoleRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateRoleRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub permissions: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRoleAssignment {
+    pub user_id: String,
+    pub org_id: String,
+    pub role_id: String,
+    pub role_name: Option<String>,
+    pub assigned_at: DateTime<Utc>,
+    pub assigned_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssignRoleRequest {
+    pub role_id: String,
+}
+
+/// Member enriched with their RBAC role assignments
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberWithRoles {
+    pub user_id: String,
+    pub email: String,
+    pub display_name: String,
+    /// Legacy single role (kept for display compat)
+    pub role: Role,
+    pub roles: Vec<UserRoleAssignment>,
+    pub invited_at: DateTime<Utc>,
+    pub invited_by: String,
 }

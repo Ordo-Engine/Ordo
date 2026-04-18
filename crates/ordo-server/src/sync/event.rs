@@ -20,6 +20,14 @@ pub enum SyncEvent {
     },
     /// A ruleset was deleted.
     RuleDeleted { tenant_id: String, name: String },
+    /// A tenant should be created or updated using server-local defaults.
+    TenantUpsert {
+        tenant_id: String,
+        name: String,
+        enabled: bool,
+    },
+    /// A tenant should be deleted.
+    TenantDeleted { tenant_id: String },
     /// Tenant configuration was changed (create/update/delete).
     /// Carries the full tenants map so readers can replace atomically.
     TenantConfigChanged { config_json: String },
@@ -31,6 +39,8 @@ impl SyncEvent {
         match self {
             SyncEvent::RulePut { .. } => "RulePut",
             SyncEvent::RuleDeleted { .. } => "RuleDeleted",
+            SyncEvent::TenantUpsert { .. } => "TenantUpsert",
+            SyncEvent::TenantDeleted { .. } => "TenantDeleted",
             SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
         }
     }
@@ -70,6 +80,9 @@ impl SyncMessage {
             }
             | SyncEvent::RuleDeleted { tenant_id, name } => {
                 format!("{}.{}.{}", prefix, tenant_id, name)
+            }
+            SyncEvent::TenantUpsert { tenant_id, .. } | SyncEvent::TenantDeleted { tenant_id } => {
+                format!("{}.tenants.{}", prefix, tenant_id)
             }
             SyncEvent::TenantConfigChanged { .. } => {
                 format!("{}.tenants", prefix)
@@ -131,6 +144,29 @@ mod tests {
     }
 
     #[test]
+    fn test_sync_event_roundtrip_tenant_upsert() {
+        let event = SyncEvent::TenantUpsert {
+            tenant_id: "acme".into(),
+            name: "Acme".into(),
+            enabled: true,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let decoded: SyncEvent = serde_json::from_str(&json).unwrap();
+        match decoded {
+            SyncEvent::TenantUpsert {
+                tenant_id,
+                name,
+                enabled,
+            } => {
+                assert_eq!(tenant_id, "acme");
+                assert_eq!(name, "Acme");
+                assert!(enabled);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn test_sync_message_new() {
         let msg = SyncMessage::new(
             "instance-1".into(),
@@ -163,6 +199,16 @@ mod tests {
             },
         );
         assert_eq!(msg2.subject("ordo.rules"), "ordo.rules.tenants");
+
+        let msg3 = SyncMessage::new(
+            "i1".into(),
+            SyncEvent::TenantUpsert {
+                tenant_id: "acme".into(),
+                name: "Acme".into(),
+                enabled: true,
+            },
+        );
+        assert_eq!(msg3.subject("ordo.rules"), "ordo.rules.tenants.acme");
     }
 
     #[test]

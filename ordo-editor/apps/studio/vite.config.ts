@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
 const packagesPath = resolve(__dirname, '../../packages')
+const platformProxyTarget =
+  process.env.ORDO_PLATFORM_PROXY_TARGET || 'http://localhost:3001'
 
 export default defineConfig({
   plugins: [vue()],
@@ -21,7 +23,7 @@ export default defineConfig({
       // All /api traffic goes through ordo-platform (:3001)
       // ordo-platform proxies engine calls to ordo-server internally
       '/api': {
-        target: 'http://localhost:3001',
+        target: platformProxyTarget,
         changeOrigin: true,
       },
     },

@@ -572,23 +572,24 @@ async fn main() -> anyhow::Result<()> {
                         info!("NATS publisher started (writer mode)");
                     }
 
-                    // Reader (and writer for echo-suppressed fallback): set up subscriber
-                    if config.is_read_only() {
-                        match sync::nats_sync::create_consumer(&jetstream, &instance_id).await {
-                            Ok(consumer) => {
-                                let subscriber = sync::nats_sync::NatsSubscriber::new(
-                                    consumer,
-                                    instance_id.clone(),
-                                    store.clone(),
-                                    tenant_manager.clone(),
-                                );
-                                nats_subscriber_handle =
-                                    Some(subscriber.start(shutdown_rx.clone()));
-                                info!("NATS subscriber started (reader mode)");
-                            }
-                            Err(e) => {
-                                warn!("Failed to create NATS consumer: {} — reader will rely on file watcher only", e);
-                            }
+                    // All NATS-enabled instances subscribe so platform-published
+                    // events reach standalone, writer, and reader nodes uniformly.
+                    match sync::nats_sync::create_consumer(&jetstream, &instance_id, &config.nats_subject_prefix).await {
+                        Ok(consumer) => {
+                            let subscriber = sync::nats_sync::NatsSubscriber::new(
+                                consumer,
+                                instance_id.clone(),
+                                store.clone(),
+                                tenant_manager.clone(),
+                            );
+                            nats_subscriber_handle = Some(subscriber.start(shutdown_rx.clone()));
+                            info!("NATS subscriber started");
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to create NATS consumer: {} — sync subscriber disabled",
+                                e
+                            );
                         }
                     }
                 }
@@ -600,6 +601,48 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
         }
+    }
+
+    // Platform registration + heartbeat task
+    if let (Some(platform_url), Some(token)) =
+        (config.platform_url.clone(), config.server_token.clone())
+    {
+        let server_name = config.server_name.clone();
+        let server_url = config
+            .server_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}", config.http_addr()));
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let log_url = platform_url.clone();
+        let log_name = server_name.clone();
+
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap_or_default();
+
+            let reg_url = format!("{}/api/v1/internal/register", platform_url);
+            let hb_url = format!("{}/api/v1/internal/heartbeat", platform_url);
+            let payload = serde_json::json!({
+                "name": server_name,
+                "url": server_url,
+                "token": token,
+                "version": version,
+            });
+            let hb_payload = serde_json::json!({ "token": token });
+
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                let _ = client.post(&reg_url).json(&payload).send().await;
+                interval.tick().await;
+                let _ = client.post(&hb_url).json(&hb_payload).send().await;
+            }
+        });
+
+        info!(platform_url = %log_url, server_name = %log_name, "Platform registration enabled");
     }
 
     // Wait for shutdown signal or unexpected server exit, then drain gracefully.
@@ -737,6 +780,10 @@ async fn start_http_server(
         .route(
             "/api/v1/rulesets/:name/versions",
             get(api::list_versions),
+        )
+        .route(
+            "/api/v1/rulesets/:name/versions/:seq",
+            get(api::get_version_snapshot),
         )
         .route(
             "/api/v1/rulesets/:name/rollback",

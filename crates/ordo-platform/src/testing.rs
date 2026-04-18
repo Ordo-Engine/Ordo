@@ -549,24 +549,7 @@ async fn execute_tests(
     Ok(results)
 }
 
-/// Discover all ruleset names that have test case files for this project.
-/// Scans files matching `{project_id}_tests_{name}.json` in the projects dir.
-async fn list_test_ruleset_names(state: &AppState, org_id: &str, project_id: &str) -> Vec<String> {
-    let projects_dir = state.store.org_projects_dir_pub(org_id);
-
-    let prefix = format!("{}_tests_", project_id);
-    let mut names = Vec::new();
-
-    if let Ok(mut entries) = tokio::fs::read_dir(&projects_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let fname = entry.file_name();
-            let fname = fname.to_string_lossy();
-            if fname.starts_with(&prefix) && fname.ends_with(".json") {
-                let inner = &fname[prefix.len()..fname.len() - 5]; // strip prefix + ".json"
-                names.push(inner.to_string());
-            }
-        }
-    }
-
-    names
+/// Discover all ruleset names that have test cases for this project.
+async fn list_test_ruleset_names(state: &AppState, _org_id: &str, project_id: &str) -> Vec<String> {
+    state.store.list_test_rulesets(project_id).await
 }

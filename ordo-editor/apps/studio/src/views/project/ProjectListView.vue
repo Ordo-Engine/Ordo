@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -42,6 +42,16 @@ onMounted(async () => {
   }
   await projectStore.fetchProjects(orgId.value)
 })
+
+watch(
+  () => route.query.openTemplate,
+  (value) => {
+    if (value === '1' && isAdmin.value) {
+      showTemplateDialog.value = true
+    }
+  },
+  { immediate: true },
+)
 
 async function handleCreate() {
   if (!newName.value.trim()) {

@@ -65,6 +65,16 @@ const router = createRouter({
           name: 'org-roles',
           component: () => import('@/views/org/RolesView.vue'),
         },
+        {
+          path: 'orgs/:orgId/roles/new',
+          name: 'org-role-create',
+          component: () => import('@/views/org/RoleFormView.vue'),
+        },
+        {
+          path: 'orgs/:orgId/roles/:roleId/edit',
+          name: 'org-role-edit',
+          component: () => import('@/views/org/RoleFormView.vue'),
+        },
 
         // Projects list (org-scoped)
         {

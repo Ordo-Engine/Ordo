@@ -122,25 +122,12 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     let store = Arc::new(PlatformStore::new(pool).await?);
 
-    // Startup migrations: seed RBAC system roles and migrate legacy data
+    // Startup migrations: seed RBAC system roles for newly created orgs
     {
         let orgs = store.list_all_orgs().await.unwrap_or_default();
         for org in &orgs {
             if let Err(e) = store.seed_system_roles(&org.id).await {
                 tracing::warn!("seed_system_roles failed for org {}: {}", org.id, e);
-            }
-            for member in &org.members {
-                if let Err(e) = store
-                    .migrate_legacy_role(&org.id, &member.user_id, &member.role)
-                    .await
-                {
-                    tracing::warn!(
-                        "migrate_legacy_role failed for {}/{}: {}",
-                        org.id,
-                        member.user_id,
-                        e
-                    );
-                }
             }
         }
 

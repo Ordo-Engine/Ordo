@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM rust:1.88-slim-bookworm AS builder
 
@@ -14,7 +16,11 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
 # Build release binary (only ordo-platform; other crates build as deps)
-RUN cargo build --release --package ordo-platform
+RUN --mount=type=cache,id=ordo-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=ordo-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=ordo-rust-target-platform,target=/app/target,sharing=locked \
+    cargo build --release --package ordo-platform \
+    && cp /app/target/release/ordo-platform /tmp/ordo-platform
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -27,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -s /bin/false ordo
 
-COPY --from=builder /app/target/release/ordo-platform /app/ordo-platform
+COPY --from=builder /tmp/ordo-platform /app/ordo-platform
 COPY crates/ordo-platform/templates /app/templates
 
 USER ordo

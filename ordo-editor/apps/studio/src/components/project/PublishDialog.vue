@@ -1,42 +1,49 @@
 <template>
-  <div class="dialog-overlay" @click.self="$emit('close')">
-    <div class="dialog">
-      <h3 class="dialog-title">{{ $t('publish.title') }}</h3>
+  <t-dialog
+    :visible="true"
+    :header="$t('publish.title')"
+    width="520px"
+    :footer="false"
+    destroy-on-close
+    @close="$emit('close')"
+    @update:visible="(value: boolean) => { if (!value) $emit('close') }"
+  >
+    <t-form label-align="top" :colon="false" class="publish-form">
+      <t-form-item :label="$t('publish.environment')" required>
+        <t-select v-model="selectedEnvId" :placeholder="$t('publish.noEnvs')" :disabled="publishing">
+          <t-option
+            v-for="env in environments"
+            :key="env.id"
+            :label="`${env.name}${env.is_default ? ' ★' : ''}`"
+            :value="env.id"
+          />
+        </t-select>
+      </t-form-item>
 
-      <div class="field">
-        <label>{{ $t('publish.environment') }}</label>
-        <select v-model="selectedEnvId" class="input">
-          <option v-if="environments.length === 0" value="" disabled>{{ $t('publish.noEnvs') }}</option>
-          <option v-for="env in environments" :key="env.id" :value="env.id">
-            {{ env.name }}{{ env.is_default ? ' ★' : '' }}
-          </option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>{{ $t('publish.releaseNote') }}</label>
-        <textarea
+      <t-form-item :label="$t('publish.releaseNote')">
+        <t-textarea
           v-model="releaseNote"
-          class="input textarea"
           :placeholder="$t('publish.releaseNotePlaceholder')"
-          rows="3"
+          :autosize="{ minRows: 3, maxRows: 5 }"
+          :disabled="publishing"
         />
-      </div>
+      </t-form-item>
+    </t-form>
 
-      <div v-if="error" class="error-msg">{{ error }}</div>
+    <t-alert v-if="error" theme="error" :message="error" class="publish-alert" />
 
-      <div class="dialog-actions">
-        <button class="btn-secondary" @click="$emit('close')">{{ $t('common.cancel') }}</button>
-        <button
-          class="btn-primary"
-          :disabled="!selectedEnvId || publishing"
-          @click="handlePublish"
-        >
-          {{ publishing ? $t('publish.publishing') : $t('publish.btn') }}
-        </button>
-      </div>
-    </div>
-  </div>
+    <StudioDialogActions>
+      <t-button variant="outline" @click="$emit('close')">{{ $t('common.cancel') }}</t-button>
+      <t-button
+        theme="primary"
+        :disabled="!selectedEnvId || publishing || environments.length === 0"
+        :loading="publishing"
+        @click="handlePublish"
+      >
+        {{ publishing ? $t('publish.publishing') : $t('publish.btn') }}
+      </t-button>
+    </StudioDialogActions>
+  </t-dialog>
 </template>
 
 <script setup lang="ts">
@@ -45,6 +52,7 @@ import { useI18n } from 'vue-i18n'
 import { rulesetDraftApi } from '@/api/platform-client'
 import type { ProjectEnvironment, RulesetDeployment } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
+import { StudioDialogActions } from '@/components/ui'
 
 const props = defineProps<{
   orgId: string
@@ -88,86 +96,12 @@ async function handlePublish() {
 </script>
 
 <style scoped>
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+.publish-form {
+  padding-top: 4px;
 }
-.dialog {
-  background: var(--surface-color, #1e1e2e);
-  border: 1px solid var(--border-color, #313244);
-  border-radius: 8px;
-  padding: 24px;
-  width: 440px;
-  max-width: 90vw;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+
+.publish-alert {
+  margin-top: 8px;
 }
-.dialog-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.field label {
-  font-size: 12px;
-  color: var(--text-secondary, #a6adc8);
-}
-.input {
-  background: var(--input-bg, #313244);
-  border: 1px solid var(--border-color, #45475a);
-  border-radius: 4px;
-  padding: 8px 10px;
-  color: inherit;
-  font-size: 13px;
-  outline: none;
-}
-.input:focus {
-  border-color: var(--accent-color, #cba6f7);
-}
-.textarea {
-  resize: vertical;
-  font-family: inherit;
-}
-.error-msg {
-  color: var(--error-color, #f38ba8);
-  font-size: 12px;
-}
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.btn-primary {
-  padding: 8px 16px;
-  border-radius: 4px;
-  border: none;
-  cursor: pointer;
-  background: var(--accent-color, #cba6f7);
-  color: #1e1e2e;
-  font-weight: 600;
-  font-size: 13px;
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-secondary {
-  padding: 8px 16px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color, #45475a);
-  cursor: pointer;
-  background: transparent;
-  color: inherit;
-  font-size: 13px;
-}
+
 </style>

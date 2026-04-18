@@ -6,13 +6,20 @@ import { useAuthStore } from '@/stores/auth'
 import { useOrgStore } from '@/stores/org'
 import { useProjectStore } from '@/stores/project'
 import { useCatalogStore } from '@/stores/catalog'
+import { useEnvironmentStore } from '@/stores/environment'
+import { useRbacStore } from '@/stores/rbac'
 import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue'
 import TestCasePanel from './TestCasePanel.vue'
 import { rulesetHistoryApi } from '@/api/platform-client'
+import PublishDialog from '@/components/project/PublishDialog.vue'
+import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue'
+import { normalizeRuleset } from '@/utils/ruleset'
 import type {
   AppendRulesetHistoryEntry,
+  DraftConflictResponse,
   RulesetHistoryEntry,
   RulesetHistorySource,
+  RulesetDeployment,
 } from '@/api/types'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import {
@@ -37,6 +44,8 @@ const auth = useAuthStore()
 const orgStore = useOrgStore()
 const projectStore = useProjectStore()
 const catalogStore = useCatalogStore()
+const environmentStore = useEnvironmentStore()
+const rbacStore = useRbacStore()
 const { t } = useI18n()
 
 const LOCAL_HISTORY_LIMIT = 120
@@ -457,16 +466,28 @@ const creating = ref(false)
 const newName = ref('')
 const newType = ref<'flow' | 'table'>('flow')
 const saving = ref(false)
+const showPublishDialog = ref(false)
+const conflictState = ref<{
+  rulesetName: string
+  localDraft: RuleSet
+  serverDraft: RuleSet
+  serverSeq: number
+} | null>(null)
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 const canEdit = computed(() => {
   if (!auth.user) return false
-  return orgStore.canEdit(auth.user.id)
+  return rbacStore.can('ruleset:edit') || orgStore.canEdit(auth.user.id)
 })
 
 const canAdmin = computed(() => {
   if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
+  return rbacStore.can('project:manage') || orgStore.canAdmin(auth.user.id)
+})
+
+const canPublish = computed(() => {
+  if (!auth.user) return false
+  return rbacStore.can('ruleset:publish') || orgStore.canAdmin(auth.user.id)
 })
 
 // ── Table support ──────────────────────────────────────────────────────────────
@@ -511,6 +532,9 @@ onMounted(async () => {
     }
   }
   await projectStore.fetchRulesets()
+  await rbacStore.fetchRoles(orgId.value)
+  await rbacStore.fetchMyRoles(orgId.value)
+  await environmentStore.fetchEnvironments(orgId.value, projectId.value)
 
   // Open ruleset from URL param
   if (rulesetNameParam.value) {
@@ -628,7 +652,21 @@ async function handleSave(name: string) {
   saving.value = true
   try {
     flushPendingEditHistory(name)
-    await projectStore.saveRuleset(name)
+    const result = await projectStore.saveRuleset(name)
+    if (result?.conflict) {
+      const tab = projectStore.openTabs.find((item) => item.name === name)
+      if (!tab) {
+        MessagePlugin.error(t('editor.saveFailed'))
+        return
+      }
+      conflictState.value = {
+        rulesetName: name,
+        localDraft: cloneRuleset(tab.ruleset),
+        serverDraft: cloneRuleset(normalizeRuleset(result.server_draft, name)),
+        serverSeq: result.server_seq,
+      }
+      return
+    }
     const tab = projectStore.openTabs.find((item) => item.name === name)
     if (tab) {
       savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset))
@@ -642,6 +680,48 @@ async function handleSave(name: string) {
   } finally {
     saving.value = false
   }
+}
+
+async function resolveConflictUseServer() {
+  const conflict = conflictState.value
+  if (!conflict) return
+  const tab = projectStore.openTabs.find((item) => item.name === conflict.rulesetName)
+  if (!tab) {
+    conflictState.value = null
+    return
+  }
+
+  tab.draft_seq = conflict.serverSeq
+  savedRulesetSnapshots.set(conflict.rulesetName, serializeRuleset(conflict.serverDraft))
+  projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.serverDraft), false)
+  syncDecisionTableFromRuleset(conflict.rulesetName, conflict.serverDraft)
+  conflictState.value = null
+  MessagePlugin.success(t('conflict.useServerSuccess'))
+}
+
+async function resolveConflictUseLocal() {
+  const conflict = conflictState.value
+  if (!conflict) return
+  const tab = projectStore.openTabs.find((item) => item.name === conflict.rulesetName)
+  if (!tab) {
+    conflictState.value = null
+    return
+  }
+
+  tab.draft_seq = conflict.serverSeq
+  projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.localDraft), true)
+  conflictState.value = null
+  await handleSave(conflict.rulesetName)
+}
+
+function handlePublished(deployment: RulesetDeployment) {
+  showPublishDialog.value = false
+  MessagePlugin.success(
+    t('publish.success', {
+      environment: deployment.environment_name ?? deployment.environment_id,
+      version: deployment.version,
+    }),
+  )
 }
 
 function handleCloseTab(name: string) {
@@ -841,6 +921,13 @@ onUnmounted(() => {
               <span>{{ t('menuBar.save') }}</span>
               <span class="editor-menu__shortcut">Ctrl+S</span>
             </button>
+            <button
+              class="editor-menu__item"
+              :disabled="!canPublish || !projectStore.activeTab"
+              @click="runMenuAction(() => { showPublishDialog = true })"
+            >
+              <span>{{ t('publish.btn') }}</span>
+            </button>
           </div>
         </div>
 
@@ -987,6 +1074,14 @@ onUnmounted(() => {
           >
             <t-icon name="save" size="15px" />
           </button>
+          <button
+            v-if="canPublish"
+            class="toolbar-btn toolbar-btn--publish"
+            :title="t('publish.btn')"
+            @click="showPublishDialog = true"
+          >
+            <t-icon name="upload" size="15px" />
+          </button>
         </div>
       </div>
 
@@ -1118,6 +1213,24 @@ onUnmounted(() => {
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <PublishDialog
+      v-if="showPublishDialog && projectStore.activeTab"
+      :org-id="orgId"
+      :project-id="projectId"
+      :ruleset-name="projectStore.activeTab.name"
+      :environments="environmentStore.environments"
+      @close="showPublishDialog = false"
+      @published="handlePublished"
+    />
+
+    <DraftConflictDialog
+      v-if="conflictState"
+      :local-draft="conflictState.localDraft"
+      :server-draft="conflictState.serverDraft"
+      @use-local="resolveConflictUseLocal"
+      @use-server="resolveConflictUseServer"
+    />
   </div>
 </template>
 

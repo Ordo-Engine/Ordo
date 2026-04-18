@@ -107,6 +107,9 @@ const pageInfo = computed(() => {
     case 'dashboard':      return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle') }
     case 'projects':       return { title: t('nav.projects'), subtitle: t('shell.projectsSubtitle') }
     case 'org-members':    return { title: t('nav.members'), subtitle: t('shell.membersSubtitle') }
+    case 'org-roles':
+    case 'org-role-create':
+    case 'org-role-edit':  return { title: t('nav.roles'), subtitle: t('shell.rolesSubtitle') }
     case 'org-settings':   return { title: t('nav.orgSettings'), subtitle: t('shell.orgSettingsSubtitle') }
     case 'settings':       return { title: t('nav.settings'), subtitle: t('shell.settingsSubtitle') }
     case 'servers':        return { title: t('settings.serverRegistry.title'), subtitle: t('shell.serversSubtitle') }
@@ -142,6 +145,7 @@ const orgItems = computed(() => {
   if (!currentOrgId.value) return []
   return [
     { value: 'members',    label: t('nav.members'), icon: 'usergroup', active: route.path.includes('/members'), action: () => navigate(`/orgs/${currentOrgId.value}/members`) },
+    { value: 'roles',      label: t('nav.roles'), icon: 'secured', active: route.path.includes('/roles'), action: () => navigate(`/orgs/${currentOrgId.value}/roles`) },
     { value: 'servers',    label: t('settings.serverRegistry.title'), icon: 'internet', active: route.path.includes(`/orgs/${currentOrgId.value}/servers`), action: () => navigate(`/orgs/${currentOrgId.value}/servers`) },
     { value: 'orgSettings', label: t('nav.orgSettings'), icon: 'setting-1', active: route.path.includes(`/orgs/${currentOrgId.value}/settings`), action: () => navigate(`/orgs/${currentOrgId.value}/settings`) },
   ]

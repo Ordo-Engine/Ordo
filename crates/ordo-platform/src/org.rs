@@ -98,6 +98,22 @@ pub async fn create_org(
         .await
         .map_err(PlatformError::Internal)?;
 
+    state
+        .store
+        .seed_system_roles(&org_id)
+        .await
+        .map_err(PlatformError::Internal)?;
+    state
+        .store
+        .sync_member_system_role(
+            &org_id,
+            &claims.sub,
+            &crate::models::Role::Owner,
+            &claims.sub,
+        )
+        .await
+        .map_err(PlatformError::Internal)?;
+
     Ok(Json(OrgResponse::from(&org)))
 }
 

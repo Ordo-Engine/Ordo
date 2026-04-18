@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useEnvironmentStore } from '@/stores/environment'
 import { rulesetDraftApi } from '@/api/platform-client'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { StudioDialogActions, StudioPageHeader } from '@/components/ui'
 import type { RulesetDeployment } from '@/api/types'
 
 const route = useRoute()
@@ -27,19 +28,17 @@ onMounted(async () => {
   loading.value = true
   try {
     await envStore.fetchEnvironments(orgId, projectId)
-    redeployEnvId.value = envStore.environments.find((e) => e.is_default)?.id ?? ''
+    redeployEnvId.value = envStore.environments.find((env) => env.is_default)?.id ?? ''
     deployments.value = await rulesetDraftApi.listProjectDeployments(auth.token!, orgId, projectId, 100)
   } finally {
     loading.value = false
   }
 })
 
-function statusClass(status: string) {
-  return {
-    'status-queued': status === 'queued',
-    'status-success': status === 'success',
-    'status-failed': status === 'failed',
-  }
+function statusTheme(status: string) {
+  if (status === 'success') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'warning'
 }
 
 function statusLabel(status: string) {
@@ -50,7 +49,7 @@ function statusLabel(status: string) {
 
 function openRedeploy(dep: RulesetDeployment) {
   selectedDeployment.value = dep
-  redeployEnvId.value = envStore.environments.find((e) => e.is_default)?.id ?? dep.environment_id
+  redeployEnvId.value = envStore.environments.find((env) => env.is_default)?.id ?? dep.environment_id
   showRedeployDialog.value = true
 }
 
@@ -84,180 +83,162 @@ function formatDate(dt: string) {
 </script>
 
 <template>
-  <div class="deployments-view">
-    <h2 class="page-title">{{ $t('deployments.title') }}</h2>
+  <div class="view-page">
+    <StudioPageHeader :title="t('deployments.title')" />
 
-    <div v-if="loading" class="loading">{{ $t('common.loading') }}</div>
+    <div v-if="loading" class="list-skeleton">
+      <t-skeleton
+        v-for="i in 3"
+        :key="i"
+        theme="paragraph"
+        animation="gradient"
+        :row-col="[{ width: '38%' }, { width: '58%' }, { width: '30%' }]"
+      />
+    </div>
 
-    <div v-else-if="deployments.length === 0" class="empty">
-      {{ $t('deployments.noDeployments') }}
+    <div v-else-if="deployments.length === 0" class="state-center">
+      <t-empty :title="t('deployments.noDeployments')" />
     </div>
 
     <div v-else class="deployment-list">
-      <div v-for="dep in deployments" :key="dep.id" class="deployment-card">
+      <t-card v-for="dep in deployments" :key="dep.id" :bordered="false" class="deployment-card">
         <div class="card-header">
           <span class="ruleset-name">{{ dep.ruleset_name }}</span>
           <span class="version">v{{ dep.version }}</span>
-          <span class="status-badge" :class="statusClass(dep.status)">
+          <t-tag :theme="statusTheme(dep.status)" variant="light">
             {{ statusLabel(dep.status) }}
-          </span>
+          </t-tag>
         </div>
+
         <div class="card-meta">
-          <span class="env-name">{{ dep.environment_name ?? dep.environment_id }}</span>
+          <span>{{ dep.environment_name ?? dep.environment_id }}</span>
           <span class="sep">·</span>
-          <span class="deployed-by">{{ dep.deployed_by ?? '—' }}</span>
+          <span>{{ dep.deployed_by ?? '—' }}</span>
           <span class="sep">·</span>
-          <span class="deployed-at">{{ formatDate(dep.deployed_at) }}</span>
+          <span>{{ formatDate(dep.deployed_at) }}</span>
         </div>
+
         <div v-if="dep.release_note" class="release-note">{{ dep.release_note }}</div>
+
         <div class="card-actions">
-          <button
-            class="btn-redeploy"
-            :disabled="redeployingId === dep.id"
+          <t-button
+            variant="outline"
+            size="small"
+            :loading="redeployingId === dep.id"
             @click="openRedeploy(dep)"
           >
-            {{ redeployingId === dep.id ? $t('deployments.redeploying') : $t('deployments.redeploy') }}
-          </button>
+            {{ redeployingId === dep.id ? t('deployments.redeploying') : t('deployments.redeploy') }}
+          </t-button>
         </div>
-      </div>
+      </t-card>
     </div>
 
-    <!-- Redeploy dialog -->
-    <div v-if="showRedeployDialog" class="dialog-overlay" @click.self="showRedeployDialog = false">
-      <div class="dialog">
-        <h3>{{ $t('deployments.redeploy') }}</h3>
-        <div class="field">
-          <label>{{ $t('deployments.environment') }}</label>
-          <select v-model="redeployEnvId" class="input">
-            <option v-for="env in envStore.environments" :key="env.id" :value="env.id">
-              {{ env.name }}{{ env.is_default ? ' ★' : '' }}
-            </option>
-          </select>
-        </div>
-        <div class="dialog-actions">
-          <button class="btn-secondary" @click="showRedeployDialog = false">{{ $t('common.cancel') }}</button>
-          <button class="btn-primary" @click="confirmRedeploy">{{ $t('deployments.redeploy') }}</button>
-        </div>
-      </div>
-    </div>
+    <t-dialog
+      v-model:visible="showRedeployDialog"
+      :header="t('deployments.redeploy')"
+      :footer="false"
+      width="460px"
+      destroy-on-close
+    >
+      <t-form label-align="top" :colon="false">
+        <t-form-item :label="t('deployments.environment')" required>
+          <t-select v-model="redeployEnvId">
+            <t-option
+              v-for="env in envStore.environments"
+              :key="env.id"
+              :value="env.id"
+              :label="`${env.name}${env.is_default ? ' ★' : ''}`"
+            />
+          </t-select>
+        </t-form-item>
+      </t-form>
+      <StudioDialogActions>
+        <t-button variant="outline" @click="showRedeployDialog = false">{{ t('common.cancel') }}</t-button>
+        <t-button theme="primary" @click="confirmRedeploy">{{ t('deployments.redeploy') }}</t-button>
+      </StudioDialogActions>
+    </t-dialog>
   </div>
 </template>
 
 <style scoped>
-.deployments-view {
-  padding: 24px;
-  max-width: 900px;
+.view-page {
+  padding: 24px 32px 32px;
+  height: 100%;
+  overflow-y: auto;
 }
-.page-title {
-  margin: 0 0 20px;
-  font-size: 20px;
-  font-weight: 600;
+
+.list-skeleton {
+  display: grid;
+  gap: 12px;
 }
-.loading,
-.empty {
-  color: var(--text-secondary, #a6adc8);
-  font-size: 14px;
+
+.state-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 240px;
 }
+
 .deployment-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
-.deployment-card {
-  background: var(--surface-color, #1e1e2e);
-  border: 1px solid var(--border-color, #313244);
-  border-radius: 6px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+
+.deployment-card :deep(.t-card__body) {
+  padding: 16px;
 }
+
 .card-header {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 8px;
 }
+
 .ruleset-name {
+  font-size: 15px;
   font-weight: 600;
-  font-size: 14px;
+  color: var(--ordo-text-primary);
 }
+
 .version {
   font-size: 12px;
-  color: var(--text-secondary, #a6adc8);
+  color: var(--ordo-text-secondary);
 }
-.status-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-.status-queued { background: #585b7066; color: #a6adc8; }
-.status-success { background: #a6e3a133; color: #a6e3a1; }
-.status-failed { background: #f38ba833; color: #f38ba8; }
+
 .card-meta {
-  font-size: 12px;
-  color: var(--text-secondary, #a6adc8);
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.sep { opacity: 0.4; }
-.release-note {
   font-size: 12px;
-  color: var(--text-secondary, #cdd6f4);
+  color: var(--ordo-text-secondary);
+}
+
+.sep {
+  opacity: 0.5;
+}
+
+.release-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
   font-style: italic;
 }
+
 .card-actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: 12px;
 }
-.btn-redeploy {
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color, #45475a);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.btn-redeploy:disabled { opacity: 0.5; cursor: not-allowed; }
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.dialog {
-  background: var(--surface-color, #1e1e2e);
-  border: 1px solid var(--border-color, #313244);
-  border-radius: 8px;
-  padding: 24px;
-  width: 380px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field label { font-size: 12px; color: var(--text-secondary, #a6adc8); }
-.input {
-  background: var(--input-bg, #313244);
-  border: 1px solid var(--border-color, #45475a);
-  border-radius: 4px;
-  padding: 8px 10px;
-  color: inherit;
-  font-size: 13px;
-}
-.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.btn-primary {
-  padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer;
-  background: var(--accent-color, #cba6f7); color: #1e1e2e; font-weight: 600; font-size: 13px;
-}
-.btn-secondary {
-  padding: 8px 16px; border-radius: 4px;
-  border: 1px solid var(--border-color, #45475a);
-  cursor: pointer; background: transparent; color: inherit; font-size: 13px;
+
+@media (max-width: 900px) {
+  .view-page {
+    padding: 20px;
+  }
+
+  .card-meta {
+    flex-wrap: wrap;
+  }
 }
 </style>

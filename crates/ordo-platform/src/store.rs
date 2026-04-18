@@ -1326,6 +1326,68 @@ impl PlatformStore {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn clear_user_role_assignments(&self, org_id: &str, user_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM user_org_roles WHERE user_id = $1 AND org_id = $2")
+            .bind(user_id)
+            .bind(org_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Keep `user_org_roles` in sync with the member's org-level role.
+    /// This is the single source of truth for permission checks.
+    pub async fn sync_member_system_role(
+        &self,
+        org_id: &str,
+        user_id: &str,
+        member_role: &Role,
+        assigned_by: &str,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // Clear existing system-role assignments for this user in this org.
+        sqlx::query(
+            "DELETE FROM user_org_roles
+             WHERE org_id = $1 AND user_id = $2
+               AND role_id IN (
+                 SELECT id FROM org_roles WHERE org_id = $1 AND is_system = true
+               )",
+        )
+        .bind(org_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Assign the current member role's system role.
+        let role_name = member_role.to_string();
+        let role_row = sqlx::query(
+            "SELECT id FROM org_roles WHERE org_id = $1 AND name = $2 AND is_system = true",
+        )
+        .bind(org_id)
+        .bind(&role_name)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(row) = role_row {
+            let role_id: String = row.get("id");
+            sqlx::query(
+                "INSERT INTO user_org_roles (user_id, org_id, role_id, assigned_at, assigned_by)
+                 VALUES ($1, $2, $3, NOW(), $4)
+                 ON CONFLICT (user_id, org_id, role_id) DO NOTHING",
+            )
+            .bind(user_id)
+            .bind(org_id)
+            .bind(&role_id)
+            .bind(assigned_by)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Get the union of all permissions for a user in an org.
     pub async fn get_user_permissions(
         &self,
@@ -1456,28 +1518,6 @@ impl PlatformStore {
             .await?;
         }
         Ok(())
-    }
-
-    /// Migrate a legacy Role to a system role assignment for a user.
-    pub async fn migrate_legacy_role(
-        &self,
-        org_id: &str,
-        user_id: &str,
-        legacy_role: &Role,
-    ) -> Result<()> {
-        let role_name = legacy_role.to_string();
-        let row = sqlx::query(
-            "SELECT id FROM org_roles WHERE org_id = $1 AND name = $2 AND is_system = true",
-        )
-        .bind(org_id)
-        .bind(&role_name)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        let Some(row) = row else { return Ok(()) };
-        let role_id: String = row.get("id");
-        self.assign_role(org_id, user_id, &role_id, "system-migration")
-            .await
     }
 
     // ── Startup migration helpers ─────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { projectApi, rulesetDraftApi } from '@/api/platform-client'
 import { engineApi } from '@/api/engine-client'
 import { convertFromEngineFormat } from '@ordo-engine/editor-core'
+import { normalizeRuleset } from '@/utils/ruleset'
 import { useAuthStore } from './auth'
 import { useOrgStore } from './org'
 import type { DraftConflictResponse, Project, ProjectRulesetMeta, RuleSetInfo } from '@/api/types'
@@ -85,16 +86,16 @@ export const useProjectStore = defineStore('project', () => {
       try {
         // Load from platform draft API (seeds from engine if no draft exists)
         const draft = await rulesetDraftApi.get(auth.token, org.id, currentProject.value.id, name)
-        ruleset = draft.draft as unknown as RuleSet
+        ruleset = normalizeRuleset(draft.draft, name)
         draft_seq = draft.draft_seq
       } catch {
         // Fall back to engine
         const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
-        ruleset = convertFromEngineFormat(engineData as any)
+        ruleset = normalizeRuleset(engineData, name)
       }
     } else {
       const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
-      ruleset = convertFromEngineFormat(engineData as any)
+      ruleset = normalizeRuleset(engineData, name)
     }
 
     openTabs.value.push({ name, ruleset, dirty: false, draft_seq })

@@ -1,6 +1,6 @@
 //! JWT authentication middleware and role-based access guards
 
-use crate::{auth::verify_token, AppState};
+use crate::{auth::verify_token, i18n, AppState};
 use axum::{
     body::Body,
     extract::State,
@@ -23,7 +23,7 @@ pub async fn require_auth(
         None => {
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Authorization header"})),
+                Json(json!({"error": i18n::localize_auth_missing_header()})),
             )
                 .into_response()
         }

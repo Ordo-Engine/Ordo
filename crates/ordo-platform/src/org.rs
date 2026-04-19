@@ -390,10 +390,9 @@ pub async fn load_org_and_check_role(
         .ok_or_else(|| PlatformError::forbidden("Not a member of this organization"))?;
 
     if member.role < required {
-        return Err(PlatformError::forbidden(format!(
-            "Requires {} role or higher",
-            required
-        )));
+        return Err(PlatformError::requires_role_or_higher(
+            required.to_string(),
+        ));
     }
 
     Ok(org)

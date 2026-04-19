@@ -177,6 +177,29 @@ async fn gh_get<T: serde::de::DeserializeOwned>(
     Ok(resp.json::<T>().await?)
 }
 
+async fn gh_get_public_fallback<T: serde::de::DeserializeOwned>(
+    client: &reqwest::Client,
+    url: &str,
+    token: Option<&str>,
+) -> anyhow::Result<T> {
+    match gh_get(client, url, token).await {
+        Ok(value) => Ok(value),
+        Err(err) if token.is_some() => {
+            tracing::warn!(
+                url = %url,
+                error = %err,
+                "GitHub request with token failed, retrying without token"
+            );
+            gh_get(client, url, None).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn is_github_not_found(err: &anyhow::Error) -> bool {
+    err.to_string().contains("GitHub API 404")
+}
+
 // ── Internal GitHub serde models ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -507,9 +530,7 @@ fn decode_file_content(file: GhFileContent) -> ApiResult<Vec<u8>> {
         let cleaned = file.content.replace(['\n', '\r', ' '], "");
         base64::engine::general_purpose::STANDARD
             .decode(&cleaned)
-            .map_err(|e| {
-                PlatformError::bad_request(&format!("Invalid base64 in GitHub content: {}", e))
-            })
+            .map_err(|e| PlatformError::invalid_github_base64(e.to_string()))
     } else {
         Ok(file.content.into_bytes())
     }
@@ -530,15 +551,14 @@ async fn fetch_manifest(
         "{}/repos/{}/{}/contents/ordo-template.json",
         GITHUB_API, owner, repo
     );
-    let file: GhFileContent = gh_get(&state.http_client, &file_url, token)
+    let file: GhFileContent = gh_get_public_fallback(&state.http_client, &file_url, token)
         .await
-        .map_err(|_| PlatformError::not_found("ordo-template.json not found in this repository. Make sure the repository contains a valid ordo-template.json at the root."))?;
+        .map_err(|_| PlatformError::repository_file_not_found("ordo-template.json"))?;
 
     let content_bytes = decode_file_content(file)?;
 
-    let manifest: serde_json::Value = serde_json::from_slice(&content_bytes).map_err(|e| {
-        PlatformError::bad_request(&format!("Invalid JSON in ordo-template.json: {}", e))
-    })?;
+    let manifest: serde_json::Value = serde_json::from_slice(&content_bytes)
+        .map_err(|e| PlatformError::invalid_json_file("ordo-template.json", e.to_string()))?;
 
     state
         .marketplace_cache
@@ -555,12 +575,12 @@ async fn fetch_repo_json_file(
     token: Option<&str>,
 ) -> ApiResult<serde_json::Value> {
     let file_url = format!("{}/repos/{}/{}/contents/{}", GITHUB_API, owner, repo, path);
-    let file: GhFileContent = gh_get(&state.http_client, &file_url, token)
+    let file: GhFileContent = gh_get_public_fallback(&state.http_client, &file_url, token)
         .await
-        .map_err(|_| PlatformError::not_found(&format!("{} not found in this repository", path)))?;
+        .map_err(|_| PlatformError::repository_file_not_found(path))?;
     let content = decode_file_content(file)?;
     serde_json::from_slice(&content)
-        .map_err(|e| PlatformError::bad_request(&format!("Invalid JSON in {}: {}", path, e)))
+        .map_err(|e| PlatformError::invalid_json_file(path, e.to_string()))
 }
 
 async fn fetch_repo_json_file_optional(
@@ -632,16 +652,13 @@ async fn fetch_i18n_bundle(
         "{}/repos/{}/{}/contents/template/i18n/{}.json",
         GITHUB_API, owner, repo, locale
     );
-    let file: GhFileContent = match gh_get(&state.http_client, &file_url, token).await {
+    let file: GhFileContent = match gh_get_public_fallback(&state.http_client, &file_url, token).await {
         Ok(file) => file,
         Err(_) => return Ok(HashMap::new()),
     };
     let content = decode_file_content(file)?;
     let bundle: HashMap<String, String> = serde_json::from_slice(&content).map_err(|e| {
-        PlatformError::bad_request(&format!(
-            "Invalid JSON in template/i18n/{}.json: {}",
-            locale, e
-        ))
+        PlatformError::invalid_json_file(format!("template/i18n/{}.json", locale), e.to_string())
     })?;
     Ok(bundle)
 }
@@ -762,9 +779,9 @@ pub async fn search_marketplace(
         page,
     );
 
-    let gh_resp: GhSearchResponse = gh_get(&state.http_client, &url, token.as_deref())
+    let gh_resp: GhSearchResponse = gh_get_public_fallback(&state.http_client, &url, token.as_deref())
         .await
-        .map_err(|e| PlatformError::bad_request(&format!("GitHub search failed: {}", e)))?;
+        .map_err(|e| PlatformError::github_search_failed(e.to_string()))?;
 
     let mut items = Vec::new();
     for r in gh_resp.items {
@@ -837,9 +854,21 @@ pub async fn get_marketplace_item(
 
     // Fetch repo metadata for star count / updated_at enrichment
     let repo_url = format!("{}/repos/{}/{}", GITHUB_API, owner, repo);
-    let gh_repo: GhRepo = gh_get(&state.http_client, &repo_url, token.as_deref())
+    let gh_repo: GhRepo = gh_get_public_fallback(&state.http_client, &repo_url, token.as_deref())
         .await
-        .map_err(|_| PlatformError::not_found("GitHub repository not found"))?;
+        .map_err(|err| {
+            warn!(
+                owner = %owner,
+                repo = %repo,
+                error = %err,
+                "Marketplace repository lookup failed"
+            );
+            if is_github_not_found(&err) {
+                PlatformError::not_found("GitHub repository not found")
+            } else {
+                PlatformError::github_repository_lookup_failed("GitHub repository lookup failed")
+            }
+        })?;
 
     let mut manifest =
         fetch_localized_manifest(&state, &owner, &repo, locale, token.as_deref()).await?;
@@ -909,12 +938,8 @@ pub async fn install_marketplace_item(
         }
     }
 
-    let tpl: TemplateDetail = serde_json::from_value(clean).map_err(|e| {
-        PlatformError::bad_request(&format!(
-            "ordo-template.json does not match the required schema: {}",
-            e
-        ))
-    })?;
+    let tpl: TemplateDetail = serde_json::from_value(clean)
+        .map_err(|e| PlatformError::template_schema_invalid(e.to_string()))?;
 
     let source_label = format!("{}/{}", owner, repo);
     info!(

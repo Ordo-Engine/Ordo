@@ -144,6 +144,31 @@ const router = createRouter({
               component: () => import('@/views/project/VersionHistoryView.vue'),
             },
             {
+              path: 'releases',
+              name: 'project-releases',
+              component: () => import('@/views/project/ReleaseCenterView.vue'),
+            },
+            {
+              path: 'releases/requests',
+              name: 'project-release-requests',
+              component: () => import('@/views/project/ReleaseRequestsView.vue'),
+            },
+            {
+              path: 'releases/requests/:releaseId',
+              name: 'project-release-request-detail',
+              component: () => import('@/views/project/ReleaseRequestDetailView.vue'),
+            },
+            {
+              path: 'releases/policies',
+              name: 'project-release-policies',
+              component: () => import('@/views/project/ReleasePoliciesView.vue'),
+            },
+            {
+              path: 'releases/history',
+              name: 'project-release-history',
+              component: () => import('@/views/project/DeploymentsView.vue'),
+            },
+            {
               path: 'instances',
               name: 'project-instances',
               component: () => import('@/views/project/ProjectInstancesView.vue'),
@@ -155,8 +180,7 @@ const router = createRouter({
             },
             {
               path: 'deployments',
-              name: 'project-deployments',
-              component: () => import('@/views/project/DeploymentsView.vue'),
+              redirect: { name: 'project-release-history' },
             },
             {
               path: 'environments',

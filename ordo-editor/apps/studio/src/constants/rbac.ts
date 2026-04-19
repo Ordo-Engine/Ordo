@@ -14,6 +14,21 @@ export const RBAC_PERMISSION_GROUPS: PermissionGroup[] = [
   { key: 'tests', permissions: ['test:run'] },
   { key: 'deployments', permissions: ['deployment:view', 'deployment:redeploy'] },
   { key: 'canary', permissions: ['canary:manage'] },
+  {
+    key: 'releases',
+    permissions: [
+      'release:policy.manage',
+      'release:request.create',
+      'release:request.view',
+      'release:request.approve',
+      'release:request.reject',
+      'release:execute',
+      'release:pause',
+      'release:resume',
+      'release:rollback',
+      'release:instance.view',
+    ],
+  },
 ]
 
 export function permissionI18nKey(permission: string) {

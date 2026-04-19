@@ -11,7 +11,6 @@ import { useRbacStore } from '@/stores/rbac'
 import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue'
 import TestCasePanel from './TestCasePanel.vue'
 import { rulesetHistoryApi } from '@/api/platform-client'
-import PublishDialog from '@/components/project/PublishDialog.vue'
 import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue'
 import { normalizeRuleset } from '@/utils/ruleset'
 import type {
@@ -19,7 +18,6 @@ import type {
   DraftConflictResponse,
   RulesetHistoryEntry,
   RulesetHistorySource,
-  RulesetDeployment,
 } from '@/api/types'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import {
@@ -466,7 +464,6 @@ const creating = ref(false)
 const newName = ref('')
 const newType = ref<'flow' | 'table'>('flow')
 const saving = ref(false)
-const showPublishDialog = ref(false)
 const conflictState = ref<{
   rulesetName: string
   localDraft: RuleSet
@@ -714,14 +711,12 @@ async function resolveConflictUseLocal() {
   await handleSave(conflict.rulesetName)
 }
 
-function handlePublished(deployment: RulesetDeployment) {
-  showPublishDialog.value = false
-  MessagePlugin.success(
-    t('publish.success', {
-      environment: deployment.environment_name ?? deployment.environment_id,
-      version: deployment.version,
-    }),
-  )
+function openReleaseCenter() {
+  if (!projectStore.activeTab) return
+  router.push({
+    name: 'project-release-requests',
+    query: { ruleset: projectStore.activeTab.name },
+  })
 }
 
 function handleCloseTab(name: string) {
@@ -924,9 +919,9 @@ onUnmounted(() => {
             <button
               class="editor-menu__item"
               :disabled="!canPublish || !projectStore.activeTab"
-              @click="runMenuAction(() => { showPublishDialog = true })"
+              @click="runMenuAction(openReleaseCenter)"
             >
-              <span>{{ t('publish.btn') }}</span>
+              <span>{{ t('releaseCenter.createRequest') }}</span>
             </button>
           </div>
         </div>
@@ -1077,8 +1072,8 @@ onUnmounted(() => {
           <button
             v-if="canPublish"
             class="toolbar-btn toolbar-btn--publish"
-            :title="t('publish.btn')"
-            @click="showPublishDialog = true"
+            :title="t('releaseCenter.createRequest')"
+            @click="openReleaseCenter"
           >
             <t-icon name="upload" size="15px" />
           </button>
@@ -1213,16 +1208,6 @@ onUnmounted(() => {
         </t-form-item>
       </t-form>
     </t-dialog>
-
-    <PublishDialog
-      v-if="showPublishDialog && projectStore.activeTab"
-      :org-id="orgId"
-      :project-id="projectId"
-      :ruleset-name="projectStore.activeTab.name"
-      :environments="environmentStore.environments"
-      @close="showPublishDialog = false"
-      @published="handlePublished"
-    />
 
     <DraftConflictDialog
       v-if="conflictState"

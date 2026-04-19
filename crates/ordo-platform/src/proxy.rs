@@ -271,9 +271,8 @@ async fn handle_sync_ruleset_write(
     match op {
         SyncableRulesetWrite::Upsert => {
             let mut payload: serde_json::Value =
-                serde_json::from_slice(body_bytes).map_err(|e| {
-                    PlatformError::bad_request(format!("Invalid ruleset payload: {}", e))
-                })?;
+                serde_json::from_slice(body_bytes)
+                    .map_err(|e| PlatformError::invalid_ruleset_payload(e.to_string()))?;
             let config = payload
                 .get_mut("config")
                 .and_then(|value| value.as_object_mut())
@@ -370,10 +369,7 @@ async fn handle_sync_ruleset_write(
         SyncableRulesetWrite::Delete { name } => {
             let existed = ruleset_exists_on_engine(state, base_url, project_id, &name).await;
             if matches!(existed, Some(false)) {
-                return Err(PlatformError::not_found(format!(
-                    "RuleSet '{}' not found",
-                    name
-                )));
+                return Err(PlatformError::ruleset_by_name_not_found(name));
             }
 
             publisher
@@ -395,9 +391,8 @@ async fn handle_sync_ruleset_write(
                 .unwrap())
         }
         SyncableRulesetWrite::Rollback { name } => {
-            let request: RollbackRequest = serde_json::from_slice(body_bytes).map_err(|e| {
-                PlatformError::bad_request(format!("Invalid rollback payload: {}", e))
-            })?;
+            let request: RollbackRequest = serde_json::from_slice(body_bytes)
+                .map_err(|e| PlatformError::invalid_rollback_payload(e.to_string()))?;
             let current_ruleset =
                 fetch_ruleset_from_engine(state, base_url, project_id, &name).await?;
             let rollback_ruleset =
@@ -491,13 +486,12 @@ async fn fetch_ruleset_from_engine(
     name: &str,
 ) -> Result<serde_json::Value, PlatformError> {
     let url = format!("{}/api/v1/rulesets/{}", base_url, name);
-    fetch_ruleset_json(
-        state,
-        project_id,
-        &url,
-        &format!("RuleSet '{}' not found", name),
-    )
-    .await
+    fetch_ruleset_json(state, project_id, &url)
+        .await
+        .map_err(|err| match err {
+            PlatformError::NotFound(_) => PlatformError::ruleset_by_name_not_found(name),
+            other => other,
+        })
 }
 
 async fn fetch_ruleset_version_from_engine(
@@ -508,20 +502,18 @@ async fn fetch_ruleset_version_from_engine(
     seq: u32,
 ) -> Result<serde_json::Value, PlatformError> {
     let url = format!("{}/api/v1/rulesets/{}/versions/{}", base_url, name, seq);
-    fetch_ruleset_json(
-        state,
-        project_id,
-        &url,
-        &format!("Version {} not found for rule '{}'", seq, name),
-    )
-    .await
+    fetch_ruleset_json(state, project_id, &url)
+        .await
+        .map_err(|err| match err {
+            PlatformError::NotFound(_) => PlatformError::ruleset_version_not_found(name, seq),
+            other => other,
+        })
 }
 
 async fn fetch_ruleset_json(
     state: &AppState,
     project_id: &str,
     url: &str,
-    not_found_message: &str,
 ) -> Result<serde_json::Value, PlatformError> {
     let resp = state
         .http_client
@@ -535,7 +527,7 @@ async fn fetch_ruleset_json(
         status if status.is_success() => resp.json::<serde_json::Value>().await.map_err(|e| {
             PlatformError::internal(format!("Failed to decode engine response: {}", e))
         }),
-        reqwest::StatusCode::NOT_FOUND => Err(PlatformError::not_found(not_found_message)),
+        reqwest::StatusCode::NOT_FOUND => Err(PlatformError::not_found("Not found")),
         status => {
             let body = resp.text().await.unwrap_or_default();
             Err(PlatformError::internal(format!(

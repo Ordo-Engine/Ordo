@@ -81,6 +81,10 @@ async function openProject(projectId: string) {
   router.push(`/orgs/${orgId.value}/projects/${projectId}/editor`)
 }
 
+function goToMarketplace() {
+  router.push('/marketplace')
+}
+
 function handleDelete(projectId: string, name: string) {
   if (!orgStore.currentOrg) return
   const orgId = orgStore.currentOrg.id
@@ -119,6 +123,10 @@ function formatDate(iso: string) {
         </p>
       </div>
       <div class="page-header__actions">
+        <t-button theme="default" variant="outline" @click="goToMarketplace">
+          <t-icon name="shop" />
+          {{ t('marketplace.title') }}
+        </t-button>
         <t-button v-if="isAdmin" theme="primary" @click="showTemplateDialog = true">
           <t-icon name="gift" />
           {{ t('template.fromTemplate') }}

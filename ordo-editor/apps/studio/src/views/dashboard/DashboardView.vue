@@ -93,6 +93,14 @@ function goToProjects(query?: Record<string, string>) {
   router.push('/orgs')
 }
 
+function goToMarketplace() {
+  router.push('/marketplace')
+}
+
+function goToCreateOrg() {
+  router.push('/orgs')
+}
+
 function goToMembers() {
   const orgId = orgStore.currentOrg?.id
   if (orgId) {
@@ -143,9 +151,9 @@ function formatDate(iso: string) {
           <t-icon name="gesture-applause" />
           {{ t('template.fromTemplate') }}
         </t-button>
-        <t-button theme="primary" @click="goToProjects()">
+        <t-button theme="primary" @click="currentOrgId ? goToProjects() : goToCreateOrg()">
           <t-icon name="add" />
-          {{ t('dashboard.newProject') }}
+          {{ currentOrgId ? t('dashboard.newProject') : t('org.new') }}
         </t-button>
       </div>
     </div>
@@ -230,8 +238,8 @@ function formatDate(iso: string) {
             >
               {{ t('template.fromTemplate') }}
             </t-button>
-            <t-button variant="text" size="small" @click="goToProjects({ openTemplate: '1' })">
-              {{ t('dashboard.openTemplates') }}
+            <t-button variant="text" size="small" @click="goToMarketplace">
+              {{ t('marketplace.title') }}
             </t-button>
           </div>
         </section>

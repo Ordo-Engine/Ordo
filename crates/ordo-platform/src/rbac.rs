@@ -40,6 +40,17 @@ pub const PERM_DEPLOYMENT_REDEPLOY: &str = "deployment:redeploy";
 
 pub const PERM_CANARY_MANAGE: &str = "canary:manage";
 
+pub const PERM_RELEASE_POLICY_MANAGE: &str = "release:policy.manage";
+pub const PERM_RELEASE_REQUEST_CREATE: &str = "release:request.create";
+pub const PERM_RELEASE_REQUEST_VIEW: &str = "release:request.view";
+pub const PERM_RELEASE_REQUEST_APPROVE: &str = "release:request.approve";
+pub const PERM_RELEASE_REQUEST_REJECT: &str = "release:request.reject";
+pub const PERM_RELEASE_EXECUTE: &str = "release:execute";
+pub const PERM_RELEASE_PAUSE: &str = "release:pause";
+pub const PERM_RELEASE_RESUME: &str = "release:resume";
+pub const PERM_RELEASE_ROLLBACK: &str = "release:rollback";
+pub const PERM_RELEASE_INSTANCE_VIEW: &str = "release:instance.view";
+
 // ── Core check functions ──────────────────────────────────────────────────────
 
 /// Return all permissions for `user_id` in `org_id` (union across all roles).
@@ -82,10 +93,7 @@ pub async fn require_permission(
     if perms.contains(perm) {
         Ok(())
     } else {
-        Err(PlatformError::Forbidden(format!(
-            "Permission '{}' required",
-            perm
-        )))
+        Err(PlatformError::permission_required(perm))
     }
 }
 

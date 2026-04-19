@@ -30,8 +30,14 @@ import type {
   PublishRequest,
   RedeployRequest,
   Role,
+  RollbackPolicy,
+  RolloutStrategy,
   RulesetDeployment,
   RulesetHistoryResponse,
+  ReleaseExecution,
+  ReleasePolicy,
+  ReleaseRequest,
+  ReviewReleaseRequest,
   SaveDraftRequest,
   ServerInfo,
   SetCanaryRequest,
@@ -47,6 +53,8 @@ import type {
 } from './types'
 
 const BASE = '/api/v1'
+
+type PlatformApiError = Error & { status: number; code?: string }
 
 function currentLocale(): string {
   try {
@@ -75,14 +83,17 @@ async function request<T>(
   const resp = await fetch(`${BASE}${path}`, { ...init, headers })
   if (!resp.ok) {
     let errMsg = `HTTP ${resp.status}`
+    let errCode: string | undefined
     try {
       const body = await resp.json()
       errMsg = body.error || errMsg
+      errCode = body.code
     } catch {
       // ignore parse errors
     }
-    const err = new Error(errMsg) as Error & { status: number }
+    const err = new Error(errMsg) as PlatformApiError
     err.status = resp.status
+    err.code = errCode
     throw err
   }
   if (resp.status === 204) return undefined as T
@@ -105,14 +116,17 @@ async function requestText(
   const resp = await fetch(`${BASE}${path}`, { ...init, headers })
   if (!resp.ok) {
     let errMsg = `HTTP ${resp.status}`
+    let errCode: string | undefined
     try {
       const body = await resp.json()
       errMsg = body.error || errMsg
+      errCode = body.code
     } catch {
       // ignore parse errors
     }
-    const err = new Error(errMsg) as Error & { status: number }
+    const err = new Error(errMsg) as PlatformApiError
     err.status = resp.status
+    err.code = errCode
     throw err
   }
   return resp.text()
@@ -527,6 +541,7 @@ export const rulesetDraftApi = {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        'Accept-Language': currentLocale(),
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(req),
@@ -536,9 +551,15 @@ export const rulesetDraftApi = {
     }
     if (!resp.ok) {
       let errMsg = `HTTP ${resp.status}`
-      try { const body = await resp.json(); errMsg = body.error || errMsg } catch {}
-      const err = new Error(errMsg) as Error & { status: number }
+      let errCode: string | undefined
+      try {
+        const body = await resp.json()
+        errMsg = body.error || errMsg
+        errCode = body.code
+      } catch {}
+      const err = new Error(errMsg) as PlatformApiError
       err.status = resp.status
+      err.code = errCode
       throw err
     }
     return resp.json()
@@ -638,5 +659,154 @@ export const memberRoleApi = {
 
   revoke(token: string, orgId: string, userId: string, roleId: string): Promise<void> {
     return request(`/orgs/${orgId}/members/${userId}/roles/${roleId}`, { method: 'DELETE', token })
+  },
+}
+
+// ── Release Center ───────────────────────────────────────────────────────────
+
+export const releaseApi = {
+  listPolicies(token: string, orgId: string, projectId: string): Promise<ReleasePolicy[]> {
+    return request(`/orgs/${orgId}/projects/${projectId}/release-policies`, { token })
+  },
+
+  createPolicy(
+    token: string,
+    orgId: string,
+    projectId: string,
+    req: {
+      name: string
+      scope: 'org' | 'project'
+      target_type: 'project' | 'environment'
+      target_id: string
+      description?: string
+      min_approvals: number
+      allow_self_approval: boolean
+      approver_ids: string[]
+      rollout_strategy: RolloutStrategy
+      rollback_policy: RollbackPolicy
+    },
+  ): Promise<ReleasePolicy> {
+    return request(`/orgs/${orgId}/projects/${projectId}/release-policies`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  updatePolicy(
+    token: string,
+    orgId: string,
+    projectId: string,
+    policyId: string,
+    req: {
+      name?: string
+      description?: string
+      min_approvals?: number
+      allow_self_approval?: boolean
+      approver_ids?: string[]
+      rollout_strategy?: RolloutStrategy
+      rollback_policy?: RollbackPolicy
+    },
+  ): Promise<ReleasePolicy> {
+    return request(`/orgs/${orgId}/projects/${projectId}/release-policies/${policyId}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  deletePolicy(token: string, orgId: string, projectId: string, policyId: string): Promise<void> {
+    return request(`/orgs/${orgId}/projects/${projectId}/release-policies/${policyId}`, {
+      method: 'DELETE',
+      token,
+    })
+  },
+
+  listRequests(token: string, orgId: string, projectId: string): Promise<ReleaseRequest[]> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases`, { token })
+  },
+
+  createRequest(
+    token: string,
+    orgId: string,
+    projectId: string,
+    req: {
+      ruleset_name: string
+      version: string
+      environment_id: string
+      policy_id?: string
+      title: string
+      change_summary: string
+      release_note?: string
+      rollback_version?: string
+      affected_instance_count?: number
+    },
+  ): Promise<ReleaseRequest> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  getRequest(token: string, orgId: string, projectId: string, releaseId: string): Promise<ReleaseRequest> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}`, { token })
+  },
+
+  executeRequest(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+  ): Promise<ReleaseExecution> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/execute`, {
+      method: 'POST',
+      token,
+    })
+  },
+
+  getRequestExecution(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+  ): Promise<ReleaseExecution | null> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/execution`, { token })
+  },
+
+  getCurrentExecution(
+    token: string,
+    orgId: string,
+    projectId: string,
+  ): Promise<ReleaseExecution | null> {
+    return request(`/orgs/${orgId}/projects/${projectId}/release-executions/current`, { token })
+  },
+
+  approveRequest(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+    req: ReviewReleaseRequest,
+  ): Promise<ReleaseRequest> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/approve`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
+  },
+
+  rejectRequest(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+    req: ReviewReleaseRequest,
+  ): Promise<ReleaseRequest> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/reject`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
   },
 }

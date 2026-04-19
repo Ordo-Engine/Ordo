@@ -2,11 +2,16 @@
 
 use crate::models::{
     ConceptDefinition, ContractField, CreateEnvironmentRequest, CreateRoleRequest,
-    DecisionContract, DeploymentStatus, FactDataType, FactDefinition, Member, NullPolicy, OrgRole,
-    Organization, Project, ProjectEnvironment, ProjectRuleset, ProjectRulesetMeta, Role,
+    CreateReleasePolicyRequest, CreateReleaseRequest, DecisionContract, DeploymentStatus,
+    FactDataType, FactDefinition, Member, NullPolicy, OrgRole, Organization, Project,
+    ProjectEnvironment, ProjectRuleset, ProjectRulesetMeta, ReleaseApprovalDecision,
+    ReleaseApprovalRecord, ReleaseContentDiffSummary, ReleasePolicy, ReleasePolicyScope,
+    ReleasePolicyTargetType, ReleaseExecution, ReleaseExecutionInstance, ReleaseExecutionStatus,
+    ReleaseExecutionSummary, ReleaseInstanceStatus, ReleaseRequest, ReleaseRequestSnapshot,
+    ReleaseRequestStatus, ReleaseVersionDiff, Role, RollbackPolicy, RolloutStrategy,
     RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource, ServerNode, ServerStatus,
-    TestCase, TestExpectation, UpdateEnvironmentRequest, UpdateRoleRequest, User,
-    UserRoleAssignment,
+    TestCase, TestExpectation, UpdateEnvironmentRequest, UpdateReleasePolicyRequest,
+    UpdateRoleRequest, User, UserRoleAssignment,
 };
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -1407,10 +1412,577 @@ impl PlatformStore {
         Ok(rows.into_iter().map(|r| r.get("perm")).collect())
     }
 
+    // ── Release Center ──────────────────────────────────────────────────────
+
+    pub async fn list_release_policies(
+        &self,
+        org_id: &str,
+        project_id: Option<&str>,
+    ) -> Result<Vec<ReleasePolicy>> {
+        let rows = sqlx::query(
+            "SELECT id, org_id, project_id, name, scope, target_type, target_id, description,
+                    min_approvals, allow_self_approval, approver_ids, rollout_strategy,
+                    rollback_policy, created_at, updated_at
+             FROM release_policies
+             WHERE org_id = $1 AND ($2::text IS NULL OR project_id = $2 OR project_id IS NULL)
+             ORDER BY project_id NULLS FIRST, name",
+        )
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_release_policy).collect()
+    }
+
+    pub async fn get_release_policy(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        policy_id: &str,
+    ) -> Result<Option<ReleasePolicy>> {
+        let row = sqlx::query(
+            "SELECT id, org_id, project_id, name, scope, target_type, target_id, description,
+                    min_approvals, allow_self_approval, approver_ids, rollout_strategy,
+                    rollback_policy, created_at, updated_at
+             FROM release_policies
+             WHERE id = $1 AND org_id = $2 AND (project_id = $3 OR project_id IS NULL)",
+        )
+        .bind(policy_id)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(row_to_release_policy).transpose()
+    }
+
+    pub async fn create_release_policy(
+        &self,
+        id: &str,
+        org_id: &str,
+        project_id: Option<&str>,
+        req: &CreateReleasePolicyRequest,
+    ) -> Result<ReleasePolicy> {
+        sqlx::query(
+            "INSERT INTO release_policies
+             (id, org_id, project_id, name, scope, target_type, target_id, description,
+              min_approvals, allow_self_approval, approver_ids, rollout_strategy,
+              rollback_policy, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())",
+        )
+        .bind(id)
+        .bind(org_id)
+        .bind(project_id)
+        .bind(&req.name)
+        .bind(req.scope.to_string())
+        .bind(req.target_type.to_string())
+        .bind(&req.target_id)
+        .bind(&req.description)
+        .bind(req.min_approvals)
+        .bind(req.allow_self_approval)
+        .bind(&req.approver_ids)
+        .bind(sqlx::types::Json(req.rollout_strategy.clone()))
+        .bind(sqlx::types::Json(req.rollback_policy.clone()))
+        .execute(&self.pool)
+        .await?;
+        Ok(self
+            .get_release_policy(org_id, project_id.unwrap_or_default(), id)
+            .await?
+            .expect("just inserted"))
+    }
+
+    pub async fn update_release_policy(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        policy_id: &str,
+        req: &UpdateReleasePolicyRequest,
+    ) -> Result<bool> {
+        let Some(current) = self.get_release_policy(org_id, project_id, policy_id).await? else {
+            return Ok(false);
+        };
+        let result = sqlx::query(
+            "UPDATE release_policies SET
+               name = $1,
+               description = $2,
+               min_approvals = $3,
+               allow_self_approval = $4,
+               approver_ids = $5,
+               rollout_strategy = $6,
+               rollback_policy = $7,
+               updated_at = NOW()
+             WHERE id = $8 AND org_id = $9 AND (project_id = $10 OR project_id IS NULL)",
+        )
+        .bind(req.name.as_deref().unwrap_or(&current.name))
+        .bind(req
+            .description
+            .as_ref()
+            .or(current.description.as_ref()))
+        .bind(req.min_approvals.unwrap_or(current.min_approvals))
+        .bind(req.allow_self_approval.unwrap_or(current.allow_self_approval))
+        .bind(req.approver_ids.as_ref().unwrap_or(&current.approver_ids))
+        .bind(sqlx::types::Json(
+            req.rollout_strategy
+                .clone()
+                .unwrap_or_else(|| current.rollout_strategy.clone()),
+        ))
+        .bind(sqlx::types::Json(
+            req.rollback_policy
+                .clone()
+                .unwrap_or_else(|| current.rollback_policy.clone()),
+        ))
+        .bind(policy_id)
+        .bind(org_id)
+        .bind(project_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn delete_release_policy(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        policy_id: &str,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM release_policies
+             WHERE id = $1 AND org_id = $2 AND (project_id = $3 OR project_id IS NULL)",
+        )
+        .bind(policy_id)
+        .bind(org_id)
+        .bind(project_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn find_matching_release_policy(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        environment_id: &str,
+    ) -> Result<Option<ReleasePolicy>> {
+        let row = sqlx::query(
+            "SELECT id, org_id, project_id, name, scope, target_type, target_id, description,
+                    min_approvals, allow_self_approval, approver_ids, rollout_strategy,
+                    rollback_policy, created_at, updated_at
+             FROM release_policies
+             WHERE org_id = $1
+               AND (project_id = $2 OR project_id IS NULL)
+               AND (
+                 (target_type = 'environment' AND target_id = $3)
+                 OR (target_type = 'project' AND target_id = $2)
+               )
+             ORDER BY
+               CASE WHEN target_type = 'environment' THEN 0 ELSE 1 END,
+               CASE WHEN project_id IS NULL THEN 1 ELSE 0 END,
+               updated_at DESC
+             LIMIT 1",
+        )
+        .bind(org_id)
+        .bind(project_id)
+        .bind(environment_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(row_to_release_policy).transpose()
+    }
+
+    pub async fn create_release_request(
+        &self,
+        id: &str,
+        org_id: &str,
+        project_id: &str,
+        created_by: &str,
+        created_by_name: Option<&str>,
+        created_by_email: Option<&str>,
+        req: &CreateReleaseRequest,
+        current_version: Option<&str>,
+        version_diff: &ReleaseVersionDiff,
+        content_diff: &ReleaseContentDiffSummary,
+        request_snapshot: &ReleaseRequestSnapshot,
+    ) -> Result<ReleaseRequest> {
+        sqlx::query(
+            "INSERT INTO release_requests
+             (id, org_id, project_id, ruleset_name, version, environment_id, policy_id, status,
+              title, change_summary, release_note, affected_instance_count, rollback_version,
+              created_by, created_by_name, created_by_email, current_version, version_diff, content_diff,
+              request_snapshot, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                     $18, $19, $20, NOW(), NOW())",
+        )
+        .bind(id)
+        .bind(org_id)
+        .bind(project_id)
+        .bind(&req.ruleset_name)
+        .bind(&req.version)
+        .bind(&req.environment_id)
+        .bind(&req.policy_id)
+        .bind(ReleaseRequestStatus::PendingApproval.to_string())
+        .bind(&req.title)
+        .bind(&req.change_summary)
+        .bind(&req.release_note)
+        .bind(req.affected_instance_count.unwrap_or_default())
+        .bind(&req.rollback_version)
+        .bind(created_by)
+        .bind(created_by_name)
+        .bind(created_by_email)
+        .bind(current_version)
+        .bind(sqlx::types::Json(version_diff))
+        .bind(sqlx::types::Json(content_diff))
+        .bind(sqlx::types::Json(request_snapshot))
+        .execute(&self.pool)
+        .await?;
+        Ok(self
+            .get_release_request(org_id, project_id, id)
+            .await?
+            .expect("just inserted"))
+    }
+
+    pub async fn list_release_requests(
+        &self,
+        org_id: &str,
+        project_id: &str,
+    ) -> Result<Vec<ReleaseRequest>> {
+        let rows = sqlx::query(
+            "SELECT rr.id, rr.org_id, rr.project_id, rr.ruleset_name, rr.version, rr.environment_id,
+                    env.name AS environment_name, rr.policy_id, rr.status, rr.title,
+                    rr.change_summary, rr.release_note, rr.affected_instance_count,
+                    rp.rollout_strategy,
+                    rr.rollback_version, rr.created_by, COALESCE(rr.created_by_name, u.display_name) AS created_by_name,
+                    rr.created_by_email, rr.version_diff, rr.content_diff, rr.request_snapshot,
+                    rr.created_at, rr.updated_at
+             FROM release_requests rr
+             LEFT JOIN project_environments env ON env.id = rr.environment_id
+             LEFT JOIN release_policies rp ON rp.id = rr.policy_id
+             LEFT JOIN users u ON u.id = rr.created_by
+             WHERE rr.org_id = $1 AND rr.project_id = $2
+             ORDER BY rr.created_at DESC",
+        )
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut item = row_to_release_request(&row)?;
+            item.approvals = self.list_release_approvals(&item.id).await?;
+            items.push(item);
+        }
+        Ok(items)
+    }
+
+    pub async fn get_release_request(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        release_id: &str,
+    ) -> Result<Option<ReleaseRequest>> {
+        let row = sqlx::query(
+            "SELECT rr.id, rr.org_id, rr.project_id, rr.ruleset_name, rr.version, rr.environment_id,
+                    env.name AS environment_name, rr.policy_id, rr.status, rr.title,
+                    rr.change_summary, rr.release_note, rr.affected_instance_count,
+                    rp.rollout_strategy,
+                    rr.rollback_version, rr.created_by, COALESCE(rr.created_by_name, u.display_name) AS created_by_name,
+                    rr.created_by_email, rr.version_diff, rr.content_diff, rr.request_snapshot,
+                    rr.created_at, rr.updated_at
+             FROM release_requests rr
+             LEFT JOIN project_environments env ON env.id = rr.environment_id
+             LEFT JOIN release_policies rp ON rp.id = rr.policy_id
+             LEFT JOIN users u ON u.id = rr.created_by
+             WHERE rr.id = $1 AND rr.org_id = $2 AND rr.project_id = $3",
+        )
+        .bind(release_id)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut item = row_to_release_request(&row)?;
+        item.approvals = self.list_release_approvals(&item.id).await?;
+        Ok(Some(item))
+    }
+
+    pub async fn create_release_approval(
+        &self,
+        id: &str,
+        release_request_id: &str,
+        stage: i32,
+        reviewer_id: &str,
+        reviewer_name: Option<&str>,
+        reviewer_email: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO release_approvals
+             (id, release_request_id, stage, reviewer_id, reviewer_name, reviewer_email, decision, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+        )
+        .bind(id)
+        .bind(release_request_id)
+        .bind(stage)
+        .bind(reviewer_id)
+        .bind(reviewer_name)
+        .bind(reviewer_email)
+        .bind(ReleaseApprovalDecision::Pending.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_release_approvals(
+        &self,
+        release_request_id: &str,
+    ) -> Result<Vec<ReleaseApprovalRecord>> {
+        let rows = sqlx::query(
+            "SELECT ra.id, ra.release_request_id, ra.stage, ra.reviewer_id,
+                    COALESCE(ra.reviewer_name, u.display_name) AS reviewer_name,
+                    COALESCE(ra.reviewer_email, u.email) AS reviewer_email,
+                    ra.decision, ra.comment, ra.decided_at, ra.created_at
+             FROM release_approvals ra
+             LEFT JOIN users u ON u.id = ra.reviewer_id
+             WHERE ra.release_request_id = $1
+             ORDER BY ra.stage, ra.created_at",
+        )
+        .bind(release_request_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_release_approval).collect()
+    }
+
+    pub async fn review_release_request(
+        &self,
+        release_request_id: &str,
+        reviewer_id: &str,
+        decision: ReleaseApprovalDecision,
+        comment: Option<&str>,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE release_approvals
+             SET decision = $1, comment = $2, decided_at = NOW()
+             WHERE release_request_id = $3 AND reviewer_id = $4 AND decision = 'pending'",
+        )
+        .bind(decision.to_string())
+        .bind(comment)
+        .bind(release_request_id)
+        .bind(reviewer_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn set_release_request_status(
+        &self,
+        release_request_id: &str,
+        status: ReleaseRequestStatus,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_requests SET status = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(status.to_string())
+        .bind(release_request_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_release_execution(
+        &self,
+        id: &str,
+        release_request_id: &str,
+        status: ReleaseExecutionStatus,
+        current_batch: i32,
+        total_batches: i32,
+        strategy: &RolloutStrategy,
+        triggered_by: Option<&str>,
+    ) -> Result<ReleaseExecution> {
+        sqlx::query(
+            "INSERT INTO release_executions
+             (id, release_request_id, status, current_batch, total_batches, strategy_snapshot, started_at, triggered_by)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)",
+        )
+        .bind(id)
+        .bind(release_request_id)
+        .bind(status.to_string())
+        .bind(current_batch)
+        .bind(total_batches)
+        .bind(sqlx::types::Json(strategy.clone()))
+        .bind(triggered_by)
+        .execute(&self.pool)
+        .await?;
+        Ok(self
+            .get_release_execution(id)
+            .await?
+            .expect("just inserted"))
+    }
+
+    pub async fn update_release_execution_status(
+        &self,
+        execution_id: &str,
+        status: ReleaseExecutionStatus,
+        current_batch: Option<i32>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_executions
+             SET status = $1,
+                 current_batch = COALESCE($2, current_batch),
+                 finished_at = CASE WHEN $1 IN ('completed', 'failed') THEN NOW() ELSE finished_at END
+             WHERE id = $3",
+        )
+        .bind(status.to_string())
+        .bind(current_batch)
+        .bind(execution_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_release_execution_instance(
+        &self,
+        instance: &ReleaseExecutionInstance,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO release_execution_instances
+             (id, release_execution_id, instance_id, instance_name, zone, current_version, target_version,
+              status, message, metric_summary, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::jsonb, '{}'::jsonb), $11)",
+        )
+        .bind(&instance.id)
+        .bind(&instance.release_execution_id)
+        .bind(&instance.instance_id)
+        .bind(&instance.instance_name)
+        .bind(&instance.zone)
+        .bind(&instance.current_version)
+        .bind(&instance.target_version)
+        .bind(instance.status.to_string())
+        .bind(&instance.message)
+        .bind(instance.metric_summary.as_ref().map(|value| serde_json::json!({ "summary": value })))
+        .bind(instance.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_release_execution_instance(
+        &self,
+        instance_id: &str,
+        status: ReleaseInstanceStatus,
+        message: Option<&str>,
+        metric_summary: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_execution_instances
+             SET status = $1,
+                 message = $2,
+                 metric_summary = COALESCE($3::jsonb, metric_summary),
+                 updated_at = NOW()
+             WHERE id = $4",
+        )
+        .bind(status.to_string())
+        .bind(message)
+        .bind(metric_summary.map(|value| serde_json::json!({ "summary": value })))
+        .bind(instance_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_release_execution_instances(
+        &self,
+        execution_id: &str,
+    ) -> Result<Vec<ReleaseExecutionInstance>> {
+        let rows = sqlx::query(
+            "SELECT id, release_execution_id, instance_id, instance_name, zone, current_version,
+                    target_version, status, message, metric_summary, updated_at
+             FROM release_execution_instances
+             WHERE release_execution_id = $1
+             ORDER BY updated_at DESC, instance_name",
+        )
+        .bind(execution_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_release_execution_instance).collect()
+    }
+
+    pub async fn get_release_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<Option<ReleaseExecution>> {
+        let row = sqlx::query(
+            "SELECT id, release_request_id, status, current_batch, total_batches, strategy_snapshot, started_at
+             FROM release_executions
+             WHERE id = $1",
+        )
+        .bind(execution_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut item = row_to_release_execution(&row)?;
+        item.instances = self.list_release_execution_instances(&item.id).await?;
+        item.summary = summarize_release_execution_instances(&item.instances);
+        Ok(Some(item))
+    }
+
+    pub async fn find_release_execution_by_request_id(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<ReleaseExecution>> {
+        let row = sqlx::query(
+            "SELECT id, release_request_id, status, current_batch, total_batches, strategy_snapshot, started_at
+             FROM release_executions
+             WHERE release_request_id = $1
+             ORDER BY started_at DESC
+             LIMIT 1",
+        )
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut item = row_to_release_execution(&row)?;
+        item.instances = self.list_release_execution_instances(&item.id).await?;
+        item.summary = summarize_release_execution_instances(&item.instances);
+        Ok(Some(item))
+    }
+
+    pub async fn find_latest_project_release_execution(
+        &self,
+        org_id: &str,
+        project_id: &str,
+    ) -> Result<Option<ReleaseExecution>> {
+        let row = sqlx::query(
+            "SELECT re.id, re.release_request_id, re.status, re.current_batch, re.total_batches,
+                    re.strategy_snapshot, re.started_at
+             FROM release_executions re
+             INNER JOIN release_requests rr ON rr.id = re.release_request_id
+             WHERE rr.org_id = $1 AND rr.project_id = $2
+             ORDER BY
+               CASE WHEN re.status IN ('preparing', 'waiting_start', 'rolling_out', 'paused', 'verifying', 'rollback_in_progress') THEN 0 ELSE 1 END,
+               re.started_at DESC
+             LIMIT 1",
+        )
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut item = row_to_release_execution(&row)?;
+        item.instances = self.list_release_execution_instances(&item.id).await?;
+        item.summary = summarize_release_execution_instances(&item.instances);
+        Ok(Some(item))
+    }
+
     /// Seed built-in system roles for an org if they don't already exist.
     pub async fn seed_system_roles(&self, org_id: &str) -> Result<()> {
         let existing = self.list_org_roles(org_id).await?;
-        let has = |name: &str| existing.iter().any(|r| r.name == name && r.is_system);
+        let find_existing = |name: &str| existing.iter().find(|r| r.name == name && r.is_system);
 
         let system_roles: &[(&str, &str, &[&str])] = &[
             (
@@ -1439,6 +2011,16 @@ impl PlatformStore {
                     "deployment:view",
                     "deployment:redeploy",
                     "canary:manage",
+                    "release:policy.manage",
+                    "release:request.create",
+                    "release:request.view",
+                    "release:request.approve",
+                    "release:request.reject",
+                    "release:execute",
+                    "release:pause",
+                    "release:resume",
+                    "release:rollback",
+                    "release:instance.view",
                 ],
             ),
             (
@@ -1466,6 +2048,16 @@ impl PlatformStore {
                     "deployment:view",
                     "deployment:redeploy",
                     "canary:manage",
+                    "release:policy.manage",
+                    "release:request.create",
+                    "release:request.view",
+                    "release:request.approve",
+                    "release:request.reject",
+                    "release:execute",
+                    "release:pause",
+                    "release:resume",
+                    "release:rollback",
+                    "release:instance.view",
                 ],
             ),
             (
@@ -1482,6 +2074,8 @@ impl PlatformStore {
                     "server:view",
                     "test:run",
                     "deployment:view",
+                    "release:request.create",
+                    "release:request.view",
                 ],
             ),
             (
@@ -1496,12 +2090,29 @@ impl PlatformStore {
                     "environment:view",
                     "server:view",
                     "deployment:view",
+                    "release:request.view",
                 ],
             ),
         ];
 
         for (name, desc, perms) in system_roles {
-            if has(name) {
+            let desired_perms: Vec<String> = perms.iter().map(|s| s.to_string()).collect();
+            if let Some(role) = find_existing(name) {
+                let needs_update =
+                    role.description.as_deref() != Some(*desc) || role.permissions != desired_perms;
+                if needs_update {
+                    sqlx::query(
+                        "UPDATE org_roles
+                         SET description = $1, permissions = $2
+                         WHERE id = $3 AND org_id = $4 AND is_system = true",
+                    )
+                    .bind(*desc)
+                    .bind(&desired_perms)
+                    .bind(&role.id)
+                    .bind(org_id)
+                    .execute(&self.pool)
+                    .await?;
+                }
                 continue;
             }
             let id = uuid::Uuid::new_v4().to_string();
@@ -1511,7 +2122,7 @@ impl PlatformStore {
                 &CreateRoleRequest {
                     name: name.to_string(),
                     description: Some(desc.to_string()),
-                    permissions: perms.iter().map(|s| s.to_string()).collect(),
+                    permissions: desired_perms,
                 },
                 true,
             )
@@ -1757,6 +2368,150 @@ fn row_to_deployment(r: &sqlx::postgres::PgRow) -> Result<RulesetDeployment> {
         deployed_by: r.get("deployed_by"),
         status: DeploymentStatus::from_str(&status_str).unwrap_or(DeploymentStatus::Failed),
     })
+}
+
+fn row_to_release_policy(r: &sqlx::postgres::PgRow) -> Result<ReleasePolicy> {
+    use std::str::FromStr;
+    let rollout_strategy: sqlx::types::Json<RolloutStrategy> = r.get("rollout_strategy");
+    let rollback_policy: sqlx::types::Json<RollbackPolicy> = r.get("rollback_policy");
+    let scope: String = r.get("scope");
+    let target_type: String = r.get("target_type");
+    Ok(ReleasePolicy {
+        id: r.get("id"),
+        org_id: r.get("org_id"),
+        project_id: r.get("project_id"),
+        name: r.get("name"),
+        scope: ReleasePolicyScope::from_str(&scope)
+            .map_err(|e| anyhow::anyhow!(e))?,
+        target_type: ReleasePolicyTargetType::from_str(&target_type)
+            .map_err(|e| anyhow::anyhow!(e))?,
+        target_id: r.get("target_id"),
+        description: r.get("description"),
+        min_approvals: r.get("min_approvals"),
+        allow_self_approval: r.get("allow_self_approval"),
+        approver_ids: r.get("approver_ids"),
+        rollout_strategy: rollout_strategy.0,
+        rollback_policy: rollback_policy.0,
+        created_at: r.get("created_at"),
+        updated_at: r.get("updated_at"),
+    })
+}
+
+fn row_to_release_request(r: &sqlx::postgres::PgRow) -> Result<ReleaseRequest> {
+    use std::str::FromStr;
+    let status: String = r.get("status");
+    let rollout_strategy: Option<sqlx::types::Json<RolloutStrategy>> =
+        r.try_get("rollout_strategy").ok();
+    let version_diff: Option<sqlx::types::Json<ReleaseVersionDiff>> =
+        r.try_get("version_diff").ok();
+    let content_diff: Option<sqlx::types::Json<ReleaseContentDiffSummary>> =
+        r.try_get("content_diff").ok();
+    let request_snapshot: Option<sqlx::types::Json<ReleaseRequestSnapshot>> =
+        r.try_get("request_snapshot").ok();
+    Ok(ReleaseRequest {
+        id: r.get("id"),
+        org_id: r.get("org_id"),
+        project_id: r.get("project_id"),
+        ruleset_name: r.get("ruleset_name"),
+        version: r.get("version"),
+        environment_id: r.get("environment_id"),
+        environment_name: r.try_get("environment_name").ok(),
+        policy_id: r.get("policy_id"),
+        status: ReleaseRequestStatus::from_str(&status)
+            .map_err(|e| anyhow::anyhow!(e))?,
+        title: r.get("title"),
+        change_summary: r.get("change_summary"),
+        release_note: r.get("release_note"),
+        affected_instance_count: r.get("affected_instance_count"),
+        rollout_strategy: rollout_strategy.map(|v| v.0).unwrap_or_default(),
+        rollback_version: r.get("rollback_version"),
+        created_by: r.get("created_by"),
+        created_by_name: r.try_get("created_by_name").ok(),
+        created_by_email: r.try_get("created_by_email").ok(),
+        created_at: r.get("created_at"),
+        updated_at: r.get("updated_at"),
+        version_diff: version_diff.map(|v| v.0).unwrap_or_default(),
+        content_diff: content_diff.map(|v| v.0).unwrap_or_default(),
+        request_snapshot: request_snapshot.map(|v| v.0).unwrap_or_default(),
+        approvals: Vec::new(),
+    })
+}
+
+fn row_to_release_approval(r: &sqlx::postgres::PgRow) -> Result<ReleaseApprovalRecord> {
+    use std::str::FromStr;
+    let decision: String = r.get("decision");
+    Ok(ReleaseApprovalRecord {
+        id: r.get("id"),
+        release_request_id: r.get("release_request_id"),
+        stage: r.get("stage"),
+        reviewer_id: r.get("reviewer_id"),
+        reviewer_name: r.try_get("reviewer_name").ok(),
+        reviewer_email: r.try_get("reviewer_email").ok(),
+        decision: ReleaseApprovalDecision::from_str(&decision)
+            .map_err(|e| anyhow::anyhow!(e))?,
+        comment: r.get("comment"),
+        decided_at: r.get("decided_at"),
+        created_at: r.get("created_at"),
+    })
+}
+
+fn row_to_release_execution(r: &sqlx::postgres::PgRow) -> Result<ReleaseExecution> {
+    use std::str::FromStr;
+    let status: String = r.get("status");
+    let strategy: sqlx::types::Json<RolloutStrategy> = r.get("strategy_snapshot");
+    Ok(ReleaseExecution {
+        id: r.get("id"),
+        request_id: r.get("release_request_id"),
+        status: ReleaseExecutionStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?,
+        started_at: r.get("started_at"),
+        current_batch: r.get("current_batch"),
+        total_batches: r.get("total_batches"),
+        strategy: strategy.0,
+        summary: ReleaseExecutionSummary::default(),
+        instances: Vec::new(),
+    })
+}
+
+fn row_to_release_execution_instance(r: &sqlx::postgres::PgRow) -> Result<ReleaseExecutionInstance> {
+    use std::str::FromStr;
+    let status: String = r.get("status");
+    let metric_summary: Option<sqlx::types::Json<JsonValue>> = r.try_get("metric_summary").ok();
+    Ok(ReleaseExecutionInstance {
+        id: r.get("id"),
+        release_execution_id: r.get("release_execution_id"),
+        instance_id: r.get("instance_id"),
+        instance_name: r.get("instance_name"),
+        zone: r.try_get("zone").ok(),
+        current_version: r.get("current_version"),
+        target_version: r.get("target_version"),
+        status: ReleaseInstanceStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?,
+        updated_at: r.get("updated_at"),
+        message: r.try_get("message").ok(),
+        metric_summary: metric_summary
+            .and_then(|value| value.0.get("summary").and_then(|item| item.as_str()).map(str::to_string)),
+    })
+}
+
+fn summarize_release_execution_instances(
+    instances: &[ReleaseExecutionInstance],
+) -> ReleaseExecutionSummary {
+    let total_instances = instances.len() as i32;
+    let succeeded_instances = instances
+        .iter()
+        .filter(|item| item.status == ReleaseInstanceStatus::Success)
+        .count() as i32;
+    let failed_instances = instances
+        .iter()
+        .filter(|item| item.status == ReleaseInstanceStatus::Failed)
+        .count() as i32;
+    let pending_instances = total_instances - succeeded_instances - failed_instances;
+
+    ReleaseExecutionSummary {
+        total_instances,
+        succeeded_instances,
+        failed_instances,
+        pending_instances,
+    }
 }
 
 fn row_to_org_role(r: &sqlx::postgres::PgRow) -> OrgRole {

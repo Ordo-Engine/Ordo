@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { MessagePlugin } from 'tdesign-vue-next'
 import platformLogo from '@/assets/platform-logo.png'
 import { useAuthStore } from '@/stores/auth'
 import { useOrgStore } from '@/stores/org'
@@ -38,14 +39,21 @@ const currentProject = computed(() =>
 // ── Topbar dropdown state ────────────────────────────────────────────────────
 
 const projectPickerOpen = ref(false)
+const orgSwitcherOpen = ref(false)
 const healthOpen = ref(false)
 const notifOpen = ref(false)
+const orgSwitcherRef = ref<HTMLElement | null>(null)
 const projectPickerRef = ref<HTMLElement | null>(null)
 const healthRef = ref<HTMLElement | null>(null)
 const notifRef = ref<HTMLElement | null>(null)
+const showCreateOrg = ref(false)
+const creatingOrg = ref(false)
+const newOrgName = ref('')
+const newOrgDesc = ref('')
 
 function onDocumentClick(e: MouseEvent) {
   const target = e.target as Node
+  if (orgSwitcherRef.value && !orgSwitcherRef.value.contains(target)) orgSwitcherOpen.value = false
   if (projectPickerRef.value && !projectPickerRef.value.contains(target)) projectPickerOpen.value = false
   if (healthRef.value && !healthRef.value.contains(target)) healthOpen.value = false
   if (notifRef.value && !notifRef.value.contains(target)) notifOpen.value = false
@@ -121,6 +129,12 @@ const pageInfo = computed(() => {
     case 'contracts':      return { title: t('projectNav.contracts'), subtitle: t('contracts.desc') }
     case 'tests':          return { title: t('projectNav.tests'), subtitle: t('shell.testsSubtitle') }
     case 'versions':       return { title: t('projectNav.versions'), subtitle: t('shell.versionsSubtitle') }
+    case 'project-releases':
+    case 'project-release-requests':
+    case 'project-release-request-detail':
+    case 'project-release-policies':
+    case 'project-release-history':
+      return { title: t('projectNav.releases'), subtitle: t('releaseCenter.subtitle') }
     case 'project-instances': return { title: t('projectNav.instances'), subtitle: t('projectInstances.bindingDesc') }
     case 'project-settings':    return { title: t('projectNav.settings'), subtitle: t('projectSettings.serverBindingDesc') }
     case 'marketplace':         return { title: t('marketplace.title'), subtitle: t('marketplace.subtitle') }
@@ -137,7 +151,6 @@ const workspaceItems = computed(() => {
     { value: 'dashboard', label: t('nav.dashboard'), icon: 'dashboard-1', active: route.path.startsWith('/dashboard'), action: () => navigate('/dashboard') },
     { value: 'projects',  label: t('nav.projects'), icon: 'layers', active: route.path.includes('/projects') && route.query.openTemplate !== '1', action: () => navigate(projectTarget) },
     { value: 'templates', label: t('template.fromTemplate'), icon: 'gesture-applause', active: route.path.includes('/projects') && route.query.openTemplate === '1', action: () => navigate(projectTarget, { openTemplate: '1' }) },
-    { value: 'marketplace', label: t('marketplace.title'), icon: 'shop', active: route.path.startsWith('/marketplace'), action: () => navigate('/marketplace') },
   ]
 })
 
@@ -185,6 +198,7 @@ function navigate(to: string, query?: Record<string, string>) {
 async function onOrgChange(value: string) {
   await orgStore.selectOrg(value)
   await projectStore.fetchProjects(value)
+  orgSwitcherOpen.value = false
   navigate(`/orgs/${value}/projects`)
 }
 
@@ -201,6 +215,28 @@ function triggerGlobalCommandPalette() {
 function handleLogout() {
   auth.logout()
   router.push('/login')
+}
+
+async function handleCreateOrg() {
+  if (!newOrgName.value.trim()) {
+    MessagePlugin.warning(t('org.nameRequired'))
+    return
+  }
+  creatingOrg.value = true
+  try {
+    const org = await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined)
+    newOrgName.value = ''
+    newOrgDesc.value = ''
+    showCreateOrg.value = false
+    orgSwitcherOpen.value = false
+    await projectStore.fetchProjects(org.id)
+    MessagePlugin.success(t('org.createSuccess'))
+    navigate(`/orgs/${org.id}/projects`)
+  } catch (error: any) {
+    MessagePlugin.error(error.message)
+  } finally {
+    creatingOrg.value = false
+  }
 }
 </script>
 
@@ -287,14 +323,37 @@ function handleLogout() {
           </button>
 
           <!-- Org switcher -->
-          <div v-if="orgOptions.length > 0" class="topbar-control topbar-select-shell">
-            <t-select
-              borderless
-              :value="currentOrgId"
-              :options="orgOptions"
-              class="topbar__org-select"
-              @change="(value: any) => onOrgChange(value)"
-            />
+          <div ref="orgSwitcherRef" class="topbar-pill-wrap">
+            <button
+              class="topbar-pill topbar-pill--org"
+              :class="{ 'is-open': orgSwitcherOpen }"
+              @click="orgSwitcherOpen = !orgSwitcherOpen"
+            >
+              <t-icon name="institution" size="13px" />
+              <span class="topbar-pill__text">{{ orgStore.currentOrg?.name ?? t('shell.noOrg') }}</span>
+              <t-icon name="chevron-down" size="12px" class="topbar-pill__arrow" :class="{ 'is-flipped': orgSwitcherOpen }" />
+            </button>
+
+            <div v-show="orgSwitcherOpen" class="topbar-dropdown topbar-dropdown--orgs">
+              <div class="topbar-dropdown__header">{{ t('shell.currentOrg') }}</div>
+              <button
+                v-for="org in orgOptions"
+                :key="org.value"
+                class="topbar-dropdown__item"
+                :class="{ 'is-active': org.value === currentOrgId }"
+                @click="onOrgChange(org.value)"
+              >
+                <t-icon name="institution" size="13px" />
+                <span>{{ org.label }}</span>
+                <t-icon v-if="org.value === currentOrgId" name="check" size="13px" class="topbar-dropdown__check" />
+              </button>
+              <div class="topbar-dropdown__footer">
+                <button class="topbar-dropdown__action" @click="showCreateOrg = true">
+                  <t-icon name="add" size="13px" />
+                  <span>{{ t('org.new') }}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- ── Project switcher ── -->
@@ -432,6 +491,29 @@ function handleLogout() {
       </main>
     </section>
   </div>
+
+  <t-dialog
+    v-model:visible="showCreateOrg"
+    :header="t('org.createDialog')"
+    :confirm-btn="{ content: t('common.create'), loading: creatingOrg }"
+    width="460px"
+    @confirm="handleCreateOrg"
+    @close="showCreateOrg = false"
+  >
+    <t-form label-align="top">
+      <t-form-item :label="t('org.nameLabel')" required>
+        <t-input
+          v-model="newOrgName"
+          :placeholder="t('org.namePlaceholder')"
+          autofocus
+          @keyup.enter="handleCreateOrg"
+        />
+      </t-form-item>
+      <t-form-item :label="t('org.descLabel')">
+        <t-input v-model="newOrgDesc" :placeholder="t('org.descPlaceholder')" />
+      </t-form-item>
+    </t-form>
+  </t-dialog>
 </template>
 
 <style scoped>
@@ -727,83 +809,6 @@ function handleLogout() {
   background: #f7f5ef;
 }
 
-/* Org select shell */
-.topbar__org-select {
-  width: 100%;
-}
-
-.topbar-control {
-  flex-shrink: 0;
-}
-
-.topbar-select-shell {
-  width: 200px;
-  height: 36px;
-  padding: 0 2px 0 10px;
-  border: 1px solid #ddd7c9;
-  border-radius: 10px;
-  background: #ffffff;
-  display: flex;
-  align-items: center;
-}
-
-.topbar-select-shell:focus-within {
-  border-color: #c5d4e8;
-  box-shadow: 0 0 0 3px rgba(48, 101, 164, 0.08);
-}
-
-.topbar__org-select:deep(.t-input),
-.topbar__org-select:deep(.t-select__wrap) {
-  width: 100%;
-  height: 100%;
-}
-
-.topbar__org-select:deep(.t-input__wrap) {
-  height: 34px;
-  padding: 0 10px 0 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  box-shadow: none;
-  display: flex;
-  align-items: center;
-}
-
-.topbar__org-select:deep(.t-input:hover),
-.topbar__org-select:deep(.t-input__wrap:hover),
-.topbar__org-select:deep(.t-input.t-is-focused),
-.topbar__org-select:deep(.t-input__wrap.t-input__wrap--focused) {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.topbar__org-select:deep(.t-input__inner),
-.topbar__org-select:deep(.t-select__input-text) {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 34px;
-  color: #1f2328;
-}
-
-.topbar__org-select:deep(.t-input__inner) {
-  padding-left: 0;
-  height: 34px;
-}
-
-.topbar__org-select:deep(.t-input__suffix),
-.topbar__org-select:deep(.t-select__right-icon) {
-  color: #7f7669;
-}
-
-.topbar__org-select:deep(.t-select__right-icon) {
-  margin-right: 0;
-}
-
-.topbar__org-select:deep(.t-fake-arrow) {
-  font-size: 14px;
-}
-
 /* ── Pill buttons + dropdowns ───────────────────────────────────────────────── */
 
 .topbar-pill-wrap {
@@ -826,6 +831,10 @@ function handleLogout() {
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
   white-space: nowrap;
+}
+
+.topbar-pill--org {
+  min-width: 210px;
 }
 
 .topbar-pill:hover {
@@ -855,6 +864,7 @@ function handleLogout() {
 }
 
 .topbar-pill__arrow {
+  margin-left: auto;
   color: #9e9589;
   transition: transform 0.15s;
 }
@@ -879,6 +889,10 @@ function handleLogout() {
 
 .topbar-dropdown--wide {
   min-width: 240px;
+}
+
+.topbar-dropdown--orgs {
+  min-width: 250px;
 }
 
 .topbar-dropdown--health {
@@ -931,6 +945,31 @@ function handleLogout() {
 .topbar-dropdown__check {
   margin-left: auto;
   color: #3065a4;
+}
+
+.topbar-dropdown__footer {
+  padding: 8px;
+  border-top: 1px solid #f0ede6;
+}
+
+.topbar-dropdown__action {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px dashed #d6cfbf;
+  border-radius: 8px;
+  background: #faf8f3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1f2328;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.topbar-dropdown__action:hover {
+  background: #f7f3e8;
+  border-color: #c7bea9;
 }
 
 /* ── Health dropdown ─────────────────────────────────────────────────────────── */

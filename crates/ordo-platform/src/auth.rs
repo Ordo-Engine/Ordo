@@ -274,5 +274,5 @@ pub fn verify_token(token: &str, secret: &str) -> Result<Claims, PlatformError> 
         &Validation::default(),
     )
     .map(|data| data.claims)
-    .map_err(|e| PlatformError::unauthorized(format!("Invalid token: {}", e)))
+    .map_err(|e| PlatformError::invalid_token(e.to_string()))
 }

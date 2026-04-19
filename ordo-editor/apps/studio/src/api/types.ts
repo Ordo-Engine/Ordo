@@ -431,6 +431,200 @@ export interface RedeployRequest {
   release_note?: string
 }
 
+// ── Release Center ────────────────────────────────────────────────────────────
+
+export type ReleaseRequestStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'executing'
+  | 'completed'
+  | 'failed'
+  | 'rolled_back'
+
+export type ReleaseApprovalDecision = 'pending' | 'approved' | 'rejected'
+
+export type RolloutStrategyKind =
+  | 'all_at_once'
+  | 'fixed_batch'
+  | 'percentage_batch'
+  | 'time_interval_batch'
+
+export interface RolloutStrategy {
+  kind: RolloutStrategyKind
+  batch_size?: number
+  batch_percentage?: number
+  batch_interval_seconds?: number
+  auto_rollback_on_failure?: boolean
+  pause_on_error_rate?: number
+  pause_on_metric_breach?: boolean
+}
+
+export interface RollbackPolicy {
+  auto_rollback: boolean
+  max_failed_instances: number
+  metric_guard?: string
+}
+
+export interface ReleaseApprovalRecord {
+  id: string
+  stage: number
+  reviewer_id: string
+  reviewer_name: string
+  reviewer_email?: string | null
+  decision: ReleaseApprovalDecision
+  comment?: string
+  decided_at?: string
+}
+
+export interface ReleaseVersionDiff {
+  from_version?: string | null
+  to_version: string
+  rollback_version?: string | null
+  changed: boolean
+}
+
+export interface ReleaseStepDiffItem {
+  id: string
+  name: string
+  step_type?: string | null
+}
+
+export interface ReleaseContentDiffSummary {
+  baseline_version?: string | null
+  step_count_before: number
+  step_count_after: number
+  group_count_before: number
+  group_count_after: number
+  added_steps: ReleaseStepDiffItem[]
+  removed_steps: ReleaseStepDiffItem[]
+  modified_steps: ReleaseStepDiffItem[]
+  added_groups: string[]
+  removed_groups: string[]
+  modified_groups: string[]
+  input_schema_changed: boolean
+  output_schema_changed: boolean
+  tags_changed: boolean
+  description_changed: boolean
+}
+
+export interface ReleaseRequestSnapshot {
+  requester_id: string
+  requester_name?: string | null
+  requester_email?: string | null
+  policy_name?: string | null
+  policy_scope?: 'org' | 'project' | null
+  target_type?: 'environment' | 'project' | null
+  target_id?: string | null
+  environment_name?: string | null
+  approver_ids: string[]
+  approver_names: string[]
+  approver_emails: string[]
+  min_approvals?: number | null
+  allow_self_approval?: boolean | null
+  rollout_strategy: RolloutStrategy
+  rollback_policy: RollbackPolicy
+  affected_instance_count: number
+}
+
+export interface ReleaseRequest {
+  id: string
+  org_id?: string
+  project_id?: string
+  title: string
+  ruleset_name: string
+  version: string
+  environment_id: string
+  environment_name: string | null
+  change_summary: string
+  release_note?: string | null
+  status: ReleaseRequestStatus
+  created_by: string
+  created_by_name?: string | null
+  created_by_email?: string | null
+  created_at: string
+  updated_at?: string
+  approvals: ReleaseApprovalRecord[]
+  affected_instance_count: number
+  policy_id?: string | null
+  rollout_strategy: RolloutStrategy
+  rollback_version?: string | null
+  version_diff: ReleaseVersionDiff
+  content_diff: ReleaseContentDiffSummary
+  request_snapshot: ReleaseRequestSnapshot
+}
+
+export interface ReleasePolicy {
+  id: string
+  org_id?: string
+  project_id?: string | null
+  name: string
+  scope: 'org' | 'project'
+  target_type: 'environment' | 'project'
+  target_id: string
+  description?: string
+  min_approvals: number
+  allow_self_approval: boolean
+  approver_ids: string[]
+  rollout_strategy: RolloutStrategy
+  rollback_policy: RollbackPolicy
+  created_at?: string
+  updated_at: string
+}
+
+export interface ReviewReleaseRequest {
+  comment?: string
+}
+
+export type ReleaseExecutionStatus =
+  | 'preparing'
+  | 'waiting_start'
+  | 'rolling_out'
+  | 'paused'
+  | 'rollback_in_progress'
+  | 'completed'
+  | 'failed'
+
+export type ReleaseInstanceStatus =
+  | 'pending'
+  | 'dispatching'
+  | 'updating'
+  | 'verifying'
+  | 'success'
+  | 'failed'
+  | 'rolled_back'
+
+export interface ReleaseExecutionInstance {
+  id: string
+  instance_name: string
+  zone?: string
+  current_version: string
+  target_version: string
+  status: ReleaseInstanceStatus
+  updated_at?: string
+  message?: string
+  metric_summary?: string
+}
+
+export interface ReleaseExecution {
+  id: string
+  request_id: string
+  status: ReleaseExecutionStatus
+  started_at: string
+  current_batch: number
+  total_batches: number
+  strategy: RolloutStrategy
+  summary: {
+    total_instances: number
+    succeeded_instances: number
+    failed_instances: number
+    pending_instances: number
+  }
+  instances: ReleaseExecutionInstance[]
+}
+
 // ── RBAC ──────────────────────────────────────────────────────────────────────
 
 export interface OrgRole {
@@ -481,6 +675,16 @@ export const PERMISSIONS = [
   'test:run',
   'deployment:view', 'deployment:redeploy',
   'canary:manage',
+  'release:policy.manage',
+  'release:request.create',
+  'release:request.view',
+  'release:request.approve',
+  'release:request.reject',
+  'release:execute',
+  'release:pause',
+  'release:resume',
+  'release:rollback',
+  'release:instance.view',
 ] as const
 
 export type Permission = typeof PERMISSIONS[number]

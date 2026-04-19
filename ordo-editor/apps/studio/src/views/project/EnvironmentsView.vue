@@ -143,7 +143,9 @@ function canaryTargetName(envId: string | null) {
     <StudioPageHeader :title="t('environment.title')">
       <template #actions>
         <t-button theme="primary" @click="startCreate">
-          <t-icon name="add" />
+          <template #icon>
+            <t-icon name="add" />
+          </template>
           {{ t('environment.add') }}
         </t-button>
       </template>

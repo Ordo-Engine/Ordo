@@ -6,6 +6,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useEnvironmentStore } from '@/stores/environment'
 import { rulesetDraftApi } from '@/api/platform-client'
+import ReleaseNav from '@/components/project/ReleaseNav.vue'
 import { StudioDialogActions, StudioPageHeader } from '@/components/ui'
 import type { RulesetDeployment } from '@/api/types'
 
@@ -84,7 +85,8 @@ function formatDate(dt: string) {
 
 <template>
   <div class="view-page">
-    <StudioPageHeader :title="t('deployments.title')" />
+    <StudioPageHeader :title="t('releaseCenter.historyTitle')" :subtitle="t('releaseCenter.historySubtitle')" />
+    <ReleaseNav />
 
     <div v-if="loading" class="list-skeleton">
       <t-skeleton

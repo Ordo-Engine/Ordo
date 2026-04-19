@@ -31,6 +31,7 @@ mod contract;
 mod environment;
 mod error;
 mod github;
+mod i18n;
 mod member;
 mod middleware;
 mod models;
@@ -38,6 +39,7 @@ mod org;
 mod project;
 mod proxy;
 mod rbac;
+mod release;
 mod ruleset_draft;
 mod ruleset_history;
 mod server_registry;
@@ -371,6 +373,43 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/orgs/:oid/projects/:pid/environments/:eid/canary",
             put(environment::set_canary),
         )
+        // Release center
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/release-policies",
+            get(release::list_release_policies).post(release::create_release_policy),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/release-policies/:rid",
+            put(release::update_release_policy).delete(release::delete_release_policy),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases",
+            get(release::list_release_requests).post(release::create_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid",
+            get(release::get_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/approve",
+            post(release::approve_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/reject",
+            post(release::reject_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/execute",
+            post(release::execute_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/execution",
+            get(release::get_release_execution_for_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/release-executions/current",
+            get(release::get_current_release_execution),
+        )
         // Draft rulesets
         .route(
             "/api/v1/orgs/:oid/projects/:pid/rulesets",
@@ -412,6 +451,7 @@ async fn main() -> anyhow::Result<()> {
     let app = public_routes
         .merge(protected_routes)
         .merge(health)
+        .layer(axum::middleware::from_fn(i18n::with_request_locale))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(CatchPanicLayer::new())

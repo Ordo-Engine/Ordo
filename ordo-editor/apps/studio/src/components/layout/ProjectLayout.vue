@@ -60,11 +60,11 @@ const tabs = computed(() => [
     active: route.path.endsWith('/versions'),
   },
   {
-    value: 'deployments',
-    label: t('projectNav.deployments'),
+    value: 'releases',
+    label: t('projectNav.releases'),
     icon: 'cloud-upload',
-    to: `${base.value}/deployments`,
-    active: route.path.endsWith('/deployments'),
+    to: `${base.value}/releases`,
+    active: route.path.includes('/releases') || route.path.endsWith('/deployments'),
   },
   {
     value: 'environments',

@@ -148,9 +148,15 @@ start_platform_watch() {
 
 start_studio() {
   cd "$WORKSPACE/ordo-editor"
-  sudo rm -rf \
-    "$WORKSPACE/ordo-editor/node_modules/.vite" \
-    "$WORKSPACE/ordo-editor/apps/studio/node_modules/.vite"
+  # Pre-warm Vite dep cache so the first proxied request doesn't hit Traefik's timeout.
+  # Only clear the cache when the lockfile has changed (same pattern as other deps).
+  local vite_stamp="$SETUP_DIR/vite-deps.applied"
+  local pnpm_stamp="$SETUP_DIR/pnpm-lock.applied"
+  if [ ! -f "$vite_stamp" ] || ! cmp -s "$pnpm_stamp" "$vite_stamp" 2>/dev/null; then
+    echo "==> Pre-bundling Vite dependencies"
+    pnpm --filter @ordo-engine/studio exec vite optimize 2>&1 | tee -a "$LOG_DIR/ordo-studio.log" || true
+    cp "$pnpm_stamp" "$vite_stamp" 2>/dev/null || true
+  fi
   (
     pnpm --filter @ordo-engine/studio exec vite --host 0.0.0.0 --port "$STUDIO_PORT"
   ) 2>&1 | tee "$LOG_DIR/ordo-studio.log" &

@@ -280,6 +280,8 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
         (StatusCode::BAD_REQUEST, "GitHub OAuth is not configured on this server") => "github.oauth_not_configured",
         (StatusCode::BAD_REQUEST, "GitHub repository lookup failed") => "github.repository_lookup_failed",
         (StatusCode::BAD_REQUEST, "Cannot change your own role") => "member.cannot_change_own_role",
+        (StatusCode::BAD_REQUEST, "Rollback publish failed") => "release.rollback_publish_failed",
+        (StatusCode::BAD_REQUEST, "Release request has no rollback version") => "release.rollback_version_missing",
 
         (StatusCode::FORBIDDEN, "Not a member of this organization") => "auth.org_membership_required",
         (StatusCode::FORBIDDEN, "Editor role required for write operations") => "auth.editor_role_required",
@@ -308,11 +310,18 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
         (StatusCode::NOT_FOUND, "Server not found") => "server.not_found",
         (StatusCode::NOT_FOUND, "Release policy not found") => "release.policy_not_found",
         (StatusCode::NOT_FOUND, "Release request not found") => "release.request_not_found",
+        (StatusCode::NOT_FOUND, "Release execution not found") => "release.execution_not_found",
+        (StatusCode::NOT_FOUND, "Rollback deployment snapshot not found") => "release.rollback_snapshot_not_found",
 
         (StatusCode::CONFLICT, "Email already registered") => "auth.email_already_registered",
         (StatusCode::CONFLICT, "User is already a member") => "member.already_exists",
         (StatusCode::CONFLICT, "Release request is not pending approval") => "release.request_not_pending_approval",
         (StatusCode::CONFLICT, "No pending approval found for this reviewer") => "release.pending_approval_not_found",
+        (StatusCode::CONFLICT, "Release request must be approved before execution") => "release.request_not_approved",
+        (StatusCode::CONFLICT, "Release execution is already rolling back") => "release.execution_already_rolling_back",
+        (StatusCode::CONFLICT, "Release execution is not active") => "release.execution_not_active",
+        (StatusCode::CONFLICT, "Release execution is not paused") => "release.execution_not_paused",
+        (StatusCode::CONFLICT, "Release execution cannot be rolled back from its current status") => "release.execution_rollback_invalid_status",
 
         (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error") => "common.internal_server_error",
         _ => match status {

@@ -199,6 +199,8 @@ fn translate_known_error(status: StatusCode, message: &str, locale: Locale) -> O
         (StatusCode::BAD_REQUEST, "ruleset_name, version, environment_id, title, and change_summary are required") => tr(locale, "ruleset_name, version, environment_id, title, and change_summary are required", "ruleset_name、version、environment_id、title 和 change_summary 不能为空", "ruleset_name、version、environment_id、title 與 change_summary 不能為空"),
         (StatusCode::BAD_REQUEST, "GitHub OAuth is not configured on this server") => tr(locale, "GitHub OAuth is not configured on this server", "该服务器未配置 GitHub OAuth", "該伺服器未設定 GitHub OAuth"),
         (StatusCode::BAD_REQUEST, "GitHub repository lookup failed") => tr(locale, "GitHub repository lookup failed", "GitHub 仓库查询失败", "GitHub 儲存庫查詢失敗"),
+        (StatusCode::BAD_REQUEST, "Rollback publish failed") => tr(locale, "Rollback publish failed", "回退发布失败", "回退發佈失敗"),
+        (StatusCode::BAD_REQUEST, "Release request has no rollback version") => tr(locale, "Release request has no rollback version", "发布单没有可用的回退版本", "發佈單沒有可用的回退版本"),
 
         (StatusCode::FORBIDDEN, "Not a member of this organization") => tr(locale, "Not a member of this organization", "你不是该组织成员", "你不是該組織成員"),
         (StatusCode::FORBIDDEN, "Editor role required for write operations") => tr(locale, "Editor role required for write operations", "写操作需要 Editor 或更高角色", "寫入操作需要 Editor 或更高角色"),
@@ -227,11 +229,18 @@ fn translate_known_error(status: StatusCode, message: &str, locale: Locale) -> O
         (StatusCode::NOT_FOUND, "Server not found") => tr(locale, "Server not found", "服务器不存在", "伺服器不存在"),
         (StatusCode::NOT_FOUND, "Release policy not found") => tr(locale, "Release policy not found", "发布策略不存在", "發佈策略不存在"),
         (StatusCode::NOT_FOUND, "Release request not found") => tr(locale, "Release request not found", "发布单不存在", "發佈單不存在"),
+        (StatusCode::NOT_FOUND, "Release execution not found") => tr(locale, "Release execution not found", "发布执行不存在", "發佈執行不存在"),
+        (StatusCode::NOT_FOUND, "Rollback deployment snapshot not found") => tr(locale, "Rollback deployment snapshot not found", "未找到可用于回退的发布快照", "未找到可用於回退的發佈快照"),
 
         (StatusCode::CONFLICT, "Email already registered") => tr(locale, "Email already registered", "该邮箱已注册", "該電子郵件已註冊"),
         (StatusCode::CONFLICT, "User is already a member") => tr(locale, "User is already a member", "该用户已经是组织成员", "該使用者已經是組織成員"),
         (StatusCode::CONFLICT, "Release request is not pending approval") => tr(locale, "Release request is not pending approval", "该发布单当前不处于待审批状态", "該發佈單目前不處於待審批狀態"),
         (StatusCode::CONFLICT, "No pending approval found for this reviewer") => tr(locale, "No pending approval found for this reviewer", "当前审批人没有待处理的审批记录", "目前審批人沒有待處理的審批記錄"),
+        (StatusCode::CONFLICT, "Release request must be approved before execution") => tr(locale, "Release request must be approved before execution", "发布单必须先审批通过才可执行", "發佈單必須先審批通過才可執行"),
+        (StatusCode::CONFLICT, "Release execution is already rolling back") => tr(locale, "Release execution is already rolling back", "当前发布执行已处于回退中", "目前發佈執行已處於回退中"),
+        (StatusCode::CONFLICT, "Release execution is not active") => tr(locale, "Release execution is not active", "当前发布执行不处于活动状态", "目前發佈執行不處於活動狀態"),
+        (StatusCode::CONFLICT, "Release execution is not paused") => tr(locale, "Release execution is not paused", "当前发布执行不处于暂停状态", "目前發佈執行不處於暫停狀態"),
+        (StatusCode::CONFLICT, "Release execution cannot be rolled back from its current status") => tr(locale, "Release execution cannot be rolled back from its current status", "当前发布执行状态不支持回退", "目前發佈執行狀態不支援回退"),
         (StatusCode::BAD_REQUEST, "Cannot change your own role") => tr(locale, "Cannot change your own role", "不能修改你自己的角色", "不能修改你自己的角色"),
 
         (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error") => tr(locale, "Internal server error", "服务器内部错误", "伺服器內部錯誤"),

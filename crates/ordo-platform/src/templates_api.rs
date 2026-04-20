@@ -1,19 +1,10 @@
-//! Template API handlers (M1.1).
-//!
-//! Three endpoints exposed to Studio:
-//!
-//! - `GET  /api/v1/templates`                              — list metadata
-//! - `GET  /api/v1/templates/:id`                          — full detail
-//! - `POST /api/v1/orgs/:oid/projects/from-template`       — clone template → new project
-//!
-//! The locale is derived from the request's `Accept-Language` header; see
-//! [`crate::template::extract_locale`].
+//! Template API handlers.
 
 use crate::{
     error::{ApiResult, PlatformError},
     models::{Claims, Project, Role, TemplateDetail, TemplateMetadata},
     org::load_org_and_check_role,
-    project::{push_ruleset_to_engine, register_tenant_in_engine, ProjectResponse},
+    project::{register_project_tenant, ProjectResponse},
     ruleset_history::append_history_entry_for_actor,
     template::extract_locale,
     AppState,
@@ -59,12 +50,9 @@ pub async fn get_template(
         .ok_or_else(|| PlatformError::not_found("Template not found"))
 }
 
-// ── Shared installation core (also called by GitHub marketplace) ─────────────
+// ── Shared Installation ──────────────────────────────────────────────────────
 
-/// Shared template installation logic.
-/// Creates a project, saves facts/concepts/contracts/tests, then registers
-/// and pushes the ruleset to the engine.  On any error the project row is
-/// cleaned up before returning.
+/// Creates a project and persists the template payload into platform storage.
 pub async fn install_template_detail(
     state: &AppState,
     claims: &Claims,
@@ -159,6 +147,21 @@ pub async fn install_template_detail(
         }
     }
 
+    if let Err(e) = state
+        .store
+        .save_draft_ruleset(
+            &Uuid::new_v4().to_string(),
+            &project.id,
+            &ruleset_name,
+            &ruleset,
+            0,
+            &claims.sub,
+        )
+        .await
+    {
+        rollback!(e)
+    }
+
     if let Err(e) = append_history_entry_for_actor(
         state,
         org_id,
@@ -176,11 +179,7 @@ pub async fn install_template_detail(
         return Err(e);
     }
 
-    if let Err(e) = register_tenant_in_engine(state, &project.id, &project.name).await {
-        let _ = state.store.delete_project(org_id, &project.id).await;
-        return Err(e);
-    }
-    if let Err(e) = push_ruleset_to_engine(state, &project.id, &ruleset).await {
+    if let Err(e) = register_project_tenant(state, &project.id, &project.name).await {
         let _ = state.store.delete_project(org_id, &project.id).await;
         return Err(e);
     }
@@ -188,7 +187,7 @@ pub async fn install_template_detail(
     Ok(Json(ProjectResponse::from(&project)))
 }
 
-// ── from-template: clone → project ──────────────────────────────────────────
+// ── From Template ────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct CreateFromTemplateRequest {
@@ -199,17 +198,6 @@ pub struct CreateFromTemplateRequest {
 }
 
 /// POST /api/v1/orgs/:oid/projects/from-template
-///
-/// Flow (best-effort, matches existing engine-integration semantics):
-///   1. Verify admin on target org
-///   2. Load raw (un-localised) template
-///   3. Create the Project in the platform store
-///   4. Register tenant in the engine
-///   5. Persist facts / concepts to the platform store
-///   6. Rewrite ruleset `config.tenant_id` to the new project id + push to engine
-///
-/// If step 5 or 6 fails, the project row is left behind (500 returned) — the
-/// user can retry or delete it from Studio. See plan `docs/M1.1-DOGFOODING.md`.
 pub async fn create_from_template(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

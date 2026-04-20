@@ -16,6 +16,7 @@ async-nats = "0.38"
 axum.workspace = true
 chrono.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
 hostname = "0.4"
 jsonwebtoken.workspace = true
 rand.workspace = true
@@ -32,6 +33,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4"] }
 sqlx.workspace = true
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

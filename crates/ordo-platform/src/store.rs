@@ -587,6 +587,80 @@ impl PlatformStore {
             .await
     }
 
+    pub async fn get_latest_ruleset_history_snapshot(
+        &self,
+        project_id: &str,
+        ruleset_name: &str,
+    ) -> Result<Option<(JsonValue, chrono::DateTime<chrono::Utc>, Option<String>)>> {
+        let row = sqlx::query(
+            "SELECT snapshot, created_at, author_id
+             FROM ruleset_history
+             WHERE project_id = $1 AND ruleset_name = $2
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(project_id)
+        .bind(ruleset_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let snapshot: sqlx::types::Json<JsonValue> = r.get("snapshot");
+            (snapshot.0, r.get("created_at"), r.get("author_id"))
+        }))
+    }
+
+    pub async fn backfill_project_rulesets_from_history(&self) -> Result<u64> {
+        let result = sqlx::query(
+            "WITH latest_history AS (
+                SELECT DISTINCT ON (project_id, ruleset_name)
+                    project_id,
+                    ruleset_name,
+                    snapshot,
+                    created_at,
+                    author_id
+                FROM ruleset_history
+                ORDER BY project_id, ruleset_name, created_at DESC
+            ),
+            latest_publish AS (
+                SELECT DISTINCT ON (project_id, ruleset_name)
+                    project_id,
+                    ruleset_name,
+                    created_at,
+                    snapshot #>> '{config,version}' AS published_version
+                FROM ruleset_history
+                WHERE source = 'publish'
+                ORDER BY project_id, ruleset_name, created_at DESC
+            )
+            INSERT INTO project_rulesets (
+                id, project_id, name, draft, draft_seq, draft_updated_at, draft_updated_by,
+                published_version, published_at, created_at
+            )
+            SELECT
+                gen_random_uuid()::text,
+                lh.project_id,
+                lh.ruleset_name,
+                lh.snapshot,
+                1,
+                lh.created_at,
+                lh.author_id,
+                lp.published_version,
+                lp.created_at,
+                lh.created_at
+            FROM latest_history lh
+            LEFT JOIN latest_publish lp
+              ON lp.project_id = lh.project_id AND lp.ruleset_name = lh.ruleset_name
+            WHERE NOT EXISTS (
+                SELECT 1 FROM project_rulesets pr
+                WHERE pr.project_id = lh.project_id AND pr.name = lh.ruleset_name
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     // ── Test Cases ────────────────────────────────────────────────────────────
 
     pub async fn get_tests(
@@ -835,14 +909,44 @@ impl PlatformStore {
         Ok(row.map(|r| r.get("id")))
     }
 
-    /// Mark servers offline if last_seen is older than the given threshold.
+    /// Mark online servers degraded if last_seen is older than the given threshold.
+    pub async fn mark_stale_servers_degraded(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            "UPDATE servers SET status = 'degraded'
+             WHERE status = 'online' AND (last_seen IS NULL OR last_seen < $1)",
+        )
+        .bind(older_than)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Mark stale servers offline if last_seen is older than the given threshold.
     pub async fn mark_stale_servers_offline(
         &self,
         older_than: chrono::DateTime<chrono::Utc>,
     ) -> Result<u64> {
         let result = sqlx::query(
             "UPDATE servers SET status = 'offline'
-             WHERE status = 'online' AND (last_seen IS NULL OR last_seen < $1)",
+             WHERE status IN ('online', 'degraded') AND (last_seen IS NULL OR last_seen < $1)",
+        )
+        .bind(older_than)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Delete offline servers whose last heartbeat is older than the given threshold.
+    pub async fn delete_stale_offline_servers(
+        &self,
+        older_than: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            "DELETE FROM servers
+             WHERE status = 'offline' AND (last_seen IS NULL OR last_seen < $1)",
         )
         .bind(older_than)
         .execute(&self.pool)
@@ -1828,12 +1932,39 @@ impl PlatformStore {
             "UPDATE release_executions
              SET status = $1,
                  current_batch = COALESCE($2, current_batch),
-                 finished_at = CASE WHEN $1 IN ('completed', 'failed') THEN NOW() ELSE finished_at END
+                 finished_at = CASE
+                   WHEN $1 IN ('completed', 'failed') THEN NOW()
+                   WHEN $1 IN ('preparing', 'waiting_start', 'rolling_out', 'paused', 'verifying', 'rollback_in_progress') THEN NULL
+                   ELSE finished_at
+                 END
              WHERE id = $3",
         )
         .bind(status.to_string())
         .bind(current_batch)
         .bind(execution_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn create_release_execution_event(
+        &self,
+        id: &str,
+        execution_id: &str,
+        instance_id: Option<&str>,
+        event_type: &str,
+        payload: serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO release_execution_events
+             (id, release_execution_id, instance_id, event_type, payload, created_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())",
+        )
+        .bind(id)
+        .bind(execution_id)
+        .bind(instance_id)
+        .bind(event_type)
+        .bind(payload)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -2498,7 +2629,10 @@ fn summarize_release_execution_instances(
     let total_instances = instances.len() as i32;
     let succeeded_instances = instances
         .iter()
-        .filter(|item| item.status == ReleaseInstanceStatus::Success)
+        .filter(|item| {
+            item.status == ReleaseInstanceStatus::Success
+                || item.status == ReleaseInstanceStatus::RolledBack
+        })
         .count() as i32;
     let failed_instances = instances
         .iter()

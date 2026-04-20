@@ -1,13 +1,4 @@
-//! Ordo Platform Server
-//!
-//! Standalone HTTP service providing:
-//! - User authentication (register, login, JWT)
-//! - Organization and member management
-//! - Project (decision domain) management
-//! - Authenticated proxy to ordo-server engine API
-//!
-//! Designed to run alongside ordo-server without modifying it.
-//! ordo-server remains a pure rule engine with zero platform code.
+//! Ordo Platform Server.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -92,7 +83,6 @@ pub struct AppState {
 async fn main() -> anyhow::Result<()> {
     let config = Arc::new(PlatformConfig::parse());
 
-    // Init logging
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -104,7 +94,6 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    // Validate config
     if let Err(e) = config.validate() {
         return Err(anyhow::anyhow!("Configuration error: {}", e));
     }
@@ -119,12 +108,10 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Init database pool and run migrations
     let pool = sqlx::PgPool::connect(&config.database_url).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     let store = Arc::new(PlatformStore::new(pool).await?);
 
-    // Startup migrations: seed RBAC system roles for newly created orgs
     {
         let orgs = store.list_all_orgs().await.unwrap_or_default();
         for org in &orgs {
@@ -142,27 +129,34 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!("migrate env failed for project {}: {}", project.id, e);
             }
         }
+
+        if let Err(e) = store.backfill_project_rulesets_from_history().await {
+            tracing::warn!("backfill_project_rulesets_from_history failed: {}", e);
+        }
     }
 
-    // Background task: mark servers offline when they stop heartbeating
     {
         let store_bg = store.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
             loop {
                 interval.tick().await;
-                let threshold = chrono::Utc::now() - chrono::Duration::seconds(90);
-                let _ = store_bg.mark_stale_servers_offline(threshold).await;
+                let now = chrono::Utc::now();
+                let degraded_threshold = now - chrono::Duration::seconds(90);
+                let offline_threshold = now - chrono::Duration::minutes(10);
+                let prune_threshold = now - chrono::Duration::minutes(30);
+
+                let _ = store_bg.mark_stale_servers_degraded(degraded_threshold).await;
+                let _ = store_bg.mark_stale_servers_offline(offline_threshold).await;
+                let _ = store_bg.delete_stale_offline_servers(prune_threshold).await;
             }
         });
     }
 
-    // HTTP client for engine proxy
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    // Load rule templates (best-effort — missing dir just disables the feature)
     let templates_dir = resolve_templates_dir(&config.templates_dir);
     let templates = Arc::new(
         TemplateStore::load_from_dir(&templates_dir).unwrap_or_else(|e| {
@@ -178,6 +172,14 @@ async fn main() -> anyhow::Result<()> {
         sync::ensure_stream(&jetstream, &config.nats_subject_prefix)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to ensure NATS stream: {}", e))?;
+        let registry_consumer = sync::create_control_consumer(
+            &jetstream,
+            &config.resolve_instance_id(),
+            &config.nats_subject_prefix,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create NATS registry consumer: {}", e))?;
+        sync::start_registry_subscriber(registry_consumer, store.clone());
         Some(Arc::new(sync::NatsPublisher::new(
             jetstream,
             config.nats_subject_prefix.clone(),
@@ -197,6 +199,20 @@ async fn main() -> anyhow::Result<()> {
         sync_publisher,
         marketplace_cache,
     };
+
+    if let Some(publisher) = &state.sync_publisher {
+        if let Ok(projects) = state.store.list_all_projects().await {
+            for project in projects {
+                let _ = publisher
+                    .publish(sync::SyncEvent::TenantUpsert {
+                        tenant_id: project.id.clone(),
+                        name: project.name.clone(),
+                        enabled: true,
+                    })
+                    .await;
+            }
+        }
+    }
 
     // CORS
     let cors = {
@@ -401,6 +417,18 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:oid/projects/:pid/releases/:rid/execute",
             post(release::execute_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/pause",
+            post(release::pause_release_execution),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/resume",
+            post(release::resume_release_execution),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/rollback",
+            post(release::rollback_release_execution),
         )
         .route(
             "/api/v1/orgs/:oid/projects/:pid/releases/:rid/execution",

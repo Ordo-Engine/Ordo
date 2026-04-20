@@ -42,9 +42,6 @@ pub async fn list_drafts(
 }
 
 /// GET /api/v1/orgs/:oid/projects/:pid/rulesets/:name
-///
-/// If no draft exists, attempts to pull from the project's bound ordo-server
-/// (production environment) and seeds it as the initial draft.
 pub async fn get_draft(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -62,8 +59,7 @@ pub async fn get_draft(
         return Ok(Json(draft));
     }
 
-    // Attempt to seed from the production ordo-server
-    let seeded = seed_draft_from_server(&state, &org_id, &project_id, &ruleset_name, &claims.sub)
+    let seeded = seed_draft_from_history(&state, &project_id, &ruleset_name, &claims.sub)
         .await
         .map_err(PlatformError::Internal)?;
 
@@ -444,50 +440,30 @@ async fn publish_via_nats(
     publisher.publish_to(prefix, event).await
 }
 
-async fn seed_draft_from_server(
+async fn seed_draft_from_history(
     state: &AppState,
-    _org_id: &str,
     project_id: &str,
     ruleset_name: &str,
     user_id: &str,
 ) -> anyhow::Result<Option<ProjectRuleset>> {
-    // Find the default (production) environment's server URL
-    let prod_env = state.store.get_default_environment(project_id).await?;
-    let engine_url = if let Some(env) = prod_env {
-        if let Some(sid) = env.server_id {
-            if let Some(server) = state.store.get_server(&sid).await? {
-                server.url
-            } else {
-                state.config.engine_url.clone()
-            }
-        } else {
-            state.config.engine_url.clone()
-        }
-    } else {
-        state.config.engine_url.clone()
-    };
-
-    let url = format!(
-        "{}/api/v1/rulesets/{}",
-        engine_url.trim_end_matches('/'),
-        ruleset_name
-    );
-    let resp = state
-        .http_client
-        .get(&url)
-        .header("X-Tenant-ID", project_id)
-        .send()
-        .await?;
-
-    if !resp.status().is_success() {
+    let Some((ruleset_json, _created_at, author_id)) = state
+        .store
+        .get_latest_ruleset_history_snapshot(project_id, ruleset_name)
+        .await?
+    else {
         return Ok(None);
-    }
-
-    let ruleset_json: serde_json::Value = resp.json().await?;
+    };
     let id = Uuid::new_v4().to_string();
     let draft = state
         .store
-        .save_draft_ruleset(&id, project_id, ruleset_name, &ruleset_json, 0, user_id)
+        .save_draft_ruleset(
+            &id,
+            project_id,
+            ruleset_name,
+            &ruleset_json,
+            0,
+            author_id.as_deref().unwrap_or(user_id),
+        )
         .await?;
 
     Ok(Some(draft))

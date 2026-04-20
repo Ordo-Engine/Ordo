@@ -10,8 +10,9 @@ use crate::{
     },
     rbac::{
         require_project_permission, PERM_RELEASE_POLICY_MANAGE, PERM_RELEASE_REQUEST_APPROVE,
-        PERM_RELEASE_EXECUTE, PERM_RELEASE_INSTANCE_VIEW, PERM_RELEASE_REQUEST_CREATE,
-        PERM_RELEASE_REQUEST_REJECT, PERM_RELEASE_REQUEST_VIEW,
+        PERM_RELEASE_EXECUTE, PERM_RELEASE_INSTANCE_VIEW, PERM_RELEASE_PAUSE,
+        PERM_RELEASE_REQUEST_CREATE, PERM_RELEASE_REQUEST_REJECT, PERM_RELEASE_REQUEST_VIEW,
+        PERM_RELEASE_RESUME, PERM_RELEASE_ROLLBACK,
     },
     sync::SyncEvent,
     AppState,
@@ -658,6 +659,273 @@ pub async fn execute_release_request(
     Ok(Json(execution))
 }
 
+pub async fn pause_release_execution(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id, release_id)): Path<(String, String, String)>,
+) -> ApiResult<Json<ReleaseExecution>> {
+    control_release_execution(
+        state,
+        claims,
+        org_id,
+        project_id,
+        release_id,
+        PERM_RELEASE_PAUSE,
+        ReleaseExecutionStatus::Paused,
+        Some(ReleaseRequestStatus::Executing),
+        "execution_paused",
+        "Release execution is not active",
+    )
+    .await
+}
+
+pub async fn resume_release_execution(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id, release_id)): Path<(String, String, String)>,
+) -> ApiResult<Json<ReleaseExecution>> {
+    control_release_execution(
+        state,
+        claims,
+        org_id,
+        project_id,
+        release_id,
+        PERM_RELEASE_RESUME,
+        ReleaseExecutionStatus::RollingOut,
+        Some(ReleaseRequestStatus::Executing),
+        "execution_resumed",
+        "Release execution is not paused",
+    )
+    .await
+}
+
+pub async fn rollback_release_execution(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id, release_id)): Path<(String, String, String)>,
+) -> ApiResult<Json<ReleaseExecution>> {
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_RELEASE_ROLLBACK,
+    )
+    .await?;
+
+    let release = state
+        .store
+        .get_release_request(&org_id, &project_id, &release_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
+
+    let execution = state
+        .store
+        .find_release_execution_by_request_id(&release.id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release execution not found"))?;
+
+    if execution.status == ReleaseExecutionStatus::RollbackInProgress {
+        return Err(PlatformError::conflict(
+            "Release execution is already rolling back",
+        ));
+    }
+    if execution.status != ReleaseExecutionStatus::Completed
+        && execution.status != ReleaseExecutionStatus::Failed
+        && execution.status != ReleaseExecutionStatus::Paused
+    {
+        return Err(PlatformError::conflict(
+            "Release execution cannot be rolled back from its current status",
+        ));
+    }
+
+    let rollback_version = release
+        .version_diff
+        .rollback_version
+        .clone()
+        .or_else(|| release.rollback_version.clone())
+        .ok_or_else(|| PlatformError::bad_request("Release request has no rollback version"))?;
+
+    let env = state
+        .store
+        .get_environment(&project_id, &release.environment_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Environment not found"))?;
+
+    let rollback_deployment = state
+        .store
+        .list_deployments(&project_id, Some(&release.ruleset_name), 50)
+        .await
+        .map_err(PlatformError::Internal)?
+        .into_iter()
+        .find(|deployment| {
+            deployment.environment_id == release.environment_id
+                && deployment.version == rollback_version
+                && deployment.status == DeploymentStatus::Success
+        })
+        .ok_or_else(|| PlatformError::not_found("Rollback deployment snapshot not found"))?;
+
+    state
+        .store
+        .update_release_execution_status(
+            &execution.id,
+            ReleaseExecutionStatus::RollbackInProgress,
+            Some(execution.current_batch),
+        )
+        .await
+        .map_err(PlatformError::Internal)?;
+    let _ = state
+        .store
+        .create_release_execution_event(
+            &Uuid::new_v4().to_string(),
+            &execution.id,
+            None,
+            "rollback_started",
+            serde_json::json!({
+                "release_id": release.id,
+                "rollback_version": rollback_version,
+                "requested_by": claims.sub,
+            }),
+        )
+        .await;
+
+    for instance in &execution.instances {
+        let _ = state
+            .store
+            .update_release_execution_instance(
+                &instance.id,
+                ReleaseInstanceStatus::Updating,
+                Some("Rolling back to previous deployment snapshot"),
+                Some("rollback_started"),
+            )
+            .await;
+    }
+
+    let publish_result = publish_release_via_nats(
+        &state,
+        &env,
+        &project_id,
+        &release.ruleset_name,
+        &rollback_deployment.snapshot,
+        &rollback_version,
+    )
+    .await;
+
+    match publish_result {
+        Ok(()) => {
+            for instance in &execution.instances {
+                let _ = state
+                    .store
+                    .update_release_execution_instance(
+                        &instance.id,
+                        ReleaseInstanceStatus::RolledBack,
+                        Some("Rollback snapshot pushed and acknowledged"),
+                        Some("rollback_ack"),
+                    )
+                    .await;
+            }
+            state
+                .store
+                .update_release_execution_status(
+                    &execution.id,
+                    ReleaseExecutionStatus::Completed,
+                    Some(execution.total_batches),
+                )
+                .await
+                .map_err(PlatformError::Internal)?;
+            state
+                .store
+                .set_release_request_status(&release.id, ReleaseRequestStatus::RolledBack)
+                .await
+                .map_err(PlatformError::Internal)?;
+            state
+                .store
+                .mark_ruleset_published(&project_id, &release.ruleset_name, &rollback_version)
+                .await
+                .map_err(PlatformError::Internal)?;
+
+            let deployment = RulesetDeployment {
+                id: Uuid::new_v4().to_string(),
+                project_id: project_id.clone(),
+                environment_id: env.id.clone(),
+                environment_name: Some(env.name.clone()),
+                ruleset_name: release.ruleset_name.clone(),
+                version: rollback_version.clone(),
+                release_note: Some(format!("Rollback for release {}", release.id)),
+                snapshot: rollback_deployment.snapshot.clone(),
+                deployed_at: Utc::now(),
+                deployed_by: Some(claims.sub.clone()),
+                status: DeploymentStatus::Success,
+            };
+            state
+                .store
+                .create_deployment(&deployment)
+                .await
+                .map_err(PlatformError::Internal)?;
+            let _ = state
+                .store
+                .create_release_execution_event(
+                    &Uuid::new_v4().to_string(),
+                    &execution.id,
+                    None,
+                    "rollback_completed",
+                    serde_json::json!({
+                        "rollback_version": rollback_version,
+                        "deployed_by": claims.sub,
+                    }),
+                )
+                .await;
+        }
+        Err(err) => {
+            for instance in &execution.instances {
+                let _ = state
+                    .store
+                    .update_release_execution_instance(
+                        &instance.id,
+                        ReleaseInstanceStatus::Failed,
+                        Some(&err.to_string()),
+                        Some("rollback_failed"),
+                    )
+                    .await;
+            }
+            state
+                .store
+                .update_release_execution_status(
+                    &execution.id,
+                    ReleaseExecutionStatus::Failed,
+                    Some(execution.current_batch),
+                )
+                .await
+                .map_err(PlatformError::Internal)?;
+            let _ = state
+                .store
+                .create_release_execution_event(
+                    &Uuid::new_v4().to_string(),
+                    &execution.id,
+                    None,
+                    "rollback_failed",
+                    serde_json::json!({
+                        "rollback_version": rollback_version,
+                        "error": err.to_string(),
+                    }),
+                )
+                .await;
+            return Err(PlatformError::bad_request("Rollback publish failed"));
+        }
+    }
+
+    let updated = state
+        .store
+        .get_release_execution(&execution.id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release execution not found"))?;
+    Ok(Json(updated))
+}
+
 pub async fn approve_release_request(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -783,6 +1051,85 @@ async fn review_release(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
     Ok(Json(item))
+}
+
+async fn control_release_execution(
+    state: AppState,
+    claims: Claims,
+    org_id: String,
+    project_id: String,
+    release_id: String,
+    permission: &str,
+    target_status: ReleaseExecutionStatus,
+    request_status: Option<ReleaseRequestStatus>,
+    event_type: &str,
+    invalid_state_message: &str,
+) -> ApiResult<Json<ReleaseExecution>> {
+    require_project_permission(&state, &org_id, &project_id, &claims.sub, permission).await?;
+
+    let release = state
+        .store
+        .get_release_request(&org_id, &project_id, &release_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
+
+    let execution = state
+        .store
+        .find_release_execution_by_request_id(&release.id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release execution not found"))?;
+
+    let is_valid = match target_status {
+        ReleaseExecutionStatus::Paused => matches!(
+            execution.status,
+            ReleaseExecutionStatus::Preparing
+                | ReleaseExecutionStatus::WaitingStart
+                | ReleaseExecutionStatus::RollingOut
+                | ReleaseExecutionStatus::Verifying
+        ),
+        ReleaseExecutionStatus::RollingOut => execution.status == ReleaseExecutionStatus::Paused,
+        _ => false,
+    };
+    if !is_valid {
+        return Err(PlatformError::conflict(invalid_state_message));
+    }
+
+    state
+        .store
+        .update_release_execution_status(&execution.id, target_status.clone(), Some(execution.current_batch))
+        .await
+        .map_err(PlatformError::Internal)?;
+    if let Some(next_request_status) = request_status {
+        state
+            .store
+            .set_release_request_status(&release.id, next_request_status)
+            .await
+            .map_err(PlatformError::Internal)?;
+    }
+    let _ = state
+        .store
+        .create_release_execution_event(
+            &Uuid::new_v4().to_string(),
+            &execution.id,
+            None,
+            event_type,
+            serde_json::json!({
+                "release_id": release.id,
+                "changed_by": claims.sub,
+                "status": target_status.to_string(),
+            }),
+        )
+        .await;
+
+    let updated = state
+        .store
+        .get_release_execution(&execution.id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release execution not found"))?;
+    Ok(Json(updated))
 }
 
 async fn load_release_baseline_snapshot(

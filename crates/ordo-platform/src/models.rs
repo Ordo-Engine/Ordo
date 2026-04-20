@@ -133,14 +133,14 @@ pub struct Member {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
-    /// Project ID — also used as tenant_id in ordo-server
+    /// Also used as the execution tenant ID.
     pub id: String,
     pub name: String,
     pub description: Option<String>,
     pub org_id: String,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
-    /// Bound ordo-server node ID (overrides platform's default engine_url when set)
+    /// Preferred execution node for the project.
     #[serde(default)]
     pub server_id: Option<String>,
 }
@@ -1114,7 +1114,7 @@ pub struct MemberWithRoles {
     pub user_id: String,
     pub email: String,
     pub display_name: String,
-    /// Legacy single role (kept for display compat)
+    /// Primary role label.
     pub role: Role,
     pub roles: Vec<UserRoleAssignment>,
     pub invited_at: DateTime<Utc>,

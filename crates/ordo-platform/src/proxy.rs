@@ -178,10 +178,9 @@ fn is_write_method(method: &Method) -> bool {
 /// 2. If the default env has a canary config and `rand < canary_percentage`, route to the canary env.
 /// 3. Otherwise route to the default env's server.
 /// 4. Fall back to the platform's configured `engine_url`.
-async fn resolve_engine_url(state: &AppState, project_id: &str, _org_id: &str) -> String {
+pub(crate) async fn resolve_engine_url(state: &AppState, project_id: &str, _org_id: &str) -> String {
     let Ok(Some(prod_env)) = state.store.get_default_environment(project_id).await else {
-        // No environments configured yet — use legacy project.server_id lookup or default
-        return state.config.engine_url.clone();
+        return resolve_fallback_engine_url(state).await;
     };
 
     // Canary check
@@ -206,9 +205,25 @@ async fn resolve_engine_url(state: &AppState, project_id: &str, _org_id: &str) -
         }
     }
 
-    resolve_server_url(state, &prod_env)
-        .await
-        .unwrap_or_else(|| state.config.engine_url.clone())
+    if let Some(url) = resolve_server_url(state, &prod_env).await {
+        return url;
+    }
+
+    resolve_fallback_engine_url(state).await
+}
+
+async fn resolve_fallback_engine_url(state: &AppState) -> String {
+    if let Ok(servers) = state.store.list_servers(None).await {
+        if let Some(server) = servers.into_iter().find(|server| {
+            matches!(
+                server.status,
+                crate::models::ServerStatus::Online | crate::models::ServerStatus::Degraded
+            )
+        }) {
+            return server.url;
+        }
+    }
+    state.config.engine_url.clone()
 }
 
 async fn resolve_server_url(

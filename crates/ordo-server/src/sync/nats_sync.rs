@@ -16,10 +16,12 @@ use crate::store::RuleStore;
 use crate::sync::event::{SyncEvent, SyncMessage};
 use crate::tenant::TenantManager;
 use async_nats::jetstream::{self, consumer::PullConsumer, stream::RetentionPolicy};
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch, RwLock};
 use tracing::{debug, error, info, warn};
+use url::Url;
 
 /// Default NATS subject prefix for rule sync events.
 #[cfg(test)]
@@ -264,6 +266,7 @@ impl NatsSubscriber {
             SyncEvent::TenantConfigChanged { config_json } => {
                 self.apply_tenant_config_changed(config_json).await
             }
+            SyncEvent::ServerRegistered { .. } | SyncEvent::ServerHeartbeat { .. } => true,
         }
     }
 
@@ -488,10 +491,52 @@ pub async fn create_consumer(
 /// Connect to NATS and set up JetStream.
 ///
 /// Returns the JetStream context for creating publishers/subscribers.
+fn connect_options_and_addr(
+    nats_url: &str,
+) -> Result<(async_nats::ConnectOptions, String), async_nats::Error> {
+    let mut url = Url::parse(nats_url).map_err(async_nats::Error::from)?;
+    let username = if url.username().is_empty() {
+        None
+    } else {
+        Some(url.username().to_string())
+    };
+    let password = url.password().map(str::to_string);
+
+    url.set_username("")
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid username in NATS url"))?;
+    url.set_password(None)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid password in NATS url"))?;
+
+    let options = match (username, password) {
+        (Some(user), Some(pass)) => async_nats::ConnectOptions::with_user_and_password(user, pass),
+        (Some(token), None) => async_nats::ConnectOptions::with_token(token),
+        (None, None) => async_nats::ConnectOptions::new(),
+        (None, Some(_)) => async_nats::ConnectOptions::new(),
+    };
+
+    Ok((options, url.to_string()))
+}
+
 pub async fn connect(nats_url: &str) -> Result<jetstream::Context, async_nats::Error> {
-    let client = async_nats::connect(nats_url).await?;
+    let (options, server_addr) = connect_options_and_addr(nats_url)?;
+    let client = options.connect(server_addr.as_str()).await?;
     info!("Connected to NATS at {}", nats_url);
     Ok(jetstream::new(client))
+}
+
+pub async fn publish_immediate(
+    jetstream: &jetstream::Context,
+    subject_prefix: &str,
+    instance_id: &str,
+    event: SyncEvent,
+) -> anyhow::Result<()> {
+    let msg = SyncMessage::new(instance_id.to_string(), event);
+    let subject = msg.subject(subject_prefix);
+    let payload = serde_json::to_vec(&msg)?;
+
+    let ack = jetstream.publish(subject, payload.into()).await?;
+    ack.await?;
+    Ok(())
 }
 
 #[cfg(test)]

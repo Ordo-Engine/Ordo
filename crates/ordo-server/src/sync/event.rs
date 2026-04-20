@@ -31,6 +31,16 @@ pub enum SyncEvent {
     /// Tenant configuration was changed (create/update/delete).
     /// Carries the full tenants map so readers can replace atomically.
     TenantConfigChanged { config_json: String },
+    /// A server instance announced or refreshed its registry metadata.
+    ServerRegistered {
+        name: String,
+        url: String,
+        token: String,
+        version: Option<String>,
+        org_id: Option<String>,
+    },
+    /// A server instance sent a heartbeat.
+    ServerHeartbeat { token: String },
 }
 
 impl SyncEvent {
@@ -42,6 +52,8 @@ impl SyncEvent {
             SyncEvent::TenantUpsert { .. } => "TenantUpsert",
             SyncEvent::TenantDeleted { .. } => "TenantDeleted",
             SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
+            SyncEvent::ServerRegistered { .. } => "ServerRegistered",
+            SyncEvent::ServerHeartbeat { .. } => "ServerHeartbeat",
         }
     }
 }
@@ -86,6 +98,12 @@ impl SyncMessage {
             }
             SyncEvent::TenantConfigChanged { .. } => {
                 format!("{}.tenants", prefix)
+            }
+            SyncEvent::ServerRegistered { .. } => {
+                format!("{}.control.servers.register", prefix)
+            }
+            SyncEvent::ServerHeartbeat { .. } => {
+                format!("{}.control.servers.heartbeat", prefix)
             }
         }
     }

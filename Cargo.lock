@@ -2336,6 +2336,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "futures",
  "hostname",
  "jsonwebtoken",
  "ordo-core",
@@ -2351,6 +2352,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "url",
  "urlencoding",
  "uuid",
 ]
@@ -2410,6 +2412,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

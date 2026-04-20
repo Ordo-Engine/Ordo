@@ -542,6 +542,8 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "nats-sync")]
     let mut nats_subscriber_handle: Option<tokio::task::JoinHandle<()>> = None;
     #[cfg(feature = "nats-sync")]
+    let mut nats_jetstream: Option<async_nats::jetstream::Context> = None;
+    #[cfg(feature = "nats-sync")]
     if let Some(ref nats_url) = config.nats_url {
         let instance_id = config.resolve_instance_id();
         info!(
@@ -598,6 +600,8 @@ async fn main() -> anyhow::Result<()> {
                             );
                         }
                     }
+
+                    nats_jetstream = Some(jetstream.clone());
                 }
             }
             Err(e) => {
@@ -609,46 +613,91 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Platform registration + heartbeat task
-    if let (Some(platform_url), Some(token)) =
-        (config.platform_url.clone(), config.server_token.clone())
-    {
+    // Platform/server registry announcements.
+    if let Some(token) = config.server_token.clone() {
         let server_name = config.server_name.clone();
         let server_url = config
             .server_url
             .clone()
             .unwrap_or_else(|| format!("http://{}", config.http_addr()));
         let version = env!("CARGO_PKG_VERSION").to_string();
-        let log_url = platform_url.clone();
-        let log_name = server_name.clone();
 
-        tokio::spawn(async move {
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap_or_default();
+        #[cfg(feature = "nats-sync")]
+        if let Some(jetstream) = nats_jetstream.clone() {
+            let subject_prefix = config.nats_subject_prefix.clone();
+            let instance_id = config.resolve_instance_id();
+            let log_name = server_name.clone();
+            let log_url = server_url.clone();
+            let token_for_loop = token.clone();
 
-            let reg_url = format!("{}/api/v1/internal/register", platform_url);
-            let hb_url = format!("{}/api/v1/internal/heartbeat", platform_url);
-            let payload = serde_json::json!({
-                "name": server_name,
-                "url": server_url,
-                "token": token,
-                "version": version,
+            tokio::spawn(async move {
+                let register = sync::event::SyncEvent::ServerRegistered {
+                    name: server_name.clone(),
+                    url: server_url.clone(),
+                    token: token_for_loop.clone(),
+                    version: Some(version.clone()),
+                    org_id: None,
+                };
+
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    let _ = sync::nats_sync::publish_immediate(
+                        &jetstream,
+                        &subject_prefix,
+                        &instance_id,
+                        register.clone(),
+                    )
+                    .await;
+
+                    interval.tick().await;
+
+                    let _ = sync::nats_sync::publish_immediate(
+                        &jetstream,
+                        &subject_prefix,
+                        &instance_id,
+                        sync::event::SyncEvent::ServerHeartbeat {
+                            token: token_for_loop.clone(),
+                        },
+                    )
+                    .await;
+                }
             });
-            let hb_payload = serde_json::json!({ "token": token });
 
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            info!(server_name = %log_name, server_url = %log_url, "NATS-based server registry enabled");
+        } else if let Some(platform_url) = config.platform_url.clone() {
+            let log_url = platform_url.clone();
+            let log_name = server_name.clone();
 
-            loop {
-                let _ = client.post(&reg_url).json(&payload).send().await;
-                interval.tick().await;
-                let _ = client.post(&hb_url).json(&hb_payload).send().await;
-            }
-        });
+            tokio::spawn(async move {
+                let client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(5))
+                    .build()
+                    .unwrap_or_default();
 
-        info!(platform_url = %log_url, server_name = %log_name, "Platform registration enabled");
+                let reg_url = format!("{}/api/v1/internal/register", platform_url);
+                let hb_url = format!("{}/api/v1/internal/heartbeat", platform_url);
+                let payload = serde_json::json!({
+                    "name": server_name,
+                    "url": server_url,
+                    "token": token,
+                    "version": version,
+                });
+                let hb_payload = serde_json::json!({ "token": token });
+
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    let _ = client.post(&reg_url).json(&payload).send().await;
+                    interval.tick().await;
+                    let _ = client.post(&hb_url).json(&hb_payload).send().await;
+                }
+            });
+
+            info!(platform_url = %log_url, server_name = %log_name, "HTTP-based platform registration enabled");
+        }
     }
 
     // Wait for shutdown signal or unexpected server exit, then drain gracefully.

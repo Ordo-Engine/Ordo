@@ -1,8 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { projectApi, rulesetDraftApi } from '@/api/platform-client'
-import { engineApi } from '@/api/engine-client'
-import { convertFromEngineFormat } from '@ordo-engine/editor-core'
 import { normalizeRuleset } from '@/utils/ruleset'
 import { useAuthStore } from './auth'
 import { useOrgStore } from './org'
@@ -57,8 +55,6 @@ export const useProjectStore = defineStore('project', () => {
 
   async function fetchRulesets() {
     if (!auth.token || !currentProject.value) return
-    rulesets.value = await engineApi.listRulesets(auth.token, currentProject.value.id)
-    // Also fetch draft metadata from platform
     const org = orgStore.currentOrg
     if (org) {
       try {
@@ -66,7 +62,17 @@ export const useProjectStore = defineStore('project', () => {
       } catch {
         draftMetas.value = []
       }
+    } else {
+      draftMetas.value = []
     }
+
+    rulesets.value = draftMetas.value
+      .map<RuleSetInfo>((draft) => ({
+        name: draft.name,
+        version: draft.published_version ?? 'draft',
+        description: '',
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
   }
 
   async function openRuleset(name: string) {
@@ -79,24 +85,10 @@ export const useProjectStore = defineStore('project', () => {
     }
 
     const org = orgStore.currentOrg
-    let ruleset: RuleSet
-    let draft_seq = 0
-
-    if (org) {
-      try {
-        // Load from platform draft API (seeds from engine if no draft exists)
-        const draft = await rulesetDraftApi.get(auth.token, org.id, currentProject.value.id, name)
-        ruleset = normalizeRuleset(draft.draft, name)
-        draft_seq = draft.draft_seq
-      } catch {
-        // Fall back to engine
-        const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
-        ruleset = normalizeRuleset(engineData, name)
-      }
-    } else {
-      const engineData = await engineApi.getRuleset(auth.token, currentProject.value.id, name)
-      ruleset = normalizeRuleset(engineData, name)
-    }
+    if (!org) throw new Error('No active org')
+    const draft = await rulesetDraftApi.get(auth.token, org.id, currentProject.value.id, name)
+    const ruleset = normalizeRuleset(draft.draft, name)
+    const draft_seq = draft.draft_seq
 
     openTabs.value.push({ name, ruleset, dirty: false, draft_seq })
     activeTabName.value = name
@@ -145,15 +137,26 @@ export const useProjectStore = defineStore('project', () => {
 
   async function createRuleset(ruleset: RuleSet) {
     if (!auth.token || !currentProject.value) throw new Error('No active project')
-    const { convertToEngineFormat } = await import('@ordo-engine/editor-core')
-    const engineFormat = convertToEngineFormat(ruleset)
-    await engineApi.createRuleset(auth.token, currentProject.value.id, engineFormat)
+    const org = orgStore.currentOrg
+    const name = ruleset.config.name?.trim()
+    if (!org) throw new Error('No active org')
+    if (!name) throw new Error('Ruleset name is required')
+
+    const result = await rulesetDraftApi.save(auth.token, org.id, currentProject.value.id, name, {
+      ruleset: ruleset as any,
+      expected_seq: 0,
+    })
+    if ('conflict' in result) {
+      throw new Error('Ruleset already exists')
+    }
     await fetchRulesets()
   }
 
   async function deleteRuleset(name: string) {
     if (!auth.token || !currentProject.value) throw new Error('No active project')
-    await engineApi.deleteRuleset(auth.token, currentProject.value.id, name)
+    const org = orgStore.currentOrg
+    if (!org) throw new Error('No active org')
+    await rulesetDraftApi.delete(auth.token, org.id, currentProject.value.id, name)
     closeTab(name)
     await fetchRulesets()
   }

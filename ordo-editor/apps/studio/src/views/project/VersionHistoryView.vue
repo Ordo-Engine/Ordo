@@ -5,9 +5,9 @@ import { useRouter, useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import { useOrgStore } from '@/stores/org'
 import { useAuthStore } from '@/stores/auth'
-import { engineApi } from '@/api/engine-client'
+import { rulesetDraftApi, rulesetHistoryApi } from '@/api/platform-client'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import type { VersionListResponse } from '@/api/types'
+import type { RulesetHistoryEntry, VersionListResponse } from '@/api/types'
 
 const projectStore = useProjectStore()
 const orgStore = useOrgStore()
@@ -21,6 +21,7 @@ const canAdmin = computed(() => auth.user ? orgStore.canAdmin(auth.user.id) : fa
 
 const selectedRuleset = ref<string | null>(null)
 const versionData = ref<VersionListResponse | null>(null)
+const historyEntries = ref<RulesetHistoryEntry[]>([])
 const loading = ref(false)
 const rollingBack = ref<number | null>(null)
 
@@ -28,14 +29,22 @@ async function loadVersions(name: string) {
   if (!auth.token || !projectStore.currentProject) return
   loading.value = true
   try {
-    versionData.value = await engineApi.listVersions(
-      auth.token,
-      projectStore.currentProject.id,
+    const history = await rulesetHistoryApi.list(auth.token, projectStore.currentProject.id, name)
+    historyEntries.value = history.entries
+    const meta = projectStore.draftMetas.find((entry) => entry.name === name) ?? null
+    versionData.value = {
       name,
-    )
+      current_version: meta?.published_version ?? extractVersion(history.entries[0]?.snapshot),
+      versions: history.entries.map((entry, index) => ({
+        seq: index + 1,
+        version: extractVersion(entry.snapshot),
+        created_at: entry.created_at,
+      })),
+    }
   } catch (e: any) {
     MessagePlugin.error(e.message || t('versions.loadFailed'))
     versionData.value = null
+    historyEntries.value = []
   } finally {
     loading.value = false
   }
@@ -69,12 +78,30 @@ function handleRollback(seq: number) {
       if (!auth.token || !projectStore.currentProject) return
       rollingBack.value = seq
       try {
-        await engineApi.rollback(auth.token, projectStore.currentProject.id, name, seq)
+        const org = orgStore.currentOrg
+        if (!org) throw new Error('No active org')
+        const target = historyEntries.value[seq - 1]
+        if (!target) throw new Error('Version not found')
+        const currentDraft = await rulesetDraftApi.get(auth.token, org.id, projectStore.currentProject.id, name)
+        const restored = await rulesetDraftApi.save(auth.token, org.id, projectStore.currentProject.id, name, {
+          ruleset: target.snapshot,
+          expected_seq: currentDraft.draft_seq,
+        })
+        if ('conflict' in restored) {
+          throw new Error(t('versions.rollbackFailed'))
+        }
+        await rulesetHistoryApi.append(auth.token, projectStore.currentProject.id, name, [
+          {
+            id: crypto.randomUUID(),
+            action: `restore version #${seq}`,
+            source: 'restore',
+            snapshot: target.snapshot,
+          },
+        ])
         dlg.hide()
         MessagePlugin.success(t('versions.rollbackSuccess', { seq }))
-        await loadVersions(name)
-        // Refresh rulesets list
         await projectStore.fetchRulesets()
+        await loadVersions(name)
       } catch (e: any) {
         MessagePlugin.error(e.message || t('versions.rollbackFailed'))
       } finally {
@@ -92,6 +119,10 @@ function formatDate(dateStr: string) {
       hour: '2-digit', minute: '2-digit', second: '2-digit',
     },
   )
+}
+
+function extractVersion(snapshot: Record<string, any> | undefined) {
+  return snapshot?.config?.version ?? 'draft'
 }
 </script>
 

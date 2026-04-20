@@ -583,6 +583,7 @@ export type ReleaseExecutionStatus =
   | 'waiting_start'
   | 'rolling_out'
   | 'paused'
+  | 'verifying'
   | 'rollback_in_progress'
   | 'completed'
   | 'failed'
@@ -595,6 +596,7 @@ export type ReleaseInstanceStatus =
   | 'success'
   | 'failed'
   | 'rolled_back'
+  | 'skipped'
 
 export interface ReleaseExecutionInstance {
   id: string

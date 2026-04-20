@@ -765,6 +765,42 @@ export const releaseApi = {
     })
   },
 
+  pauseExecution(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+  ): Promise<ReleaseExecution> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/pause`, {
+      method: 'POST',
+      token,
+    })
+  },
+
+  resumeExecution(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+  ): Promise<ReleaseExecution> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/resume`, {
+      method: 'POST',
+      token,
+    })
+  },
+
+  rollbackExecution(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+  ): Promise<ReleaseExecution> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/rollback`, {
+      method: 'POST',
+      token,
+    })
+  },
+
   getRequestExecution(
     token: string,
     orgId: string,

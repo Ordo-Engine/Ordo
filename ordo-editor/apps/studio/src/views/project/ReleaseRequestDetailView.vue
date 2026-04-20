@@ -20,6 +20,7 @@ const rbacStore = useRbacStore()
 const loading = ref(false)
 const reviewLoading = ref(false)
 const executeLoading = ref(false)
+const controlLoading = ref<'pause' | 'resume' | 'rollback' | null>(null)
 const request = ref<ReleaseRequest | null>(null)
 const execution = ref<ReleaseExecution | null>(null)
 const elapsedSeconds = ref(0)
@@ -35,6 +36,9 @@ const reviewDialog = ref<{ visible: boolean; mode: 'approve' | 'reject'; comment
 const canApprove = computed(() => rbacStore.can('release:request.approve'))
 const canReject = computed(() => rbacStore.can('release:request.reject'))
 const canExecute = computed(() => rbacStore.can('release:execute'))
+const canPause = computed(() => rbacStore.can('release:pause'))
+const canResume = computed(() => rbacStore.can('release:resume'))
+const canRollback = computed(() => rbacStore.can('release:rollback'))
 const canReview = computed(() =>
   !!request.value?.approvals.some(
     (a) => a.reviewer_id === auth.user?.id && a.decision === 'pending',
@@ -47,6 +51,15 @@ const isLiveExecution = computed(() =>
 )
 
 const hasExecution = computed(() => execution.value !== null)
+const canPauseExecution = computed(() =>
+  !!execution.value && ['preparing', 'waiting_start', 'rolling_out', 'verifying'].includes(execution.value.status),
+)
+const canResumeExecution = computed(() =>
+  execution.value?.status === 'paused',
+)
+const canRollbackExecution = computed(() =>
+  !!execution.value && ['completed', 'failed', 'paused'].includes(execution.value.status),
+)
 
 const executionTabDot = computed(() => {
   if (!execution.value) return null
@@ -231,6 +244,44 @@ async function executeRelease() {
     executeLoading.value = false
   }
 }
+
+async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
+  if (!auth.token || !request.value) return
+  controlLoading.value = action
+  try {
+    const ex = action === 'pause'
+      ? await releaseApi.pauseExecution(auth.token, route.params.orgId as string, route.params.projectId as string, request.value.id)
+      : action === 'resume'
+        ? await releaseApi.resumeExecution(auth.token, route.params.orgId as string, route.params.projectId as string, request.value.id)
+        : await releaseApi.rollbackExecution(auth.token, route.params.orgId as string, route.params.projectId as string, request.value.id)
+    execution.value = ex
+    request.value = await releaseApi.getRequest(
+      auth.token, route.params.orgId as string,
+      route.params.projectId as string, request.value.id,
+    )
+    if (action === 'pause') {
+      stopClock()
+      stopPolling()
+    } else if (action === 'resume') {
+      startClock()
+      startPolling()
+    } else if (action === 'rollback') {
+      activeTab.value = 'execution'
+      if (isLiveExecution.value) {
+        startClock()
+        startPolling()
+      } else {
+        stopClock()
+        stopPolling()
+      }
+    }
+    MessagePlugin.success(t(`releaseCenter.${action}ActionSuccess`))
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t(`releaseCenter.${action}ActionFailed`))
+  } finally {
+    controlLoading.value = null
+  }
+}
 </script>
 
 <template>
@@ -258,6 +309,32 @@ async function executeRelease() {
           @click="executeRelease"
         >
           {{ t('releaseCenter.executeAction') }}
+        </t-button>
+        <t-button
+          v-if="canPause && canPauseExecution"
+          variant="outline"
+          :loading="controlLoading === 'pause'"
+          @click="controlExecution('pause')"
+        >
+          {{ t('releaseCenter.pauseAction') }}
+        </t-button>
+        <t-button
+          v-if="canResume && canResumeExecution"
+          theme="primary"
+          variant="outline"
+          :loading="controlLoading === 'resume'"
+          @click="controlExecution('resume')"
+        >
+          {{ t('releaseCenter.resumeAction') }}
+        </t-button>
+        <t-button
+          v-if="canRollback && canRollbackExecution"
+          variant="outline"
+          theme="danger"
+          :loading="controlLoading === 'rollback'"
+          @click="controlExecution('rollback')"
+        >
+          {{ t('releaseCenter.rollbackAction') }}
         </t-button>
       </template>
     </StudioPageHeader>

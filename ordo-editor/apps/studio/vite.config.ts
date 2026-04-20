@@ -19,6 +19,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3002,
     strictPort: true, // Always use 3002 — kill any process holding it first
+    allowedHosts: ['devcontainer.ordoengine.com'],
     proxy: {
       // All /api traffic goes through ordo-platform (:3001)
       // ordo-platform proxies engine calls to ordo-server internally

@@ -3,6 +3,8 @@
 //! Permission bits follow the pattern `resource:action`, e.g. `ruleset:publish`.
 //! A user's effective permissions are the union of all roles assigned to them in the org.
 
+#![allow(dead_code)]
+
 use crate::{error::PlatformError, AppState};
 use std::collections::HashSet;
 

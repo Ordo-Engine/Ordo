@@ -676,6 +676,17 @@ pub async fn execute_release_request(
     Ok(Json(execution))
 }
 
+struct ControlExecutionParams {
+    org_id: String,
+    project_id: String,
+    release_id: String,
+    permission: &'static str,
+    target_status: ReleaseExecutionStatus,
+    request_status: Option<ReleaseRequestStatus>,
+    event_type: &'static str,
+    invalid_state_message: &'static str,
+}
+
 pub async fn pause_release_execution(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -684,14 +695,16 @@ pub async fn pause_release_execution(
     control_release_execution(
         state,
         claims,
-        org_id,
-        project_id,
-        release_id,
-        PERM_RELEASE_PAUSE,
-        ReleaseExecutionStatus::Paused,
-        Some(ReleaseRequestStatus::Executing),
-        "execution_paused",
-        "Release execution is not active",
+        ControlExecutionParams {
+            org_id,
+            project_id,
+            release_id,
+            permission: PERM_RELEASE_PAUSE,
+            target_status: ReleaseExecutionStatus::Paused,
+            request_status: Some(ReleaseRequestStatus::Executing),
+            event_type: "execution_paused",
+            invalid_state_message: "Release execution is not active",
+        },
     )
     .await
 }
@@ -704,14 +717,16 @@ pub async fn resume_release_execution(
     control_release_execution(
         state,
         claims,
-        org_id,
-        project_id,
-        release_id,
-        PERM_RELEASE_RESUME,
-        ReleaseExecutionStatus::RollingOut,
-        Some(ReleaseRequestStatus::Executing),
-        "execution_resumed",
-        "Release execution is not paused",
+        ControlExecutionParams {
+            org_id,
+            project_id,
+            release_id,
+            permission: PERM_RELEASE_RESUME,
+            target_status: ReleaseExecutionStatus::RollingOut,
+            request_status: Some(ReleaseRequestStatus::Executing),
+            event_type: "execution_resumed",
+            invalid_state_message: "Release execution is not paused",
+        },
     )
     .await
 }
@@ -943,6 +958,15 @@ pub async fn rollback_release_execution(
     Ok(Json(updated))
 }
 
+struct ReviewParams {
+    org_id: String,
+    project_id: String,
+    release_id: String,
+    decision: ReleaseApprovalDecision,
+    permission: &'static str,
+    comment: Option<String>,
+}
+
 pub async fn approve_release_request(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -952,12 +976,14 @@ pub async fn approve_release_request(
     review_release(
         state,
         claims,
-        org_id,
-        project_id,
-        release_id,
-        ReleaseApprovalDecision::Approved,
-        PERM_RELEASE_REQUEST_APPROVE,
-        req.comment,
+        ReviewParams {
+            org_id,
+            project_id,
+            release_id,
+            decision: ReleaseApprovalDecision::Approved,
+            permission: PERM_RELEASE_REQUEST_APPROVE,
+            comment: req.comment,
+        },
     )
     .await
 }
@@ -971,12 +997,14 @@ pub async fn reject_release_request(
     review_release(
         state,
         claims,
-        org_id,
-        project_id,
-        release_id,
-        ReleaseApprovalDecision::Rejected,
-        PERM_RELEASE_REQUEST_REJECT,
-        req.comment,
+        ReviewParams {
+            org_id,
+            project_id,
+            release_id,
+            decision: ReleaseApprovalDecision::Rejected,
+            permission: PERM_RELEASE_REQUEST_REJECT,
+            comment: req.comment,
+        },
     )
     .await
 }
@@ -984,12 +1012,14 @@ pub async fn reject_release_request(
 async fn review_release(
     state: AppState,
     claims: Claims,
-    org_id: String,
-    project_id: String,
-    release_id: String,
-    decision: ReleaseApprovalDecision,
-    permission: &str,
-    comment: Option<String>,
+    ReviewParams {
+        org_id,
+        project_id,
+        release_id,
+        decision,
+        permission,
+        comment,
+    }: ReviewParams,
 ) -> ApiResult<Json<ReleaseRequest>> {
     require_project_permission(&state, &org_id, &project_id, &claims.sub, permission).await?;
 
@@ -1078,14 +1108,16 @@ async fn review_release(
 async fn control_release_execution(
     state: AppState,
     claims: Claims,
-    org_id: String,
-    project_id: String,
-    release_id: String,
-    permission: &str,
-    target_status: ReleaseExecutionStatus,
-    request_status: Option<ReleaseRequestStatus>,
-    event_type: &str,
-    invalid_state_message: &str,
+    ControlExecutionParams {
+        org_id,
+        project_id,
+        release_id,
+        permission,
+        target_status,
+        request_status,
+        event_type,
+        invalid_state_message,
+    }: ControlExecutionParams,
 ) -> ApiResult<Json<ReleaseExecution>> {
     require_project_permission(&state, &org_id, &project_id, &claims.sub, permission).await?;
 

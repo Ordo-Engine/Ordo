@@ -1257,10 +1257,10 @@ impl RuleStore {
             }
         }
         if let Err(e) = self.persist_ruleset(tenant_id, &name, &ruleset) {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to persist synced ruleset '{}': {}", name, e),
-            ));
+            return Err(io::Error::other(format!(
+                "Failed to persist synced ruleset '{}': {}",
+                name, e
+            )));
         }
         if self.rules_dir.is_some() {
             if let Err(e) = self.cleanup_old_versions(tenant_id, &name) {

@@ -753,6 +753,7 @@ impl PlatformStore {
 
     // ── GitHub connections ────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_github_connection(
         &self,
         user_id: &str,
@@ -1295,7 +1296,7 @@ impl PlatformStore {
         .bind(project_id)
         .fetch_optional(&self.pool)
         .await?;
-        row.as_ref().map(|r| row_to_deployment(r)).transpose()
+        row.as_ref().map(row_to_deployment).transpose()
     }
 
     // ── RBAC: Org Roles ──────────────────────────────────────────────────────
@@ -1694,6 +1695,7 @@ impl PlatformStore {
         row.as_ref().map(row_to_release_policy).transpose()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_release_request(
         &self,
         id: &str,
@@ -1893,6 +1895,7 @@ impl PlatformStore {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_release_execution(
         &self,
         id: &str,

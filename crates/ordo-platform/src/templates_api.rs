@@ -5,7 +5,7 @@ use crate::{
     models::{Claims, Project, Role, TemplateDetail, TemplateMetadata},
     org::load_org_and_check_role,
     project::{register_project_tenant, ProjectResponse},
-    ruleset_history::append_history_entry_for_actor,
+    ruleset_history::{append_history_entry_for_actor, HistoryActorParams},
     template::extract_locale,
     AppState,
 };
@@ -164,14 +164,16 @@ pub async fn install_template_detail(
 
     if let Err(e) = append_history_entry_for_actor(
         state,
-        org_id,
-        &project.id,
-        &ruleset_name,
-        crate::models::RulesetHistorySource::Create,
-        format!("Created from '{}'", source_label),
-        ruleset.clone(),
-        &claims.sub,
-        &claims.email,
+        HistoryActorParams {
+            org_id: org_id.to_string(),
+            project_id: project.id.clone(),
+            ruleset_name: ruleset_name.clone(),
+            source: crate::models::RulesetHistorySource::Create,
+            action: format!("Created from '{}'", source_label),
+            snapshot: ruleset.clone(),
+            author_id: claims.sub.clone(),
+            author_email: claims.email.clone(),
+        },
     )
     .await
     {

@@ -1110,6 +1110,7 @@ pub struct AssignRoleRequest {
 
 /// Member enriched with their RBAC role assignments
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct MemberWithRoles {
     pub user_id: String,
     pub email: String,

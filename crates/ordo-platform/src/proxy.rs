@@ -12,7 +12,7 @@
 use crate::{
     error::{ApiResult, PlatformError},
     models::{Claims, Role, RulesetHistorySource},
-    ruleset_history::append_history_entry_for_actor,
+    ruleset_history::{append_history_entry_for_actor, HistoryActorParams},
     sync::SyncEvent,
     AppState,
 };
@@ -333,22 +333,24 @@ async fn handle_sync_ruleset_write(
 
             if let Err(err) = append_history_entry_for_actor(
                 state,
-                org_id,
-                project_id,
-                &name,
-                if matches!(existed, Some(false)) {
-                    RulesetHistorySource::Create
-                } else {
-                    RulesetHistorySource::Save
+                HistoryActorParams {
+                    org_id: org_id.to_string(),
+                    project_id: project_id.to_string(),
+                    ruleset_name: name.clone(),
+                    source: if matches!(existed, Some(false)) {
+                        RulesetHistorySource::Create
+                    } else {
+                        RulesetHistorySource::Save
+                    },
+                    action: if matches!(existed, Some(false)) {
+                        format!("Created ruleset '{}'", name)
+                    } else {
+                        format!("Saved ruleset '{}'", name)
+                    },
+                    snapshot: payload,
+                    author_id: claims.sub.clone(),
+                    author_email: claims.email.clone(),
                 },
-                if matches!(existed, Some(false)) {
-                    format!("Created ruleset '{}'", name)
-                } else {
-                    format!("Saved ruleset '{}'", name)
-                },
-                payload,
-                &claims.sub,
-                &claims.email,
             )
             .await
             {
@@ -449,14 +451,16 @@ async fn handle_sync_ruleset_write(
 
             if let Err(err) = append_history_entry_for_actor(
                 state,
-                org_id,
-                project_id,
-                &name,
-                RulesetHistorySource::Restore,
-                format!("Rolled back '{}' to version #{}", name, request.seq),
-                rollback_ruleset,
-                &claims.sub,
-                &claims.email,
+                HistoryActorParams {
+                    org_id: org_id.to_string(),
+                    project_id: project_id.to_string(),
+                    ruleset_name: name.clone(),
+                    source: RulesetHistorySource::Restore,
+                    action: format!("Rolled back '{}' to version #{}", name, request.seq),
+                    snapshot: rollback_ruleset,
+                    author_id: claims.sub.clone(),
+                    author_email: claims.email.clone(),
+                },
             )
             .await
             {

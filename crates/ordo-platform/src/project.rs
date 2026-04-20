@@ -160,9 +160,7 @@ pub async fn update_project(
     }
 
     if name_changed {
-        if let Err(err) = sync_tenant_upsert(&state, &project.id, &project.name, true).await {
-            return Err(err);
-        }
+        sync_tenant_upsert(&state, &project.id, &project.name, true).await?;
     }
 
     if let Err(err) = state.store.save_project(&project).await {

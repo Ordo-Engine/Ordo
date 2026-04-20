@@ -133,13 +133,6 @@ function formatDate(iso: string) {
     <div class="workspace-toolbar">
       <div>
         <h2 class="workspace-title">{{ t('dashboard.workspaceTitle') }}</h2>
-        <p class="workspace-subtitle">
-          {{
-            orgStore.currentOrg
-              ? t('dashboard.workspaceSubtitle', { org: orgStore.currentOrg.name })
-              : t('dashboard.workspaceSubtitleNoOrg')
-          }}
-        </p>
       </div>
 
       <div class="workspace-toolbar__actions">

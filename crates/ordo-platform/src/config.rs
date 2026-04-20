@@ -106,6 +106,15 @@ pub struct PlatformConfig {
     )]
     pub allow_registration: bool,
 
+    /// Shared secret required in `X-Registration-Secret` header for internal server registration.
+    /// When set, ordo-server instances must include this value to register or send heartbeats.
+    /// Leave unset to allow unauthenticated registration (not recommended for production).
+    #[arg(
+        long = "registration-secret",
+        env = "ORDO_PLATFORM_REGISTRATION_SECRET"
+    )]
+    pub registration_secret: Option<String>,
+
     /// Allow authenticated users to create new root-level organizations.
     /// When false (default), only platform admins can create top-level orgs;
     /// sub-orgs within an existing org can still be created by org Admins.

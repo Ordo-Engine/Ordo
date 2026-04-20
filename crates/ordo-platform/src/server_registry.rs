@@ -14,7 +14,7 @@
 
 use crate::{
     error::{ApiResult, PlatformError},
-    models::{Claims, Role, ServerInfo, ServerNode, ServerStatus},
+    models::{derive_server_id, Claims, Role, ServerInfo, ServerNode, ServerStatus},
     org::load_org_and_check_role,
     proxy::find_project_membership,
     AppState,
@@ -22,18 +22,18 @@ use crate::{
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Response,
     Extension, Json,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 // ── Internal (token-auth) ─────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct RegisterRequest {
+    pub server_id: String,
     pub name: String,
     pub url: String,
     pub token: String,
@@ -50,31 +50,53 @@ pub struct RegisterResponse {
 
 /// POST /api/v1/internal/register
 ///
-/// Called by ordo-server on startup. Upserts the server entry by token.
+/// Called by ordo-server on startup. Upserts the server entry by stable server_id.
 pub async fn register_server(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> ApiResult<Json<RegisterResponse>> {
-    if req.token.is_empty() || req.url.is_empty() || req.name.is_empty() {
+    if let Some(required_secret) = state.config.registration_secret.as_deref() {
+        let provided = headers
+            .get("x-registration-secret")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if provided != required_secret {
+            return Err(PlatformError::unauthorized("Invalid registration secret"));
+        }
+    }
+    if req.server_id.is_empty() || req.token.is_empty() || req.url.is_empty() || req.name.is_empty() {
         return Err(PlatformError::bad_request(
-            "name, url and token are required",
+            "server_id, name, url and token are required",
+        ));
+    }
+    let derived_server_id = derive_server_id(&req.url).map_err(PlatformError::Internal)?;
+    if derived_server_id != req.server_id {
+        return Err(PlatformError::bad_request(
+            "server_id does not match the normalized server url",
         ));
     }
 
-    // Upsert by token: if token already exists we update name/url/version
-    let existing = state
+    if let Some(existing) = state
         .store
         .find_server_by_token(&req.token)
         .await
+        .map_err(PlatformError::Internal)?
+    {
+        if existing.id != req.server_id {
+            return Err(PlatformError::conflict(
+                "server token is already associated with another server",
+            ));
+        }
+    }
+    let existing = state
+        .store
+        .get_server(&req.server_id)
+        .await
         .map_err(PlatformError::Internal)?;
 
-    let id = existing
-        .as_ref()
-        .map(|s| s.id.clone())
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
-
     let server = ServerNode {
-        id: id.clone(),
+        id: req.server_id.clone(),
         name: req.name,
         url: req.url,
         token: req.token,
@@ -92,26 +114,36 @@ pub async fn register_server(
         .await
         .map_err(PlatformError::Internal)?;
 
-    tracing::info!(server_id = %id, "Server registered");
+    tracing::info!(server_id = %server.id, "Server registered");
     Ok(Json(RegisterResponse {
-        id,
+        id: server.id,
         status: "ok".into(),
     }))
 }
 
 #[derive(Deserialize)]
 pub struct HeartbeatRequest {
-    pub token: String,
+    pub server_id: String,
 }
 
 /// POST /api/v1/internal/heartbeat
 pub async fn server_heartbeat(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<HeartbeatRequest>,
 ) -> ApiResult<StatusCode> {
+    if let Some(required_secret) = state.config.registration_secret.as_deref() {
+        let provided = headers
+            .get("x-registration-secret")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if provided != required_secret {
+            return Err(PlatformError::unauthorized("Invalid registration secret"));
+        }
+    }
     state
         .store
-        .update_server_heartbeat(&req.token)
+        .update_server_heartbeat(&req.server_id)
         .await
         .map_err(PlatformError::Internal)?;
     Ok(StatusCode::NO_CONTENT)

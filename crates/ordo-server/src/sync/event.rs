@@ -17,6 +17,10 @@ pub enum SyncEvent {
         ruleset_json: String,
         /// RuleSet config version string, used for idempotent dedup on readers.
         version: String,
+        /// Associated release execution when the message comes from rollout.
+        release_execution_id: Option<String>,
+        /// Optional target server id allow-list for batched rollout.
+        target_server_ids: Option<Vec<String>>,
     },
     /// A ruleset was deleted.
     RuleDeleted { tenant_id: String, name: String },
@@ -33,6 +37,8 @@ pub enum SyncEvent {
     TenantConfigChanged { config_json: String },
     /// A server instance announced or refreshed its registry metadata.
     ServerRegistered {
+        #[serde(default)]
+        server_id: String,
         name: String,
         url: String,
         token: String,
@@ -40,7 +46,22 @@ pub enum SyncEvent {
         org_id: Option<String>,
     },
     /// A server instance sent a heartbeat.
-    ServerHeartbeat { token: String },
+    ServerHeartbeat {
+        #[serde(default)]
+        server_id: String,
+    },
+    /// A server acknowledged successful release application.
+    ReleaseExecutionAck {
+        execution_id: String,
+        server_id: String,
+        message: Option<String>,
+    },
+    /// A server reported a release application failure.
+    ReleaseExecutionFailed {
+        execution_id: String,
+        server_id: String,
+        error: String,
+    },
 }
 
 impl SyncEvent {
@@ -54,6 +75,8 @@ impl SyncEvent {
             SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
             SyncEvent::ServerRegistered { .. } => "ServerRegistered",
             SyncEvent::ServerHeartbeat { .. } => "ServerHeartbeat",
+            SyncEvent::ReleaseExecutionAck { .. } => "ReleaseExecutionAck",
+            SyncEvent::ReleaseExecutionFailed { .. } => "ReleaseExecutionFailed",
         }
     }
 }
@@ -105,6 +128,18 @@ impl SyncMessage {
             SyncEvent::ServerHeartbeat { .. } => {
                 format!("{}.control.servers.heartbeat", prefix)
             }
+            SyncEvent::ReleaseExecutionAck {
+                execution_id,
+                server_id,
+                ..
+            }
+            | SyncEvent::ReleaseExecutionFailed {
+                execution_id,
+                server_id,
+                ..
+            } => {
+                format!("{}.control.releases.{}.{}", prefix, execution_id, server_id)
+            }
         }
     }
 }
@@ -120,6 +155,8 @@ mod tests {
             name: "payment-check".into(),
             ruleset_json: r#"{"config":{"name":"payment-check"}}"#.into(),
             version: "1.0.0".into(),
+            release_execution_id: None,
+            target_server_ids: None,
         };
         let json = serde_json::to_string(&event).unwrap();
         let decoded: SyncEvent = serde_json::from_str(&json).unwrap();
@@ -206,6 +243,8 @@ mod tests {
                 name: "fraud".into(),
                 ruleset_json: "{}".into(),
                 version: "1".into(),
+                release_execution_id: None,
+                target_server_ids: None,
             },
         );
         assert_eq!(msg.subject("ordo.rules"), "ordo.rules.acme.fraud");
@@ -238,6 +277,8 @@ mod tests {
                 name: "test".into(),
                 ruleset_json: r#"{"config":{"name":"test"}}"#.into(),
                 version: "2.0".into(),
+                release_execution_id: None,
+                target_server_ids: None,
             },
         );
         let bytes = serde_json::to_vec(&msg).unwrap();

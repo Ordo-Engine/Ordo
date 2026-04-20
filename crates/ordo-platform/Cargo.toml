@@ -34,7 +34,9 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4"] }
 sqlx.workspace = true
 url = "2"
+sha2.workspace = true
+hex.workspace = true
+ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
-ordo-core = { path = "../ordo-core" }

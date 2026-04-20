@@ -909,6 +909,7 @@ pub struct InstallPayload {
 
 pub async fn install_marketplace_item(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Extension(claims): Extension<Claims>,
     Path((owner, repo)): Path<(String, String)>,
     Json(payload): Json<InstallPayload>,
@@ -922,7 +923,9 @@ pub async fn install_marketplace_item(
     }
 
     let token = get_optional_github_token(&state, &claims.sub).await?;
-    let manifest = fetch_manifest(&state, &owner, &repo, token.as_deref()).await?;
+    let locale = locale_from_headers(&headers);
+    let manifest =
+        fetch_localized_manifest(&state, &owner, &repo, locale, token.as_deref()).await?;
 
     // Strip GitHub-enriched fields before deserializing into TemplateDetail
     let mut clean = manifest.clone();

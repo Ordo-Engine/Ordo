@@ -17,6 +17,8 @@ pub enum SyncEvent {
         name: String,
         ruleset_json: String,
         version: String,
+        release_execution_id: Option<String>,
+        target_server_ids: Option<Vec<String>>,
     },
     RuleDeleted {
         tenant_id: String,
@@ -34,6 +36,8 @@ pub enum SyncEvent {
         config_json: String,
     },
     ServerRegistered {
+        #[serde(default)]
+        server_id: String,
         name: String,
         url: String,
         token: String,
@@ -41,7 +45,18 @@ pub enum SyncEvent {
         org_id: Option<String>,
     },
     ServerHeartbeat {
-        token: String,
+        #[serde(default)]
+        server_id: String,
+    },
+    ReleaseExecutionAck {
+        execution_id: String,
+        server_id: String,
+        message: Option<String>,
+    },
+    ReleaseExecutionFailed {
+        execution_id: String,
+        server_id: String,
+        error: String,
     },
 }
 
@@ -75,6 +90,16 @@ impl SyncMessage {
             SyncEvent::TenantConfigChanged { .. } => format!("{}.tenants", prefix),
             SyncEvent::ServerRegistered { .. } => format!("{}.control.servers.register", prefix),
             SyncEvent::ServerHeartbeat { .. } => format!("{}.control.servers.heartbeat", prefix),
+            SyncEvent::ReleaseExecutionAck {
+                execution_id,
+                server_id,
+                ..
+            }
+            | SyncEvent::ReleaseExecutionFailed {
+                execution_id,
+                server_id,
+                ..
+            } => format!("{}.control.releases.{}.{}", prefix, execution_id, server_id),
         }
     }
 }
@@ -174,7 +199,19 @@ pub async fn create_control_consumer(
 ) -> anyhow::Result<jetstream::consumer::PullConsumer> {
     let stream = jetstream.get_stream(STREAM_NAME).await?;
     let consumer_name = format!("platform-registry-{}", instance_id);
-    let filter = format!("{}.control.servers.>", subject_prefix);
+    let filter = format!("{}.control.>", subject_prefix);
+
+    if let Ok(info) = stream.consumer_info(&consumer_name).await {
+        if info.config.filter_subject != filter {
+            info!(
+                consumer = %consumer_name,
+                old_filter = %info.config.filter_subject,
+                new_filter = %filter,
+                "Recreating NATS control consumer with updated filter"
+            );
+            stream.delete_consumer(&consumer_name).await?;
+        }
+    }
 
     Ok(stream
         .get_or_create_consumer(
@@ -239,42 +276,166 @@ pub fn start_registry_subscriber(
 
                 let result = match sync_msg.event {
                     SyncEvent::ServerRegistered {
+                        server_id,
                         name,
                         url,
                         token,
                         version,
                         org_id,
-                    } => {
-                        let existing = store.find_server_by_token(&token).await;
-                        match existing {
-                            Ok(existing) => {
-                                let id = existing
-                                    .as_ref()
-                                    .map(|s| s.id.clone())
-                                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-                                let server = crate::models::ServerNode {
-                                    id,
-                                    name,
-                                    url,
-                                    token,
-                                    org_id,
-                                    labels: serde_json::Value::Object(Default::default()),
-                                    version,
-                                    status: crate::models::ServerStatus::Online,
-                                    last_seen: Some(chrono::Utc::now()),
-                                    registered_at: existing
-                                        .map(|s| s.registered_at)
-                                        .unwrap_or_else(chrono::Utc::now),
-                                };
-                                store.upsert_server(&server).await
+                    } => match crate::models::derive_server_id(&url) {
+                        Ok(derived_server_id) => {
+                            let effective_server_id = if server_id.is_empty() {
+                                Ok(derived_server_id)
+                            } else if derived_server_id != server_id {
+                                Err(anyhow::anyhow!(
+                                    "server_id {} does not match normalized url {}",
+                                    server_id,
+                                    url
+                                ))
+                            } else {
+                                Ok(server_id)
+                            };
+                            match effective_server_id {
+                                Ok(effective_server_id) => {
+                                    let existing = store.get_server(&effective_server_id).await;
+                                    match existing {
+                                        Ok(existing_opt) => {
+                                            let preserved_token = if token.is_empty() {
+                                                existing_opt
+                                                    .as_ref()
+                                                    .map(|s| s.token.clone())
+                                                    .unwrap_or_default()
+                                            } else {
+                                                token
+                                            };
+                                            // Reject if a different server already owns this token
+                                            if !preserved_token.is_empty() {
+                                                match store.find_server_by_token(&preserved_token).await {
+                                                    Ok(Some(ref owner)) if owner.id != effective_server_id => {
+                                                        let _ = msg.ack().await;
+                                                        continue;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            let server = crate::models::ServerNode {
+                                                id: effective_server_id,
+                                                name,
+                                                url,
+                                                token: preserved_token,
+                                                org_id,
+                                                labels: serde_json::Value::Object(Default::default()),
+                                                version,
+                                                status: crate::models::ServerStatus::Online,
+                                                last_seen: Some(chrono::Utc::now()),
+                                                registered_at: existing_opt
+                                                    .map(|s| s.registered_at)
+                                                    .unwrap_or_else(chrono::Utc::now),
+                                            };
+                                            store.upsert_server(&server).await
+                                        }
+                                        Err(e) => Err(e),
+                                    }
+                                }
+                                Err(e) => Err(e),
                             }
-                            Err(e) => Err(e),
+                        }
+                        Err(e) => Err(e),
+                    },
+                    SyncEvent::ServerHeartbeat { server_id } => {
+                        if server_id.is_empty() {
+                            tracing::debug!(
+                                "Ignoring legacy server heartbeat without server_id"
+                            );
+                            Ok(())
+                        } else {
+                            store.update_server_heartbeat(&server_id).await.map(|_| ())
                         }
                     }
-                    SyncEvent::ServerHeartbeat { token } => {
-                        store.update_server_heartbeat(&token).await.map(|_| ())
-                    }
+                    SyncEvent::ReleaseExecutionAck {
+                        execution_id,
+                        server_id,
+                        message,
+                    } => match store
+                        .find_release_execution_instance_by_target(&execution_id, &server_id)
+                        .await
+                    {
+                        Ok(Some(instance)) => {
+                            let update_result = store
+                                .update_release_execution_instance(
+                                    &instance.id,
+                                    crate::models::ReleaseInstanceStatus::Success,
+                                    message.as_deref().or(Some("Server applied release payload")),
+                                    Some("release_ack"),
+                                )
+                                .await;
+                            if let Err(e) = update_result {
+                                Err(e)
+                            } else {
+                                let _ = store
+                                    .create_release_execution_event(
+                                        &uuid::Uuid::new_v4().to_string(),
+                                        &execution_id,
+                                        Some(&instance.id),
+                                        "release_ack",
+                                        serde_json::json!({
+                                            "server_id": server_id,
+                                            "message": message,
+                                        }),
+                                    )
+                                    .await;
+                                Ok(())
+                            }
+                        }
+                        Ok(None) => Err(anyhow::anyhow!(
+                            "release execution instance not found for execution {} server {}",
+                            execution_id,
+                            server_id
+                        )),
+                        Err(e) => Err(e),
+                    },
+                    SyncEvent::ReleaseExecutionFailed {
+                        execution_id,
+                        server_id,
+                        error,
+                    } => match store
+                        .find_release_execution_instance_by_target(&execution_id, &server_id)
+                        .await
+                    {
+                        Ok(Some(instance)) => {
+                            let update_result = store
+                                .update_release_execution_instance(
+                                    &instance.id,
+                                    crate::models::ReleaseInstanceStatus::Failed,
+                                    Some(&error),
+                                    Some("release_failed"),
+                                )
+                                .await;
+                            if let Err(e) = update_result {
+                                Err(e)
+                            } else {
+                                let _ = store
+                                    .create_release_execution_event(
+                                        &uuid::Uuid::new_v4().to_string(),
+                                        &execution_id,
+                                        Some(&instance.id),
+                                        "release_failed",
+                                        serde_json::json!({
+                                            "server_id": server_id,
+                                            "error": error,
+                                        }),
+                                    )
+                                    .await;
+                                Ok(())
+                            }
+                        }
+                        Ok(None) => Err(anyhow::anyhow!(
+                            "release execution instance not found for execution {} server {}",
+                            execution_id,
+                            server_id
+                        )),
+                        Err(e) => Err(e),
+                    },
                     _ => Ok(()),
                 };
 

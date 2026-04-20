@@ -311,6 +311,13 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
             StatusCode::BAD_REQUEST,
             "ruleset_name, version, environment_id, title, and change_summary are required",
         ) => "release.request_fields_required",
+        (StatusCode::BAD_REQUEST, "ruleset.config.version is required") => {
+            "ruleset.config_version_required"
+        }
+        (
+            StatusCode::BAD_REQUEST,
+            "Release request version must match the draft ruleset version",
+        ) => "release.request_version_mismatch",
         (StatusCode::BAD_REQUEST, "GitHub OAuth is not configured on this server") => {
             "github.oauth_not_configured"
         }
@@ -387,6 +394,14 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
         }
         (StatusCode::CONFLICT, "Release execution is not active") => "release.execution_not_active",
         (StatusCode::CONFLICT, "Release execution is not paused") => "release.execution_not_paused",
+        (
+            StatusCode::CONFLICT,
+            "Cross-version rollback requires an approved release request",
+        ) => "release.cross_version_rollback_requires_approval",
+        (
+            StatusCode::CONFLICT,
+            "Published ruleset changes require a new version number",
+        ) => "ruleset.version_bump_required",
         (
             StatusCode::CONFLICT,
             "Release execution cannot be rolled back from its current status",

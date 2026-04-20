@@ -45,6 +45,14 @@ impl PlatformStore {
         Ok(rows.iter().map(row_to_project).collect())
     }
 
+    pub async fn count_projects(&self, org_id: &str) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) AS cnt FROM projects WHERE org_id = $1")
+            .bind(org_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get("cnt"))
+    }
+
     pub async fn delete_project(&self, org_id: &str, project_id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM projects WHERE id = $1 AND org_id = $2")
             .bind(project_id)

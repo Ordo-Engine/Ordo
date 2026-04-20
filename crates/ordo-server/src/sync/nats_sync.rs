@@ -138,7 +138,10 @@ impl NatsPublisher {
 /// Subscriber that applies sync events from NATS JetStream to the local store.
 pub struct NatsSubscriber {
     consumer: PullConsumer,
+    jetstream: jetstream::Context,
+    subject_prefix: String,
     instance_id: String,
+    server_id: String,
     store: Arc<RwLock<RuleStore>>,
     tenant_manager: Arc<TenantManager>,
 }
@@ -146,13 +149,19 @@ pub struct NatsSubscriber {
 impl NatsSubscriber {
     pub fn new(
         consumer: PullConsumer,
+        jetstream: jetstream::Context,
+        subject_prefix: String,
         instance_id: String,
+        server_id: String,
         store: Arc<RwLock<RuleStore>>,
         tenant_manager: Arc<TenantManager>,
     ) -> Self {
         Self {
             consumer,
+            jetstream,
+            subject_prefix,
             instance_id,
+            server_id,
             store,
             tenant_manager,
         }
@@ -250,8 +259,17 @@ impl NatsSubscriber {
                 name,
                 ruleset_json,
                 version,
+                release_execution_id,
+                target_server_ids,
             } => {
-                self.apply_rule_put(tenant_id, name, ruleset_json, version)
+                self.apply_rule_put(
+                    tenant_id,
+                    name,
+                    ruleset_json,
+                    version,
+                    release_execution_id.as_deref(),
+                    target_server_ids.as_deref(),
+                )
                     .await
             }
             SyncEvent::RuleDeleted { tenant_id, name } => {
@@ -266,7 +284,10 @@ impl NatsSubscriber {
             SyncEvent::TenantConfigChanged { config_json } => {
                 self.apply_tenant_config_changed(config_json).await
             }
-            SyncEvent::ServerRegistered { .. } | SyncEvent::ServerHeartbeat { .. } => true,
+            SyncEvent::ServerRegistered { .. }
+            | SyncEvent::ServerHeartbeat { .. }
+            | SyncEvent::ReleaseExecutionAck { .. }
+            | SyncEvent::ReleaseExecutionFailed { .. } => true,
         }
     }
 
@@ -276,12 +297,44 @@ impl NatsSubscriber {
         name: &str,
         ruleset_json: &str,
         version: &str,
+        release_execution_id: Option<&str>,
+        target_server_ids: Option<&[String]>,
     ) -> bool {
+        if let Some(targets) = target_server_ids {
+            if !targets.iter().any(|server_id| server_id == &self.server_id) {
+                debug!(
+                    "Skipping targeted RulePut for '{}' because this server is not in the rollout batch",
+                    name
+                );
+                return true;
+            }
+        }
+
         // Idempotency: check if we already have this version.
         {
             let store = self.store.read().await;
             if let Some(existing) = store.get_for_tenant(tenant_id, name) {
                 if existing.config.version == *version {
+                    if let Some(execution_id) = release_execution_id {
+                        if let Err(e) = self
+                            .publish_release_feedback(
+                                SyncEvent::ReleaseExecutionAck {
+                                    execution_id: execution_id.to_string(),
+                                    server_id: self.server_id.clone(),
+                                    message: Some(
+                                        "Ruleset version already present on target server".to_string(),
+                                    ),
+                                },
+                            )
+                            .await
+                        {
+                            warn!(
+                                "Failed to publish release ack for duplicate RulePut '{}' v{}: {}",
+                                name, version, e
+                            );
+                            return false;
+                        }
+                    }
                     debug!(
                         "Skipping duplicate RulePut for '{}' v{} (already present)",
                         name, version
@@ -294,6 +347,22 @@ impl NatsSubscriber {
         let mut store = self.store.write().await;
         match store.apply_sync_put(tenant_id, ruleset_json) {
             Ok(()) => {
+                if let Some(execution_id) = release_execution_id {
+                    if let Err(e) = self
+                        .publish_release_feedback(SyncEvent::ReleaseExecutionAck {
+                            execution_id: execution_id.to_string(),
+                            server_id: self.server_id.clone(),
+                            message: Some("Ruleset applied successfully".to_string()),
+                        })
+                        .await
+                    {
+                        warn!(
+                            "Failed to publish release ack for '{}' (tenant '{}'): {}",
+                            name, tenant_id, e
+                        );
+                        return false;
+                    }
+                }
                 info!(
                     "Applied sync RulePut: '{}' (tenant '{}') v{}",
                     name, tenant_id, version
@@ -302,6 +371,28 @@ impl NatsSubscriber {
                 true
             }
             Err(e) => {
+                if let Some(execution_id) = release_execution_id {
+                    if let Err(pub_err) = self
+                        .publish_release_feedback(SyncEvent::ReleaseExecutionFailed {
+                            execution_id: execution_id.to_string(),
+                            server_id: self.server_id.clone(),
+                            error: e.to_string(),
+                        })
+                        .await
+                    {
+                        warn!(
+                            "Failed to publish release failure feedback for '{}' (tenant '{}'): {}",
+                            name, tenant_id, pub_err
+                        );
+                        return false;
+                    }
+                    error!(
+                        "Failed to apply release RulePut for '{}' (tenant '{}'): {}",
+                        name, tenant_id, e
+                    );
+                    metrics::record_sync_failed("RulePut", "apply");
+                    return true;
+                }
                 error!(
                     "Failed to apply sync RulePut for '{}' (tenant '{}'): {}",
                     name, tenant_id, e
@@ -310,6 +401,16 @@ impl NatsSubscriber {
                 false
             }
         }
+    }
+
+    async fn publish_release_feedback(&self, event: SyncEvent) -> anyhow::Result<()> {
+        publish_immediate(
+            &self.jetstream,
+            &self.subject_prefix,
+            &self.instance_id,
+            event,
+        )
+        .await
     }
 
     async fn apply_rule_deleted(&self, tenant_id: &str, name: &str) -> bool {
@@ -558,6 +659,8 @@ mod tests {
                 name: "fraud".into(),
                 ruleset_json: "{}".into(),
                 version: "1".into(),
+                release_execution_id: None,
+                target_server_ids: None,
             },
         );
         assert_eq!(msg.subject(DEFAULT_SUBJECT_PREFIX), "ordo.rules.acme.fraud");

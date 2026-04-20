@@ -5,13 +5,14 @@ impl PlatformStore {
         sqlx::query(
             "INSERT INTO servers (id, name, url, token, org_id, labels, version, status, last_seen, registered_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (token) DO UPDATE SET
+             ON CONFLICT (id) DO UPDATE SET
                name = EXCLUDED.name,
                url = EXCLUDED.url,
+               token = EXCLUDED.token,
                org_id = EXCLUDED.org_id,
                version = EXCLUDED.version,
                status = 'online',
-               last_seen = NOW()",
+                last_seen = NOW()",
         )
         .bind(&server.id)
         .bind(&server.name)
@@ -70,12 +71,12 @@ impl PlatformStore {
         Ok(rows.iter().map(row_to_server).collect())
     }
 
-    pub async fn update_server_heartbeat(&self, token: &str) -> Result<Option<String>> {
+    pub async fn update_server_heartbeat(&self, server_id: &str) -> Result<Option<String>> {
         let row = sqlx::query(
             "UPDATE servers SET last_seen = NOW(), status = 'online'
-             WHERE token = $1 RETURNING id",
+             WHERE id = $1 RETURNING id",
         )
-        .bind(token)
+        .bind(server_id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| r.get("id")))

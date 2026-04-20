@@ -26,6 +26,7 @@ mod i18n;
 mod member;
 mod middleware;
 mod models;
+mod notification;
 mod org;
 mod project;
 mod proxy;
@@ -35,6 +36,7 @@ mod ruleset_draft;
 mod ruleset_history;
 mod server_registry;
 mod store;
+mod sub_org_member;
 mod sync;
 mod template;
 mod templates_api;
@@ -132,6 +134,18 @@ async fn main() -> anyhow::Result<()> {
 
         if let Err(e) = store.backfill_project_rulesets_from_history().await {
             tracing::warn!("backfill_project_rulesets_from_history failed: {}", e);
+        }
+
+        match store.fail_stuck_queued_deployments().await {
+            Ok(n) if n > 0 => tracing::warn!(count = n, "Marked stuck queued deployments as failed on startup"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!("fail_stuck_queued_deployments: {}", e),
+        }
+
+        match store.fail_stuck_active_executions().await {
+            Ok(n) if n > 0 => tracing::warn!(count = n, "Marked stuck active release executions as failed on startup"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!("fail_stuck_active_executions: {}", e),
         }
     }
 
@@ -258,6 +272,16 @@ async fn main() -> anyhow::Result<()> {
             get(org::get_org).put(org::update_org).delete(org::delete_org),
         )
         .route("/api/v1/orgs/:id/sub-orgs", get(org::list_sub_orgs))
+        // Cross-org sub-org member management (auth based on parent org role)
+        .route(
+            "/api/v1/orgs/:parent_id/sub-orgs/:sub_id/members",
+            get(sub_org_member::list_sub_org_members)
+                .post(sub_org_member::add_sub_org_member),
+        )
+        .route(
+            "/api/v1/orgs/:parent_id/sub-orgs/:sub_id/members/:uid",
+            axum::routing::delete(sub_org_member::remove_sub_org_member),
+        )
         // Members
         .route(
             "/api/v1/orgs/:id/members",
@@ -340,7 +364,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/projects/:pid/tests/run",
-            get(testing::run_project_tests),
+            get(testing::run_project_tests).post(testing::run_project_tests),
         )
         // Server registry
         .route("/api/v1/servers", get(server_registry::list_servers))
@@ -443,8 +467,33 @@ async fn main() -> anyhow::Result<()> {
             get(release::get_release_execution_for_request),
         )
         .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/executions/:eid/events",
+            get(release::list_release_execution_events),
+        )
+        .route(
             "/api/v1/orgs/:oid/projects/:pid/release-executions/current",
             get(release::get_current_release_execution),
+        )
+        // Notifications
+        .route(
+            "/api/v1/orgs/:oid/notifications",
+            get(notification::list_notifications),
+        )
+        .route(
+            "/api/v1/orgs/:oid/notifications/count",
+            get(notification::get_notification_count),
+        )
+        .route(
+            "/api/v1/orgs/:oid/notifications/read-all",
+            post(notification::mark_all_notifications_read),
+        )
+        .route(
+            "/api/v1/orgs/:oid/notifications/:nid/read",
+            post(notification::mark_notification_read),
+        )
+        .route(
+            "/api/v1/orgs/:oid/releases/pending-for-me",
+            get(notification::list_pending_approvals_for_me),
         )
         // Draft rulesets
         .route(
@@ -460,6 +509,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/publish",
             post(ruleset_draft::publish_draft),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/trace",
+            post(ruleset_draft::trace_draft),
         )
         // Deployment history
         .route(

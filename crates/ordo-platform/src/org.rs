@@ -47,10 +47,12 @@ pub struct OrgResponse {
     pub depth: i32,
     /// Number of direct child (sub) organizations. Always 0 for depth-1 orgs.
     pub child_count: usize,
+    /// Number of projects in this organization.
+    pub project_count: usize,
 }
 
 impl OrgResponse {
-    fn from_org(org: &Organization, child_count: usize) -> Self {
+    fn from_org(org: &Organization, child_count: usize, project_count: usize) -> Self {
         Self {
             id: org.id.clone(),
             name: org.name.clone(),
@@ -61,13 +63,14 @@ impl OrgResponse {
             parent_org_id: org.parent_org_id.clone(),
             depth: org.depth,
             child_count,
+            project_count,
         }
     }
 }
 
 impl From<&Organization> for OrgResponse {
     fn from(org: &Organization) -> Self {
-        Self::from_org(org, 0)
+        Self::from_org(org, 0, 0)
     }
 }
 
@@ -155,7 +158,7 @@ pub async fn create_org(
         .await
         .map_err(PlatformError::Internal)?;
 
-    Ok(Json(OrgResponse::from_org(&org, 0)))
+    Ok(Json(OrgResponse::from_org(&org, 0, 0)))
 }
 
 /// GET /api/v1/orgs — list orgs the caller belongs to (includes sub-orgs)
@@ -176,24 +179,27 @@ pub async fn list_orgs(
             .count_child_orgs(&org.id)
             .await
             .map_err(PlatformError::Internal)? as usize;
-        responses.push(OrgResponse::from_org(org, child_count));
+        let project_count = state
+            .store
+            .count_projects(&org.id)
+            .await
+            .map_err(PlatformError::Internal)? as usize;
+        responses.push(OrgResponse::from_org(org, child_count, project_count));
     }
     Ok(Json(responses))
 }
 
 /// GET /api/v1/orgs/:id — org detail (must be member)
+///
+/// Returns the full `Organization` including the members array.
+/// Use the list endpoint (`GET /orgs`) for lightweight `OrgResponse` summaries.
 pub async fn get_org(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(org_id): Path<String>,
-) -> ApiResult<Json<OrgResponse>> {
+) -> ApiResult<Json<Organization>> {
     let org = load_org_and_check_member(&state, &org_id, &claims.sub).await?;
-    let child_count = state
-        .store
-        .count_child_orgs(&org_id)
-        .await
-        .map_err(PlatformError::Internal)? as usize;
-    Ok(Json(OrgResponse::from_org(&org, child_count)))
+    Ok(Json(org))
 }
 
 /// GET /api/v1/orgs/:id/sub-orgs — list direct child orgs (must be member of parent)
@@ -209,7 +215,16 @@ pub async fn list_sub_orgs(
         .await
         .map_err(PlatformError::Internal)?;
     // Sub-orgs are depth=1 and cannot have children; child_count is always 0
-    Ok(Json(children.iter().map(OrgResponse::from).collect()))
+    let mut responses = Vec::with_capacity(children.len());
+    for child in &children {
+        let project_count = state
+            .store
+            .count_projects(&child.id)
+            .await
+            .map_err(PlatformError::Internal)? as usize;
+        responses.push(OrgResponse::from_org(child, 0, project_count));
+    }
+    Ok(Json(responses))
 }
 
 /// PUT /api/v1/orgs/:id — update org (admin+)
@@ -247,7 +262,12 @@ pub async fn update_org(
         .count_child_orgs(&org.id)
         .await
         .map_err(PlatformError::Internal)? as usize;
-    Ok(Json(OrgResponse::from_org(&org, child_count)))
+    let project_count = state
+        .store
+        .count_projects(&org.id)
+        .await
+        .map_err(PlatformError::Internal)? as usize;
+    Ok(Json(OrgResponse::from_org(&org, child_count, project_count)))
 }
 
 /// DELETE /api/v1/orgs/:id — delete org (owner only)

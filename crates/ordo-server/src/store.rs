@@ -964,6 +964,8 @@ impl RuleStore {
                 name: name.to_string(),
                 ruleset_json: json,
                 version: to_version.clone(),
+                release_execution_id: None,
+                target_server_ids: None,
             });
         }
 
@@ -1105,6 +1107,8 @@ impl RuleStore {
                 name,
                 ruleset_json: json,
                 version,
+                release_execution_id: None,
+                target_server_ids: None,
             });
         }
 

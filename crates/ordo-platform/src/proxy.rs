@@ -327,6 +327,8 @@ async fn handle_sync_ruleset_write(
                         PlatformError::internal(format!("Failed to serialize ruleset: {}", e))
                     })?,
                     version,
+                    release_execution_id: None,
+                    target_server_ids: None,
                 })
                 .await
                 .map_err(|e| {
@@ -448,6 +450,8 @@ async fn handle_sync_ruleset_write(
                         ))
                     })?,
                     version: to_version.clone(),
+                    release_execution_id: None,
+                    target_server_ids: None,
                 })
                 .await
                 .map_err(|e| {

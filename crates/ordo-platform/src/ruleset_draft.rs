@@ -1,5 +1,11 @@
 //! Draft ruleset CRUD, publish (NATS), and deployment history handlers.
 
+use ordo_core::{
+    context::Value as CoreValue,
+    rule::{ExecutionOptions, RuleExecutor, RuleSet},
+    trace::ExecutionTrace,
+};
+
 use crate::{
     error::{ApiResult, PlatformError},
     models::{
@@ -132,6 +138,96 @@ pub async fn delete_draft(
         .await
         .map_err(PlatformError::Internal)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── Inline trace execution ────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct TraceRequest {
+    /// Engine-format ruleset (pre-converted by frontend adapter from editor format).
+    pub ruleset: serde_json::Value,
+    pub input: serde_json::Value,
+}
+
+#[derive(serde::Serialize)]
+pub struct TraceResponse {
+    pub code: String,
+    pub message: String,
+    pub output: serde_json::Value,
+    pub duration_us: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<TraceResponseTrace>,
+}
+
+#[derive(serde::Serialize)]
+pub struct TraceResponseTrace {
+    pub path: String,
+    pub steps: Vec<TraceResponseStep>,
+}
+
+#[derive(serde::Serialize)]
+pub struct TraceResponseStep {
+    pub id: String,
+    pub name: String,
+    pub duration_us: u64,
+}
+
+/// POST /api/v1/orgs/:oid/projects/:pid/rulesets/:name/trace
+///
+/// Executes the ruleset inline on the platform. The request body must include a
+/// `ruleset` field already in engine format (steps as map, config.entry_step set),
+/// produced by the frontend adapter (`convertToEngineFormat`).
+pub async fn trace_draft(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id, _ruleset_name)): Path<(String, String, String)>,
+    Json(req): Json<TraceRequest>,
+) -> ApiResult<Json<TraceResponse>> {
+    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_RULESET_VIEW)
+        .await?;
+
+    // Use the engine-format ruleset provided by the frontend (already converted from editor format).
+    let ruleset_json = serde_json::to_string(&req.ruleset)
+        .map_err(|e| PlatformError::internal(format!("Failed to serialize ruleset: {}", e)))?;
+
+    let ruleset = RuleSet::from_json_compiled(&ruleset_json)
+        .map_err(|e| PlatformError::bad_request(format!("Failed to compile ruleset: {}", e)))?;
+
+    // Convert input to ordo-core Value
+    let input: CoreValue = serde_json::from_value(req.input)
+        .map_err(|e| PlatformError::bad_request(format!("Invalid input: {}", e)))?;
+
+    // Execute with trace enabled
+    let executor = RuleExecutor::new();
+    let options = ExecutionOptions::default().trace(true);
+    let result = executor
+        .execute_with_options(&ruleset, input, Some(&options))
+        .map_err(|e| PlatformError::internal(format!("Execution failed: {}", e)))?;
+
+    // Convert output
+    let output: serde_json::Value = serde_json::to_value(&result.output)
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+
+    let trace = result.trace.as_ref().map(|t: &ExecutionTrace| TraceResponseTrace {
+        path: t.path_string(),
+        steps: t
+            .steps
+            .iter()
+            .map(|s| TraceResponseStep {
+                id: s.step_id.clone(),
+                name: s.step_name.clone(),
+                duration_us: s.duration_us,
+            })
+            .collect(),
+    });
+
+    Ok(Json(TraceResponse {
+        code: result.code,
+        message: result.message,
+        output,
+        duration_us: result.duration_us,
+        trace,
+    }))
 }
 
 // ── Publish ───────────────────────────────────────────────────────────────────
@@ -430,6 +526,8 @@ async fn publish_via_nats(
         name: ruleset_name.to_string(),
         ruleset_json: json_str,
         version: version.to_string(),
+        release_execution_id: None,
+        target_server_ids: None,
     };
 
     let prefix = env

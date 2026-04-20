@@ -348,6 +348,21 @@ fn translate_known_error(status: StatusCode, message: &str, locale: Locale) -> O
             "ruleset_name、version、environment_id、title 和 change_summary 不能为空",
             "ruleset_name、version、environment_id、title 與 change_summary 不能為空",
         ),
+        (StatusCode::BAD_REQUEST, "ruleset.config.version is required") => tr(
+            locale,
+            "ruleset.config.version is required",
+            "ruleset.config.version 不能为空",
+            "ruleset.config.version 不能為空",
+        ),
+        (
+            StatusCode::BAD_REQUEST,
+            "Release request version must match the draft ruleset version",
+        ) => tr(
+            locale,
+            "Release request version must match the draft ruleset version",
+            "发布单版本必须与当前草稿版本一致",
+            "發佈單版本必須與目前草稿版本一致",
+        ),
         (StatusCode::BAD_REQUEST, "GitHub OAuth is not configured on this server") => tr(
             locale,
             "GitHub OAuth is not configured on this server",
@@ -396,6 +411,24 @@ fn translate_known_error(status: StatusCode, message: &str, locale: Locale) -> O
             "You are not an assigned approver for this release request",
             "你不是该发布单的指定审批人",
             "你不是該發佈單的指定審批人",
+        ),
+        (
+            StatusCode::CONFLICT,
+            "Cross-version rollback requires an approved release request",
+        ) => tr(
+            locale,
+            "Cross-version rollback requires an approved release request",
+            "跨版本回退需要先走审批后的发布单",
+            "跨版本回退需要先經過審批的發佈單",
+        ),
+        (
+            StatusCode::CONFLICT,
+            "Published ruleset changes require a new version number",
+        ) => tr(
+            locale,
+            "Published ruleset changes require a new version number",
+            "已发布版本继续修改前必须先更新版本号",
+            "已發佈版本繼續修改前必須先更新版本號",
         ),
 
         (StatusCode::NOT_FOUND, "Not found") => tr(locale, "Not found", "未找到资源", "找不到資源"),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
@@ -14,8 +14,17 @@ const { t } = useI18n()
 const rbacStore = useRbacStore()
 
 const orgId = route.params.orgId as string
+const expandedRoles = ref<Set<string>>(new Set())
 
 onMounted(() => rbacStore.fetchRoles(orgId))
+
+function toggleExpand(roleId: string) {
+  if (expandedRoles.value.has(roleId)) {
+    expandedRoles.value.delete(roleId)
+  } else {
+    expandedRoles.value.add(roleId)
+  }
+}
 
 function startCreate() {
   router.push(`/orgs/${orgId}/roles/new`)
@@ -64,7 +73,6 @@ function groupedPermissions(perms: string[]) {
     }
   }
 
-  // permissions not in any defined group
   const known = new Set(RBAC_PERMISSION_GROUPS.flatMap((g) => g.permissions))
   const other = perms.filter((p) => !known.has(p))
   if (other.length > 0) {
@@ -72,6 +80,13 @@ function groupedPermissions(perms: string[]) {
   }
 
   return groups
+}
+
+// Summary: "组织 ×2 · 规则集 ×3 · 发布中心 ×8"
+function permissionSummary(perms: string[]) {
+  return groupedPermissions(perms)
+    .map((g) => `${g.label} ×${g.perms.length}`)
+    .join(' · ')
 }
 </script>
 
@@ -102,12 +117,23 @@ function groupedPermissions(perms: string[]) {
       </div>
 
       <div v-else class="role-list">
-        <t-card v-for="role in rbacStore.roles" :key="role.id" :bordered="false" class="role-card">
+        <t-card
+          v-for="role in rbacStore.roles"
+          :key="role.id"
+          :bordered="false"
+          class="role-card"
+        >
+          <!-- Header row -->
           <div class="role-header">
             <div class="role-name-row">
               <span class="role-name">{{ role.name }}</span>
-              <t-tag v-if="role.is_system" theme="warning" variant="light">{{ $t('rbac.system') }}</t-tag>
-              <t-tag v-else theme="success" variant="light">{{ $t('rbac.custom') }}</t-tag>
+              <t-tag v-if="role.is_system" theme="warning" variant="light" size="small">
+                {{ $t('rbac.system') }}
+              </t-tag>
+              <t-tag v-else theme="success" variant="light" size="small">
+                {{ $t('rbac.custom') }}
+              </t-tag>
+              <span v-if="role.description" class="role-desc-inline">{{ role.description }}</span>
             </div>
             <div class="role-actions">
               <t-button v-if="!role.is_system" size="small" variant="text" @click="startEdit(role)">
@@ -125,9 +151,22 @@ function groupedPermissions(perms: string[]) {
             </div>
           </div>
 
-          <p v-if="role.description" class="role-desc">{{ role.description }}</p>
+          <!-- Collapsed: one-line summary -->
+          <div
+            v-if="role.permissions.length > 0"
+            class="perm-summary-row"
+            @click="toggleExpand(role.id)"
+          >
+            <span class="perm-summary-text">{{ permissionSummary(role.permissions) }}</span>
+            <t-icon
+              :name="expandedRoles.has(role.id) ? 'chevron-up' : 'chevron-down'"
+              class="expand-icon"
+            />
+          </div>
+          <p v-else class="no-perms">{{ $t('rbac.noPermissions', 'No permissions') }}</p>
 
-          <div v-if="role.permissions.length > 0" class="perm-groups">
+          <!-- Expanded: grouped tags -->
+          <div v-if="expandedRoles.has(role.id) && role.permissions.length > 0" class="perm-groups">
             <div
               v-for="group in groupedPermissions(role.permissions)"
               :key="group.key"
@@ -140,14 +179,13 @@ function groupedPermissions(perms: string[]) {
                   :key="perm"
                   variant="light"
                   theme="default"
-                  class="perm-tag"
+                  size="small"
                 >
                   {{ permissionLabel(perm) }}
                 </t-tag>
               </div>
             </div>
           </div>
-          <p v-else class="no-perms">{{ $t('rbac.noPermissions', 'No permissions assigned') }}</p>
         </t-card>
       </div>
     </div>
@@ -168,7 +206,7 @@ function groupedPermissions(perms: string[]) {
 
 .list-skeleton {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .state-center {
@@ -181,11 +219,11 @@ function groupedPermissions(perms: string[]) {
 .role-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 
 .role-card :deep(.t-card__body) {
-  padding: 16px;
+  padding: 12px 16px;
 }
 
 .role-header {
@@ -193,36 +231,73 @@ function groupedPermissions(perms: string[]) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 28px;
 }
 
 .role-name-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .role-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--ordo-text-primary);
+}
+
+.role-desc-inline {
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
 }
 
 .role-actions {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
-.role-desc {
-  margin: 8px 0 0;
-  font-size: 13px;
+/* Collapsed summary row */
+.perm-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.perm-summary-row:hover .perm-summary-text {
+  color: var(--td-brand-color);
+}
+
+.perm-summary-text {
+  font-size: 12px;
   color: var(--ordo-text-secondary);
+  transition: color 0.15s;
 }
 
+.expand-icon {
+  font-size: 12px;
+  color: var(--ordo-text-tertiary, #9ca3af);
+  flex-shrink: 0;
+}
+
+/* Expanded grouped tags */
 .perm-groups {
-  margin-top: 12px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--td-component-border, #e5e7eb);
 }
 
 .perm-group {
@@ -238,8 +313,8 @@ function groupedPermissions(perms: string[]) {
   font-weight: 600;
   color: var(--ordo-text-tertiary, #9ca3af);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  min-width: 60px;
+  letter-spacing: 0.04em;
+  min-width: 56px;
 }
 
 .perm-tags {
@@ -248,24 +323,24 @@ function groupedPermissions(perms: string[]) {
   gap: 4px;
 }
 
-.perm-tag {
-  font-size: 12px;
-}
-
 .no-perms {
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 6px;
+  font-size: 12px;
   color: var(--ordo-text-secondary);
 }
 
 @media (max-width: 900px) {
   .view-page {
-    padding: 20px;
+    padding: 16px;
   }
 
   .role-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .role-desc-inline {
+    max-width: 100%;
   }
 }
 </style>

@@ -32,5 +32,9 @@ export const RBAC_PERMISSION_GROUPS: PermissionGroup[] = [
 ]
 
 export function permissionI18nKey(permission: string) {
-  return permission.replace(':', '_')
+  return permission.replace(':', '_').replace(/\./g, '_')
+}
+
+export function permissionGroup(permission: string): string | undefined {
+  return RBAC_PERMISSION_GROUPS.find((g) => g.permissions.includes(permission))?.key
 }

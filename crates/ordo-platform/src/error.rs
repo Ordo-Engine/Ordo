@@ -229,8 +229,14 @@ impl IntoResponse for PlatformError {
             PlatformError::Internal(e) => {
                 tracing::error!("Internal platform error: {:#}", e);
                 (
-                    descriptor("common.internal_server_error", StatusCode::INTERNAL_SERVER_ERROR),
-                    i18n::localize_error(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
+                    descriptor(
+                        "common.internal_server_error",
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ),
+                    i18n::localize_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error",
+                    ),
                 )
             }
         };
@@ -250,13 +256,21 @@ fn descriptor(code: &'static str, status: StatusCode) -> ErrorDescriptor {
 
 fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
     let code = match (status, message.trim()) {
-        (StatusCode::UNAUTHORIZED, "Missing Authorization header") => "auth.missing_authorization_header",
+        (StatusCode::UNAUTHORIZED, "Missing Authorization header") => {
+            "auth.missing_authorization_header"
+        }
         (StatusCode::UNAUTHORIZED, "Invalid email or password") => "auth.invalid_credentials",
-        (StatusCode::UNAUTHORIZED, "Current password is incorrect") => "auth.current_password_incorrect",
+        (StatusCode::UNAUTHORIZED, "Current password is incorrect") => {
+            "auth.current_password_incorrect"
+        }
 
         (StatusCode::BAD_REQUEST, "Invalid email address") => "auth.invalid_email",
-        (StatusCode::BAD_REQUEST, "Password must be at least 8 characters") => "auth.password_too_short",
-        (StatusCode::BAD_REQUEST, "New password must be at least 8 characters") => "auth.new_password_too_short",
+        (StatusCode::BAD_REQUEST, "Password must be at least 8 characters") => {
+            "auth.password_too_short"
+        }
+        (StatusCode::BAD_REQUEST, "New password must be at least 8 characters") => {
+            "auth.new_password_too_short"
+        }
         (StatusCode::BAD_REQUEST, "Display name is required") => "user.display_name_required",
         (StatusCode::BAD_REQUEST, "Display name cannot be empty") => "user.display_name_empty",
         (StatusCode::BAD_REQUEST, "Organization name is required") => "org.name_required",
@@ -267,32 +281,69 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
         (StatusCode::BAD_REQUEST, "Test case name is required") => "test.case_name_required",
         (StatusCode::BAD_REQUEST, "Environment name is required") => "environment.name_required",
         (StatusCode::BAD_REQUEST, "Name cannot be empty") => "common.name_empty",
-        (StatusCode::BAD_REQUEST, "ruleset.config.name is required") => "ruleset.config_name_required",
+        (StatusCode::BAD_REQUEST, "ruleset.config.name is required") => {
+            "ruleset.config_name_required"
+        }
         (StatusCode::BAD_REQUEST, "ruleset.config is required") => "ruleset.config_required",
-        (StatusCode::BAD_REQUEST, "name and target_id are required") => "release.policy_name_and_target_required",
-        (StatusCode::BAD_REQUEST, "template/meta.json must be a JSON object") => "template.meta_invalid_object",
-        (StatusCode::BAD_REQUEST, "min_approvals must be at least 1") => "release.min_approvals_too_small",
-        (StatusCode::BAD_REQUEST, "approver_ids must satisfy min_approvals") => "release.approver_count_insufficient",
-        (StatusCode::BAD_REQUEST, "Project-targeted policy must target the current project") => "release.project_target_mismatch",
-        (StatusCode::BAD_REQUEST, "Release policy does not define enough approvers for min_approvals") => "release.policy_approvers_insufficient",
-        (StatusCode::BAD_REQUEST, "No release policy matched this project/environment target") => "release.policy_not_matched",
-        (StatusCode::BAD_REQUEST, "ruleset_name, version, environment_id, title, and change_summary are required") => "release.request_fields_required",
-        (StatusCode::BAD_REQUEST, "GitHub OAuth is not configured on this server") => "github.oauth_not_configured",
-        (StatusCode::BAD_REQUEST, "GitHub repository lookup failed") => "github.repository_lookup_failed",
+        (StatusCode::BAD_REQUEST, "name and target_id are required") => {
+            "release.policy_name_and_target_required"
+        }
+        (StatusCode::BAD_REQUEST, "template/meta.json must be a JSON object") => {
+            "template.meta_invalid_object"
+        }
+        (StatusCode::BAD_REQUEST, "min_approvals must be at least 1") => {
+            "release.min_approvals_too_small"
+        }
+        (StatusCode::BAD_REQUEST, "approver_ids must satisfy min_approvals") => {
+            "release.approver_count_insufficient"
+        }
+        (StatusCode::BAD_REQUEST, "Project-targeted policy must target the current project") => {
+            "release.project_target_mismatch"
+        }
+        (
+            StatusCode::BAD_REQUEST,
+            "Release policy does not define enough approvers for min_approvals",
+        ) => "release.policy_approvers_insufficient",
+        (StatusCode::BAD_REQUEST, "No release policy matched this project/environment target") => {
+            "release.policy_not_matched"
+        }
+        (
+            StatusCode::BAD_REQUEST,
+            "ruleset_name, version, environment_id, title, and change_summary are required",
+        ) => "release.request_fields_required",
+        (StatusCode::BAD_REQUEST, "GitHub OAuth is not configured on this server") => {
+            "github.oauth_not_configured"
+        }
+        (StatusCode::BAD_REQUEST, "GitHub repository lookup failed") => {
+            "github.repository_lookup_failed"
+        }
         (StatusCode::BAD_REQUEST, "Cannot change your own role") => "member.cannot_change_own_role",
         (StatusCode::BAD_REQUEST, "Rollback publish failed") => "release.rollback_publish_failed",
-        (StatusCode::BAD_REQUEST, "Release request has no rollback version") => "release.rollback_version_missing",
+        (StatusCode::BAD_REQUEST, "Release request has no rollback version") => {
+            "release.rollback_version_missing"
+        }
 
-        (StatusCode::FORBIDDEN, "Not a member of this organization") => "auth.org_membership_required",
-        (StatusCode::FORBIDDEN, "Editor role required for write operations") => "auth.editor_role_required",
-        (StatusCode::FORBIDDEN, "Requester cannot approve their own release request") => "release.self_approval_forbidden",
-        (StatusCode::FORBIDDEN, "You are not an assigned approver for this release request") => "release.approver_not_assigned",
+        (StatusCode::FORBIDDEN, "Not a member of this organization") => {
+            "auth.org_membership_required"
+        }
+        (StatusCode::FORBIDDEN, "Editor role required for write operations") => {
+            "auth.editor_role_required"
+        }
+        (StatusCode::FORBIDDEN, "Requester cannot approve their own release request") => {
+            "release.self_approval_forbidden"
+        }
+        (StatusCode::FORBIDDEN, "You are not an assigned approver for this release request") => {
+            "release.approver_not_assigned"
+        }
 
         (StatusCode::NOT_FOUND, "Not found") => "common.not_found",
         (StatusCode::NOT_FOUND, "User not found") => "user.not_found",
         (StatusCode::NOT_FOUND, "Organization not found") => "org.not_found",
         (StatusCode::NOT_FOUND, "Project not found") => "project.not_found",
-        (StatusCode::NOT_FOUND, "Project not found or you are not a member of its organization") => "project.access_not_found",
+        (
+            StatusCode::NOT_FOUND,
+            "Project not found or you are not a member of its organization",
+        ) => "project.access_not_found",
         (StatusCode::NOT_FOUND, "Role not found") => "role.not_found",
         (StatusCode::NOT_FOUND, "Role not found in this org") => "role.not_found_in_org",
         (StatusCode::NOT_FOUND, "Ruleset not found") => "ruleset.not_found",
@@ -311,19 +362,34 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
         (StatusCode::NOT_FOUND, "Release policy not found") => "release.policy_not_found",
         (StatusCode::NOT_FOUND, "Release request not found") => "release.request_not_found",
         (StatusCode::NOT_FOUND, "Release execution not found") => "release.execution_not_found",
-        (StatusCode::NOT_FOUND, "Rollback deployment snapshot not found") => "release.rollback_snapshot_not_found",
+        (StatusCode::NOT_FOUND, "Rollback deployment snapshot not found") => {
+            "release.rollback_snapshot_not_found"
+        }
 
         (StatusCode::CONFLICT, "Email already registered") => "auth.email_already_registered",
         (StatusCode::CONFLICT, "User is already a member") => "member.already_exists",
-        (StatusCode::CONFLICT, "Release request is not pending approval") => "release.request_not_pending_approval",
-        (StatusCode::CONFLICT, "No pending approval found for this reviewer") => "release.pending_approval_not_found",
-        (StatusCode::CONFLICT, "Release request must be approved before execution") => "release.request_not_approved",
-        (StatusCode::CONFLICT, "Release execution is already rolling back") => "release.execution_already_rolling_back",
+        (StatusCode::CONFLICT, "Release request is not pending approval") => {
+            "release.request_not_pending_approval"
+        }
+        (StatusCode::CONFLICT, "No pending approval found for this reviewer") => {
+            "release.pending_approval_not_found"
+        }
+        (StatusCode::CONFLICT, "Release request must be approved before execution") => {
+            "release.request_not_approved"
+        }
+        (StatusCode::CONFLICT, "Release execution is already rolling back") => {
+            "release.execution_already_rolling_back"
+        }
         (StatusCode::CONFLICT, "Release execution is not active") => "release.execution_not_active",
         (StatusCode::CONFLICT, "Release execution is not paused") => "release.execution_not_paused",
-        (StatusCode::CONFLICT, "Release execution cannot be rolled back from its current status") => "release.execution_rollback_invalid_status",
+        (
+            StatusCode::CONFLICT,
+            "Release execution cannot be rolled back from its current status",
+        ) => "release.execution_rollback_invalid_status",
 
-        (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error") => "common.internal_server_error",
+        (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error") => {
+            "common.internal_server_error"
+        }
         _ => match status {
             StatusCode::BAD_REQUEST => "common.bad_request",
             StatusCode::UNAUTHORIZED => "common.unauthorized",

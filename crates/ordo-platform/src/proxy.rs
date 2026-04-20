@@ -178,7 +178,11 @@ fn is_write_method(method: &Method) -> bool {
 /// 2. If the default env has a canary config and `rand < canary_percentage`, route to the canary env.
 /// 3. Otherwise route to the default env's server.
 /// 4. Fall back to the platform's configured `engine_url`.
-pub(crate) async fn resolve_engine_url(state: &AppState, project_id: &str, _org_id: &str) -> String {
+pub(crate) async fn resolve_engine_url(
+    state: &AppState,
+    project_id: &str,
+    _org_id: &str,
+) -> String {
     let Ok(Some(prod_env)) = state.store.get_default_environment(project_id).await else {
         return resolve_fallback_engine_url(state).await;
     };
@@ -285,9 +289,8 @@ async fn handle_sync_ruleset_write(
 
     match op {
         SyncableRulesetWrite::Upsert => {
-            let mut payload: serde_json::Value =
-                serde_json::from_slice(body_bytes)
-                    .map_err(|e| PlatformError::invalid_ruleset_payload(e.to_string()))?;
+            let mut payload: serde_json::Value = serde_json::from_slice(body_bytes)
+                .map_err(|e| PlatformError::invalid_ruleset_payload(e.to_string()))?;
             let config = payload
                 .get_mut("config")
                 .and_then(|value| value.as_object_mut())

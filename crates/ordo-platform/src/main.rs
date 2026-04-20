@@ -146,7 +146,9 @@ async fn main() -> anyhow::Result<()> {
                 let offline_threshold = now - chrono::Duration::minutes(10);
                 let prune_threshold = now - chrono::Duration::minutes(30);
 
-                let _ = store_bg.mark_stale_servers_degraded(degraded_threshold).await;
+                let _ = store_bg
+                    .mark_stale_servers_degraded(degraded_threshold)
+                    .await;
                 let _ = store_bg.mark_stale_servers_offline(offline_threshold).await;
                 let _ = store_bg.delete_stale_offline_servers(prune_threshold).await;
             }

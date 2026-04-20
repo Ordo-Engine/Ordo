@@ -652,10 +652,11 @@ async fn fetch_i18n_bundle(
         "{}/repos/{}/{}/contents/template/i18n/{}.json",
         GITHUB_API, owner, repo, locale
     );
-    let file: GhFileContent = match gh_get_public_fallback(&state.http_client, &file_url, token).await {
-        Ok(file) => file,
-        Err(_) => return Ok(HashMap::new()),
-    };
+    let file: GhFileContent =
+        match gh_get_public_fallback(&state.http_client, &file_url, token).await {
+            Ok(file) => file,
+            Err(_) => return Ok(HashMap::new()),
+        };
     let content = decode_file_content(file)?;
     let bundle: HashMap<String, String> = serde_json::from_slice(&content).map_err(|e| {
         PlatformError::invalid_json_file(format!("template/i18n/{}.json", locale), e.to_string())
@@ -779,9 +780,10 @@ pub async fn search_marketplace(
         page,
     );
 
-    let gh_resp: GhSearchResponse = gh_get_public_fallback(&state.http_client, &url, token.as_deref())
-        .await
-        .map_err(|e| PlatformError::github_search_failed(e.to_string()))?;
+    let gh_resp: GhSearchResponse =
+        gh_get_public_fallback(&state.http_client, &url, token.as_deref())
+            .await
+            .map_err(|e| PlatformError::github_search_failed(e.to_string()))?;
 
     let mut items = Vec::new();
     for r in gh_resp.items {

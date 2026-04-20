@@ -1,31 +1,31 @@
 use crate::{
     error::{ApiResult, PlatformError},
     models::{
-        Claims, CreateReleasePolicyRequest, CreateReleaseRequest, ReleaseApprovalDecision,
-        DeploymentStatus, ReleaseContentDiffSummary, ReleaseExecution, ReleaseExecutionInstance,
-        ReleaseExecutionStatus, ReleaseInstanceStatus, ReleasePolicy, ReleasePolicyScope,
-        ReleaseRequest, ReleaseRequestSnapshot, ReleaseRequestStatus, ReleaseStepDiffItem,
-        ReleaseVersionDiff, ReviewReleaseRequest, RulesetDeployment, RulesetHistoryEntry,
-        RulesetHistorySource, UpdateReleasePolicyRequest,
+        Claims, CreateReleasePolicyRequest, CreateReleaseRequest, DeploymentStatus,
+        ReleaseApprovalDecision, ReleaseContentDiffSummary, ReleaseExecution,
+        ReleaseExecutionInstance, ReleaseExecutionStatus, ReleaseInstanceStatus, ReleasePolicy,
+        ReleasePolicyScope, ReleaseRequest, ReleaseRequestSnapshot, ReleaseRequestStatus,
+        ReleaseStepDiffItem, ReleaseVersionDiff, ReviewReleaseRequest, RulesetDeployment,
+        RulesetHistoryEntry, RulesetHistorySource, UpdateReleasePolicyRequest,
     },
     rbac::{
-        require_project_permission, PERM_RELEASE_POLICY_MANAGE, PERM_RELEASE_REQUEST_APPROVE,
-        PERM_RELEASE_EXECUTE, PERM_RELEASE_INSTANCE_VIEW, PERM_RELEASE_PAUSE,
+        require_project_permission, PERM_RELEASE_EXECUTE, PERM_RELEASE_INSTANCE_VIEW,
+        PERM_RELEASE_PAUSE, PERM_RELEASE_POLICY_MANAGE, PERM_RELEASE_REQUEST_APPROVE,
         PERM_RELEASE_REQUEST_CREATE, PERM_RELEASE_REQUEST_REJECT, PERM_RELEASE_REQUEST_VIEW,
         PERM_RELEASE_RESUME, PERM_RELEASE_ROLLBACK,
     },
     sync::SyncEvent,
     AppState,
 };
-use serde_json::Value as JsonValue;
-use std::collections::{BTreeMap, BTreeSet};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Extension, Json,
 };
-use uuid::Uuid;
 use chrono::Utc;
+use serde_json::Value as JsonValue;
+use std::collections::{BTreeMap, BTreeSet};
+use uuid::Uuid;
 
 pub async fn list_release_policies(
     State(state): State<AppState>,
@@ -251,7 +251,10 @@ pub async fn create_release_request(
         current_version.as_deref(),
     )
     .await?;
-    let target_snapshot = draft.as_ref().map(|item| item.draft.clone()).unwrap_or(JsonValue::Null);
+    let target_snapshot = draft
+        .as_ref()
+        .map(|item| item.draft.clone())
+        .unwrap_or(JsonValue::Null);
 
     let approver_users = {
         let mut items = Vec::new();
@@ -271,7 +274,10 @@ pub async fn create_release_request(
     let version_diff = ReleaseVersionDiff {
         from_version: current_version.clone(),
         to_version: req.version.clone(),
-        rollback_version: req.rollback_version.clone().or_else(|| current_version.clone()),
+        rollback_version: req
+            .rollback_version
+            .clone()
+            .or_else(|| current_version.clone()),
         changed: current_version.as_deref() != Some(req.version.as_str()),
     };
     let content_diff = build_release_content_diff(
@@ -297,7 +303,10 @@ pub async fn create_release_request(
             .iter()
             .map(|user| user.display_name.clone())
             .collect(),
-        approver_emails: approver_users.iter().map(|user| user.email.clone()).collect(),
+        approver_emails: approver_users
+            .iter()
+            .map(|user| user.email.clone())
+            .collect(),
         rollout_strategy: policy.rollout_strategy.clone(),
         rollback_policy: policy.rollback_policy.clone(),
         affected_instance_count: req.affected_instance_count.unwrap_or_default(),
@@ -570,7 +579,11 @@ pub async fn execute_release_request(
                 .map_err(PlatformError::Internal)?;
             state
                 .store
-                .update_release_execution_status(&execution_id, ReleaseExecutionStatus::Completed, Some(1))
+                .update_release_execution_status(
+                    &execution_id,
+                    ReleaseExecutionStatus::Completed,
+                    Some(1),
+                )
                 .await
                 .map_err(PlatformError::Internal)?;
             state
@@ -639,7 +652,11 @@ pub async fn execute_release_request(
                 .map_err(PlatformError::Internal)?;
             state
                 .store
-                .update_release_execution_status(&execution_id, ReleaseExecutionStatus::Failed, Some(1))
+                .update_release_execution_status(
+                    &execution_id,
+                    ReleaseExecutionStatus::Failed,
+                    Some(1),
+                )
                 .await
                 .map_err(PlatformError::Internal)?;
             state
@@ -1009,7 +1026,12 @@ async fn review_release(
 
     let updated = state
         .store
-        .review_release_request(&release_id, &claims.sub, decision.clone(), comment.as_deref())
+        .review_release_request(
+            &release_id,
+            &claims.sub,
+            decision.clone(),
+            comment.as_deref(),
+        )
         .await
         .map_err(PlatformError::Internal)?;
     if !updated {
@@ -1098,7 +1120,11 @@ async fn control_release_execution(
 
     state
         .store
-        .update_release_execution_status(&execution.id, target_status.clone(), Some(execution.current_batch))
+        .update_release_execution_status(
+            &execution.id,
+            target_status.clone(),
+            Some(execution.current_batch),
+        )
         .await
         .map_err(PlatformError::Internal)?;
     if let Some(next_request_status) = request_status {
@@ -1233,11 +1259,16 @@ fn build_release_content_diff(
             != extract_schema_len(Some(target), "inputSchema"),
         output_schema_changed: extract_schema_len(baseline, "outputSchema")
             != extract_schema_len(Some(target), "outputSchema"),
-        tags_changed: extract_string_array(baseline.and_then(|value| value.get("config").and_then(|cfg| cfg.get("tags"))))
-            != extract_string_array(target.get("config").and_then(|cfg| cfg.get("tags"))),
+        tags_changed: extract_string_array(
+            baseline.and_then(|value| value.get("config").and_then(|cfg| cfg.get("tags"))),
+        ) != extract_string_array(
+            target.get("config").and_then(|cfg| cfg.get("tags")),
+        ),
         description_changed: extract_optional_string(
             baseline.and_then(|value| value.get("config").and_then(|cfg| cfg.get("description"))),
-        ) != extract_optional_string(target.get("config").and_then(|cfg| cfg.get("description"))),
+        ) != extract_optional_string(
+            target.get("config").and_then(|cfg| cfg.get("description")),
+        ),
     }
 }
 

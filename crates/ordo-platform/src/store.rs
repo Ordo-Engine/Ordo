@@ -1,17 +1,17 @@
 //! PostgreSQL-backed persistence for platform data.
 
 use crate::models::{
-    ConceptDefinition, ContractField, CreateEnvironmentRequest, CreateRoleRequest,
-    CreateReleasePolicyRequest, CreateReleaseRequest, DecisionContract, DeploymentStatus,
-    FactDataType, FactDefinition, Member, NullPolicy, OrgRole, Organization, Project,
-    ProjectEnvironment, ProjectRuleset, ProjectRulesetMeta, ReleaseApprovalDecision,
-    ReleaseApprovalRecord, ReleaseContentDiffSummary, ReleasePolicy, ReleasePolicyScope,
-    ReleasePolicyTargetType, ReleaseExecution, ReleaseExecutionInstance, ReleaseExecutionStatus,
-    ReleaseExecutionSummary, ReleaseInstanceStatus, ReleaseRequest, ReleaseRequestSnapshot,
-    ReleaseRequestStatus, ReleaseVersionDiff, Role, RollbackPolicy, RolloutStrategy,
-    RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource, ServerNode, ServerStatus,
-    TestCase, TestExpectation, UpdateEnvironmentRequest, UpdateReleasePolicyRequest,
-    UpdateRoleRequest, User, UserRoleAssignment,
+    ConceptDefinition, ContractField, CreateEnvironmentRequest, CreateReleasePolicyRequest,
+    CreateReleaseRequest, CreateRoleRequest, DecisionContract, DeploymentStatus, FactDataType,
+    FactDefinition, Member, NullPolicy, OrgRole, Organization, Project, ProjectEnvironment,
+    ProjectRuleset, ProjectRulesetMeta, ReleaseApprovalDecision, ReleaseApprovalRecord,
+    ReleaseContentDiffSummary, ReleaseExecution, ReleaseExecutionInstance, ReleaseExecutionStatus,
+    ReleaseExecutionSummary, ReleaseInstanceStatus, ReleasePolicy, ReleasePolicyScope,
+    ReleasePolicyTargetType, ReleaseRequest, ReleaseRequestSnapshot, ReleaseRequestStatus,
+    ReleaseVersionDiff, Role, RollbackPolicy, RolloutStrategy, RulesetDeployment,
+    RulesetHistoryEntry, RulesetHistorySource, ServerNode, ServerStatus, TestCase, TestExpectation,
+    UpdateEnvironmentRequest, UpdateReleasePolicyRequest, UpdateRoleRequest, User,
+    UserRoleAssignment,
 };
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -1601,7 +1601,10 @@ impl PlatformStore {
         policy_id: &str,
         req: &UpdateReleasePolicyRequest,
     ) -> Result<bool> {
-        let Some(current) = self.get_release_policy(org_id, project_id, policy_id).await? else {
+        let Some(current) = self
+            .get_release_policy(org_id, project_id, policy_id)
+            .await?
+        else {
             return Ok(false);
         };
         let result = sqlx::query(
@@ -1617,12 +1620,12 @@ impl PlatformStore {
              WHERE id = $8 AND org_id = $9 AND (project_id = $10 OR project_id IS NULL)",
         )
         .bind(req.name.as_deref().unwrap_or(&current.name))
-        .bind(req
-            .description
-            .as_ref()
-            .or(current.description.as_ref()))
+        .bind(req.description.as_ref().or(current.description.as_ref()))
         .bind(req.min_approvals.unwrap_or(current.min_approvals))
-        .bind(req.allow_self_approval.unwrap_or(current.allow_self_approval))
+        .bind(
+            req.allow_self_approval
+                .unwrap_or(current.allow_self_approval),
+        )
         .bind(req.approver_ids.as_ref().unwrap_or(&current.approver_ids))
         .bind(sqlx::types::Json(
             req.rollout_strategy
@@ -1882,13 +1885,11 @@ impl PlatformStore {
         release_request_id: &str,
         status: ReleaseRequestStatus,
     ) -> Result<()> {
-        sqlx::query(
-            "UPDATE release_requests SET status = $1, updated_at = NOW() WHERE id = $2",
-        )
-        .bind(status.to_string())
-        .bind(release_request_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE release_requests SET status = $1, updated_at = NOW() WHERE id = $2")
+            .bind(status.to_string())
+            .bind(release_request_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -2512,8 +2513,7 @@ fn row_to_release_policy(r: &sqlx::postgres::PgRow) -> Result<ReleasePolicy> {
         org_id: r.get("org_id"),
         project_id: r.get("project_id"),
         name: r.get("name"),
-        scope: ReleasePolicyScope::from_str(&scope)
-            .map_err(|e| anyhow::anyhow!(e))?,
+        scope: ReleasePolicyScope::from_str(&scope).map_err(|e| anyhow::anyhow!(e))?,
         target_type: ReleasePolicyTargetType::from_str(&target_type)
             .map_err(|e| anyhow::anyhow!(e))?,
         target_id: r.get("target_id"),
@@ -2548,8 +2548,7 @@ fn row_to_release_request(r: &sqlx::postgres::PgRow) -> Result<ReleaseRequest> {
         environment_id: r.get("environment_id"),
         environment_name: r.try_get("environment_name").ok(),
         policy_id: r.get("policy_id"),
-        status: ReleaseRequestStatus::from_str(&status)
-            .map_err(|e| anyhow::anyhow!(e))?,
+        status: ReleaseRequestStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?,
         title: r.get("title"),
         change_summary: r.get("change_summary"),
         release_note: r.get("release_note"),
@@ -2578,8 +2577,7 @@ fn row_to_release_approval(r: &sqlx::postgres::PgRow) -> Result<ReleaseApprovalR
         reviewer_id: r.get("reviewer_id"),
         reviewer_name: r.try_get("reviewer_name").ok(),
         reviewer_email: r.try_get("reviewer_email").ok(),
-        decision: ReleaseApprovalDecision::from_str(&decision)
-            .map_err(|e| anyhow::anyhow!(e))?,
+        decision: ReleaseApprovalDecision::from_str(&decision).map_err(|e| anyhow::anyhow!(e))?,
         comment: r.get("comment"),
         decided_at: r.get("decided_at"),
         created_at: r.get("created_at"),
@@ -2603,7 +2601,9 @@ fn row_to_release_execution(r: &sqlx::postgres::PgRow) -> Result<ReleaseExecutio
     })
 }
 
-fn row_to_release_execution_instance(r: &sqlx::postgres::PgRow) -> Result<ReleaseExecutionInstance> {
+fn row_to_release_execution_instance(
+    r: &sqlx::postgres::PgRow,
+) -> Result<ReleaseExecutionInstance> {
     use std::str::FromStr;
     let status: String = r.get("status");
     let metric_summary: Option<sqlx::types::Json<JsonValue>> = r.try_get("metric_summary").ok();
@@ -2618,8 +2618,13 @@ fn row_to_release_execution_instance(r: &sqlx::postgres::PgRow) -> Result<Releas
         status: ReleaseInstanceStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?,
         updated_at: r.get("updated_at"),
         message: r.try_get("message").ok(),
-        metric_summary: metric_summary
-            .and_then(|value| value.0.get("summary").and_then(|item| item.as_str()).map(str::to_string)),
+        metric_summary: metric_summary.and_then(|value| {
+            value
+                .0
+                .get("summary")
+                .and_then(|item| item.as_str())
+                .map(str::to_string)
+        }),
     })
 }
 

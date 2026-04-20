@@ -40,6 +40,7 @@ export interface OrgResponse {
   parent_org_id: string | null
   depth: number
   child_count: number
+  project_count: number
 }
 
 export interface Organization {
@@ -102,7 +103,7 @@ export interface BindServerRequest {
 
 // ── Ruleset Change History (ordo-platform) ──────────────────────────────────
 
-export type RulesetHistorySource = 'sync' | 'edit' | 'save' | 'restore' | 'create'
+export type RulesetHistorySource = 'sync' | 'edit' | 'save' | 'restore' | 'create' | 'publish'
 
 export interface RulesetHistoryEntry {
   id: string
@@ -134,6 +135,7 @@ export interface AppendRulesetHistoryEntry {
 export interface RuleSetInfo {
   name: string
   version: string
+  published_version?: string | null
   description: string
 }
 
@@ -286,7 +288,39 @@ export interface TestRunResult {
   failures: string[]
   duration_us: number
   actual_code?: string
+  actual_message?: string
   actual_output?: Record<string, unknown>
+  trace?: TestExecutionTrace
+}
+
+export interface TestExecutionTraceStep {
+  id: string
+  name: string
+  duration_us: number
+  next_step?: string | null
+  is_terminal?: boolean
+  input_snapshot?: Record<string, unknown> | null
+  variables_snapshot?: Record<string, unknown> | null
+}
+
+export interface TestExecutionTrace {
+  trace_id: string
+  path: string[]
+  path_string: string
+  result_code: string
+  total_duration_us: number
+  error?: string | null
+  steps: TestExecutionTraceStep[]
+}
+
+export interface TestRunRequest {
+  ruleset?: Record<string, unknown>
+  include_trace?: boolean
+}
+
+export interface ProjectTestRunRequest {
+  rulesets?: Record<string, Record<string, unknown>>
+  include_trace?: boolean
 }
 
 export interface RulesetTestSummary {
@@ -401,6 +435,7 @@ export interface ProjectRulesetMeta {
   draft_seq: number
   draft_updated_at: string
   draft_updated_by: string | null
+  draft_version: string | null
   published_version: string | null
   published_at: string | null
   created_at: string
@@ -641,7 +676,45 @@ export interface ReleaseExecutionInstance {
   status: ReleaseInstanceStatus
   updated_at?: string
   message?: string
-  metric_summary?: string
+  metric_summary?: {
+    batch_index?: number
+    total_batches?: number
+    duration_ms?: number
+    applied_at?: string
+    event?: string
+    [key: string]: unknown
+  }
+}
+
+export interface ReleaseExecutionEvent {
+  id: string
+  release_execution_id: string
+  instance_id?: string
+  event_type: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface PlatformNotification {
+  id: string
+  org_id: string
+  user_id: string
+  type: 'release_review_requested' | 'release_approved' | 'release_rejected' | string
+  ref_id?: string
+  ref_type?: string
+  payload: {
+    title?: string
+    project_id?: string
+    requester_id?: string
+    reviewer_id?: string
+    [key: string]: unknown
+  }
+  read_at?: string
+  created_at: string
+}
+
+export interface NotificationCount {
+  unread: number
 }
 
 export interface ReleaseExecution {

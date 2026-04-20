@@ -20,9 +20,11 @@ import type {
   MarketplaceDetail,
   MarketplaceSearchResponse,
   Member,
+  NotificationCount,
   OrgResponse,
   OrgRole,
   Organization,
+  PlatformNotification,
   Project,
   ProjectEnvironment,
   ProjectRuleset,
@@ -30,16 +32,17 @@ import type {
   ProjectTestRunResult,
   PublishRequest,
   RedeployRequest,
+  ReleaseExecution,
+  ReleaseExecutionEvent,
+  ReleasePolicy,
+  ReleaseRequest,
+  ReleaseTargetPreview,
+  ReviewReleaseRequest,
   Role,
   RollbackPolicy,
   RolloutStrategy,
   RulesetDeployment,
   RulesetHistoryResponse,
-  ReleaseExecution,
-  ReleasePolicy,
-  ReleaseRequest,
-  ReleaseTargetPreview,
-  ReviewReleaseRequest,
   SaveDraftRequest,
   ServerInfo,
   SetCanaryRequest,
@@ -47,7 +50,9 @@ import type {
   TemplateMetadata,
   TestCase,
   TestCaseInput,
+  TestRunRequest,
   TestRunResult,
+  ProjectTestRunRequest,
   UpdateEnvironmentRequest,
   UpdateRoleRequest,
   UserInfo,
@@ -242,6 +247,34 @@ export const memberApi = {
   },
 }
 
+// ── Sub-org member management (parent org context) ────────────────────────────
+
+export const subOrgMemberApi = {
+  list(token: string, parentOrgId: string, subOrgId: string): Promise<Member[]> {
+    return request(`/orgs/${parentOrgId}/sub-orgs/${subOrgId}/members`, { token })
+  },
+
+  add(
+    token: string,
+    parentOrgId: string,
+    subOrgId: string,
+    body: { user_id: string; role: Role },
+  ): Promise<Member> {
+    return request(`/orgs/${parentOrgId}/sub-orgs/${subOrgId}/members`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(body),
+    })
+  },
+
+  remove(token: string, parentOrgId: string, subOrgId: string, userId: string): Promise<void> {
+    return request(`/orgs/${parentOrgId}/sub-orgs/${subOrgId}/members/${userId}`, {
+      method: 'DELETE',
+      token,
+    })
+  },
+}
+
 // ── Projects ──────────────────────────────────────────────────────────────────
 
 export const projectApi = {
@@ -353,22 +386,41 @@ export const testApi = {
     )
   },
 
-  runAll(token: string, projectId: string, rulesetName: string): Promise<TestRunResult[]> {
+  runAll(
+    token: string,
+    projectId: string,
+    rulesetName: string,
+    req: TestRunRequest = {},
+  ): Promise<TestRunResult[]> {
     return request(
       `/projects/${projectId}/rulesets/${encodeURIComponent(rulesetName)}/tests/run`,
-      { method: 'POST', token },
+      { method: 'POST', token, body: JSON.stringify(req) },
     )
   },
 
-  runOne(token: string, projectId: string, rulesetName: string, testId: string): Promise<TestRunResult> {
+  runOne(
+    token: string,
+    projectId: string,
+    rulesetName: string,
+    testId: string,
+    req: TestRunRequest = {},
+  ): Promise<TestRunResult> {
     return request(
       `/projects/${projectId}/rulesets/${encodeURIComponent(rulesetName)}/tests/${testId}/run`,
-      { method: 'POST', token },
+      { method: 'POST', token, body: JSON.stringify(req) },
     )
   },
 
-  runProject(token: string, projectId: string): Promise<ProjectTestRunResult> {
-    return request(`/projects/${projectId}/tests/run`, { token })
+  runProject(
+    token: string,
+    projectId: string,
+    req: ProjectTestRunRequest = {},
+  ): Promise<ProjectTestRunResult> {
+    return request(`/projects/${projectId}/tests/run`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    })
   },
 
   /** Returns a download URL (use window.open or anchor href). */
@@ -866,5 +918,78 @@ export const releaseApi = {
       token,
       body: JSON.stringify(req),
     })
+  },
+
+  getExecutionEvents(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string,
+    executionId: string,
+  ): Promise<ReleaseExecutionEvent[]> {
+    return request(
+      `/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/executions/${executionId}/events`,
+      { token },
+    )
+  },
+
+  listPendingForMe(token: string, orgId: string): Promise<ReleaseRequest[]> {
+    return request(`/orgs/${orgId}/releases/pending-for-me`, { token })
+  },
+}
+
+export const engineApi = {
+  executeWithTrace(
+    token: string,
+    orgId: string,
+    projectId: string,
+    rulesetName: string,
+    input: Record<string, unknown>,
+    ruleset: Record<string, unknown>,
+  ): Promise<{
+    code: string
+    message: string
+    output: Record<string, unknown>
+    duration_us: number
+    trace?: {
+      path: string
+      steps: Array<{ id: string; name: string; duration_us: number }>
+    }
+  }> {
+    return request(
+      `/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(rulesetName)}/trace`,
+      {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ ruleset, input }),
+      },
+    )
+  },
+}
+
+export const notificationApi = {
+  list(
+    token: string,
+    orgId: string,
+    opts: { unread_only?: boolean; limit?: number; offset?: number } = {},
+  ): Promise<PlatformNotification[]> {
+    const params = new URLSearchParams()
+    if (opts.unread_only) params.set('unread_only', 'true')
+    if (opts.limit) params.set('limit', String(opts.limit))
+    if (opts.offset) params.set('offset', String(opts.offset))
+    const qs = params.toString()
+    return request(`/orgs/${orgId}/notifications${qs ? `?${qs}` : ''}`, { token })
+  },
+
+  count(token: string, orgId: string): Promise<NotificationCount> {
+    return request(`/orgs/${orgId}/notifications/count`, { token })
+  },
+
+  markRead(token: string, orgId: string, notifId: string): Promise<void> {
+    return request(`/orgs/${orgId}/notifications/${notifId}/read`, { method: 'POST', token })
+  },
+
+  markAllRead(token: string, orgId: string): Promise<void> {
+    return request(`/orgs/${orgId}/notifications/read-all`, { method: 'POST', token })
   },
 }

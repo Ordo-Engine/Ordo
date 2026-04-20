@@ -9,6 +9,7 @@ import { useOrgStore } from '@/stores/org'
 import { useProjectStore } from '@/stores/project'
 import { useServerStore } from '@/stores/server'
 import { useNotificationStore } from '@/stores/notification'
+import { usePersistentNotificationStore } from '@/stores/persistentNotifications'
 import { i18n, LOCALE_OPTIONS, setLocale, type Locale } from '@/i18n'
 
 const router = useRouter()
@@ -18,6 +19,7 @@ const orgStore = useOrgStore()
 const projectStore = useProjectStore()
 const serverStore = useServerStore()
 const notifStore = useNotificationStore()
+const persistentNotifStore = usePersistentNotificationStore()
 const { t } = useI18n()
 
 const currentLocale = computed(() => (i18n.global.locale as any).value as Locale)
@@ -112,7 +114,7 @@ function notifIcon(type: string) {
 const pageInfo = computed(() => {
   const name = route.name?.toString()
   switch (name) {
-    case 'dashboard':      return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle') }
+    case 'dashboard':      return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle', { projects: projectStore.projects.length, members: orgStore.members.length, servers: serverStore.servers.filter(s => s.status === 'online').length }) }
     case 'projects':       return { title: t('nav.projects'), subtitle: t('shell.projectsSubtitle') }
     case 'org-members':    return { title: t('nav.members'), subtitle: t('shell.membersSubtitle') }
     case 'org-roles':
@@ -139,7 +141,7 @@ const pageInfo = computed(() => {
     case 'project-settings':    return { title: t('projectNav.settings'), subtitle: t('projectSettings.serverBindingDesc') }
     case 'marketplace':         return { title: t('marketplace.title'), subtitle: t('marketplace.subtitle') }
     case 'marketplace-detail':  return { title: t('marketplace.detail'), subtitle: t('marketplace.subtitle') }
-    default:               return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle') }
+    default:               return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle', { projects: projectStore.projects.length, members: orgStore.members.length, servers: serverStore.servers.filter(s => s.status === 'online').length }) }
   }
 })
 
@@ -168,25 +170,43 @@ const systemItems = computed(() => [
   { value: 'settings', label: t('nav.settings'), icon: 'setting', active: route.path.startsWith('/settings'), action: () => navigate('/settings') },
 ])
 
-const orgOptions = computed(() =>
-  orgStore.orgs.map((org) => ({ label: org.name, value: org.id })),
-)
+// Org switcher list: root orgs first, then their sub-orgs indented below each parent
+const orgOptions = computed(() => {
+  const roots = orgStore.orgs.filter((o) => o.depth === 0)
+  const result: { label: string; value: string; depth: number }[] = []
+  for (const root of roots) {
+    result.push({ label: root.name, value: root.id, depth: 0 })
+    const subs = orgStore.orgs.filter((o) => o.parent_org_id === root.id)
+    for (const sub of subs) {
+      result.push({ label: sub.name, value: sub.id, depth: 1 })
+    }
+  }
+  return result
+})
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
   await orgStore.fetchOrgs()
-  if (orgStore.currentOrg) await projectStore.fetchProjects(orgStore.currentOrg.id)
+  if (orgStore.currentOrg) {
+    await projectStore.fetchProjects(orgStore.currentOrg.id)
+    persistentNotifStore.startPolling(orgStore.currentOrg.id)
+  }
   await serverStore.fetchServers()
   document.addEventListener('click', onDocumentClick, true)
 })
 
 onUnmounted(() => {
+  persistentNotifStore.stopPolling()
   document.removeEventListener('click', onDocumentClick, true)
 })
 
 watch(currentOrgId, async (id) => {
-  if (id) await serverStore.fetchServers()
+  if (id) {
+    await serverStore.fetchServers()
+    persistentNotifStore.stopPolling()
+    persistentNotifStore.startPolling(id)
+  }
 })
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -340,10 +360,11 @@ async function handleCreateOrg() {
                 v-for="org in orgOptions"
                 :key="org.value"
                 class="topbar-dropdown__item"
-                :class="{ 'is-active': org.value === currentOrgId }"
+                :class="{ 'is-active': org.value === currentOrgId, 'is-suborg': org.depth > 0 }"
                 @click="onOrgChange(org.value)"
               >
-                <t-icon name="institution" size="13px" />
+                <span v-if="org.depth > 0" class="suborg-indent-connector" aria-hidden="true"></span>
+                <t-icon :name="org.depth > 0 ? 'root-list' : 'institution'" size="13px" />
                 <span>{{ org.label }}</span>
                 <t-icon v-if="org.value === currentOrgId" name="check" size="13px" class="topbar-dropdown__check" />
               </button>
@@ -434,12 +455,12 @@ async function handleCreateOrg() {
           <div ref="notifRef" class="topbar-pill-wrap">
             <button
               class="topbar-pill topbar-pill--icon"
-              :class="{ 'is-open': notifOpen, 'has-unread': notifStore.unreadCount > 0 }"
+              :class="{ 'is-open': notifOpen, 'has-unread': persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0 }"
               @click="notifOpen = !notifOpen"
             >
               <t-icon name="notification" size="16px" />
-              <span v-if="notifStore.unreadCount > 0" class="notif-badge">
-                {{ notifStore.unreadCount > 99 ? '99+' : notifStore.unreadCount }}
+              <span v-if="persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0" class="notif-badge">
+                {{ (persistentNotifStore.unreadCount + notifStore.unreadCount) > 99 ? '99+' : persistentNotifStore.unreadCount + notifStore.unreadCount }}
               </span>
             </button>
 
@@ -476,6 +497,13 @@ async function handleCreateOrg() {
                     <div class="notif-time">{{ formatNotifTime(n.timestamp) }}</div>
                   </div>
                 </div>
+              </div>
+
+              <div v-if="currentOrgId" class="topbar-dropdown__footer">
+                <button class="topbar-dropdown__action" @click="notifOpen = false; navigate(`/orgs/${currentOrgId}/notifications`)">
+                  <t-icon name="inbox" size="13px" />
+                  <span>{{ t('notifications.viewInbox') }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -521,8 +549,8 @@ async function handleCreateOrg() {
   height: 100vh;
   display: grid;
   grid-template-columns: 244px minmax(0, 1fr);
-  background: #f6f5f1;
-  color: #1f2328;
+  background: var(--ordo-bg-app);
+  color: var(--ordo-text-primary);
   overflow: hidden;
 }
 
@@ -533,8 +561,8 @@ async function handleCreateOrg() {
   flex-direction: column;
   min-height: 100vh;
   padding: 18px 14px;
-  border-right: 1px solid #e4e1d9;
-  background: #f2f0ea;
+  border-right: 1px solid var(--ordo-sidebar-border);
+  background: var(--ordo-sidebar-bg);
 }
 
 .sidebar__brand {
@@ -573,22 +601,22 @@ async function handleCreateOrg() {
 
 .sidebar__brand-copy span {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .sidebar__org {
   margin-top: 18px;
   padding: 12px 10px;
-  border: 1px solid #e7e3d8;
+  border: 1px solid var(--ordo-sidebar-org-border);
   border-radius: 10px;
-  background: #faf8f3;
+  background: var(--ordo-sidebar-org-bg);
 }
 
 .sidebar__org-name {
   margin-top: 4px;
   font-size: 13px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .sidebar__section {
@@ -608,7 +636,7 @@ async function handleCreateOrg() {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #7f7669;
+  color: var(--ordo-text-tertiary);
 }
 
 .sidebar-link {
@@ -622,30 +650,30 @@ async function handleCreateOrg() {
   gap: 10px;
   text-align: left;
   cursor: pointer;
-  color: #5f6570;
+  color: var(--ordo-text-secondary);
   background: transparent;
   transition: background 0.12s ease, color 0.12s ease;
 }
 
 .sidebar-link:hover {
-  color: #1f2328;
-  background: rgba(255, 255, 255, 0.55);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-sidebar-hover-bg);
 }
 
 .sidebar-link.is-active {
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   font-weight: 600;
-  background: #ffffff;
-  border-color: #e2ddd2;
+  background: var(--ordo-bg-panel);
+  border-color: var(--ordo-border-color);
 }
 
 .sidebar-link :deep(.t-icon) {
   font-size: 15px;
-  color: #7f7669;
+  color: var(--ordo-text-tertiary);
 }
 
 .sidebar-link.is-active :deep(.t-icon) {
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .sidebar-link__badge {
@@ -657,8 +685,8 @@ async function handleCreateOrg() {
   justify-content: center;
   font-size: 10px;
   font-weight: 700;
-  color: #5f6570;
-  background: #e7e5df;
+  color: var(--ordo-text-secondary);
+  background: var(--ordo-bg-item-hover);
 }
 
 .sidebar__footer {
@@ -666,7 +694,7 @@ async function handleCreateOrg() {
   flex-direction: column;
   gap: 8px;
   padding-top: 10px;
-  border-top: 1px solid #e4e1d9;
+  border-top: 1px solid var(--ordo-sidebar-footer-border);
 }
 
 .sidebar-user {
@@ -680,7 +708,7 @@ async function handleCreateOrg() {
 }
 
 .sidebar-user:hover {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--ordo-sidebar-hover-bg);
 }
 
 .sidebar-user__avatar {
@@ -692,8 +720,8 @@ async function handleCreateOrg() {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  color: #1f2328;
-  background: #ddd7c9;
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-item-hover);
 }
 
 .sidebar-user__copy {
@@ -705,7 +733,7 @@ async function handleCreateOrg() {
 .sidebar-user__copy strong {
   font-size: 12px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -713,7 +741,7 @@ async function handleCreateOrg() {
 
 .sidebar-user__copy span {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -734,8 +762,8 @@ async function handleCreateOrg() {
   z-index: 999;
   min-height: 64px;
   padding: 14px 20px;
-  border-bottom: 1px solid #e4e1d9;
-  background: rgba(250, 249, 245, 0.92);
+  border-bottom: 1px solid var(--ordo-border-color);
+  background: color-mix(in srgb, var(--ordo-bg-app) 92%, transparent);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
@@ -751,13 +779,13 @@ async function handleCreateOrg() {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .topbar__title p {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .topbar__actions {
@@ -772,19 +800,19 @@ async function handleCreateOrg() {
   min-width: 280px;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid #ddd7c9;
+  border: 1px solid var(--ordo-border-color);
   border-radius: 10px;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #ffffff;
-  color: #6b7280;
+  background: var(--ordo-bg-panel);
+  color: var(--ordo-text-secondary);
   cursor: pointer;
   transition: border-color 0.12s;
 }
 
 .command-trigger:hover {
-  border-color: #c9c3b8;
+  border-color: var(--ordo-border-color);
 }
 
 .command-trigger span {
@@ -797,7 +825,7 @@ async function handleCreateOrg() {
   min-width: 44px;
   height: 22px;
   padding: 0 8px;
-  border: 1px solid #e3ddd0;
+  border: 1px solid var(--ordo-border-color);
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -805,8 +833,8 @@ async function handleCreateOrg() {
   font: inherit;
   font-size: 11px;
   font-weight: 500;
-  color: #8a8274;
-  background: #f7f5ef;
+  color: var(--ordo-text-tertiary);
+  background: var(--ordo-bg-app);
 }
 
 /* ── Pill buttons + dropdowns ───────────────────────────────────────────────── */
@@ -819,15 +847,15 @@ async function handleCreateOrg() {
 .topbar-pill {
   height: 36px;
   padding: 0 12px;
-  border: 1px solid #ddd7c9;
+  border: 1px solid var(--ordo-border-color);
   border-radius: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
   font-weight: 500;
-  color: #444b55;
-  background: #ffffff;
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-panel);
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
   white-space: nowrap;
@@ -838,14 +866,14 @@ async function handleCreateOrg() {
 }
 
 .topbar-pill:hover {
-  border-color: #c9c3b8;
-  color: #1f2328;
+  border-color: var(--ordo-border-color);
+  color: var(--ordo-text-primary);
 }
 
 .topbar-pill.is-open {
-  border-color: #b8d1eb;
-  background: #f0f6fc;
-  color: #1a4f7a;
+  border-color: var(--ordo-border-focus);
+  background: var(--ordo-accent-bg);
+  color: var(--ordo-accent);
 }
 
 .topbar-pill--icon {
@@ -865,7 +893,7 @@ async function handleCreateOrg() {
 
 .topbar-pill__arrow {
   margin-left: auto;
-  color: #9e9589;
+  color: var(--ordo-text-tertiary);
   transition: transform 0.15s;
 }
 
@@ -880,9 +908,9 @@ async function handleCreateOrg() {
   right: 0;
   z-index: 900;
   min-width: 220px;
-  border: 1px solid #e4e1d9;
+  border: 1px solid var(--ordo-border-color);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--ordo-bg-panel);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10), 0 2px 6px rgba(0, 0, 0, 0.06);
   overflow: hidden;
 }
@@ -913,8 +941,8 @@ async function handleCreateOrg() {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #7f7669;
-  border-bottom: 1px solid #f0ede6;
+  color: var(--ordo-text-tertiary);
+  border-bottom: 1px solid var(--ordo-border-light);
 }
 
 .topbar-dropdown__item {
@@ -926,50 +954,80 @@ async function handleCreateOrg() {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #444b55;
+  color: var(--ordo-text-primary);
   cursor: pointer;
   transition: background 0.1s;
   text-align: left;
 }
 
 .topbar-dropdown__item:hover {
-  background: #f7f5ef;
-  color: #1f2328;
+  background: var(--ordo-bg-item-hover);
+  color: var(--ordo-text-primary);
 }
 
 .topbar-dropdown__item.is-active {
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   font-weight: 600;
 }
 
 .topbar-dropdown__check {
   margin-left: auto;
-  color: #3065a4;
+  color: var(--ordo-accent);
+}
+
+/* Sub-org items: indented with a connector line */
+.topbar-dropdown__item.is-suborg {
+  padding-left: 10px;
+  background: var(--ordo-bg-app);
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
+}
+
+.topbar-dropdown__item.is-suborg:hover {
+  background: var(--ordo-bg-item-hover);
+  color: var(--ordo-text-primary);
+}
+
+.topbar-dropdown__item.is-suborg.is-active {
+  color: var(--ordo-text-primary);
+}
+
+.suborg-indent-connector {
+  display: inline-block;
+  width: 12px;
+  height: 14px;
+  flex-shrink: 0;
+  border-left: 1.5px solid var(--ordo-border-color);
+  border-bottom: 1.5px solid var(--ordo-border-color);
+  border-bottom-left-radius: 3px;
+  margin-right: -2px;
+  margin-bottom: -2px;
+  align-self: flex-end;
 }
 
 .topbar-dropdown__footer {
   padding: 8px;
-  border-top: 1px solid #f0ede6;
+  border-top: 1px solid var(--ordo-border-light);
 }
 
 .topbar-dropdown__action {
   width: 100%;
   min-height: 34px;
   padding: 0 10px;
-  border: 1px dashed #d6cfbf;
+  border: 1px dashed var(--ordo-border-color);
   border-radius: 8px;
-  background: #faf8f3;
+  background: var(--ordo-bg-app);
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s;
 }
 
 .topbar-dropdown__action:hover {
-  background: #f7f3e8;
-  border-color: #c7bea9;
+  background: var(--ordo-bg-item-hover);
+  border-color: var(--ordo-border-color);
 }
 
 /* ── Health dropdown ─────────────────────────────────────────────────────────── */
@@ -993,18 +1051,18 @@ async function handleCreateOrg() {
   gap: 12px;
   padding: 8px 14px;
   font-size: 12px;
-  color: #6b7280;
-  border-bottom: 1px solid #f5f3ee;
+  color: var(--ordo-text-secondary);
+  border-bottom: 1px solid var(--ordo-border-light);
 }
 
 .health-row strong {
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .health-url {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: #5f6570;
+  color: var(--ordo-text-secondary);
   word-break: break-all;
   text-align: right;
   max-width: 160px;
@@ -1013,7 +1071,7 @@ async function handleCreateOrg() {
 .health-default-msg {
   padding: 16px 14px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
   text-align: center;
 }
 
@@ -1024,14 +1082,14 @@ async function handleCreateOrg() {
   border: none;
   background: transparent;
   font-size: 12px;
-  color: #3065a4;
+  color: var(--ordo-accent);
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
 .health-detail-link:hover {
-  background: #f0f6fc;
+  background: var(--ordo-accent-bg);
 }
 
 /* ── Notification dropdown ───────────────────────────────────────────────────── */
@@ -1045,7 +1103,7 @@ async function handleCreateOrg() {
   padding: 0 4px;
   border-radius: 999px;
   background: #f53f3f;
-  color: #ffffff;
+  color: var(--ordo-text-inverse);
   font-size: 10px;
   font-weight: 700;
   display: flex;
@@ -1059,7 +1117,7 @@ async function handleCreateOrg() {
   border: none;
   background: transparent;
   font-size: 11px;
-  color: #3065a4;
+  color: var(--ordo-accent);
   cursor: pointer;
   padding: 0;
   font-weight: 500;
@@ -1076,7 +1134,7 @@ async function handleCreateOrg() {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #9e9589;
+  color: var(--ordo-text-tertiary);
 }
 
 .notif-list {
@@ -1089,7 +1147,7 @@ async function handleCreateOrg() {
   align-items: flex-start;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 1px solid #f5f3ee;
+  border-bottom: 1px solid var(--ordo-border-light);
   transition: background 0.1s;
 }
 
@@ -1098,11 +1156,11 @@ async function handleCreateOrg() {
 }
 
 .notif-item:hover {
-  background: #faf8f3;
+  background: var(--ordo-bg-item-hover);
 }
 
 .notif-item--unread {
-  background: #fafbff;
+  background: var(--ordo-bg-selected);
 }
 
 .notif-icon {
@@ -1128,14 +1186,14 @@ async function handleCreateOrg() {
 .notif-title {
   font-size: 13px;
   font-weight: 500;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   line-height: 1.4;
 }
 
 .notif-message {
   margin-top: 2px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
   line-height: 1.4;
   word-break: break-word;
 }
@@ -1143,7 +1201,7 @@ async function handleCreateOrg() {
 .notif-time {
   margin-top: 4px;
   font-size: 11px;
-  color: #9e9589;
+  color: var(--ordo-text-tertiary);
 }
 
 /* ── App content ─────────────────────────────────────────────────────────────── */
@@ -1190,7 +1248,7 @@ async function handleCreateOrg() {
   .sidebar {
     min-height: auto;
     border-right: none;
-    border-bottom: 1px solid #e4e1d9;
+    border-bottom: 1px solid var(--ordo-sidebar-border);
   }
 
   .main-shell,

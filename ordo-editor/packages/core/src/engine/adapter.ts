@@ -185,6 +185,16 @@ function convertConditionToString(condition: any): string {
     return `(${conditions.join(joinOp)})`;
   }
 
+  // Reverse adapter emits logical conditions in the editor-native shape.
+  if (condition.type === 'logical') {
+    const operator = condition.operator || 'and';
+    const conditions = (condition.conditions || []).map(convertConditionToString);
+    if (conditions.length === 0) return 'true';
+    if (conditions.length === 1) return conditions[0];
+    const joinOp = operator === 'or' ? ' || ' : ' && ';
+    return `(${conditions.join(joinOp)})`;
+  }
+
   // Handle expression type
   if (condition.type === 'expression' && condition.expression) {
     return condition.expression;

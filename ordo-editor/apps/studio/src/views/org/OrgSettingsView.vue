@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useOrgStore } from '@/stores/org'
 import { memberApi } from '@/api/platform-client'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import type { Role } from '@/api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +19,17 @@ const showCreateSubOrg = ref(false)
 const creatingSubOrg = ref(false)
 const newSubOrgName = ref('')
 const newSubOrgDesc = ref('')
+const assignAdmin = ref(false)
+const assignAdminUserId = ref('')
+const assignAdminRole = ref<Role>('admin')
+
+// Sub-org member panel
+const expandedSubOrgId = ref<string | null>(null)
+const showAddMemberDialog = ref(false)
+const addMemberTargetSubOrgId = ref('')
+const addMemberUserId = ref('')
+const addMemberRole = ref<Role>('editor')
+const addingMember = ref(false)
 
 const isRootOrg = computed(() => (orgStore.currentOrg?.depth ?? 0) === 0)
 const parentOrgId = computed(() => orgStore.currentOrg?.parent_org_id ?? null)
@@ -26,6 +38,19 @@ const parentOrg = computed(() =>
 )
 const currentSubOrgs = computed(() =>
   orgId.value ? (orgStore.subOrgs[orgId.value] ?? []) : [],
+)
+
+// Parent org members not yet in the target sub-org (for "Add from parent" dropdown)
+const parentMembersNotInSubOrg = computed(() => {
+  const subMembers = new Set(
+    (orgStore.subOrgMembers[addMemberTargetSubOrgId.value] ?? []).map((m) => m.user_id),
+  )
+  return orgStore.members.filter((m) => !subMembers.has(m.user_id))
+})
+
+// For "designate admin on create": exclude the current user (they become Owner automatically)
+const parentMembersForAssign = computed(() =>
+  orgStore.members.filter((m) => m.user_id !== auth.user?.id),
 )
 
 const orgId = computed(() => route.params.orgId as string)
@@ -75,16 +100,93 @@ async function handleCreateSubOrg() {
   }
   creatingSubOrg.value = true
   try {
-    await orgStore.createSubOrg(orgId.value, newSubOrgName.value.trim(), newSubOrgDesc.value || undefined)
+    const org = await orgStore.createSubOrg(
+      orgId.value,
+      newSubOrgName.value.trim(),
+      newSubOrgDesc.value || undefined,
+    )
+    // Optionally designate an admin from the parent org
+    if (assignAdmin.value && assignAdminUserId.value) {
+      try {
+        await orgStore.addSubOrgMember(
+          orgId.value,
+          org.id,
+          assignAdminUserId.value,
+          assignAdminRole.value,
+        )
+      } catch (e: any) {
+        // If the user is already a member (e.g. was auto-added as creator), ignore
+        if (!e.message?.toLowerCase().includes('already a member')) throw e
+      }
+    }
     showCreateSubOrg.value = false
     newSubOrgName.value = ''
     newSubOrgDesc.value = ''
+    assignAdmin.value = false
+    assignAdminUserId.value = ''
+    assignAdminRole.value = 'admin'
     MessagePlugin.success(t('org.createSubOrgSuccess'))
   } catch (e: any) {
     MessagePlugin.error(e.message)
   } finally {
     creatingSubOrg.value = false
   }
+}
+
+async function toggleSubOrgMembers(subOrgId: string) {
+  if (expandedSubOrgId.value === subOrgId) {
+    expandedSubOrgId.value = null
+    return
+  }
+  expandedSubOrgId.value = subOrgId
+  await orgStore.fetchSubOrgMembers(orgId.value, subOrgId)
+}
+
+function openAddMemberDialog(subOrgId: string) {
+  addMemberTargetSubOrgId.value = subOrgId
+  addMemberUserId.value = ''
+  addMemberRole.value = 'editor'
+  showAddMemberDialog.value = true
+}
+
+async function handleAddSubOrgMember() {
+  if (!addMemberUserId.value) {
+    MessagePlugin.warning(t('org.subOrgMember.selectRequired'))
+    return
+  }
+  addingMember.value = true
+  try {
+    await orgStore.addSubOrgMember(
+      orgId.value,
+      addMemberTargetSubOrgId.value,
+      addMemberUserId.value,
+      addMemberRole.value,
+    )
+    showAddMemberDialog.value = false
+    MessagePlugin.success(t('org.subOrgMember.addSuccess'))
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    addingMember.value = false
+  }
+}
+
+function handleRemoveSubOrgMember(subOrgId: string, userId: string, userName: string) {
+  const dlg = DialogPlugin.confirm({
+    header: t('org.subOrgMember.removeTitle'),
+    body: t('org.subOrgMember.removeConfirm', { name: userName }),
+    confirmBtn: { content: t('common.remove'), theme: 'danger' },
+    cancelBtn: t('common.cancel'),
+    onConfirm: async () => {
+      try {
+        await orgStore.removeSubOrgMember(orgId.value, subOrgId, userId)
+        dlg.hide()
+        MessagePlugin.success(t('org.subOrgMember.removeSuccess'))
+      } catch (e: any) {
+        MessagePlugin.error(e.message)
+      }
+    },
+  })
 }
 
 function handleDeleteSubOrg(subOrgId: string, subOrgName: string) {
@@ -154,6 +256,13 @@ function handleLeave() {
       }
     },
   })
+}
+
+const roleTheme: Record<string, string> = {
+  owner: 'primary',
+  admin: 'warning',
+  editor: 'success',
+  viewer: 'default',
 }
 
 function handleDelete() {
@@ -269,31 +378,82 @@ function handleDelete() {
             {{ t('org.noSubOrgs') }}
           </div>
           <div v-else class="suborg-list">
-            <div v-for="sub in currentSubOrgs" :key="sub.id" class="suborg-row">
-              <div class="org-mini-icon org-mini-icon--sub">{{ sub.name[0]?.toUpperCase() }}</div>
-              <div class="suborg-info">
-                <div class="suborg-name">{{ sub.name }}</div>
-                <div class="suborg-meta">{{ t('org.memberCount', { count: sub.member_count }) }}</div>
+            <template v-for="sub in currentSubOrgs" :key="sub.id">
+              <div class="suborg-row">
+                <div class="org-mini-icon org-mini-icon--sub">{{ sub.name[0]?.toUpperCase() }}</div>
+                <div class="suborg-info">
+                  <div class="suborg-name">{{ sub.name }}</div>
+                  <div class="suborg-meta">
+                    {{ t('org.memberCount', { count: sub.member_count }) }}
+                    <span v-if="sub.project_count > 0" class="suborg-meta-sep">·</span>
+                    <span v-if="sub.project_count > 0">{{ t('org.projectCount', { count: sub.project_count }) }}</span>
+                  </div>
+                </div>
+                <div class="suborg-actions">
+                  <t-button
+                    v-if="isAdmin"
+                    size="small"
+                    variant="text"
+                    @click="toggleSubOrgMembers(sub.id)"
+                  >
+                    {{ expandedSubOrgId === sub.id ? t('common.collapse') : t('org.subOrgMember.manage') }}
+                  </t-button>
+                  <t-button
+                    size="small"
+                    variant="text"
+                    @click="router.push(`/orgs/${sub.id}/settings`)"
+                  >
+                    {{ t('org.manage') }}
+                  </t-button>
+                  <t-button
+                    v-if="isAdmin"
+                    size="small"
+                    variant="text"
+                    theme="danger"
+                    @click="handleDeleteSubOrg(sub.id, sub.name)"
+                  >
+                    {{ t('common.delete') }}
+                  </t-button>
+                </div>
               </div>
-              <div class="suborg-actions">
-                <t-button
-                  size="small"
-                  variant="text"
-                  @click="router.push(`/orgs/${sub.id}/settings`)"
-                >
-                  {{ t('org.manage') }}
-                </t-button>
-                <t-button
-                  v-if="isAdmin"
-                  size="small"
-                  variant="text"
-                  theme="danger"
-                  @click="handleDeleteSubOrg(sub.id, sub.name)"
-                >
-                  {{ t('common.delete') }}
-                </t-button>
+              <!-- Expandable member panel -->
+              <div v-if="expandedSubOrgId === sub.id" class="suborg-member-panel">
+                <div class="suborg-member-panel__header">
+                  <span>{{ t('org.subOrgMember.panelTitle', { name: sub.name }) }}</span>
+                  <t-button
+                    v-if="isAdmin"
+                    size="small"
+                    variant="outline"
+                    @click="openAddMemberDialog(sub.id)"
+                  >
+                    <t-icon name="add" />
+                    {{ t('org.subOrgMember.addFromParent') }}
+                  </t-button>
+                </div>
+                <div v-if="!orgStore.subOrgMembers[sub.id]?.length" class="suborg-member-empty">
+                  {{ t('org.subOrgMember.empty') }}
+                </div>
+                <div v-else class="suborg-member-list">
+                  <div
+                    v-for="m in orgStore.subOrgMembers[sub.id]"
+                    :key="m.user_id"
+                    class="suborg-member-row"
+                  >
+                    <span class="suborg-member-name">{{ m.display_name }}</span>
+                    <t-tag :theme="roleTheme[m.role]" size="small">{{ m.role }}</t-tag>
+                    <t-button
+                      v-if="isAdmin"
+                      size="small"
+                      variant="text"
+                      theme="danger"
+                      @click="handleRemoveSubOrgMember(sub.id, m.user_id, m.display_name)"
+                    >
+                      {{ t('common.remove') }}
+                    </t-button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </template>
           </div>
         </section>
 
@@ -317,6 +477,63 @@ function handleDelete() {
             </t-form-item>
             <t-form-item :label="t('org.descLabel')">
               <t-input v-model="newSubOrgDesc" :placeholder="t('org.descPlaceholder')" />
+            </t-form-item>
+            <t-form-item :label="t('org.assignAdmin')">
+              <t-switch v-model="assignAdmin" />
+            </t-form-item>
+            <t-form-item v-if="assignAdmin" :label="t('org.assignAdminMember')">
+              <t-select
+                v-model="assignAdminUserId"
+                :placeholder="t('org.assignAdminPlaceholder')"
+                clearable
+              >
+                <t-option
+                  v-for="m in parentMembersForAssign"
+                  :key="m.user_id"
+                  :value="m.user_id"
+                  :label="`${m.display_name} (${m.email})`"
+                />
+              </t-select>
+            </t-form-item>
+            <t-form-item v-if="assignAdmin" :label="t('org.subOrgMember.role')">
+              <t-select v-model="assignAdminRole">
+                <t-option value="admin" label="Admin" />
+                <t-option value="editor" label="Editor" />
+              </t-select>
+            </t-form-item>
+          </t-form>
+        </t-dialog>
+
+        <!-- Add member from parent org dialog -->
+        <t-dialog
+          v-model:visible="showAddMemberDialog"
+          :header="t('org.subOrgMember.addDialogTitle')"
+          :confirm-btn="{ content: t('common.add'), loading: addingMember }"
+          @confirm="handleAddSubOrgMember"
+          @close="showAddMemberDialog = false"
+          width="400px"
+        >
+          <t-form label-align="top">
+            <t-form-item :label="t('org.subOrgMember.selectMember')" required>
+              <t-select
+                v-model="addMemberUserId"
+                :placeholder="t('org.subOrgMember.selectPlaceholder')"
+                filterable
+              >
+                <t-option
+                  v-for="m in parentMembersNotInSubOrg"
+                  :key="m.user_id"
+                  :value="m.user_id"
+                  :label="`${m.display_name} (${m.email})`"
+                />
+              </t-select>
+            </t-form-item>
+            <t-form-item :label="t('org.subOrgMember.role')">
+              <t-select v-model="addMemberRole">
+                <t-option value="admin" label="Admin" />
+                <t-option value="editor" label="Editor" />
+                <t-option value="viewer" label="Viewer" />
+              </t-select>
             </t-form-item>
           </t-form>
         </t-dialog>
@@ -570,7 +787,7 @@ function handleDelete() {
 }
 
 .suborg-row:hover {
-  background: #fafaf8;
+  background: var(--ordo-bg-app);
 }
 
 .org-mini-icon {
@@ -590,6 +807,58 @@ function handleDelete() {
 .org-mini-icon--sub {
   background: #f0fdf4;
   color: #16a34a;
+}
+
+.suborg-meta-sep {
+  margin: 0 2px;
+  color: var(--ordo-text-tertiary);
+}
+
+/* ── Sub-org member panel ─────────────────────────────────────────────────── */
+.suborg-member-panel {
+  background: var(--ordo-bg-app);
+  border-bottom: 1px solid var(--ordo-border-color);
+  padding: 12px 14px 14px 58px;
+}
+
+.suborg-member-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.suborg-member-panel__header span {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ordo-text-secondary);
+}
+
+.suborg-member-empty {
+  font-size: 12px;
+  color: var(--ordo-text-tertiary);
+}
+
+.suborg-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suborg-member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.suborg-member-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--ordo-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .suborg-info {

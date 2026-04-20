@@ -9,11 +9,12 @@ import { useAuthStore } from '@/stores/auth'
 import { useEnvironmentStore } from '@/stores/environment'
 import { useProjectStore } from '@/stores/project'
 import { useRbacStore } from '@/stores/rbac'
-import { labelRolloutStrategy } from '@/constants/release-center'
+import { useRolloutStrategyLabel } from '@/constants/release-center'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const labelRolloutStrategy = useRolloutStrategyLabel()
 const auth = useAuthStore()
 const envStore = useEnvironmentStore()
 const projectStore = useProjectStore()
@@ -55,6 +56,7 @@ const policyOptions = computed(() =>
 const selectedRule = computed(() =>
   projectStore.rulesets.find((r) => r.name === form.value.ruleset_name) ?? null,
 )
+const selectedPublishedVersion = computed(() => selectedRule.value?.published_version ?? '')
 const selectedEnvironment = computed(() =>
   envStore.environments.find((e) => e.id === form.value.environment_id) ?? null,
 )
@@ -70,11 +72,16 @@ watch(
   () => form.value.ruleset_name,
   (name) => {
     const match = projectStore.rulesets.find((r) => r.name === name)
-    if (!match) return
-    if (!form.value.version) form.value.version = match.version || '1.0.0'
+    if (!match) {
+      form.value.version = ''
+      form.value.rollback_version = ''
+      return
+    }
+    form.value.version = match.version || '1.0.0'
+    form.value.rollback_version = match.published_version || ''
     if (!form.value.title) form.value.title = `${match.name} ${t('releaseCenter.requestTitleSuffix')}`
-    if (!form.value.rollback_version) form.value.rollback_version = match.version || '1.0.0'
   },
+  { immediate: true },
 )
 
 watch(
@@ -118,6 +125,9 @@ onMounted(async () => {
       refreshPolicies(),
     ])
     await nextTick()
+    if (!form.value.ruleset_name && projectStore.rulesets.length > 0) {
+      form.value.ruleset_name = projectStore.rulesets[0].name
+    }
     // Set default environment
     if (!form.value.environment_id) {
       const def = envStore.environments.find((e) => e.is_default) ?? envStore.environments[0]
@@ -225,7 +235,11 @@ function goToPolicies() {
               />
             </t-form-item>
             <t-form-item :label="t('releaseCenter.versionField')" required>
-              <t-input v-model="form.version" :placeholder="selectedRule?.version ?? '1.0.0'" />
+              <t-input
+                :model-value="form.version"
+                :placeholder="selectedRule?.version ?? '1.0.0'"
+                readonly
+              />
             </t-form-item>
           </div>
 
@@ -288,8 +302,9 @@ function goToPolicies() {
           <div class="field-row">
             <t-form-item :label="t('releaseCenter.rollbackField')">
               <t-input
-                v-model="form.rollback_version"
-                :placeholder="selectedRule?.version ?? t('common.optional')"
+                :model-value="form.rollback_version || '—'"
+                :placeholder="t('releaseCenter.rollbackAuto')"
+                readonly
               />
             </t-form-item>
             <t-form-item :label="t('releaseCenter.affectedInstances')">
@@ -346,7 +361,7 @@ function goToPolicies() {
             <span class="sep">·</span>
             <span>{{ selectedEnvironment?.name || '—' }}</span>
             <span class="sep">·</span>
-            <span>{{ selectedRule?.version || 'Unreleased' }} → v{{ form.version || '—' }}</span>
+            <span>{{ selectedPublishedVersion || 'Unreleased' }} → v{{ form.version || '—' }}</span>
           </div>
 
           <p v-if="form.change_summary" class="preview-summary">{{ form.change_summary }}</p>
@@ -362,7 +377,7 @@ function goToPolicies() {
             </div>
             <div class="kv-item">
               <span>{{ t('releaseCenter.rollbackBaseline') }}</span>
-              <strong>{{ form.rollback_version || selectedRule?.version || '—' }}</strong>
+              <strong>{{ form.rollback_version || selectedPublishedVersion || '—' }}</strong>
             </div>
             <div class="kv-item">
               <span>{{ t('releaseCenter.affectedInstances') }}</span>

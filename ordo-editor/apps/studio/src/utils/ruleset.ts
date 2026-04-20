@@ -13,7 +13,7 @@ function isEditorRuleset(value: unknown): value is RuleSet {
   return Array.isArray(value.steps)
 }
 
-function isEngineRuleset(value: unknown): value is {
+export function isEngineRuleset(value: unknown): value is {
   config: Record<string, unknown> & { entry_step?: unknown }
   steps: Record<string, unknown>
 } {

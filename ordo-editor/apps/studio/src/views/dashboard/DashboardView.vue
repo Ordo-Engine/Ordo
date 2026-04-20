@@ -327,14 +327,14 @@ function formatDate(iso: string) {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .workspace-subtitle {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.5;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .workspace-stats {
@@ -345,8 +345,8 @@ function formatDate(iso: string) {
 
 .stat-tile,
 .panel {
-  background: #ffffff;
-  border: 1px solid #e7e3d8;
+  background: var(--ordo-bg-panel);
+  border: 1px solid var(--ordo-border-color);
   border-radius: 10px;
 }
 
@@ -357,20 +357,20 @@ function formatDate(iso: string) {
 .stat-tile__value {
   font-size: 24px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .stat-tile__label {
   margin-top: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #4b5563;
+  color: var(--ordo-text-secondary);
 }
 
 .stat-tile__hint {
   margin-top: 4px;
   font-size: 12px;
-  color: #8a8274;
+  color: var(--ordo-text-tertiary);
 }
 
 .workspace-grid {
@@ -406,14 +406,14 @@ function formatDate(iso: string) {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .panel__header p {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .panel-list {
@@ -426,7 +426,7 @@ function formatDate(iso: string) {
   width: 100%;
   min-height: 58px;
   padding: 0 14px;
-  border: 1px solid #ece8dd;
+  border: 1px solid var(--ordo-border-color);
   border-radius: 8px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px 140px;
@@ -434,12 +434,12 @@ function formatDate(iso: string) {
   align-items: center;
   text-align: left;
   cursor: pointer;
-  background: #fcfbf8;
+  background: var(--ordo-bg-panel);
 }
 
 .project-row:hover {
-  border-color: #ddd8cb;
-  background: #faf8f3;
+  border-color: var(--ordo-border-color);
+  background: var(--ordo-bg-item-hover);
 }
 
 .project-row--loading {
@@ -456,7 +456,7 @@ function formatDate(iso: string) {
 .project-row__main strong {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -464,7 +464,7 @@ function formatDate(iso: string) {
 
 .project-row__main span {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -472,14 +472,14 @@ function formatDate(iso: string) {
 
 .project-row__meta {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .project-row__meta--tag {
   justify-self: start;
   padding: 6px 9px;
   border-radius: 999px;
-  background: #f3f1ea;
+  background: var(--ordo-bg-item-hover);
 }
 
 .panel-empty {
@@ -494,14 +494,14 @@ function formatDate(iso: string) {
 
 .panel-empty strong {
   font-size: 15px;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .panel-empty p {
   margin: 0 0 8px;
   max-width: 280px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .stack-metric {
@@ -513,12 +513,12 @@ function formatDate(iso: string) {
 .stack-metric strong {
   font-size: 24px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .stack-metric span {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .fleet-summary {
@@ -529,23 +529,23 @@ function formatDate(iso: string) {
 
 .fleet-summary__item {
   padding: 12px;
-  border: 1px solid #ece8dd;
+  border: 1px solid var(--ordo-border-color);
   border-radius: 8px;
-  background: #fcfbf8;
+  background: var(--ordo-bg-app);
 }
 
 .fleet-summary__item strong {
   display: block;
   font-size: 20px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .fleet-summary__item span {
   display: block;
   margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .panel__actions {

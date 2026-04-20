@@ -7,6 +7,7 @@ import { useOrgStore } from '@/stores/org'
 import { useSystemStore } from '@/stores/system'
 import { useProjectStore } from '@/stores/project'
 import { MessagePlugin } from 'tdesign-vue-next'
+import type { Role } from '@/api/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -22,8 +23,17 @@ const newOrgName = ref('')
 const newOrgDesc = ref('')
 // When set, dialog creates a sub-org under this parent id
 const createParentId = ref<string | null>(null)
+// Optionally designate an admin when creating a sub-org
+const assignAdmin = ref(false)
+const assignAdminUserId = ref('')
+const assignAdminRole = ref<Role>('admin')
 
 const rootOrgs = computed(() => orgStore.orgs.filter((o) => o.depth === 0))
+
+// Exclude current user from "designate admin" dropdown (creator is auto-added as Owner)
+const parentMembersForAssign = computed(() =>
+  orgStore.members.filter((m) => m.user_id !== auth.user?.id),
+)
 
 function subOrgsOf(parentId: string) {
   return orgStore.orgs.filter((o) => o.parent_org_id === parentId)
@@ -61,6 +71,9 @@ function openCreateSubOrg(parentId: string) {
   createParentId.value = parentId
   newOrgName.value = ''
   newOrgDesc.value = ''
+  assignAdmin.value = false
+  assignAdminUserId.value = ''
+  assignAdminRole.value = 'admin'
   showCreate.value = true
 }
 
@@ -72,7 +85,23 @@ async function handleCreate() {
   creating.value = true
   try {
     if (createParentId.value) {
-      await orgStore.createSubOrg(createParentId.value, newOrgName.value.trim(), newOrgDesc.value || undefined)
+      const org = await orgStore.createSubOrg(
+        createParentId.value,
+        newOrgName.value.trim(),
+        newOrgDesc.value || undefined,
+      )
+      if (assignAdmin.value && assignAdminUserId.value) {
+        try {
+          await orgStore.addSubOrgMember(
+            createParentId.value,
+            org.id,
+            assignAdminUserId.value,
+            assignAdminRole.value,
+          )
+        } catch (e: any) {
+          if (!e.message?.toLowerCase().includes('already a member')) throw e
+        }
+      }
       MessagePlugin.success(t('org.createSubOrgSuccess'))
     } else {
       await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined)
@@ -138,6 +167,8 @@ async function selectAndGo(orgId: string) {
             <div class="org-card__name">{{ root.name }}</div>
             <div class="org-card__meta">
               {{ t('org.memberCount', { count: root.member_count }) }}
+              <span v-if="root.project_count > 0" class="meta-sep">·</span>
+              <span v-if="root.project_count > 0">{{ t('org.projectCount', { count: root.project_count }) }}</span>
               <span v-if="root.child_count > 0" class="meta-sep">·</span>
               <span v-if="root.child_count > 0">
                 {{ t('org.subOrgCount', { count: root.child_count }) }}
@@ -173,7 +204,11 @@ async function selectAndGo(orgId: string) {
             </div>
             <div class="org-card__info">
               <div class="org-card__name">{{ sub.name }}</div>
-              <div class="org-card__meta">{{ t('org.memberCount', { count: sub.member_count }) }}</div>
+              <div class="org-card__meta">
+                {{ t('org.memberCount', { count: sub.member_count }) }}
+                <span v-if="sub.project_count > 0" class="meta-sep">·</span>
+                <span v-if="sub.project_count > 0">{{ t('org.projectCount', { count: sub.project_count }) }}</span>
+              </div>
             </div>
             <t-icon name="chevron-right" class="org-card__arrow" />
           </div>
@@ -203,6 +238,32 @@ async function selectAndGo(orgId: string) {
         <t-form-item :label="t('org.descLabel')">
           <t-input v-model="newOrgDesc" :placeholder="t('org.descPlaceholder')" />
         </t-form-item>
+        <!-- Designate admin — only shown when creating a sub-org -->
+        <template v-if="createParentId">
+          <t-form-item :label="t('org.assignAdmin')">
+            <t-switch v-model="assignAdmin" />
+          </t-form-item>
+          <t-form-item v-if="assignAdmin" :label="t('org.assignAdminMember')">
+            <t-select
+              v-model="assignAdminUserId"
+              :placeholder="t('org.assignAdminPlaceholder')"
+              clearable
+            >
+              <t-option
+                v-for="m in parentMembersForAssign"
+                :key="m.user_id"
+                :value="m.user_id"
+                :label="`${m.display_name} (${m.email})`"
+              />
+            </t-select>
+          </t-form-item>
+          <t-form-item v-if="assignAdmin" :label="t('org.subOrgMember.role')">
+            <t-select v-model="assignAdminRole">
+              <t-option value="admin" label="Admin" />
+              <t-option value="editor" label="Editor" />
+            </t-select>
+          </t-form-item>
+        </template>
       </t-form>
     </t-dialog>
   </div>
@@ -355,7 +416,7 @@ async function selectAndGo(orgId: string) {
   border-top: 1px solid var(--ordo-border-color);
   border-radius: 0;
   padding: 12px 20px 12px 16px;
-  background: #fafaf8;
+  background: var(--ordo-bg-app);
 }
 
 .org-card--sub:first-child {

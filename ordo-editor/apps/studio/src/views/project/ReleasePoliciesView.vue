@@ -7,13 +7,14 @@ import { memberApi, releaseApi } from '@/api/platform-client'
 import type { Member, ReleasePolicy } from '@/api/types'
 import { StudioPageHeader } from '@/components/ui'
 import ReleaseNav from '@/components/project/ReleaseNav.vue'
-import { labelRolloutStrategy } from '@/constants/release-center'
+import { useRolloutStrategyLabel } from '@/constants/release-center'
 import { useAuthStore } from '@/stores/auth'
 import { useEnvironmentStore } from '@/stores/environment'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const labelRolloutStrategy = useRolloutStrategyLabel()
 const auth = useAuthStore()
 const envStore = useEnvironmentStore()
 const policies = ref<ReleasePolicy[]>([])

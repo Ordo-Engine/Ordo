@@ -420,7 +420,7 @@ onMounted(loadServers)
   margin: 0;
   font-size: 22px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .page-desc,
@@ -428,12 +428,12 @@ onMounted(loadServers)
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.5;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .registry-panel {
-  background: #ffffff;
-  border: 1px solid #e7e3d8;
+  background: var(--ordo-bg-panel);
+  border: 1px solid var(--ordo-border-color);
   border-radius: 10px;
   padding: 16px;
 }
@@ -458,7 +458,7 @@ onMounted(loadServers)
 .server-id,
 .mono,
 .text-muted {
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
   font-size: 12px;
 }
 
@@ -476,8 +476,8 @@ onMounted(loadServers)
 .label-chip {
   padding: 3px 8px;
   border-radius: 999px;
-  background: #f3f1ea;
-  color: #6b7280;
+  background: var(--ordo-bg-item-hover);
+  color: var(--ordo-text-secondary);
   font-size: 11px;
 }
 
@@ -497,7 +497,7 @@ onMounted(loadServers)
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .detail-grid {
@@ -510,13 +510,13 @@ onMounted(loadServers)
   justify-content: space-between;
   gap: 16px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #f0ebe0;
+  border-bottom: 1px solid var(--ordo-border-light);
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .detail-row strong {
-  color: #1f2328;
+  color: var(--ordo-text-primary);
   text-align: right;
   word-break: break-word;
 }
@@ -529,8 +529,8 @@ onMounted(loadServers)
   margin: 12px 0 0;
   padding: 14px;
   border-radius: 10px;
-  background: #f8f5ee;
-  border: 1px solid #ece5d8;
+  background: var(--ordo-bg-app);
+  border: 1px solid var(--ordo-border-color);
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -555,20 +555,20 @@ onMounted(loadServers)
 .metrics-table__head {
   padding: 0 12px 6px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 .metrics-table__row {
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f8f5ee;
-  border: 1px solid #ece5d8;
+  background: var(--ordo-bg-app);
+  border: 1px solid var(--ordo-border-color);
   font-size: 12px;
 }
 
 .metrics-table__name {
   font-family: 'JetBrains Mono', monospace;
-  color: #1f2328;
+  color: var(--ordo-text-primary);
 }
 
 .metrics-table__value {
@@ -576,7 +576,7 @@ onMounted(loadServers)
 }
 
 .metrics-table__labels {
-  color: #6b7280;
+  color: var(--ordo-text-secondary);
 }
 
 @media (max-width: 960px) {

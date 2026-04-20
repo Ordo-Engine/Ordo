@@ -7,13 +7,14 @@ import { releaseApi } from '@/api/platform-client'
 import type { ReleaseExecution, ReleaseRequest } from '@/api/types'
 import { StudioPageHeader } from '@/components/ui'
 import ReleaseNav from '@/components/project/ReleaseNav.vue'
-import { labelRolloutStrategy } from '@/constants/release-center'
+import { useRolloutStrategyLabel } from '@/constants/release-center'
 import { useAuthStore } from '@/stores/auth'
 import { useRbacStore } from '@/stores/rbac'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const labelRolloutStrategy = useRolloutStrategyLabel()
 const auth = useAuthStore()
 const rbacStore = useRbacStore()
 
@@ -50,6 +51,27 @@ const isLiveExecution = computed(() =>
     .includes(execution.value?.status ?? ''),
 )
 
+const displayExecutionStatus = computed(() => {
+  if (!execution.value) return null
+  const failedInstances = execution.value.summary?.failed_instances ?? 0
+  const pendingInstances = execution.value.summary?.pending_instances ?? 0
+  if (execution.value.status === 'completed' && (failedInstances > 0 || pendingInstances > 0)) {
+    return 'failed'
+  }
+  return execution.value.status
+})
+
+const requestDisplayStatus = computed(() => {
+  if (!request.value) return null
+  if (
+    displayExecutionStatus.value === 'failed' &&
+    ['completed', 'executing'].includes(request.value.status)
+  ) {
+    return 'failed'
+  }
+  return request.value.status
+})
+
 const hasExecution = computed(() => execution.value !== null)
 const canPauseExecution = computed(() =>
   !!execution.value && ['preparing', 'waiting_start', 'rolling_out', 'verifying'].includes(execution.value.status),
@@ -58,13 +80,21 @@ const canResumeExecution = computed(() =>
   execution.value?.status === 'paused',
 )
 const canRollbackExecution = computed(() =>
-  !!execution.value && ['completed', 'failed', 'paused'].includes(execution.value.status),
+  !!execution.value && ['completed', 'failed', 'paused'].includes(displayExecutionStatus.value ?? execution.value.status),
+)
+const canRetryExecution = computed(() =>
+  canExecute.value &&
+  requestDisplayStatus.value === 'failed' &&
+  !isLiveExecution.value,
+)
+const showExecuteAction = computed(() =>
+  canExecute.value && (requestDisplayStatus.value === 'approved' || canRetryExecution.value),
 )
 
 const executionTabDot = computed(() => {
-  if (!execution.value) return null
-  if (execution.value.status === 'completed') return 'success'
-  if (['failed', 'rollback_in_progress'].includes(execution.value.status)) return 'danger'
+  if (!displayExecutionStatus.value) return null
+  if (displayExecutionStatus.value === 'completed') return 'success'
+  if (['failed', 'rollback_in_progress'].includes(displayExecutionStatus.value)) return 'danger'
   if (isLiveExecution.value) return 'live'
   return null
 })
@@ -223,6 +253,7 @@ async function submitReview() {
 
 async function executeRelease() {
   if (!auth.token || !request.value) return
+  const isRetry = canRetryExecution.value
   executeLoading.value = true
   try {
     const ex = await releaseApi.executeRequest(
@@ -237,7 +268,7 @@ async function executeRelease() {
       route.params.projectId as string, request.value.id,
     )
     startClock(); startPolling()
-    MessagePlugin.success(t('releaseCenter.executionStarted'))
+    MessagePlugin.success(t(isRetry ? 'releaseCenter.executionRetried' : 'releaseCenter.executionStarted'))
   } catch (e: any) {
     MessagePlugin.error(e.message || t('releaseCenter.executionStartFailed'))
   } finally {
@@ -303,12 +334,12 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
           </t-button>
         </template>
         <t-button
-          v-if="request?.status === 'approved' && canExecute"
+          v-if="showExecuteAction"
           theme="primary"
           :loading="executeLoading"
           @click="executeRelease"
         >
-          {{ t('releaseCenter.executeAction') }}
+          {{ t(canRetryExecution ? 'releaseCenter.retryAction' : 'releaseCenter.executeAction') }}
         </t-button>
         <t-button
           v-if="canPause && canPauseExecution"
@@ -350,8 +381,8 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
       <!-- Status + version strip -->
       <t-card :bordered="false" class="strip-card">
         <div class="strip">
-          <t-tag :theme="statusTheme(request.status)" variant="light">
-            {{ t(`releaseCenter.statusMap.${request.status}`) }}
+          <t-tag :theme="statusTheme(requestDisplayStatus || request.status)" variant="light">
+            {{ t(`releaseCenter.statusMap.${requestDisplayStatus || request.status}`) }}
           </t-tag>
           <div class="strip-divider" />
           <div class="strip-item">
@@ -499,8 +530,8 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                   :percentage="approvalProgress.min
                     ? Math.min(100, Math.round((approvalProgress.approved / approvalProgress.min) * 100))
                     : (approvalProgress.total > 0 ? Math.round((approvalProgress.approved / approvalProgress.total) * 100) : 0)"
-                  :status="request.status === 'approved' || request.status === 'completed' ? 'success'
-                    : request.status === 'rejected' ? 'error' : undefined"
+                  :status="requestDisplayStatus === 'approved' || requestDisplayStatus === 'completed' ? 'success'
+                    : requestDisplayStatus === 'rejected' || requestDisplayStatus === 'failed' ? 'error' : undefined"
                   theme="line"
                   style="flex:1; min-width: 160px;"
                 />
@@ -739,13 +770,13 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
 
           <div class="panel">
             <template v-if="execution">
-              <t-card v-if="execution.status === 'completed'" :bordered="false" class="banner-card banner-card--success">
+              <t-card v-if="displayExecutionStatus === 'completed'" :bordered="false" class="banner-card banner-card--success">
                 ✓ {{ t('releaseCenter.executionCompleted') }}
               </t-card>
-              <t-card v-else-if="execution.status === 'failed'" :bordered="false" class="banner-card banner-card--danger">
+              <t-card v-else-if="displayExecutionStatus === 'failed'" :bordered="false" class="banner-card banner-card--danger">
                 ✗ {{ t('releaseCenter.executionFailed') }}
               </t-card>
-              <t-card v-else-if="execution.status === 'rollback_in_progress'" :bordered="false" class="banner-card banner-card--warning">
+              <t-card v-else-if="displayExecutionStatus === 'rollback_in_progress'" :bordered="false" class="banner-card banner-card--warning">
                 ↩ {{ t('releaseCenter.executionRolledBack') }}
               </t-card>
 
@@ -753,8 +784,8 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                 <div class="exec-stats">
                   <div class="exec-stat">
                     <span>{{ t('releaseCenter.status') }}</span>
-                    <t-tag :theme="instanceTheme(execution.status)" variant="light" size="small">
-                      {{ t(`releaseCenter.executionStatusMap.${execution.status}`) }}
+                    <t-tag :theme="instanceTheme(displayExecutionStatus || execution.status)" variant="light" size="small">
+                      {{ t(`releaseCenter.executionStatusMap.${displayExecutionStatus || execution.status}`) }}
                       <span v-if="isLiveExecution" class="live-dot" />
                     </t-tag>
                   </div>
@@ -786,7 +817,7 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                 <t-progress
                   v-if="execution.total_batches > 0"
                   :percentage="Math.round((execution.current_batch / execution.total_batches) * 100)"
-                  :status="execution.status === 'completed' ? 'success' : execution.status === 'failed' ? 'error' : 'active'"
+                  :status="displayExecutionStatus === 'completed' ? 'success' : displayExecutionStatus === 'failed' ? 'error' : 'active'"
                   style="margin-top: 16px;"
                 />
               </t-card>

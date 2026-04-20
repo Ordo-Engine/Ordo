@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { orgApi, memberApi } from '@/api/platform-client'
+import { orgApi, memberApi, subOrgMemberApi } from '@/api/platform-client'
 import { useAuthStore } from './auth'
 import type { Member, OrgResponse, Organization, Role } from '@/api/types'
 
@@ -16,6 +16,9 @@ export const useOrgStore = defineStore('org', () => {
 
   /** Sub-orgs keyed by parent org id. Populated on demand. */
   const subOrgs = ref<Record<string, OrgResponse[]>>({})
+
+  /** Sub-org members keyed by sub-org id. Populated on demand via parent org context. */
+  const subOrgMembers = ref<Record<string, Member[]>>({})
 
   const currentOrgId = computed(() => currentOrg.value?.id ?? null)
 
@@ -91,6 +94,32 @@ export const useOrgStore = defineStore('org', () => {
     }
   }
 
+  async function fetchSubOrgMembers(parentOrgId: string, subOrgId: string) {
+    if (!auth.token) return
+    const list = await subOrgMemberApi.list(auth.token, parentOrgId, subOrgId)
+    subOrgMembers.value[subOrgId] = list
+  }
+
+  async function addSubOrgMember(
+    parentOrgId: string,
+    subOrgId: string,
+    userId: string,
+    role: Role,
+  ) {
+    if (!auth.token) throw new Error('Not authenticated')
+    const m = await subOrgMemberApi.add(auth.token, parentOrgId, subOrgId, { user_id: userId, role })
+    subOrgMembers.value[subOrgId] = [...(subOrgMembers.value[subOrgId] ?? []), m]
+    return m
+  }
+
+  async function removeSubOrgMember(parentOrgId: string, subOrgId: string, userId: string) {
+    if (!auth.token) throw new Error('Not authenticated')
+    await subOrgMemberApi.remove(auth.token, parentOrgId, subOrgId, userId)
+    subOrgMembers.value[subOrgId] = (subOrgMembers.value[subOrgId] ?? []).filter(
+      (m) => m.user_id !== userId,
+    )
+  }
+
   async function updateOrg(orgId: string, patch: { name?: string; description?: string }) {
     if (!auth.token) throw new Error('Not authenticated')
     const updated = await orgApi.update(auth.token, orgId, patch)
@@ -156,12 +185,16 @@ export const useOrgStore = defineStore('org', () => {
     members,
     loading,
     subOrgs,
+    subOrgMembers,
     fetchOrgs,
     selectOrg,
     createOrg,
     fetchSubOrgs,
     createSubOrg,
     deleteSubOrg,
+    fetchSubOrgMembers,
+    addSubOrgMember,
+    removeSubOrgMember,
     updateOrg,
     deleteOrg,
     inviteMember,

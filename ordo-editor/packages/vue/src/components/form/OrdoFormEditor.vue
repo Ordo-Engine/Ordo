@@ -79,15 +79,6 @@ function updateName(event: Event) {
   emit('update:modelValue', newRuleset);
 }
 
-function updateVersion(event: Event) {
-  const target = event.target as HTMLInputElement;
-  const newRuleset: RuleSet = {
-    ...props.modelValue,
-    config: { ...props.modelValue.config, version: target.value },
-  };
-  emit('update:modelValue', newRuleset);
-}
-
 function handleRulesetUpdate(ruleset: RuleSet) {
   emit('update:modelValue', ruleset);
 }
@@ -120,16 +111,6 @@ defineExpose({ validate });
             :placeholder="t('common.name')"
             class="ordo-input-base"
             @input="updateName"
-          />
-        </div>
-        <div class="ordo-field-group small">
-          <label>{{ t('common.version') }}</label>
-          <input
-            :value="modelValue.config.version || ''"
-            :disabled="disabled"
-            placeholder="1.0.0"
-            class="ordo-input-base"
-            @input="updateVersion"
           />
         </div>
       </div>

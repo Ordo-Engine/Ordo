@@ -4,7 +4,13 @@ import { projectApi, rulesetDraftApi } from '@/api/platform-client'
 import { normalizeRuleset } from '@/utils/ruleset'
 import { useAuthStore } from './auth'
 import { useOrgStore } from './org'
-import type { DraftConflictResponse, Project, ProjectRulesetMeta, RuleSetInfo } from '@/api/types'
+import type {
+  DraftConflictResponse,
+  Project,
+  ProjectRuleset,
+  ProjectRulesetMeta,
+  RuleSetInfo,
+} from '@/api/types'
 import type { RuleSet } from '@ordo-engine/editor-core'
 
 const CURRENT_PROJECT_KEY = 'ordo_studio_current_project'
@@ -31,6 +37,42 @@ export const useProjectStore = defineStore('project', () => {
 
   const currentProjectId = computed(() => currentProject.value?.id ?? null)
   const activeTab = computed(() => openTabs.value.find((t) => t.name === activeTabName.value) ?? null)
+
+  function rebuildRulesets() {
+    rulesets.value = draftMetas.value
+      .map<RuleSetInfo>((draft) => ({
+        name: draft.name,
+        version: draft.draft_version ?? draft.published_version ?? '1.0.0',
+        published_version: draft.published_version,
+        description: '',
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }
+
+  function upsertDraftMeta(meta: ProjectRulesetMeta) {
+    const index = draftMetas.value.findIndex((item) => item.name === meta.name)
+    if (index === -1) {
+      draftMetas.value.push(meta)
+    } else {
+      draftMetas.value[index] = meta
+    }
+    rebuildRulesets()
+  }
+
+  function pickDraftMeta(ruleset: ProjectRuleset): ProjectRulesetMeta {
+    return {
+      id: ruleset.id,
+      project_id: ruleset.project_id,
+      name: ruleset.name,
+      draft_seq: ruleset.draft_seq,
+      draft_updated_at: ruleset.draft_updated_at,
+      draft_updated_by: ruleset.draft_updated_by,
+      draft_version: ruleset.draft_version,
+      published_version: ruleset.published_version,
+      published_at: ruleset.published_at,
+      created_at: ruleset.created_at,
+    }
+  }
 
   async function fetchProjects(orgId: string) {
     if (!auth.token) return
@@ -66,13 +108,7 @@ export const useProjectStore = defineStore('project', () => {
       draftMetas.value = []
     }
 
-    rulesets.value = draftMetas.value
-      .map<RuleSetInfo>((draft) => ({
-        name: draft.name,
-        version: draft.published_version ?? 'draft',
-        description: '',
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name))
+    rebuildRulesets()
   }
 
   async function openRuleset(name: string) {
@@ -89,6 +125,7 @@ export const useProjectStore = defineStore('project', () => {
     const draft = await rulesetDraftApi.get(auth.token, org.id, currentProject.value.id, name)
     const ruleset = normalizeRuleset(draft.draft, name)
     const draft_seq = draft.draft_seq
+    upsertDraftMeta(pickDraftMeta(draft))
 
     openTabs.value.push({ name, ruleset, dirty: false, draft_seq })
     activeTabName.value = name
@@ -132,6 +169,7 @@ export const useProjectStore = defineStore('project', () => {
 
     tab.dirty = false
     tab.draft_seq = result.draft_seq
+    upsertDraftMeta(pickDraftMeta(result))
     return null
   }
 

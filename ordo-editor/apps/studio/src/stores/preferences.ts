@@ -20,8 +20,16 @@ export const usePreferencesStore = defineStore('preferences', () => {
           ? 'dark'
           : 'light'
         : t
+    // Our custom ordo CSS tokens (ordo-theme.css, tdesign-override.css)
     document.documentElement.setAttribute('data-theme', effectiveTheme)
+    // TDesign Vue Next 1.x activates dark mode via `theme-mode` attribute on <html>
+    document.documentElement.setAttribute('theme-mode', effectiveTheme)
   }
+
+  // Re-apply when OS dark/light preference changes (only relevant for 'system' mode)
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (theme.value === 'system') applyTheme('system')
+  })
 
   // Apply on init
   applyTheme(theme.value)

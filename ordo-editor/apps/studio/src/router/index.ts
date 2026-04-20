@@ -90,6 +90,13 @@ const router = createRouter({
           component: () => import('@/views/server/ServerRegistryView.vue'),
         },
 
+        // Notifications inbox
+        {
+          path: 'orgs/:orgId/notifications',
+          name: 'notifications',
+          component: () => import('@/views/notifications/NotificationsView.vue'),
+        },
+
         // Marketplace
         {
           path: 'marketplace',
@@ -142,6 +149,16 @@ const router = createRouter({
               path: 'versions',
               name: 'versions',
               component: () => import('@/views/project/VersionHistoryView.vue'),
+            },
+            {
+              path: 'trace',
+              name: 'project-trace',
+              redirect: (to) => ({
+                name: 'tests',
+                params: to.params,
+                query: to.query,
+                hash: to.hash,
+              }),
             },
             {
               path: 'releases',

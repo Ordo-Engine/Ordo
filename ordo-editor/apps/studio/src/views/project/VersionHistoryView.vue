@@ -6,8 +6,9 @@ import { useProjectStore } from '@/stores/project'
 import { useOrgStore } from '@/stores/org'
 import { useAuthStore } from '@/stores/auth'
 import { rulesetDraftApi, rulesetHistoryApi } from '@/api/platform-client'
+import { buildCheckpointVersionEntries, extractRulesetVersion } from '@/utils/ruleset-version'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import type { RulesetHistoryEntry, VersionListResponse } from '@/api/types'
+import type { RulesetHistoryEntry } from '@/api/types'
 
 const projectStore = useProjectStore()
 const orgStore = useOrgStore()
@@ -20,7 +21,18 @@ const orgId = computed(() => route.params.orgId as string)
 const canAdmin = computed(() => auth.user ? orgStore.canAdmin(auth.user.id) : false)
 
 const selectedRuleset = ref<string | null>(null)
-const versionData = ref<VersionListResponse | null>(null)
+const versionData = ref<{
+  name: string
+  current_version: string
+  current_display_version: string
+  versions: Array<{
+    seq: number
+    version: string
+    display_version: string
+    created_at: string
+    entry: RulesetHistoryEntry
+  }>
+} | null>(null)
 const historyEntries = ref<RulesetHistoryEntry[]>([])
 const loading = ref(false)
 const rollingBack = ref<number | null>(null)
@@ -31,14 +43,20 @@ async function loadVersions(name: string) {
   try {
     const history = await rulesetHistoryApi.list(auth.token, projectStore.currentProject.id, name)
     historyEntries.value = history.entries
+    const checkpoints = buildCheckpointVersionEntries(history.entries)
     const meta = projectStore.draftMetas.find((entry) => entry.name === name) ?? null
+    const currentVersion = meta?.draft_version ?? extractRulesetVersion(history.entries[0]?.snapshot)
+    const currentDisplayVersion = checkpoints.find((item) => item.version === currentVersion)?.display_version ?? currentVersion
     versionData.value = {
       name,
-      current_version: meta?.published_version ?? extractVersion(history.entries[0]?.snapshot),
-      versions: history.entries.map((entry, index) => ({
-        seq: index + 1,
-        version: extractVersion(entry.snapshot),
-        created_at: entry.created_at,
+      current_version: currentVersion,
+      current_display_version: currentDisplayVersion,
+      versions: checkpoints.map((item, index) => ({
+        seq: checkpoints.length - index,
+        version: item.version,
+        display_version: item.display_version,
+        created_at: item.entry.created_at,
+        entry: item.entry,
       })),
     }
   } catch (e: any) {
@@ -75,12 +93,12 @@ function handleRollback(seq: number) {
     confirmBtn: { content: t('versions.rollbackConfirmBtn'), theme: 'warning' },
     cancelBtn: t('versions.rollbackCancel'),
     onConfirm: async () => {
-      if (!auth.token || !projectStore.currentProject) return
+        if (!auth.token || !projectStore.currentProject) return
       rollingBack.value = seq
       try {
         const org = orgStore.currentOrg
         if (!org) throw new Error('No active org')
-        const target = historyEntries.value[seq - 1]
+        const target = versionData.value?.versions.find((item) => item.seq === seq)?.entry
         if (!target) throw new Error('Version not found')
         const currentDraft = await rulesetDraftApi.get(auth.token, org.id, projectStore.currentProject.id, name)
         const restored = await rulesetDraftApi.save(auth.token, org.id, projectStore.currentProject.id, name, {
@@ -121,9 +139,6 @@ function formatDate(dateStr: string) {
   )
 }
 
-function extractVersion(snapshot: Record<string, any> | undefined) {
-  return snapshot?.config?.version ?? 'draft'
-}
 </script>
 
 <template>
@@ -175,7 +190,7 @@ function extractVersion(snapshot: Record<string, any> | undefined) {
           <div class="version-timeline__header">
             <span class="version-timeline__name">{{ versionData.name }}</span>
             <t-tag size="small" theme="primary" variant="light">
-              {{ t('versions.current') }} {{ versionData.current_version }}
+              {{ t('versions.current') }} {{ versionData.current_display_version }}
             </t-tag>
             <t-button size="small" variant="outline" @click="loadVersions(selectedRuleset!)">
               <t-icon name="refresh" />
@@ -191,16 +206,16 @@ function extractVersion(snapshot: Record<string, any> | undefined) {
               v-for="v in versionData.versions"
               :key="v.seq"
               class="version-entry"
-              :class="{ 'is-current': v.version === versionData.current_version }"
+              :class="{ 'is-current': v.display_version === versionData.current_display_version }"
             >
               <div class="version-entry__seq">#{{ v.seq }}</div>
               <div class="version-entry__body">
-                <div class="version-entry__version">v{{ v.version }}</div>
+                <div class="version-entry__version">v{{ v.display_version }}</div>
                 <div class="version-entry__time">{{ formatDate(v.created_at) }}</div>
               </div>
               <div class="version-entry__actions">
                 <t-tag
-                  v-if="v.version === versionData.current_version"
+                  v-if="v.display_version === versionData.current_display_version"
                   size="small"
                   theme="success"
                   variant="light"

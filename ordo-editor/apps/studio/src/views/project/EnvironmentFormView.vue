@@ -673,7 +673,7 @@ function cancel() {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #fafbfc;
+  background: var(--ordo-bg-app);
   font-size: 11px;
   font-weight: 600;
   color: var(--ordo-text-secondary);
@@ -686,11 +686,11 @@ function cancel() {
 }
 
 .server-row:hover {
-  background: #f8fafc;
+  background: var(--ordo-bg-item-hover);
 }
 
 .server-row--selected {
-  background: #eef5ff;
+  background: var(--ordo-bg-selected);
 }
 
 .server-row--disabled {

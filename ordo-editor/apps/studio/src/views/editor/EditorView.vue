@@ -13,6 +13,7 @@ import TestCasePanel from './TestCasePanel.vue'
 import { rulesetHistoryApi } from '@/api/platform-client'
 import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue'
 import { normalizeRuleset } from '@/utils/ruleset'
+import { getCurrentVersionDisplay, stripVersionSuffix } from '@/utils/ruleset-version'
 import type {
   AppendRulesetHistoryEntry,
   DraftConflictResponse,
@@ -444,14 +445,17 @@ const executionTrace = ref<{
   resultMessage: string
   output?: Record<string, any>
 } | null>(null)
+const flowTraceMode = ref(false)
 
 function handleShowInFlow(trace: typeof executionTrace.value) {
-  executionTrace.value = trace
+  executionTrace.value = trace ? { ...trace, steps: [...trace.steps], path: [...trace.path] } : null
+  flowTraceMode.value = true
   setEditorMode('flow')
 }
 
 function handleClearFlowTrace() {
   executionTrace.value = null
+  flowTraceMode.value = false
 }
 
 function handleShowAsFlow() {
@@ -486,6 +490,28 @@ const canPublish = computed(() => {
   if (!auth.user) return false
   return rbacStore.can('ruleset:publish') || orgStore.canAdmin(auth.user.id)
 })
+
+const activeRulesetMeta = computed(() => {
+  const tab = projectStore.activeTab
+  if (!tab) return null
+  return projectStore.draftMetas.find((item) => item.name === tab.name) ?? null
+})
+
+const activeDraftVersion = computed(() =>
+  stripVersionSuffix(projectStore.activeTab?.ruleset.config.version),
+)
+
+const activePublishedVersion = computed(() =>
+  stripVersionSuffix(activeRulesetMeta.value?.published_version),
+)
+
+const activeVersionDisplay = computed(() =>
+  getCurrentVersionDisplay(activeHistoryEntries.value, projectStore.activeTab?.ruleset.config.version),
+)
+
+const requiresVersionBump = computed(() =>
+  !!activePublishedVersion.value && activePublishedVersion.value === activeDraftVersion.value,
+)
 
 // ── Table support ──────────────────────────────────────────────────────────────
 const decisionTables = ref<Record<string, DecisionTable>>({})
@@ -641,9 +667,44 @@ function handleRulesetChange(ruleset: RuleSet) {
   scheduleEditHistoryEntry(tab.name, ruleset, action)
 }
 
+function handleVersionChange(event: Event) {
+  const tab = projectStore.activeTab
+  if (!tab) return
+
+  const target = event.target as HTMLInputElement
+  const nextVersion = stripVersionSuffix(target.value)
+  const nextRuleset: RuleSet = {
+    ...tab.ruleset,
+    config: {
+      ...tab.ruleset.config,
+      version: nextVersion,
+    },
+  }
+
+  const action = buildHistoryAction(tab.ruleset, nextRuleset)
+  updateRulesetState(tab.name, nextRuleset)
+  scheduleEditHistoryEntry(tab.name, nextRuleset, action)
+}
+
 async function handleSave(name: string) {
   if (!canEdit.value) {
     MessagePlugin.warning(t('editor.noPermission'))
+    return
+  }
+  const tab = projectStore.openTabs.find((item) => item.name === name)
+  if (!tab) return
+
+  const nextVersion = stripVersionSuffix(tab.ruleset.config.version)
+  const meta = projectStore.draftMetas.find((item) => item.name === name) ?? null
+  const publishedVersion = stripVersionSuffix(meta?.published_version)
+  if (!nextVersion) {
+    MessagePlugin.warning(t('editor.versionRequired'))
+    return
+  }
+  if (publishedVersion && publishedVersion === nextVersion) {
+    MessagePlugin.warning(
+      t('editor.versionBumpRequired', { version: publishedVersion }),
+    )
     return
   }
   saving.value = true
@@ -714,7 +775,11 @@ async function resolveConflictUseLocal() {
 function openReleaseCenter() {
   if (!projectStore.activeTab) return
   router.push({
-    name: 'project-release-requests',
+    name: 'project-release-request-create',
+    params: {
+      orgId: route.params.orgId,
+      projectId: route.params.projectId,
+    },
     query: { ruleset: projectStore.activeTab.name },
   })
 }
@@ -1044,6 +1109,26 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="tab-divider" />
+          <div class="toolbar-version">
+            <label>{{ t('common.version') }}</label>
+            <input
+              :value="activeDraftVersion"
+              :disabled="!canEdit"
+              placeholder="1.0.0"
+              class="ordo-input-base toolbar-version__input"
+              @input="handleVersionChange"
+            />
+            <t-tag size="small" theme="primary" variant="light">
+              v{{ activeVersionDisplay }}
+            </t-tag>
+            <t-tag v-if="activePublishedVersion" size="small" variant="light">
+              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
+            </t-tag>
+          </div>
+          <div v-if="requiresVersionBump" class="toolbar-version__warning">
+            {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
+          </div>
+          <div class="tab-divider" />
           <button
             class="toolbar-btn"
             :class="{ 'is-active': showExecution }"
@@ -1099,6 +1184,7 @@ onUnmounted(() => {
           :style="showExecution ? { flex: 'none', height: `calc(100% - ${executionHeight}px - 2px)` } : showTests ? { flex: 'none', height: `calc(100% - ${testsHeight}px - 2px)` } : {}"
         >
           <template v-if="projectStore.activeTab">
+            <div class="editor-view-shell">
             <!-- Form mode -->
             <OrdoFormEditor
               v-if="editorMode === 'form'"
@@ -1113,6 +1199,7 @@ onUnmounted(() => {
               :model-value="projectStore.activeTab.ruleset"
               :disabled="!canEdit"
               :execution-trace="executionTrace"
+              :trace-mode="flowTraceMode"
               @update:model-value="handleRulesetChange"
             />
             <!-- Decision table mode -->
@@ -1123,6 +1210,7 @@ onUnmounted(() => {
               @update:model-value="handleTableChange"
               @show-as-flow="handleShowAsFlow"
             />
+            </div>
           </template>
         </div>
 
@@ -1556,6 +1644,44 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.toolbar-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-version label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ordo-text-tertiary);
+  white-space: nowrap;
+}
+
+.toolbar-version__input {
+  width: 96px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--ordo-border-color);
+  background: var(--ordo-bg-app);
+  color: var(--ordo-text-primary);
+  outline: none;
+}
+
+.toolbar-version__input:focus {
+  border-color: var(--ordo-accent);
+}
+
+.toolbar-version__warning {
+  max-width: 240px;
+  font-size: 12px;
+  color: var(--ordo-warning);
+  line-height: 1.2;
+}
+
 .mode-switch {
   display: flex;
   align-items: center;
@@ -1637,6 +1763,12 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.editor-view-shell {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .execution-panel-wrap {

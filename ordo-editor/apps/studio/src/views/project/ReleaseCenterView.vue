@@ -4,19 +4,22 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { releaseApi } from '@/api/platform-client'
-import type { ReleaseExecution, ReleasePolicy, ReleaseRequest } from '@/api/types'
+import type { ReleaseExecution, ReleaseExecutionEvent, ReleasePolicy, ReleaseRequest } from '@/api/types'
 import { StudioPageHeader } from '@/components/ui'
 import ReleaseNav from '@/components/project/ReleaseNav.vue'
-import { labelRolloutStrategy } from '@/constants/release-center'
+import { useRolloutStrategyLabel } from '@/constants/release-center'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const labelRolloutStrategy = useRolloutStrategyLabel()
 const auth = useAuthStore()
 const requests = ref<ReleaseRequest[]>([])
 const policies = ref<ReleasePolicy[]>([])
 const currentExecution = ref<ReleaseExecution | null>(null)
+const executionEvents = ref<ReleaseExecutionEvent[]>([])
+const showEventLog = ref(false)
 
 const pendingRequests = computed(() => requests.value.filter((item) => item.status === 'pending_approval').length)
 const activeExecutions = computed(() => requests.value.filter((item) => item.status === 'executing').length)
@@ -28,10 +31,37 @@ const isLiveExecution = computed(() =>
     .includes(currentExecution.value?.status ?? ''),
 )
 
+const failedInstances = computed(() =>
+  currentExecution.value?.instances.filter((i) => i.status === 'failed') ?? [],
+)
+
+function formatDurationMs(ms: number) {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+async function fetchExecutionEvents() {
+  if (!auth.token || !currentExecution.value) return
+  const exec = currentExecution.value
+  // Find the associated release request
+  const req = requests.value.find((r) => r.id === exec.request_id)
+  if (!req) return
+  try {
+    executionEvents.value = await releaseApi.getExecutionEvents(
+      auth.token,
+      route.params.orgId as string,
+      route.params.projectId as string,
+      req.id,
+      exec.id,
+    )
+  } catch { /* silent */ }
+}
 
 function startPolling() {
   if (pollTimer || !isLiveExecution.value) return
+  const interval = isLiveExecution.value ? 2000 : 10000
   pollTimer = setInterval(async () => {
     if (!auth.token) return
     try {
@@ -44,9 +74,10 @@ function startPolling() {
       if (!isLiveExecution.value) {
         clearInterval(pollTimer!)
         pollTimer = null
+        fetchExecutionEvents()
       }
     } catch { /* silent */ }
-  }, 5000)
+  }, interval)
 }
 
 onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
@@ -56,6 +87,14 @@ function requestStatusTheme(status: string) {
   if (status === 'pending_approval' || status === 'executing') return 'warning'
   if (status === 'rejected' || status === 'failed') return 'danger'
   return 'default'
+}
+
+function executionStatusTheme(status: string) {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'paused') return 'default'
+  if (status === 'rollback_in_progress') return 'warning'
+  return 'warning'
 }
 
 function goToDetail(id: string) {
@@ -114,7 +153,9 @@ onMounted(async () => {
               · {{ labelRolloutStrategy(currentExecution.strategy) }}
             </div>
           </div>
-          <t-tag theme="warning" variant="light">{{ t('releaseCenter.statusRollingOut') }}</t-tag>
+          <t-tag :theme="executionStatusTheme(currentExecution.status)" variant="light">
+            {{ t(`releaseCenter.executionStatusMap.${currentExecution.status}`, t('releaseCenter.statusRollingOut')) }}
+          </t-tag>
         </div>
         <template v-if="currentExecution">
           <t-progress :percentage="Math.round((currentExecution.current_batch / currentExecution.total_batches) * 100)" />
@@ -159,21 +200,81 @@ onMounted(async () => {
     </div>
 
     <t-card v-if="currentExecution" :bordered="false" class="table-card">
-      <template #header>{{ t('releaseCenter.instancePreview') }}</template>
+      <template #header>
+        <div class="table-card-header">
+          <span>{{ t('releaseCenter.instancePreview') }}</span>
+          <t-button variant="text" size="small" @click="showEventLog = !showEventLog; if(showEventLog) fetchExecutionEvents()">
+            {{ showEventLog ? t('releaseCenter.monitoring.hideEventLog') : t('releaseCenter.monitoring.showEventLog') }}
+          </t-button>
+        </div>
+      </template>
+
+      <!-- Failure analysis -->
+      <div v-if="failedInstances.length > 0" class="failure-analysis">
+        <div class="failure-analysis__title">
+          <t-icon name="error-circle" size="14px" />
+          {{ t('releaseCenter.monitoring.failureAnalysis') }}
+        </div>
+        <div v-for="inst in failedInstances" :key="inst.id" class="failure-item">
+          <strong>{{ inst.instance_name }}</strong>
+          <span>{{ inst.message }}</span>
+        </div>
+      </div>
+
       <t-table
         row-key="id"
         size="small"
         :data="currentExecution.instances"
         :columns="[
-          { colKey: 'instance_name', title: t('releaseCenter.instanceName') },
-          { colKey: 'zone', title: t('releaseCenter.zone') },
-          { colKey: 'current_version', title: t('releaseCenter.currentVersion') },
-          { colKey: 'target_version', title: t('releaseCenter.targetVersion') },
-          { colKey: 'status', title: t('releaseCenter.status') },
+          { colKey: 'instance_name', title: t('releaseCenter.instanceName'), width: 180 },
+          { colKey: 'status', title: t('releaseCenter.status'), width: 110 },
+          { colKey: 'batch', title: t('releaseCenter.monitoring.batchIndex'), width: 80 },
+          { colKey: 'duration', title: t('releaseCenter.monitoring.duration'), width: 90 },
+          { colKey: 'applied_at', title: t('releaseCenter.monitoring.appliedAt'), width: 160 },
           { colKey: 'message', title: t('releaseCenter.message') },
-          { colKey: 'metric_summary', title: t('releaseCenter.metrics') },
         ]"
-      />
+      >
+        <template #status="{ row }">
+          <t-tag
+            :theme="row.status === 'success' ? 'success' : row.status === 'failed' ? 'danger' : row.status === 'updating' ? 'warning' : 'default'"
+            variant="light"
+            size="small"
+          >
+            {{ row.status }}
+          </t-tag>
+        </template>
+        <template #batch="{ row }">
+          <span v-if="row.metric_summary?.batch_index">
+            {{ row.metric_summary.batch_index }}/{{ row.metric_summary.total_batches ?? currentExecution?.total_batches }}
+          </span>
+          <span v-else>—</span>
+        </template>
+        <template #duration="{ row }">
+          <span v-if="row.metric_summary?.duration_ms">
+            {{ formatDurationMs(row.metric_summary.duration_ms) }}
+          </span>
+          <span v-else>—</span>
+        </template>
+        <template #applied_at="{ row }">
+          <span v-if="row.metric_summary?.applied_at">
+            {{ new Date(row.metric_summary.applied_at).toLocaleTimeString() }}
+          </span>
+          <span v-else>—</span>
+        </template>
+      </t-table>
+
+      <!-- Event log -->
+      <div v-if="showEventLog" class="event-log">
+        <div class="event-log__title">{{ t('releaseCenter.monitoring.eventLog') }}</div>
+        <div v-if="executionEvents.length === 0" class="event-log__empty">
+          {{ t('releaseCenter.monitoring.noEvents') }}
+        </div>
+        <div v-for="ev in executionEvents" :key="ev.id" class="event-log__item">
+          <span class="event-log__time">{{ new Date(ev.created_at).toLocaleTimeString() }}</span>
+          <span class="event-log__type">{{ ev.event_type }}</span>
+          <span v-if="ev.instance_id" class="event-log__instance">{{ ev.instance_id.slice(0, 8) }}</span>
+        </div>
+      </div>
     </t-card>
   </div>
 </template>
@@ -304,6 +405,93 @@ onMounted(async () => {
 
 .table-card {
   margin-top: 16px;
+}
+
+.table-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.failure-analysis {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #ff4d4f 6%, var(--ordo-bg-card));
+  border: 1px solid color-mix(in srgb, #ff4d4f 25%, transparent);
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.failure-analysis__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff4d4f;
+}
+
+.failure-item {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.failure-item strong {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.failure-item span {
+  color: var(--ordo-text-secondary);
+}
+
+.event-log {
+  margin-top: 16px;
+  border-top: 1px solid var(--ordo-border);
+  padding-top: 12px;
+}
+
+.event-log__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.event-log__empty {
+  font-size: 13px;
+  color: var(--ordo-text-tertiary);
+}
+
+.event-log__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-family: monospace;
+  border-bottom: 1px solid var(--ordo-border);
+}
+
+.event-log__time {
+  color: var(--ordo-text-tertiary);
+  flex-shrink: 0;
+}
+
+.event-log__type {
+  font-weight: 600;
+  color: var(--ordo-text-primary);
+}
+
+.event-log__instance {
+  color: var(--ordo-text-secondary);
+  font-size: 11px;
 }
 
 @media (max-width: 980px) {

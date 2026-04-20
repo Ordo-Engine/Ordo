@@ -310,7 +310,7 @@ function formatDate(iso: string) {
 
 .project-card.is-active .project-card__icon {
   background: var(--ordo-accent);
-  color: #fff;
+  color: var(--ordo-text-inverse);
 }
 
 .project-card__badge {

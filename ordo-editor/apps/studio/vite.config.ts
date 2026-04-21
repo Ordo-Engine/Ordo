@@ -5,9 +5,11 @@ import { resolve } from 'path'
 const packagesPath = resolve(__dirname, '../../packages')
 const platformProxyTarget =
   process.env.ORDO_PLATFORM_PROXY_TARGET || 'http://localhost:3001'
+const cacheDir = resolve(__dirname, process.env.VITE_CACHE_DIR || 'node_modules/.vite')
 
 export default defineConfig({
   plugins: [vue()],
+  cacheDir,
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

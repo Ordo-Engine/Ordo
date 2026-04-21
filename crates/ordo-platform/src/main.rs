@@ -236,6 +236,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Routes that don't require authentication
     let public_routes = Router::new()
+        .route("/api/v1/system/config", get(auth::system_config))
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/login", post(auth::login))
         // GitHub OAuth callback (public — GitHub redirects here)
@@ -256,6 +257,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/orgs/:id",
             get(org::get_org).put(org::update_org).delete(org::delete_org),
         )
+        .route("/api/v1/orgs/:id/sub-orgs", get(org::list_sub_orgs))
         // Members
         .route(
             "/api/v1/orgs/:id/members",
@@ -403,6 +405,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:oid/projects/:pid/releases",
             get(release::list_release_requests).post(release::create_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/preview",
+            get(release::preview_release_target),
         )
         .route(
             "/api/v1/orgs/:oid/projects/:pid/releases/:rid",

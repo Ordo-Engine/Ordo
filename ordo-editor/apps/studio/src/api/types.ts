@@ -4,6 +4,13 @@
 
 import type { RuleSet } from '@ordo-engine/editor-core'
 
+// ── System ────────────────────────────────────────────────────────────────────
+
+export interface SystemConfig {
+  allow_registration: boolean
+  allow_org_creation: boolean
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer'
@@ -30,6 +37,9 @@ export interface OrgResponse {
   created_at: string
   created_by: string
   member_count: number
+  parent_org_id: string | null
+  depth: number
+  child_count: number
 }
 
 export interface Organization {
@@ -39,6 +49,14 @@ export interface Organization {
   created_at: string
   created_by: string
   members: Member[]
+  parent_org_id: string | null
+  depth: number
+}
+
+export interface CreateOrgRequest {
+  name: string
+  description?: string
+  parent_org_id?: string
 }
 
 export interface Member {
@@ -349,7 +367,7 @@ export interface ProjectEnvironment {
   id: string
   project_id: string
   name: string
-  server_id: string | null
+  server_ids: string[]
   nats_subject_prefix: string | null
   is_default: boolean
   canary_target_env_id: string | null
@@ -359,13 +377,13 @@ export interface ProjectEnvironment {
 
 export interface CreateEnvironmentRequest {
   name: string
-  server_id?: string | null
+  server_ids: string[]
   nats_subject_prefix?: string | null
 }
 
 export interface UpdateEnvironmentRequest {
   name?: string
-  server_id?: string | null
+  server_ids?: string[]
   nats_subject_prefix?: string | null
 }
 
@@ -554,6 +572,22 @@ export interface ReleaseRequest {
   version_diff: ReleaseVersionDiff
   content_diff: ReleaseContentDiffSummary
   request_snapshot: ReleaseRequestSnapshot
+}
+
+export interface ReleaseTargetServerPreview {
+  id: string
+  name: string
+  url: string
+  status: 'online' | 'offline' | 'degraded'
+  version?: string | null
+}
+
+export interface ReleaseTargetPreview {
+  environment_id: string
+  environment_name: string
+  affected_instance_count: number
+  bound_servers: ReleaseTargetServerPreview[]
+  message?: string | null
 }
 
 export interface ReleasePolicy {

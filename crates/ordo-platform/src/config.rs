@@ -97,6 +97,25 @@ pub struct PlatformConfig {
     )]
     pub templates_dir: PathBuf,
 
+    /// Allow anyone to self-register a new account via the /register endpoint.
+    /// When false (default), new users can only join through an organization invitation.
+    #[arg(
+        long = "allow-registration",
+        default_value = "false",
+        env = "ORDO_ALLOW_REGISTRATION"
+    )]
+    pub allow_registration: bool,
+
+    /// Allow authenticated users to create new root-level organizations.
+    /// When false (default), only platform admins can create top-level orgs;
+    /// sub-orgs within an existing org can still be created by org Admins.
+    #[arg(
+        long = "allow-org-creation",
+        default_value = "false",
+        env = "ORDO_ALLOW_ORG_CREATION"
+    )]
+    pub allow_org_creation: bool,
+
     // ── GitHub OAuth ─────────────────────────────────────────────────────────
     /// GitHub OAuth App client ID (register at github.com/settings/developers)
     #[arg(long = "github-client-id", env = "ORDO_GITHUB_CLIENT_ID")]

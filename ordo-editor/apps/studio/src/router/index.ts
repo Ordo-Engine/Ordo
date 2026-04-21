@@ -154,6 +154,11 @@ const router = createRouter({
               component: () => import('@/views/project/ReleaseRequestsView.vue'),
             },
             {
+              path: 'releases/requests/new',
+              name: 'project-release-request-create',
+              component: () => import('@/views/project/CreateReleaseRequestView.vue'),
+            },
+            {
               path: 'releases/requests/:releaseId',
               name: 'project-release-request-detail',
               component: () => import('@/views/project/ReleaseRequestDetailView.vue'),
@@ -186,6 +191,16 @@ const router = createRouter({
               path: 'environments',
               name: 'project-environments',
               component: () => import('@/views/project/EnvironmentsView.vue'),
+            },
+            {
+              path: 'environments/new',
+              name: 'project-environment-create',
+              component: () => import('@/views/project/EnvironmentFormView.vue'),
+            },
+            {
+              path: 'environments/:envId/edit',
+              name: 'project-environment-edit',
+              component: () => import('@/views/project/EnvironmentFormView.vue'),
             },
           ],
         },

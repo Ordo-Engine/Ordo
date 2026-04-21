@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import type { ProjectEnvironment } from '@/api/types'
+import { StudioPageHeader } from '@/components/ui'
 import { useEnvironmentStore } from '@/stores/environment'
 import { useServerStore } from '@/stores/server'
-import { StudioDialogActions, StudioPageHeader } from '@/components/ui'
-import type { ProjectEnvironment } from '@/api/types'
 
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const envStore = useEnvironmentStore()
 const serverStore = useServerStore()
@@ -16,73 +17,16 @@ const serverStore = useServerStore()
 const orgId = route.params.orgId as string
 const projectId = route.params.projectId as string
 
-const showForm = ref(false)
-const editingEnv = ref<ProjectEnvironment | null>(null)
-const formName = ref('')
-const formServerId = ref('')
-const formNatsPrefix = ref('')
-const saving = ref(false)
-
-const showCanaryForm = ref(false)
-const canaryEnv = ref<ProjectEnvironment | null>(null)
-const canaryTargetId = ref('')
-const canaryPct = ref(0)
-const canarySaving = ref(false)
-
-const availableCanaryTargets = computed(() =>
-  envStore.environments.filter((env) => env.id !== canaryEnv.value?.id),
-)
-
 onMounted(async () => {
   await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()])
 })
 
-function startCreate() {
-  editingEnv.value = null
-  formName.value = ''
-  formServerId.value = ''
-  formNatsPrefix.value = ''
-  showForm.value = true
+function createEnv() {
+  router.push({ name: 'project-environment-create', params: { orgId, projectId } })
 }
 
-function startEdit(env: ProjectEnvironment) {
-  editingEnv.value = env
-  formName.value = env.name
-  formServerId.value = env.server_id ?? ''
-  formNatsPrefix.value = env.nats_subject_prefix ?? ''
-  showForm.value = true
-}
-
-async function saveForm() {
-  const trimmedName = formName.value.trim()
-  if (!trimmedName) {
-    MessagePlugin.warning(t('environment.name'))
-    return
-  }
-
-  saving.value = true
-  try {
-    if (editingEnv.value) {
-      await envStore.updateEnvironment(orgId, projectId, editingEnv.value.id, {
-        name: trimmedName,
-        server_id: formServerId.value || null,
-        nats_subject_prefix: formNatsPrefix.value.trim() || null,
-      })
-      MessagePlugin.success(t('environment.updated'))
-    } else {
-      await envStore.createEnvironment(orgId, projectId, {
-        name: trimmedName,
-        server_id: formServerId.value || null,
-        nats_subject_prefix: formNatsPrefix.value.trim() || null,
-      })
-      MessagePlugin.success(t('environment.created'))
-    }
-    showForm.value = false
-  } catch (e: any) {
-    MessagePlugin.error(e.message)
-  } finally {
-    saving.value = false
-  }
+function editEnv(envId: string) {
+  router.push({ name: 'project-environment-edit', params: { orgId, projectId, envId } })
 }
 
 function deleteEnv(env: ProjectEnvironment) {
@@ -103,33 +47,11 @@ function deleteEnv(env: ProjectEnvironment) {
   })
 }
 
-function startCanary(env: ProjectEnvironment) {
-  canaryEnv.value = env
-  canaryTargetId.value = env.canary_target_env_id ?? ''
-  canaryPct.value = env.canary_percentage
-  showCanaryForm.value = true
-}
-
-async function saveCanary() {
-  if (!canaryEnv.value) return
-  canarySaving.value = true
-  try {
-    await envStore.setCanary(orgId, projectId, canaryEnv.value.id, {
-      canary_target_env_id: canaryTargetId.value || null,
-      canary_percentage: canaryPct.value,
-    })
-    MessagePlugin.success(t('environment.canaryUpdated'))
-    showCanaryForm.value = false
-  } catch (e: any) {
-    MessagePlugin.error(e.message)
-  } finally {
-    canarySaving.value = false
-  }
-}
-
-function serverName(serverId: string | null) {
-  if (!serverId) return t('environment.noServer')
-  return serverStore.servers.find((server) => server.id === serverId)?.name ?? serverId
+function serverNames(serverIds: string[]) {
+  if (serverIds.length === 0) return t('environment.noServer')
+  return serverIds
+    .map((serverId) => serverStore.getById(serverId)?.name ?? serverId)
+    .join(', ')
 }
 
 function canaryTargetName(envId: string | null) {
@@ -142,7 +64,7 @@ function canaryTargetName(envId: string | null) {
   <div class="view-page">
     <StudioPageHeader :title="t('environment.title')">
       <template #actions>
-        <t-button theme="primary" @click="startCreate">
+        <t-button theme="primary" @click="createEnv">
           <template #icon>
             <t-icon name="add" />
           </template>
@@ -173,10 +95,7 @@ function canaryTargetName(envId: string | null) {
             <t-tag v-if="env.is_default" theme="primary" variant="light">{{ t('environment.default') }}</t-tag>
           </div>
           <div class="env-actions">
-            <t-button variant="text" size="small" @click="startCanary(env)">
-              {{ t('environment.canary') }}
-            </t-button>
-            <t-button variant="text" size="small" @click="startEdit(env)">
+            <t-button variant="text" size="small" @click="editEnv(env.id)">
               {{ t('environment.edit') }}
             </t-button>
             <t-button v-if="!env.is_default" variant="text" theme="danger" size="small" @click="deleteEnv(env)">
@@ -186,8 +105,8 @@ function canaryTargetName(envId: string | null) {
         </div>
 
         <div class="env-meta">
-          <span class="meta-label">{{ t('environment.server') }}:</span>
-          <span>{{ serverName(env.server_id) }}</span>
+          <span class="meta-label">{{ t('environment.serverNodes') }}:</span>
+          <span>{{ serverNames(env.server_ids) }}</span>
         </div>
         <div v-if="env.nats_subject_prefix" class="env-meta">
           <span class="meta-label">{{ t('environment.natsPrefix') }}:</span>
@@ -199,65 +118,6 @@ function canaryTargetName(envId: string | null) {
         </div>
       </t-card>
     </div>
-
-    <t-dialog
-      v-model:visible="showForm"
-      :header="editingEnv ? t('environment.edit') : t('environment.add')"
-      :footer="false"
-      width="520px"
-      destroy-on-close
-    >
-      <t-form label-align="top" :colon="false">
-        <t-form-item :label="t('environment.name')" required>
-          <t-input v-model="formName" />
-        </t-form-item>
-        <t-form-item :label="t('environment.server')">
-          <t-select v-model="formServerId" clearable>
-            <t-option
-              v-for="server in serverStore.servers"
-              :key="server.id"
-              :label="server.name"
-              :value="server.id"
-            />
-          </t-select>
-        </t-form-item>
-        <t-form-item :label="t('environment.natsPrefix')">
-          <t-input v-model="formNatsPrefix" placeholder="ordo.rules" />
-        </t-form-item>
-      </t-form>
-      <StudioDialogActions>
-        <t-button variant="outline" @click="showForm = false">{{ t('environment.cancel') }}</t-button>
-        <t-button theme="primary" :loading="saving" @click="saveForm">{{ t('environment.save') }}</t-button>
-      </StudioDialogActions>
-    </t-dialog>
-
-    <t-dialog
-      v-model:visible="showCanaryForm"
-      :header="`${t('environment.canary')}: ${canaryEnv?.name ?? ''}`"
-      :footer="false"
-      width="520px"
-      destroy-on-close
-    >
-      <t-form label-align="top" :colon="false">
-        <t-form-item :label="t('environment.canaryTarget')">
-          <t-select v-model="canaryTargetId" clearable>
-            <t-option
-              v-for="env in availableCanaryTargets"
-              :key="env.id"
-              :label="env.name"
-              :value="env.id"
-            />
-          </t-select>
-        </t-form-item>
-        <t-form-item :label="`${t('environment.canaryPct')}: ${canaryPct}%`">
-          <t-slider v-model="canaryPct" :min="0" :max="100" />
-        </t-form-item>
-      </t-form>
-      <StudioDialogActions>
-        <t-button variant="outline" @click="showCanaryForm = false">{{ t('environment.cancel') }}</t-button>
-        <t-button theme="primary" :loading="canarySaving" @click="saveCanary">{{ t('environment.save') }}</t-button>
-      </StudioDialogActions>
-    </t-dialog>
   </div>
 </template>
 
@@ -281,31 +141,31 @@ function canaryTargetName(envId: string | null) {
 }
 
 .env-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  gap: 16px;
 }
 
-.env-card :deep(.t-card__body) {
-  padding: 16px;
+.env-card {
+  border-radius: 18px;
+  border: 1px solid var(--ordo-border-color);
 }
 
 .env-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  align-items: flex-start;
 }
 
 .env-name-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .env-name {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--ordo-text-primary);
 }
@@ -313,39 +173,20 @@ function canaryTargetName(envId: string | null) {
 .env-actions {
   display: flex;
   align-items: center;
+  gap: 4px;
 }
 
 .env-meta {
   display: flex;
-  align-items: center;
   gap: 8px;
-  margin-top: 8px;
-  font-size: 13px;
   color: var(--ordo-text-secondary);
+  font-size: 13px;
+  margin-top: 8px;
+  line-height: 1.5;
 }
 
 .meta-label {
-  font-weight: 600;
-}
-
-code {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: var(--ordo-radius-sm);
-  background: var(--ordo-bg-secondary);
-  color: var(--ordo-text-primary);
-  font-family: var(--ordo-font-mono);
-  font-size: 12px;
-}
-
-@media (max-width: 900px) {
-  .view-page {
-    padding: 20px;
-  }
-
-  .env-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
+  color: var(--ordo-text-tertiary);
+  min-width: 72px;
 }
 </style>

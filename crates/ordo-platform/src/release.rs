@@ -5,8 +5,9 @@ use crate::{
         ReleaseApprovalDecision, ReleaseContentDiffSummary, ReleaseExecution,
         ReleaseExecutionInstance, ReleaseExecutionStatus, ReleaseInstanceStatus, ReleasePolicy,
         ReleasePolicyScope, ReleaseRequest, ReleaseRequestSnapshot, ReleaseRequestStatus,
-        ReleaseStepDiffItem, ReleaseVersionDiff, ReviewReleaseRequest, RulesetDeployment,
-        RulesetHistoryEntry, RulesetHistorySource, UpdateReleasePolicyRequest,
+        ReleaseStepDiffItem, ReleaseTargetPreview, ReleaseTargetServerPreview, ReleaseVersionDiff,
+        ReviewReleaseRequest, RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource,
+        UpdateReleasePolicyRequest,
     },
     rbac::{
         require_project_permission, PERM_RELEASE_EXECUTE, PERM_RELEASE_INSTANCE_VIEW,
@@ -18,11 +19,12 @@ use crate::{
     AppState,
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Extension, Json,
 };
 use chrono::Utc;
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
@@ -167,6 +169,76 @@ pub async fn list_release_requests(
         .await
         .map_err(PlatformError::Internal)?;
     Ok(Json(items))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReleaseTargetPreviewQuery {
+    pub environment_id: String,
+}
+
+pub async fn preview_release_target(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id)): Path<(String, String)>,
+    Query(query): Query<ReleaseTargetPreviewQuery>,
+) -> ApiResult<Json<ReleaseTargetPreview>> {
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_RELEASE_REQUEST_CREATE,
+    )
+    .await?;
+
+    if query.environment_id.trim().is_empty() {
+        return Err(PlatformError::bad_request("environment_id is required"));
+    }
+
+    let environment = state
+        .store
+        .get_environment(&project_id, &query.environment_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Environment not found"))?;
+
+    let mut bound_servers = Vec::new();
+    for server_id in &environment.server_ids {
+        if let Some(server) = state
+            .store
+            .get_server(server_id)
+            .await
+            .map_err(PlatformError::Internal)?
+        {
+            bound_servers.push(ReleaseTargetServerPreview {
+                id: server.id,
+                name: server.name,
+                url: server.url,
+                status: server.status,
+                version: server.version,
+            });
+        }
+    }
+
+    let preview = if bound_servers.is_empty() {
+        ReleaseTargetPreview {
+            environment_id: environment.id,
+            environment_name: environment.name,
+            affected_instance_count: 0,
+            bound_servers: Vec::new(),
+            message: Some("Environment has no bound server".to_string()),
+        }
+    } else {
+        ReleaseTargetPreview {
+            environment_id: environment.id,
+            environment_name: environment.name,
+            affected_instance_count: bound_servers.len() as i32,
+            bound_servers,
+            message: None,
+        }
+    };
+
+    Ok(Json(preview))
 }
 
 pub async fn create_release_request(
@@ -470,16 +542,19 @@ pub async fn execute_release_request(
         .await
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Environment not found"))?;
-    let server_id = env
-        .server_id
-        .clone()
-        .ok_or_else(|| PlatformError::bad_request("Environment has no bound server"))?;
-    let server = state
-        .store
-        .get_server(&server_id)
-        .await
-        .map_err(PlatformError::Internal)?
-        .ok_or_else(|| PlatformError::not_found("Bound server not found"))?;
+    if env.server_ids.is_empty() {
+        return Err(PlatformError::bad_request("Environment has no bound server"));
+    }
+    let mut bound_servers = Vec::new();
+    for server_id in &env.server_ids {
+        let server = state
+            .store
+            .get_server(server_id)
+            .await
+            .map_err(PlatformError::Internal)?
+            .ok_or_else(|| PlatformError::not_found("Bound server not found"))?;
+        bound_servers.push(server);
+    }
     let draft = state
         .store
         .get_draft_ruleset(&project_id, &release.ruleset_name)
@@ -488,7 +563,6 @@ pub async fn execute_release_request(
         .ok_or_else(|| PlatformError::not_found("Draft ruleset not found"))?;
 
     let execution_id = Uuid::new_v4().to_string();
-    let instance_id = Uuid::new_v4().to_string();
     let total_batches = 1;
     let strategy = release.request_snapshot.rollout_strategy.clone();
 
@@ -512,48 +586,55 @@ pub async fn execute_release_request(
         .await
         .map_err(PlatformError::Internal)?;
 
-    let instance = ReleaseExecutionInstance {
-        id: instance_id.clone(),
-        release_execution_id: execution_id.clone(),
-        instance_id: server.id.clone(),
-        instance_name: server.name.clone(),
-        zone: server
-            .labels
-            .get("zone")
-            .and_then(|value| value.as_str())
-            .map(str::to_string),
-        current_version: release
-            .version_diff
-            .from_version
-            .clone()
-            .unwrap_or_else(|| "unreleased".to_string()),
-        target_version: release.version.clone(),
-        status: ReleaseInstanceStatus::Pending,
-        updated_at: Utc::now(),
-        message: None,
-        metric_summary: None,
-    };
-    state
-        .store
-        .create_release_execution_instance(&instance)
-        .await
-        .map_err(PlatformError::Internal)?;
+    let current_version = release
+        .version_diff
+        .from_version
+        .clone()
+        .unwrap_or_else(|| "unreleased".to_string());
+    let mut instances = Vec::new();
+    for server in &bound_servers {
+        let instance = ReleaseExecutionInstance {
+            id: Uuid::new_v4().to_string(),
+            release_execution_id: execution_id.clone(),
+            instance_id: server.id.clone(),
+            instance_name: server.name.clone(),
+            zone: server
+                .labels
+                .get("zone")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+            current_version: current_version.clone(),
+            target_version: release.version.clone(),
+            status: ReleaseInstanceStatus::Pending,
+            updated_at: Utc::now(),
+            message: None,
+            metric_summary: None,
+        };
+        state
+            .store
+            .create_release_execution_instance(&instance)
+            .await
+            .map_err(PlatformError::Internal)?;
+        instances.push(instance);
+    }
 
     state
         .store
         .update_release_execution_status(&execution_id, ReleaseExecutionStatus::RollingOut, Some(1))
         .await
         .map_err(PlatformError::Internal)?;
-    state
-        .store
-        .update_release_execution_instance(
-            &instance_id,
-            ReleaseInstanceStatus::Updating,
-            Some("Dispatching ruleset to bound server"),
-            None,
-        )
-        .await
-        .map_err(PlatformError::Internal)?;
+    for instance in &instances {
+        state
+            .store
+            .update_release_execution_instance(
+                &instance.id,
+                ReleaseInstanceStatus::Updating,
+                Some("Dispatching ruleset to bound servers"),
+                None,
+            )
+            .await
+            .map_err(PlatformError::Internal)?;
+    }
 
     let publish_result = publish_release_via_nats(
         &state,
@@ -567,16 +648,18 @@ pub async fn execute_release_request(
 
     match publish_result {
         Ok(()) => {
-            state
-                .store
-                .update_release_execution_instance(
-                    &instance_id,
-                    ReleaseInstanceStatus::Success,
-                    Some("Ruleset pushed and acknowledged"),
-                    Some("publish_ack"),
-                )
-                .await
-                .map_err(PlatformError::Internal)?;
+            for instance in &instances {
+                state
+                    .store
+                    .update_release_execution_instance(
+                        &instance.id,
+                        ReleaseInstanceStatus::Success,
+                        Some("Ruleset pushed and acknowledged"),
+                        Some("publish_ack"),
+                    )
+                    .await
+                    .map_err(PlatformError::Internal)?;
+            }
             state
                 .store
                 .update_release_execution_status(
@@ -640,16 +723,19 @@ pub async fn execute_release_request(
             }
         }
         Err(err) => {
-            state
-                .store
-                .update_release_execution_instance(
-                    &instance_id,
-                    ReleaseInstanceStatus::Failed,
-                    Some(&err.to_string()),
-                    Some("publish_failed"),
-                )
-                .await
-                .map_err(PlatformError::Internal)?;
+            let failed_message = err.to_string();
+            for instance in &instances {
+                state
+                    .store
+                    .update_release_execution_instance(
+                        &instance.id,
+                        ReleaseInstanceStatus::Failed,
+                        Some(&failed_message),
+                        Some("publish_failed"),
+                    )
+                    .await
+                    .map_err(PlatformError::Internal)?;
+            }
             state
                 .store
                 .update_release_execution_status(

@@ -6,6 +6,7 @@
 import { i18n } from '@/i18n'
 import type {
   AppendRulesetHistoryEntry,
+  SystemConfig,
   AssignRoleRequest,
   AuthResponse,
   BindServerRequest,
@@ -37,6 +38,7 @@ import type {
   ReleaseExecution,
   ReleasePolicy,
   ReleaseRequest,
+  ReleaseTargetPreview,
   ReviewReleaseRequest,
   SaveDraftRequest,
   ServerInfo,
@@ -53,6 +55,12 @@ import type {
 } from './types'
 
 const BASE = '/api/v1'
+
+export const systemApi = {
+  getConfig(): Promise<SystemConfig> {
+    return request('/system/config')
+  },
+}
 
 type PlatformApiError = Error & { status: number; code?: string }
 
@@ -181,12 +189,16 @@ export const orgApi = {
     return request(`/orgs/${orgId}`, { token })
   },
 
-  create(token: string, name: string, description?: string): Promise<OrgResponse> {
+  create(token: string, name: string, description?: string, parent_org_id?: string): Promise<OrgResponse> {
     return request('/orgs', {
       method: 'POST',
       token,
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, parent_org_id }),
     })
+  },
+
+  listSubOrgs(token: string, orgId: string): Promise<OrgResponse[]> {
+    return request(`/orgs/${orgId}/sub-orgs`, { token })
   },
 
   update(token: string, orgId: string, patch: { name?: string; description?: string }): Promise<OrgResponse> {
@@ -724,6 +736,16 @@ export const releaseApi = {
 
   listRequests(token: string, orgId: string, projectId: string): Promise<ReleaseRequest[]> {
     return request(`/orgs/${orgId}/projects/${projectId}/releases`, { token })
+  },
+
+  previewTarget(
+    token: string,
+    orgId: string,
+    projectId: string,
+    environmentId: string,
+  ): Promise<ReleaseTargetPreview> {
+    const qs = new URLSearchParams({ environment_id: environmentId })
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/preview?${qs.toString()}`, { token })
   },
 
   createRequest(

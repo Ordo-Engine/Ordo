@@ -234,9 +234,14 @@ async fn resolve_server_url(
     state: &AppState,
     env: &crate::models::ProjectEnvironment,
 ) -> Option<String> {
-    if let Some(ref sid) = env.server_id {
-        if let Ok(Some(server)) = state.store.get_server(sid).await {
-            return Some(server.url);
+    for server_id in &env.server_ids {
+        if let Ok(Some(server)) = state.store.get_server(server_id).await {
+            if matches!(
+                server.status,
+                crate::models::ServerStatus::Online | crate::models::ServerStatus::Degraded
+            ) {
+                return Some(server.url);
+            }
         }
     }
     None

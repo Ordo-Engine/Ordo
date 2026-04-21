@@ -208,6 +208,7 @@ job "ordo-devcontainer" {
         ORDO_NATS_SUBJECT_PREFIX     = var.nats_subject_prefix
         ORDO_PLATFORM_TEMPLATES_DIR  = var.platform_templates_dir
         ORDO_PLATFORM_PROXY_TARGET   = "http://127.0.0.1:${var.platform_port}"
+        VITE_CACHE_DIR               = ".vite-devcontainer"
         STUDIO_PORT                  = "${var.studio_port}"
         PLATFORM_PORT                = "${var.platform_port}"
       }

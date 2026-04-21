@@ -117,6 +117,12 @@ pub struct Organization {
     pub created_at: DateTime<Utc>,
     pub created_by: String,
     pub members: Vec<Member>,
+    /// `None` for root orgs; set to parent org ID for sub-orgs (depth 1).
+    #[serde(default)]
+    pub parent_org_id: Option<String>,
+    /// 0 = root org, 1 = sub-org. Maximum allowed depth is 1.
+    #[serde(default)]
+    pub depth: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -484,8 +490,8 @@ pub struct ProjectEnvironment {
     pub project_id: String,
     /// Human-readable label, e.g. "production", "dev"
     pub name: String,
-    /// Bound ordo-server; None = use platform default engine
-    pub server_id: Option<String>,
+    /// Bound ordo-server nodes for this environment
+    pub server_ids: Vec<String>,
     /// NATS subject prefix for this environment's ordo-server; None = platform global prefix
     pub nats_subject_prefix: Option<String>,
     /// Whether this is the project's default (production) environment
@@ -500,14 +506,14 @@ pub struct ProjectEnvironment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEnvironmentRequest {
     pub name: String,
-    pub server_id: Option<String>,
+    pub server_ids: Vec<String>,
     pub nats_subject_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateEnvironmentRequest {
     pub name: Option<String>,
-    pub server_id: Option<String>,
+    pub server_ids: Option<Vec<String>>,
     pub nats_subject_prefix: Option<String>,
 }
 
@@ -930,6 +936,24 @@ pub struct CreateReleaseRequest {
     pub release_note: Option<String>,
     pub rollback_version: Option<String>,
     pub affected_instance_count: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseTargetServerPreview {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub status: ServerStatus,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseTargetPreview {
+    pub environment_id: String,
+    pub environment_name: String,
+    pub affected_instance_count: i32,
+    pub bound_servers: Vec<ReleaseTargetServerPreview>,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -13,6 +13,7 @@ SETUP_DIR=${SETUP_DIR:-$DATA_DIR/devcontainer-state}
 LOG_DIR=${LOG_DIR:-$DATA_DIR/logs}
 DATABASE_HOST=${DATABASE_HOST:-127.0.0.1}
 DATABASE_PORT=${DATABASE_PORT:-5432}
+VITE_CACHE_DIR=${VITE_CACHE_DIR:-.vite-devcontainer}
 
 : "${ORDO_JWT_SECRET:?ORDO_JWT_SECRET must be provided by the Nomad job env}"
 : "${ORDO_DATABASE_URL:?ORDO_DATABASE_URL must be provided by the Nomad job env}"
@@ -42,6 +43,7 @@ export ORDO_ENGINE_URL
 export CARGO_HOME
 export CARGO_TARGET_DIR
 export PNPM_STORE_DIR
+export VITE_CACHE_DIR
 export CI=true
 
 hash_file() {
@@ -147,18 +149,18 @@ start_platform_watch() {
 }
 
 start_studio() {
-  cd "$WORKSPACE/ordo-editor"
+  cd "$WORKSPACE/ordo-editor/apps/studio"
   # Pre-warm Vite dep cache so the first proxied request doesn't hit Traefik's timeout.
   # Only clear the cache when the lockfile has changed (same pattern as other deps).
   local vite_stamp="$SETUP_DIR/vite-deps.applied"
   local pnpm_stamp="$SETUP_DIR/pnpm-lock.applied"
-  if [ ! -f "$vite_stamp" ] || ! cmp -s "$pnpm_stamp" "$vite_stamp" 2>/dev/null; then
+  if [ ! -f "$vite_stamp" ] || ! cmp -s "$pnpm_stamp" "$vite_stamp" 2>/dev/null || [ ! -f "$VITE_CACHE_DIR/deps/tdesign-vue-next.js" ]; then
     echo "==> Pre-bundling Vite dependencies"
-    pnpm --filter @ordo-engine/studio exec vite optimize 2>&1 | tee -a "$LOG_DIR/ordo-studio.log" || true
+    pnpm exec vite optimize 2>&1 | tee -a "$LOG_DIR/ordo-studio.log" || true
     cp "$pnpm_stamp" "$vite_stamp" 2>/dev/null || true
   fi
   (
-    pnpm --filter @ordo-engine/studio exec vite --host 0.0.0.0 --port "$STUDIO_PORT"
+    pnpm exec vite --host 0.0.0.0 --port "$STUDIO_PORT"
   ) 2>&1 | tee "$LOG_DIR/ordo-studio.log" &
   STUDIO_PID=$!
 }

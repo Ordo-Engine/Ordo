@@ -323,6 +323,11 @@ fn code_for_message(status: StatusCode, message: &str) -> ErrorDescriptor {
             "release.rollback_version_missing"
         }
 
+        (
+            StatusCode::FORBIDDEN,
+            "Self-registration is disabled. Contact your organization admin for an invitation.",
+        ) => "auth.registration_disabled",
+
         (StatusCode::FORBIDDEN, "Not a member of this organization") => {
             "auth.org_membership_required"
         }

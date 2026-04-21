@@ -82,8 +82,8 @@ impl PlatformStore {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            "INSERT INTO organizations (id, name, description, created_at, created_by)
-             VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO organizations (id, name, description, created_at, created_by, parent_org_id, depth)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (id) DO UPDATE SET
                name = EXCLUDED.name,
                description = EXCLUDED.description",
@@ -93,6 +93,8 @@ impl PlatformStore {
         .bind(&org.description)
         .bind(org.created_at)
         .bind(&org.created_by)
+        .bind(&org.parent_org_id)
+        .bind(org.depth)
         .execute(&mut *tx)
         .await?;
 
@@ -123,7 +125,7 @@ impl PlatformStore {
 
     pub async fn get_org(&self, id: &str) -> Result<Option<Organization>> {
         let row = sqlx::query(
-            "SELECT id, name, description, created_at, created_by
+            "SELECT id, name, description, created_at, created_by, parent_org_id, depth
              FROM organizations WHERE id = $1",
         )
         .bind(id)
@@ -141,17 +143,19 @@ impl PlatformStore {
             description: row.get("description"),
             created_at: row.get("created_at"),
             created_by: row.get("created_by"),
+            parent_org_id: row.get("parent_org_id"),
+            depth: row.get("depth"),
             members,
         }))
     }
 
     pub async fn list_user_orgs(&self, user_id: &str) -> Result<Vec<Organization>> {
         let rows = sqlx::query(
-            "SELECT o.id, o.name, o.description, o.created_at, o.created_by
+            "SELECT o.id, o.name, o.description, o.created_at, o.created_by, o.parent_org_id, o.depth
              FROM organizations o
              JOIN members m ON o.id = m.org_id
              WHERE m.user_id = $1
-             ORDER BY o.created_at",
+             ORDER BY o.depth, o.created_at",
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -167,6 +171,8 @@ impl PlatformStore {
                 description: row.get("description"),
                 created_at: row.get("created_at"),
                 created_by: row.get("created_by"),
+                parent_org_id: row.get("parent_org_id"),
+                depth: row.get("depth"),
                 members,
             });
         }
@@ -179,6 +185,41 @@ impl PlatformStore {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn list_child_orgs(&self, parent_id: &str) -> Result<Vec<Organization>> {
+        let rows = sqlx::query(
+            "SELECT id, name, description, created_at, created_by, parent_org_id, depth
+             FROM organizations WHERE parent_org_id = $1 ORDER BY created_at",
+        )
+        .bind(parent_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut orgs = Vec::new();
+        for row in rows {
+            let org_id: String = row.get("id");
+            let members = self.fetch_members(&org_id).await?;
+            orgs.push(Organization {
+                id: org_id,
+                name: row.get("name"),
+                description: row.get("description"),
+                created_at: row.get("created_at"),
+                created_by: row.get("created_by"),
+                parent_org_id: row.get("parent_org_id"),
+                depth: row.get("depth"),
+                members,
+            });
+        }
+        Ok(orgs)
+    }
+
+    pub async fn count_child_orgs(&self, parent_id: &str) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) AS cnt FROM organizations WHERE parent_org_id = $1")
+            .bind(parent_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get("cnt"))
     }
 
     async fn fetch_members(&self, org_id: &str) -> Result<Vec<Member>> {
@@ -967,7 +1008,14 @@ impl PlatformStore {
 
     pub async fn list_environments(&self, project_id: &str) -> Result<Vec<ProjectEnvironment>> {
         let rows = sqlx::query(
-            "SELECT id, project_id, name, server_id, nats_subject_prefix, is_default,
+            "SELECT id, project_id, name,
+                    COALESCE(ARRAY(
+                        SELECT pes.server_id
+                        FROM project_environment_servers pes
+                        WHERE pes.environment_id = project_environments.id
+                        ORDER BY pes.created_at, pes.server_id
+                    ), ARRAY[]::TEXT[]) AS server_ids,
+                    nats_subject_prefix, is_default,
                     canary_target_env_id, canary_percentage, created_at
              FROM project_environments WHERE project_id = $1 ORDER BY created_at",
         )
@@ -983,7 +1031,14 @@ impl PlatformStore {
         env_id: &str,
     ) -> Result<Option<ProjectEnvironment>> {
         let row = sqlx::query(
-            "SELECT id, project_id, name, server_id, nats_subject_prefix, is_default,
+            "SELECT id, project_id, name,
+                    COALESCE(ARRAY(
+                        SELECT pes.server_id
+                        FROM project_environment_servers pes
+                        WHERE pes.environment_id = project_environments.id
+                        ORDER BY pes.created_at, pes.server_id
+                    ), ARRAY[]::TEXT[]) AS server_ids,
+                    nats_subject_prefix, is_default,
                     canary_target_env_id, canary_percentage, created_at
              FROM project_environments WHERE id = $1 AND project_id = $2",
         )
@@ -999,7 +1054,14 @@ impl PlatformStore {
         project_id: &str,
     ) -> Result<Option<ProjectEnvironment>> {
         let row = sqlx::query(
-            "SELECT id, project_id, name, server_id, nats_subject_prefix, is_default,
+            "SELECT id, project_id, name,
+                    COALESCE(ARRAY(
+                        SELECT pes.server_id
+                        FROM project_environment_servers pes
+                        WHERE pes.environment_id = project_environments.id
+                        ORDER BY pes.created_at, pes.server_id
+                    ), ARRAY[]::TEXT[]) AS server_ids,
+                    nats_subject_prefix, is_default,
                     canary_target_env_id, canary_percentage, created_at
              FROM project_environments WHERE project_id = $1 AND is_default = true LIMIT 1",
         )
@@ -1016,20 +1078,33 @@ impl PlatformStore {
         req: &CreateEnvironmentRequest,
         is_default: bool,
     ) -> Result<ProjectEnvironment> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO project_environments
              (id, project_id, name, server_id, nats_subject_prefix, is_default,
               canary_target_env_id, canary_percentage, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, NOW())",
+             VALUES ($1, $2, $3, NULL, $4, $5, NULL, 0, NOW())",
         )
         .bind(id)
         .bind(project_id)
         .bind(&req.name)
-        .bind(&req.server_id)
         .bind(&req.nats_subject_prefix)
         .bind(is_default)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        for server_id in &req.server_ids {
+            sqlx::query(
+                "INSERT INTO project_environment_servers (environment_id, server_id)
+                 VALUES ($1, $2)
+                 ON CONFLICT (environment_id, server_id) DO NOTHING",
+            )
+            .bind(id)
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
         Ok(self
             .get_environment(project_id, id)
             .await?
@@ -1042,23 +1117,42 @@ impl PlatformStore {
         env_id: &str,
         req: &UpdateEnvironmentRequest,
     ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             "UPDATE project_environments SET
                name = COALESCE($1, name),
-               server_id = CASE WHEN $2::boolean THEN $3 ELSE server_id END,
-               nats_subject_prefix = CASE WHEN $4::boolean THEN $5 ELSE nats_subject_prefix END
-             WHERE id = $6 AND project_id = $7",
+               nats_subject_prefix = CASE WHEN $2::boolean THEN $3 ELSE nats_subject_prefix END
+             WHERE id = $4 AND project_id = $5",
         )
         .bind(&req.name)
-        .bind(req.server_id.is_some())
-        .bind(&req.server_id)
         .bind(req.nats_subject_prefix.is_some())
         .bind(&req.nats_subject_prefix)
         .bind(env_id)
         .bind(project_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(result.rows_affected() > 0)
+        let updated = result.rows_affected() > 0;
+        if updated {
+            if let Some(server_ids) = &req.server_ids {
+                sqlx::query("DELETE FROM project_environment_servers WHERE environment_id = $1")
+                    .bind(env_id)
+                    .execute(&mut *tx)
+                    .await?;
+                for server_id in server_ids {
+                    sqlx::query(
+                        "INSERT INTO project_environment_servers (environment_id, server_id)
+                         VALUES ($1, $2)
+                         ON CONFLICT (environment_id, server_id) DO NOTHING",
+                    )
+                    .bind(env_id)
+                    .bind(server_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+            }
+        }
+        tx.commit().await?;
+        Ok(updated)
     }
 
     pub async fn set_canary(
@@ -2270,7 +2364,8 @@ impl PlatformStore {
 
     pub async fn list_all_orgs(&self) -> Result<Vec<Organization>> {
         let rows = sqlx::query(
-            "SELECT id, name, description, created_at, created_by FROM organizations ORDER BY created_at",
+            "SELECT id, name, description, created_at, created_by, parent_org_id, depth
+             FROM organizations ORDER BY depth, created_at",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -2284,6 +2379,8 @@ impl PlatformStore {
                 description: row.get("description"),
                 created_at: row.get("created_at"),
                 created_by: row.get("created_by"),
+                parent_org_id: row.get("parent_org_id"),
+                depth: row.get("depth"),
                 members,
             });
         }
@@ -2315,17 +2412,30 @@ impl PlatformStore {
         }
 
         let env_id = uuid::Uuid::new_v4().to_string();
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             r#"INSERT INTO project_environments
                (id, project_id, name, server_id, nats_subject_prefix, is_default, canary_percentage)
-               VALUES ($1, $2, 'production', $3, NULL, true, 0)
+               VALUES ($1, $2, 'production', NULL, NULL, true, 0)
                ON CONFLICT DO NOTHING"#,
         )
         .bind(&env_id)
         .bind(project_id)
-        .bind(server_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        if let Some(server_id) = server_id {
+            sqlx::query(
+                "INSERT INTO project_environment_servers (environment_id, server_id)
+                 VALUES ($1, $2)
+                 ON CONFLICT (environment_id, server_id) DO NOTHING",
+            )
+            .bind(&env_id)
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
 
         Ok(())
     }
@@ -2455,7 +2565,7 @@ fn row_to_environment(r: &sqlx::postgres::PgRow) -> ProjectEnvironment {
         id: r.get("id"),
         project_id: r.get("project_id"),
         name: r.get("name"),
-        server_id: r.get("server_id"),
+        server_ids: r.get("server_ids"),
         nats_subject_prefix: r.get("nats_subject_prefix"),
         is_default: r.get("is_default"),
         canary_target_env_id: r.get("canary_target_env_id"),

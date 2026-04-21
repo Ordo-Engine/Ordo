@@ -53,10 +53,26 @@ pub struct AuthResponse {
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
+/// GET /api/v1/system/config — public, returns feature flags the UI needs before login
+pub async fn system_config(
+    State(state): State<AppState>,
+) -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "allow_registration": state.config.allow_registration,
+        "allow_org_creation": state.config.allow_org_creation,
+    }))
+}
+
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> ApiResult<Json<AuthResponse>> {
+    if !state.config.allow_registration {
+        return Err(PlatformError::forbidden(
+            "Self-registration is disabled. Contact your organization admin for an invitation.",
+        ));
+    }
+
     // Validate input
     if req.email.trim().is_empty() || !req.email.contains('@') {
         return Err(PlatformError::bad_request("Invalid email address"));

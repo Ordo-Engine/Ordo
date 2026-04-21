@@ -14,6 +14,9 @@ export const useOrgStore = defineStore('org', () => {
   const members = ref<Member[]>([])
   const loading = ref(false)
 
+  /** Sub-orgs keyed by parent org id. Populated on demand. */
+  const subOrgs = ref<Record<string, OrgResponse[]>>({})
+
   const currentOrgId = computed(() => currentOrg.value?.id ?? null)
 
   // Restore last selected org from localStorage
@@ -41,12 +44,51 @@ export const useOrgStore = defineStore('org', () => {
     localStorage.setItem(CURRENT_ORG_KEY, orgId)
   }
 
-  async function createOrg(name: string, description?: string) {
+  async function createOrg(name: string, description?: string, parent_org_id?: string) {
     if (!auth.token) throw new Error('Not authenticated')
-    const org = await orgApi.create(auth.token, name, description)
+    const org = await orgApi.create(auth.token, name, description, parent_org_id)
     orgs.value.push(org)
     await selectOrg(org.id)
     return org
+  }
+
+  async function fetchSubOrgs(parentOrgId: string) {
+    if (!auth.token) return
+    const children = await orgApi.listSubOrgs(auth.token, parentOrgId)
+    subOrgs.value[parentOrgId] = children
+    // Merge into flat orgs list so hierarchy computed props work
+    for (const child of children) {
+      if (!orgs.value.find((o) => o.id === child.id)) {
+        orgs.value.push(child)
+      }
+    }
+  }
+
+  async function createSubOrg(parentOrgId: string, name: string, description?: string) {
+    if (!auth.token) throw new Error('Not authenticated')
+    const org = await orgApi.create(auth.token, name, description, parentOrgId)
+    orgs.value.push(org)
+    subOrgs.value[parentOrgId] = [...(subOrgs.value[parentOrgId] ?? []), org]
+    // Increment child_count on parent in list
+    const parent = orgs.value.find((o) => o.id === parentOrgId)
+    if (parent) parent.child_count = (parent.child_count ?? 0) + 1
+    return org
+  }
+
+  async function deleteSubOrg(subOrgId: string, parentOrgId: string) {
+    if (!auth.token) throw new Error('Not authenticated')
+    await orgApi.delete(auth.token, subOrgId)
+    orgs.value = orgs.value.filter((o) => o.id !== subOrgId)
+    subOrgs.value[parentOrgId] = (subOrgs.value[parentOrgId] ?? []).filter(
+      (o) => o.id !== subOrgId,
+    )
+    const parent = orgs.value.find((o) => o.id === parentOrgId)
+    if (parent && parent.child_count > 0) parent.child_count -= 1
+    if (currentOrg.value?.id === subOrgId) {
+      currentOrg.value = null
+      members.value = []
+      localStorage.removeItem(CURRENT_ORG_KEY)
+    }
   }
 
   async function updateOrg(orgId: string, patch: { name?: string; description?: string }) {
@@ -113,9 +155,13 @@ export const useOrgStore = defineStore('org', () => {
     currentOrgId,
     members,
     loading,
+    subOrgs,
     fetchOrgs,
     selectOrg,
     createOrg,
+    fetchSubOrgs,
+    createSubOrg,
+    deleteSubOrg,
     updateOrg,
     deleteOrg,
     inviteMember,

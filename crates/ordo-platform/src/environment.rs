@@ -1,7 +1,4 @@
 //! Project environment CRUD handlers.
-//!
-//! Each environment binds a project to an ordo-server and optionally configures
-//! a canary traffic split.
 
 use crate::{
     error::{ApiResult, PlatformError},
@@ -65,6 +62,17 @@ pub async fn create_environment(
     if req.name.trim().is_empty() {
         return Err(PlatformError::bad_request("Environment name is required"));
     }
+    for server_id in &req.server_ids {
+        let exists = state
+            .store
+            .get_server(server_id)
+            .await
+            .map_err(PlatformError::Internal)?
+            .is_some();
+        if !exists {
+            return Err(PlatformError::not_found("Bound server not found"));
+        }
+    }
 
     let id = Uuid::new_v4().to_string();
     let env = state
@@ -90,6 +98,20 @@ pub async fn update_environment(
         PERM_ENVIRONMENT_MANAGE,
     )
     .await?;
+
+    if let Some(server_ids) = &req.server_ids {
+        for server_id in server_ids {
+            let exists = state
+                .store
+                .get_server(server_id)
+                .await
+                .map_err(PlatformError::Internal)?
+                .is_some();
+            if !exists {
+                return Err(PlatformError::not_found("Bound server not found"));
+            }
+        }
+    }
 
     let updated = state
         .store

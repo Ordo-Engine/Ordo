@@ -485,9 +485,9 @@ fn optional_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::post, Json, Router};
+    use axum::{body::Bytes, http::Method, routing::any, Json, Router};
     use serde_json::json;
-    use tokio::net::TcpListener;
+    use tokio::{net::TcpListener, sync::mpsc, time::Duration};
 
     #[test]
     fn metric_capability_accepts_gauge_requests() {
@@ -520,13 +520,22 @@ mod tests {
             Err(error) => panic!("failed to bind test listener: {}", error),
         };
         let addr = listener.local_addr().unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let app = Router::new().route(
             "/hook",
-            post(|Json(body): Json<serde_json::Value>| async move {
-                Json(json!({
-                    "received": body,
-                    "ok": true
-                }))
+            any(move |method: Method, body: Bytes| {
+                let tx = tx.clone();
+                async move {
+                    let json_body = serde_json::from_slice::<serde_json::Value>(&body)
+                        .unwrap_or(serde_json::Value::Null);
+                    let _ = tx.send((method.clone(), json_body.clone()));
+
+                    Json(json!({
+                        "method": method.as_str(),
+                        "received": json_body,
+                        "ok": true
+                    }))
+                }
             }),
         );
         let server = tokio::spawn(async move {
@@ -547,9 +556,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(http_response_status(&response), Some(200));
+        let (method, received_body) = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for test server request")
+            .expect("test server did not receive request");
+        assert_eq!(method, Method::POST);
+        assert_eq!(received_body.get("hello"), Some(&json!("world")));
         assert_eq!(
             response.payload.get_path("json_body.received.hello"),
             Some(&Value::string("world"))
+        );
+        assert_eq!(
+            response.payload.get_path("json_body.method"),
+            Some(&Value::string("POST"))
         );
 
         server.abort();

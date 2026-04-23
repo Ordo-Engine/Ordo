@@ -53,6 +53,7 @@ done
 
 # Clean up Rust backup files
 find "$ROOT_DIR/crates" "$ROOT_DIR" -maxdepth 1 -name "*.bak" -delete
+find "$ROOT_DIR/crates" -name "*.bak" -delete
 
 # ── NPM package.json files ────────────────────────────────────────────────────
 

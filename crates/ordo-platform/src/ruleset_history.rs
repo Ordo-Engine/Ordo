@@ -10,6 +10,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct AppendRulesetHistoryRequest {
@@ -29,6 +30,59 @@ pub struct AppendRulesetHistoryEntry {
 pub struct RulesetHistoryResponse {
     pub ruleset_name: String,
     pub entries: Vec<RulesetHistoryEntry>,
+}
+
+pub(crate) struct HistoryActorParams {
+    pub org_id: String,
+    pub project_id: String,
+    pub ruleset_name: String,
+    pub source: RulesetHistorySource,
+    pub action: String,
+    pub snapshot: serde_json::Value,
+    pub author_id: String,
+    pub author_email: String,
+}
+
+pub(crate) async fn append_history_entry_for_actor(
+    state: &AppState,
+    HistoryActorParams {
+        org_id,
+        project_id,
+        ruleset_name,
+        source,
+        action,
+        snapshot,
+        author_id,
+        author_email,
+    }: HistoryActorParams,
+) -> ApiResult<()> {
+    let display_name = state
+        .store
+        .get_user(&author_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .map(|user| user.display_name)
+        .unwrap_or_else(|| author_email.clone());
+
+    let entry = RulesetHistoryEntry {
+        id: Uuid::new_v4().to_string(),
+        ruleset_name: ruleset_name.clone(),
+        action,
+        source,
+        created_at: Utc::now(),
+        author_id,
+        author_email,
+        author_display_name: display_name,
+        snapshot,
+    };
+
+    state
+        .store
+        .append_ruleset_history(&org_id, &project_id, &ruleset_name, &[entry])
+        .await
+        .map_err(PlatformError::Internal)?;
+
+    Ok(())
 }
 
 /// GET /api/v1/projects/:pid/rulesets/:name/history — list persisted history (member)

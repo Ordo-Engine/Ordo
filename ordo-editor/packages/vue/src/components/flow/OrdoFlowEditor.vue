@@ -3,7 +3,7 @@
  * OrdoFlowEditor - Flow-based ruleset editor
  * 流程图模式规则集编辑器
  */
-import { ref, computed, inject, watch, onMounted, markRaw, provide } from 'vue';
+import { ref, computed, inject, watch, onMounted, markRaw, provide, nextTick } from 'vue';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
@@ -64,12 +64,15 @@ export interface Props {
   locale?: Lang;
   /** Execution trace to display as overlay */
   executionTrace?: ExecutionTraceData | null;
+  /** Lock the canvas into execution path mode without selection/edit interactions */
+  traceMode?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
   disabled: false,
   executionTrace: null,
+  traceMode: false,
 });
 
 const emit = defineEmits<{
@@ -171,6 +174,9 @@ const highlightedEdgeIds = ref<Set<string>>(new Set());
 // Execution trace overlay state
 const showExecutionOverlay = ref(false);
 const executionAnnotations = ref<Map<string, StepTraceInfo>>(new Map());
+let pendingTraceApplyToken = 0;
+
+const isCanvasReadOnly = computed(() => props.disabled || props.traceMode);
 
 // Selected node data
 const selectedNode = computed(() => {
@@ -248,6 +254,10 @@ function initFromRuleset(forceLayout = false) {
       autoLayout();
     }, 10);
   }
+
+  if (props.executionTrace) {
+    void scheduleTraceApply(props.executionTrace);
+  }
 }
 
 function buildFlowConfig() {
@@ -301,13 +311,22 @@ watch(
   () => props.executionTrace,
   (trace) => {
     if (trace) {
-      applyExecutionTrace(trace);
+      void scheduleTraceApply(trace);
     } else {
       clearExecutionTrace();
     }
   },
   { immediate: true }
 );
+
+async function scheduleTraceApply(trace: ExecutionTraceData) {
+  const token = ++pendingTraceApplyToken;
+  await nextTick();
+  setTimeout(() => {
+    if (token !== pendingTraceApplyToken) return;
+    applyExecutionTrace(trace);
+  }, 120);
+}
 
 // ============================================
 // Execution trace overlay functionality
@@ -369,6 +388,7 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
  * Clear execution trace overlay
  */
 function clearExecutionTrace() {
+  pendingTraceApplyToken++;
   showExecutionOverlay.value = false;
   executionAnnotations.value = new Map();
   highlightedNodeIds.value = new Set();
@@ -548,6 +568,10 @@ function applyHighlightStyles() {
 
 // Handle node selection
 function onNodeClick(event: any) {
+  if (isCanvasReadOnly.value) {
+    hideContextMenu();
+    return;
+  }
   const nodeId = event.node?.id;
   if (!nodeId) return;
 
@@ -576,6 +600,10 @@ function onNodeClick(event: any) {
 }
 
 function onPaneClick() {
+  if (isCanvasReadOnly.value) {
+    hideContextMenu();
+    return;
+  }
   selectedNodeId.value = null;
   selectedNodeIds.value = [];
   updateHighlightedPath(null); // Clear highlight
@@ -584,6 +612,7 @@ function onPaneClick() {
 
 // Handle right-click on pane
 function onPaneContextMenu(event: MouseEvent) {
+  if (isCanvasReadOnly.value) return;
   event.preventDefault();
   selectedEdgeId.value = null; // Clear edge selection
   // Only show context menu if there are selected nodes
@@ -594,6 +623,7 @@ function onPaneContextMenu(event: MouseEvent) {
 
 // Handle right-click on node
 function onNodeContextMenu(event: any) {
+  if (isCanvasReadOnly.value) return;
   const nodeEvent = event.event as MouseEvent;
   nodeEvent.preventDefault();
   nodeEvent.stopPropagation();
@@ -613,6 +643,7 @@ function onNodeContextMenu(event: any) {
 
 // Handle right-click on edge
 function onEdgeContextMenu(event: any) {
+  if (isCanvasReadOnly.value) return;
   const edgeEvent = event.event as MouseEvent;
   edgeEvent.preventDefault();
   edgeEvent.stopPropagation();
@@ -629,6 +660,7 @@ function onEdgeContextMenu(event: any) {
 
 // Handle selection change from Vue Flow
 function onSelectionChange(params: any) {
+  if (isCanvasReadOnly.value) return;
   const nodeIds = params.nodes?.map((n: any) => n.id) || [];
   selectedNodeIds.value = nodeIds;
   if (nodeIds.length === 1) {
@@ -890,7 +922,7 @@ function updateNodeDragPreview(event: DragEvent, type: NodeCreationType) {
 }
 
 function onCanvasDragOver(event: DragEvent) {
-  if (!event.dataTransfer || props.disabled) return;
+  if (!event.dataTransfer || isCanvasReadOnly.value) return;
 
   const isToolbarNodeDrag = Array.from(event.dataTransfer.types).includes(FLOW_NODE_DRAG_TYPE);
   if (!isToolbarNodeDrag || !draggedNodeType.value) return;
@@ -922,7 +954,7 @@ function onCanvasDragLeave(event: DragEvent) {
 }
 
 function onCanvasDrop(event: DragEvent) {
-  if (props.disabled || !event.dataTransfer) return;
+  if (isCanvasReadOnly.value || !event.dataTransfer) return;
 
   const droppedType = event.dataTransfer.getData(FLOW_NODE_DRAG_TYPE);
   const type = droppedType || draggedNodeType.value;
@@ -1343,6 +1375,7 @@ onMounted(() => {
   <div class="ordo-flow-editor" :class="{ disabled }">
     <!-- Toolbar -->
     <OrdoFlowToolbar
+      v-if="!disabled"
       :edge-style="edgeStyle"
       :layout-direction="layoutDirection"
       :has-selection="!!selectedNodeId"
@@ -1374,10 +1407,10 @@ onMounted(() => {
         :snap-to-grid="true"
         :snap-grid="[20, 20]"
         :fit-view-on-init="true"
-        :nodes-draggable="!disabled"
-        :nodes-connectable="!disabled"
-        :elements-selectable="!disabled"
-        :edges-updatable="!disabled"
+        :nodes-draggable="!isCanvasReadOnly"
+        :nodes-connectable="!isCanvasReadOnly"
+        :elements-selectable="!isCanvasReadOnly"
+        :edges-updatable="!isCanvasReadOnly"
         :selection-key-code="'Shift'"
         :multi-selection-key-code="['Meta', 'Control']"
         class="flow-canvas"
@@ -1410,7 +1443,7 @@ onMounted(() => {
 
       <!-- Context Menu -->
       <div
-        v-if="showContextMenu"
+        v-if="showContextMenu && !isCanvasReadOnly"
         class="context-menu"
         :style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
         @click.stop
@@ -1545,7 +1578,7 @@ onMounted(() => {
 
     <!-- Property Panel for Step Nodes -->
     <OrdoFlowPropertyPanel
-      v-if="selectedStepNode"
+      v-if="selectedStepNode && !isCanvasReadOnly"
       :node="selectedStepNode"
       :available-steps="modelValue.steps"
       :suggestions="suggestions"
@@ -1557,7 +1590,7 @@ onMounted(() => {
     />
 
     <!-- Property Panel for Group Nodes -->
-    <div v-if="selectedGroupNode" class="group-property-panel">
+    <div v-if="selectedGroupNode && !isCanvasReadOnly" class="group-property-panel">
       <div class="panel-header">
         <div class="header-title">
           <svg

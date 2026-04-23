@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -43,6 +43,16 @@ onMounted(async () => {
   await projectStore.fetchProjects(orgId.value)
 })
 
+watch(
+  () => route.query.openTemplate,
+  (value) => {
+    if (value === '1' && isAdmin.value) {
+      showTemplateDialog.value = true
+    }
+  },
+  { immediate: true },
+)
+
 async function handleCreate() {
   if (!newName.value.trim()) {
     MessagePlugin.warning(t('project.nameRequired'))
@@ -69,6 +79,10 @@ async function openProject(projectId: string) {
   if (!p) return
   await projectStore.selectProject(p)
   router.push(`/orgs/${orgId.value}/projects/${projectId}/editor`)
+}
+
+function goToMarketplace() {
+  router.push('/marketplace')
 }
 
 function handleDelete(projectId: string, name: string) {
@@ -109,6 +123,10 @@ function formatDate(iso: string) {
         </p>
       </div>
       <div class="page-header__actions">
+        <t-button theme="default" variant="outline" @click="goToMarketplace">
+          <t-icon name="shop" />
+          {{ t('marketplace.title') }}
+        </t-button>
         <t-button v-if="isAdmin" theme="primary" @click="showTemplateDialog = true">
           <t-icon name="gift" />
           {{ t('template.fromTemplate') }}
@@ -292,7 +310,7 @@ function formatDate(iso: string) {
 
 .project-card.is-active .project-card__icon {
   background: var(--ordo-accent);
-  color: #fff;
+  color: var(--ordo-text-inverse);
 }
 
 .project-card__badge {

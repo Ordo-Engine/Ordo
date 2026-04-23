@@ -7,10 +7,10 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useProjectStore } from '@/stores/project'
 import { useOrgStore } from '@/stores/org'
 import { useAuthStore } from '@/stores/auth'
-import { engineApi } from '@/api/engine-client'
+import { rulesetDraftApi } from '@/api/platform-client'
+import { normalizeRuleset } from '@/utils/ruleset'
 import {
   conditionToString,
-  convertFromEngineFormat,
   exprToString,
 } from '@ordo-engine/editor-core'
 import type {
@@ -390,16 +390,16 @@ function hydrateForm() {
 }
 
 async function ensureRulesetLoaded(name: string) {
-  if (!auth.token || !projectId.value || rulesetCache.value[name]) {
+  if (!auth.token || !projectId.value || !orgId.value || rulesetCache.value[name]) {
     return
   }
 
   loadingRuleset.value = true
   try {
-    const engineRuleset = await engineApi.getRuleset(auth.token, projectId.value, name)
+    const draft = await rulesetDraftApi.get(auth.token, orgId.value, projectId.value, name)
     rulesetCache.value = {
       ...rulesetCache.value,
-      [name]: convertFromEngineFormat(engineRuleset as any),
+      [name]: normalizeRuleset(draft.draft, name),
     }
   } catch (error: any) {
     rulesetLoadError.value = error.message || t('contracts.loadRulesetFailed')

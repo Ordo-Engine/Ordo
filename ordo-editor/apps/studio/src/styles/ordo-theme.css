@@ -63,6 +63,12 @@
   --studio-sidebar-width: 220px;
   --studio-header-height: 48px;
   --studio-statusbar-height: 22px;
+  --ordo-sidebar-bg: #f2f0ea;
+  --ordo-sidebar-border: #e4e1d9;
+  --ordo-sidebar-org-bg: #faf8f3;
+  --ordo-sidebar-org-border: #e7e3d8;
+  --ordo-sidebar-footer-border: #e4e1d9;
+  --ordo-sidebar-hover-bg: rgba(0, 0, 0, 0.06);
 
   /* ── Aliases for packages/vue component variables ── */
   --ordo-bg-card: #ffffff;
@@ -109,7 +115,8 @@
   --ordo-z-dropdown: 1000;
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+:root[theme-mode='dark'] {
   --ordo-gray-50: #1e1e1e;
   --ordo-gray-100: #252526;
   --ordo-gray-200: #2d2d2d;
@@ -199,4 +206,11 @@
   --ordo-variable: #ffd27f;
 
   --ordo-z-dropdown: 1000;
+
+  --ordo-sidebar-bg: #1a1a1e;
+  --ordo-sidebar-border: #2d2d30;
+  --ordo-sidebar-org-bg: #252526;
+  --ordo-sidebar-org-border: #3a3a3a;
+  --ordo-sidebar-footer-border: #2d2d30;
+  --ordo-sidebar-hover-bg: rgba(255, 255, 255, 0.07);
 }

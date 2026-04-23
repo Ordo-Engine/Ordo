@@ -1,9 +1,10 @@
-//! Project (= Decision Domain) CRUD handlers
+//! Project CRUD handlers.
 
 use crate::{
     error::{ApiResult, PlatformError},
     models::{Claims, Project, Role},
     org::load_org_and_check_role,
+    sync::SyncEvent,
     AppState,
 };
 use axum::{
@@ -30,7 +31,7 @@ pub struct UpdateProjectRequest {
 
 #[derive(Serialize)]
 pub struct ProjectResponse {
-    /// Same as ordo-server tenant_id
+    /// Also used as the execution tenant ID.
     pub id: String,
     pub name: String,
     pub description: Option<String>,
@@ -74,6 +75,7 @@ pub async fn create_project(
         org_id: org_id.clone(),
         created_at: Utc::now(),
         created_by: claims.sub.clone(),
+        server_id: None,
     };
 
     state
@@ -82,8 +84,10 @@ pub async fn create_project(
         .await
         .map_err(PlatformError::Internal)?;
 
-    // Register the project's ID as a tenant in ordo-server
-    register_tenant_in_engine(&state, &project.id, &project.name).await?;
+    if let Err(err) = sync_tenant_upsert(&state, &project.id, &project.name, true).await {
+        let _ = state.store.delete_project(&org_id, &project.id).await;
+        return Err(err);
+    }
 
     Ok(Json(ProjectResponse::from(&project)))
 }
@@ -138,6 +142,8 @@ pub async fn update_project(
         .await
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Project not found"))?;
+    let previous = project.clone();
+    let name_changed = req.name.is_some();
 
     if let Some(name) = req.name {
         if name.trim().is_empty() {
@@ -153,11 +159,16 @@ pub async fn update_project(
         };
     }
 
-    state
-        .store
-        .save_project(&project)
-        .await
-        .map_err(PlatformError::Internal)?;
+    if name_changed {
+        sync_tenant_upsert(&state, &project.id, &project.name, true).await?;
+    }
+
+    if let Err(err) = state.store.save_project(&project).await {
+        if name_changed {
+            let _ = sync_tenant_upsert(&state, &previous.id, &previous.name, true).await;
+        }
+        return Err(PlatformError::Internal(err));
+    }
 
     Ok(Json(ProjectResponse::from(&project)))
 }
@@ -170,101 +181,86 @@ pub async fn delete_project(
 ) -> ApiResult<axum::http::StatusCode> {
     load_org_and_check_role(&state, &org_id, &claims.sub, Role::Admin).await?;
 
-    let deleted = state
+    let project = state
         .store
-        .delete_project(&org_id, &project_id)
+        .get_project(&org_id, &project_id)
         .await
-        .map_err(PlatformError::Internal)?;
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Project not found"))?;
+
+    sync_tenant_delete(&state, &project.id).await?;
+
+    let deleted = state.store.delete_project(&org_id, &project_id).await;
+
+    let deleted = match deleted {
+        Ok(deleted) => deleted,
+        Err(err) => {
+            let _ = sync_tenant_upsert(&state, &project.id, &project.name, true).await;
+            return Err(PlatformError::Internal(err));
+        }
+    };
 
     if !deleted {
+        let _ = sync_tenant_upsert(&state, &project.id, &project.name, true).await;
         return Err(PlatformError::not_found("Project not found"));
     }
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-// ── Engine integration ────────────────────────────────────────────────────────
+// ── Server Sync ──────────────────────────────────────────────────────────────
 
-/// Register a new tenant in ordo-server when a project is created.
-/// This is a best-effort call — if ordo-server is unreachable, the project
-/// is still created and the tenant can be registered later.
-pub(crate) async fn register_tenant_in_engine(
+/// Register a project tenant via NATS.
+pub(crate) async fn register_project_tenant(
     state: &AppState,
     tenant_id: &str,
     name: &str,
 ) -> ApiResult<()> {
-    let url = format!("{}/api/v1/tenants", state.config.engine_url);
-    let body = serde_json::json!({
-        "id": tenant_id,
-        "name": name,
-        "enabled": true
-    });
-
-    match state.http_client.post(&url).json(&body).send().await {
-        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 409 => {
-            // 409 means tenant already exists — that's fine
-            Ok(())
-        }
-        Ok(resp) => {
-            tracing::warn!(
-                "Failed to register tenant '{}' in engine: HTTP {}",
-                tenant_id,
-                resp.status()
-            );
-            Ok(()) // Non-fatal
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Could not reach engine to register tenant '{}': {}",
-                tenant_id,
-                e
-            );
-            Ok(()) // Non-fatal — engine may not be running yet
-        }
-    }
+    sync_tenant_upsert(state, tenant_id, name, true).await
 }
 
-/// Push a RuleSet JSON blob to ordo-server for the given tenant.
-///
-/// Used by the templates API when cloning a template into a new project.
-/// The caller is responsible for setting `config.tenant_id` in the payload
-/// before calling — ordo-server validates that the body's tenant_id matches
-/// the `X-Tenant-ID` header.
-pub(crate) async fn push_ruleset_to_engine(
+pub(crate) async fn sync_tenant_upsert(
     state: &AppState,
     tenant_id: &str,
-    ruleset: &serde_json::Value,
+    name: &str,
+    enabled: bool,
 ) -> ApiResult<()> {
-    let url = format!("{}/api/v1/rulesets", state.config.engine_url);
-    match state
-        .http_client
-        .post(&url)
-        .header("X-Tenant-ID", tenant_id)
-        .json(ruleset)
-        .send()
+    let publisher = state
+        .sync_publisher
+        .as_ref()
+        .ok_or_else(|| PlatformError::internal("NATS sync is required for tenant registration"))?;
+
+    publisher
+        .publish(SyncEvent::TenantUpsert {
+            tenant_id: tenant_id.to_string(),
+            name: name.to_string(),
+            enabled,
+        })
         .await
-    {
-        Ok(resp) if resp.status().is_success() => Ok(()),
-        Ok(resp) => {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            tracing::error!(
-                "Engine rejected template ruleset for tenant {}: {} — {}",
-                tenant_id,
-                status,
-                body
-            );
-            Err(PlatformError::internal(format!(
-                "Engine rejected template ruleset: HTTP {}",
-                status
-            )))
-        }
-        Err(e) => {
-            tracing::error!("Failed to push template ruleset to engine: {}", e);
-            Err(PlatformError::internal(format!(
-                "Could not reach engine to push template ruleset: {}",
+        .map_err(|e| {
+            PlatformError::internal(format!(
+                "Failed to publish tenant registration to NATS: {}",
                 e
-            )))
-        }
-    }
+            ))
+        })?;
+
+    Ok(())
+}
+
+pub(crate) async fn sync_tenant_delete(state: &AppState, tenant_id: &str) -> ApiResult<()> {
+    let publisher = state
+        .sync_publisher
+        .as_ref()
+        .ok_or_else(|| PlatformError::internal("NATS sync is required for tenant deletion"))?;
+
+    publisher
+        .publish(SyncEvent::TenantDeleted {
+            tenant_id: tenant_id.to_string(),
+        })
+        .await
+        .map_err(|e| {
+            PlatformError::internal(format!("Failed to publish tenant deletion to NATS: {}", e))
+        })?;
+
+    Ok(())
 }

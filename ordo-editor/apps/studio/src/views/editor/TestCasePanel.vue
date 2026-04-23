@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { useTestStore } from '@/stores/test'
@@ -20,9 +21,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const route = useRoute()
 const testStore = useTestStore()
 const catalog = useCatalogStore()
 const auth = useAuthStore()
+const orgId = computed(() => route.params.orgId as string)
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +99,7 @@ function onResizeMouseup() {
 
 async function runAll() {
   try {
-    await testStore.runTests(props.projectId, props.rulesetName)
+    await testStore.runTests(orgId.value, props.projectId, props.rulesetName)
     MessagePlugin.success(t('test.runSuccess'))
   } catch (e: any) {
     MessagePlugin.error(e?.message ?? t('test.saveFailed'))
@@ -105,7 +108,7 @@ async function runAll() {
 
 async function runOne(tc: TestCase) {
   try {
-    await testStore.runOneTest(props.projectId, props.rulesetName, tc.id)
+    await testStore.runOneTest(orgId.value, props.projectId, props.rulesetName, tc.id)
     // Auto-expand to show result
     expandedId.value = tc.id
   } catch (e: any) {

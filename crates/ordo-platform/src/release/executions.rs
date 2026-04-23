@@ -350,10 +350,7 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
     let batch_size = compute_batch_size(&strategy, instances.len());
     let interval_secs = batch_interval_secs(&strategy);
     // Pair each instance with its server
-    let pairs: Vec<_> = instances
-        .into_iter()
-        .zip(bound_servers)
-        .collect();
+    let pairs: Vec<_> = instances.into_iter().zip(bound_servers).collect();
     let total_batches = pairs.len().div_ceil(batch_size);
 
     let mut failed = false;

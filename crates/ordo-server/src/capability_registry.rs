@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(response.metadata.get("metric"), Some(&"score".to_string()));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn http_capability_posts_json() {
         let listener = match TcpListener::bind("127.0.0.1:0").await {
             Ok(listener) => listener,

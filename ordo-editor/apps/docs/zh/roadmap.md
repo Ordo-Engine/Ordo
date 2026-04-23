@@ -251,8 +251,8 @@ Ordo 已具备生产级的核心能力：
 
 我们非常重视你对优先级的看法：
 
-- **功能建议与反馈**：[GitHub Issues](https://github.com/Pama-Lee/Ordo/issues)
+- **功能建议与反馈**：[GitHub Issues](https://github.com/Ordo-Engine/Ordo/issues)
 - **社区交流**：[Discord](https://discord.gg/Y529FkArhh)
-- **贡献代码**：查看 [贡献指南](https://github.com/Pama-Lee/Ordo/blob/main/CONTRIBUTING.md)
+- **贡献代码**：查看 [贡献指南](https://github.com/Ordo-Engine/Ordo/blob/main/CONTRIBUTING.md)
 
 告诉我们你的使用场景——你的需求直接影响我们下一步做什么。

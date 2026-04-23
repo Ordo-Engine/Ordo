@@ -158,4 +158,4 @@ Studio 模型里已经有一些字段，但引擎暂时还没有执行语义：
 
 ## 示例 provider
 
-仓库里有一个最小示例 [`examples/capability-demo`](https://github.com/Pama-Lee/Ordo/tree/main/examples/capability-demo)。它注册了 `demo.echo` provider，通过 `ExternalCall` 调用它，并用 `$result.payload` 读取返回值。
+仓库里有一个最小示例 [`examples/capability-demo`](https://github.com/Ordo-Engine/Ordo/tree/main/examples/capability-demo)。它注册了 `demo.echo` provider，通过 `ExternalCall` 调用它，并用 `$result.payload` 读取返回值。

@@ -14,10 +14,10 @@ hero:
       link: /zh/guide/getting-started
     - theme: alt
       text: 尝试演练场
-      link: https://pama-lee.github.io/Ordo/
+      link: https://ordo-engine.github.io/Ordo/
     - theme: alt
       text: GitHub
-      link: https://github.com/Pama-Lee/Ordo
+      link: https://github.com/Ordo-Engine/Ordo
 
 features:
   - icon: 🏛️

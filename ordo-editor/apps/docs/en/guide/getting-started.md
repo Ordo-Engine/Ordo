@@ -13,7 +13,7 @@ This guide will help you get Ordo up and running quickly.
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/Pama-Lee/Ordo.git
+git clone https://github.com/Ordo-Engine/Ordo.git
 cd Ordo
 ```
 
@@ -69,7 +69,7 @@ pnpm dev
 
 Open `http://localhost:3001` in your browser.
 
-Or try the [online playground](https://pama-lee.github.io/Ordo/).
+Or try the [online playground](https://ordo-engine.github.io/Ordo/).
 
 ## Docker
 

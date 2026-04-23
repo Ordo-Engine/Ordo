@@ -251,8 +251,8 @@ Timelines are directional, not commitments. Priorities may shift based on commun
 
 We'd love your input on what to prioritize:
 
-- **Feature requests & feedback**: [GitHub Issues](https://github.com/Pama-Lee/Ordo/issues)
+- **Feature requests & feedback**: [GitHub Issues](https://github.com/Ordo-Engine/Ordo/issues)
 - **Community**: [Discord](https://discord.gg/Y529FkArhh)
-- **Contribute**: Check out our [Contributing Guide](https://github.com/Pama-Lee/Ordo/blob/main/CONTRIBUTING.md)
+- **Contribute**: Check out our [Contributing Guide](https://github.com/Ordo-Engine/Ordo/blob/main/CONTRIBUTING.md)
 
 Share your use case — hearing how you're thinking about using Ordo directly shapes what we build next.

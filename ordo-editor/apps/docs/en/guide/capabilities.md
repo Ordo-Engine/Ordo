@@ -158,4 +158,4 @@ If you need those behaviors today, implement them inside the capability provider
 
 ## Example provider
 
-The repository includes a minimal provider example in [`examples/capability-demo`](https://github.com/Pama-Lee/Ordo/tree/main/examples/capability-demo). It registers a `demo.echo` provider, invokes it from an `ExternalCall`, and reads the result through `$result.payload`.
+The repository includes a minimal provider example in [`examples/capability-demo`](https://github.com/Ordo-Engine/Ordo/tree/main/examples/capability-demo). It registers a `demo.echo` provider, invokes it from an `ExternalCall`, and reads the result through `$result.payload`.

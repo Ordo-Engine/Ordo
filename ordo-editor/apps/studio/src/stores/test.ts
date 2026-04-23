@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { testApi } from '@/api/platform-client'
+import { convertToEngineFormat } from '@ordo-engine/editor-core'
+import { rulesetDraftApi, testApi } from '@/api/platform-client'
+import { isEngineRuleset, normalizeRuleset } from '@/utils/ruleset'
 import { useAuthStore } from './auth'
 import type { ProjectTestRunResult, TestCase, TestCaseInput, TestRunResult } from '@/api/types'
 
@@ -16,6 +18,20 @@ export const useTestStore = defineStore('test', () => {
   // Project-level state
   const projectRunResult = ref<ProjectTestRunResult | null>(null)
   const projectRunning = ref(false)
+
+  async function buildEngineRuleset(
+    orgId: string,
+    projectId: string,
+    rulesetName: string,
+  ): Promise<Record<string, unknown>> {
+    if (!auth.token) throw new Error('Not authenticated')
+    const draft = await rulesetDraftApi.get(auth.token, orgId, projectId, rulesetName)
+    if (isEngineRuleset(draft.draft)) {
+      return draft.draft as unknown as Record<string, unknown>
+    }
+    const normalized = normalizeRuleset(draft.draft, rulesetName)
+    return convertToEngineFormat(normalized) as unknown as Record<string, unknown>
+  }
 
   // ── Ruleset-level operations ──────────────────────────────────────────────
 
@@ -78,11 +94,15 @@ export const useTestStore = defineStore('test', () => {
     )
   }
 
-  async function runTests(projectId: string, rulesetName: string): Promise<void> {
+  async function runTests(orgId: string, projectId: string, rulesetName: string): Promise<void> {
     if (!auth.token) return
     running.value = true
     try {
-      const results = await testApi.runAll(auth.token, projectId, rulesetName)
+      const ruleset = await buildEngineRuleset(orgId, projectId, rulesetName)
+      const results = await testApi.runAll(auth.token, projectId, rulesetName, {
+        ruleset,
+        include_trace: true,
+      })
       runResults.value.set(rulesetName, results)
     } finally {
       running.value = false
@@ -92,6 +112,7 @@ export const useTestStore = defineStore('test', () => {
   const runningOne = ref<Set<string>>(new Set())
 
   async function runOneTest(
+    orgId: string,
     projectId: string,
     rulesetName: string,
     testId: string,
@@ -99,7 +120,11 @@ export const useTestStore = defineStore('test', () => {
     if (!auth.token) return
     runningOne.value = new Set([...runningOne.value, testId])
     try {
-      const result = await testApi.runOne(auth.token, projectId, rulesetName, testId)
+      const ruleset = await buildEngineRuleset(orgId, projectId, rulesetName)
+      const result = await testApi.runOne(auth.token, projectId, rulesetName, testId, {
+        ruleset,
+        include_trace: true,
+      })
       // Merge into existing results list
       const list = runResults.value.get(rulesetName) ?? []
       const idx = list.findIndex((r) => r.test_id === testId)
@@ -120,11 +145,25 @@ export const useTestStore = defineStore('test', () => {
 
   // ── Project-level operations ──────────────────────────────────────────────
 
-  async function runProjectTests(projectId: string): Promise<void> {
+  async function runProjectTests(
+    orgId: string,
+    projectId: string,
+    rulesetNames: string[],
+  ): Promise<void> {
     if (!auth.token) return
     projectRunning.value = true
     try {
-      projectRunResult.value = await testApi.runProject(auth.token, projectId)
+      const rulesetEntries = await Promise.all(
+        rulesetNames.map(async (rulesetName) => {
+          const ruleset = await buildEngineRuleset(orgId, projectId, rulesetName)
+          return [rulesetName, ruleset] as const
+        }),
+      )
+
+      projectRunResult.value = await testApi.runProject(auth.token, projectId, {
+        rulesets: Object.fromEntries(rulesetEntries),
+        include_trace: true,
+      })
       // Sync ruleset-level results from project run
       for (const rs of projectRunResult.value.rulesets) {
         runResults.value.set(rs.ruleset_name, rs.results)

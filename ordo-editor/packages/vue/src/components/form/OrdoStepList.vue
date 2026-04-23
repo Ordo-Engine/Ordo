@@ -45,7 +45,8 @@ const expandedGroups = ref<Set<string>>(new Set(['ungrouped']));
 const expandedSteps = ref<Set<string>>(new Set());
 
 // Get groups from ruleset
-const groups = computed(() => props.modelValue.groups || []);
+const groups = computed(() => Array.isArray(props.modelValue.groups) ? props.modelValue.groups : []);
+const steps = computed(() => Array.isArray(props.modelValue.steps) ? props.modelValue.steps : []);
 
 // Get steps organized by group
 const stepsInGroups = computed(() => {
@@ -61,7 +62,7 @@ const stepsInGroups = computed(() => {
   }
 
   // Assign steps to groups
-  for (const step of props.modelValue.steps) {
+  for (const step of steps.value) {
     let found = false;
     for (const group of groups.value) {
       if (group.stepIds.includes(step.id)) {
@@ -124,7 +125,7 @@ function addGroup() {
 
   const newRuleset: RuleSet = {
     ...props.modelValue,
-    groups: [...(props.modelValue.groups || []), newGroup],
+    groups: [...groups.value, newGroup],
   };
 
   expandedGroups.value.add(id);
@@ -133,14 +134,14 @@ function addGroup() {
 }
 
 function updateGroup(group: StepGroup) {
-  const newGroups = (props.modelValue.groups || []).map((g) => (g.id === group.id ? group : g));
+  const newGroups = groups.value.map((g) => (g.id === group.id ? group : g));
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function deleteGroup(groupId: string) {
-  const newGroups = (props.modelValue.groups || []).filter((g) => g.id !== groupId);
+  const newGroups = groups.value.filter((g) => g.id !== groupId);
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
@@ -169,7 +170,7 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
       break;
   }
 
-  let newGroups = props.modelValue.groups || [];
+  let newGroups = groups.value;
 
   // If adding to a group, update group's stepIds
   if (groupId && groupId !== 'ungrouped') {
@@ -180,7 +181,7 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
 
   const newRuleset: RuleSet = {
     ...props.modelValue,
-    steps: [...props.modelValue.steps, newStep],
+    steps: [...steps.value, newStep],
     groups: newGroups,
     startStepId: props.modelValue.startStepId || id,
   };
@@ -191,22 +192,22 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
 }
 
 function updateStep(step: Step) {
-  const newSteps = props.modelValue.steps.map((s) => (s.id === step.id ? step : s));
+  const newSteps = steps.value.map((s) => (s.id === step.id ? step : s));
   const newRuleset: RuleSet = { ...props.modelValue, steps: newSteps };
   emit('update:modelValue', newRuleset);
 }
 
 function handleStepChange(step: Step) {
-  const newSteps = props.modelValue.steps.map((s) => (s.id === step.id ? step : s));
+  const newSteps = steps.value.map((s) => (s.id === step.id ? step : s));
   const newRuleset: RuleSet = { ...props.modelValue, steps: newSteps };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function deleteStep(stepId: string) {
-  const newSteps = props.modelValue.steps.filter((s) => s.id !== stepId);
+  const newSteps = steps.value.filter((s) => s.id !== stepId);
   // Also remove from groups
-  const newGroups = (props.modelValue.groups || []).map((g) => ({
+  const newGroups = groups.value.map((g) => ({
     ...g,
     stepIds: g.stepIds.filter((id) => id !== stepId),
   }));
@@ -229,7 +230,7 @@ function setAsStart(stepId: string) {
 
 function moveStepToGroup(stepId: string, targetGroupId: string) {
   // Remove from all groups first
-  let newGroups = (props.modelValue.groups || []).map((g) => ({
+  let newGroups = groups.value.map((g) => ({
     ...g,
     stepIds: g.stepIds.filter((id) => id !== stepId),
   }));

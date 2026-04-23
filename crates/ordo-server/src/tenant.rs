@@ -207,6 +207,43 @@ impl TenantManager {
         Ok(())
     }
 
+    /// Apply a tenant upsert received via NATS sync.
+    ///
+    /// Uses server-local defaults for fields the platform does not manage.
+    pub async fn apply_sync_upsert(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        enabled: bool,
+    ) -> io::Result<()> {
+        let mut guard = self.tenants.write().await;
+        let mut config = guard
+            .get(tenant_id)
+            .cloned()
+            .unwrap_or_else(|| TenantConfig::default_for_id(tenant_id, &self.defaults));
+        config.name = name.to_string();
+        config.enabled = enabled;
+        guard.insert(tenant_id.to_string(), config);
+        if let Some(store) = &self.store {
+            store.save(&guard).await?;
+        }
+        info!("Applied sync tenant upsert '{}'", tenant_id);
+        Ok(())
+    }
+
+    /// Apply a tenant delete received via NATS sync without publishing another event.
+    pub async fn apply_sync_delete(&self, tenant_id: &str) -> io::Result<bool> {
+        let mut guard = self.tenants.write().await;
+        let existed = guard.remove(tenant_id).is_some();
+        if existed {
+            if let Some(store) = &self.store {
+                store.save(&guard).await?;
+            }
+            info!("Applied sync tenant delete '{}'", tenant_id);
+        }
+        Ok(existed)
+    }
+
     /// Returns the store path (if configured) so the file watcher can monitor it.
     pub fn store_path(&self) -> Option<&Path> {
         self.store.as_ref().map(|s| s.path.as_path())

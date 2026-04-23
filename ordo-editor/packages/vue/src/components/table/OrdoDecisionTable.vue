@@ -22,11 +22,17 @@ export interface Props {
   modelValue: DecisionTable;
   schema?: SchemaField[];
   disabled?: boolean;
+  traceInput?: Record<string, unknown> | null;
+  traceResultCode?: string | null;
+  traceOutput?: Record<string, unknown> | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   schema: () => [],
   disabled: false,
+  traceInput: null,
+  traceResultCode: null,
+  traceOutput: null,
 });
 
 const emit = defineEmits<{
@@ -88,6 +94,139 @@ const hasRows = computed(() => props.modelValue.rows.length > 0);
 const sortedRows = computed(() =>
   [...props.modelValue.rows].sort((a, b) => a.priority - b.priority)
 );
+const hasTrace = computed(() => !!props.traceInput);
+
+type TraceVerdict = true | false | null;
+
+function normalizePath(path: string): string {
+  return path.startsWith('$.') ? path.slice(2) : path.startsWith('$') ? path.slice(1) : path;
+}
+
+function resolvePath(input: Record<string, unknown> | null | undefined, path: string): unknown {
+  if (!input) return undefined;
+  const normalized = normalizePath(path);
+  if (!normalized) return input;
+
+  return normalized.split('.').reduce<unknown>((current, segment) => {
+    if (current && typeof current === 'object' && segment in (current as Record<string, unknown>)) {
+      return (current as Record<string, unknown>)[segment];
+    }
+    return undefined;
+  }, input);
+}
+
+function formatTraceValue(value: unknown): string {
+  if (value === undefined) return '—';
+  if (value === null) return 'null';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function evaluateCell(cell: CellValue, actual: unknown): { verdict: TraceVerdict; reason: string } {
+  switch (cell.type) {
+    case 'any':
+      return { verdict: true, reason: t('table.traceAnyCell') };
+    case 'exact':
+      return {
+        verdict: valuesEqual(actual, cell.value),
+        reason: `${formatTraceValue(actual)} ${valuesEqual(actual, cell.value) ? '==' : '!='} ${formatTraceValue(cell.value)}`,
+      };
+    case 'in': {
+      const matched = cell.values.some((value) => valuesEqual(actual, value));
+      return {
+        verdict: matched,
+        reason: `${formatTraceValue(actual)} ${matched ? 'in' : 'not in'} [${cell.values.map(formatTraceValue).join(', ')}]`,
+      };
+    }
+    case 'range': {
+      if (typeof actual !== 'number') {
+        return { verdict: false, reason: `${formatTraceValue(actual)} is not a number` };
+      }
+      const minOk =
+        cell.min === undefined || (cell.minInclusive !== false ? actual >= cell.min : actual > cell.min);
+      const maxOk =
+        cell.max === undefined || (cell.maxInclusive !== false ? actual <= cell.max : actual < cell.max);
+      return {
+        verdict: minOk && maxOk,
+        reason: `${actual} in ${cellValueToString(cell)}`,
+      };
+    }
+    case 'expression':
+      return { verdict: null, reason: t('table.traceExprCell') };
+  }
+}
+
+const traceRowState = computed(() => {
+  const traceInput = props.traceInput;
+  return sortedRows.value.map((row) => {
+    const cellChecks = props.modelValue.inputColumns.map((col) => {
+      const cell = getCellValue(row, col.id, 'input');
+      const actual = resolvePath(traceInput, col.fieldPath);
+      const evaluation = evaluateCell(cell, actual);
+      return {
+        columnId: col.id,
+        actual,
+        verdict: evaluation.verdict,
+        reason: evaluation.reason,
+      };
+    });
+
+    const decisiveMismatch = cellChecks.find((cell) => cell.verdict === false);
+    const matched = !decisiveMismatch;
+
+    return {
+      rowId: row.id,
+      matched,
+      cellChecks,
+      reason: decisiveMismatch?.reason ?? t('table.traceAllMatched'),
+    };
+  });
+});
+
+const traceActiveRowId = computed(() => traceRowState.value.find((row) => row.matched)?.rowId ?? null);
+
+function traceCellState(rowId: string, columnId: string): TraceVerdict {
+  return (
+    traceRowState.value.find((row) => row.rowId === rowId)?.cellChecks.find((cell) => cell.columnId === columnId)
+      ?.verdict ?? null
+  );
+}
+
+function traceCellReason(rowId: string, columnId: string): string {
+  return (
+    traceRowState.value.find((row) => row.rowId === rowId)?.cellChecks.find((cell) => cell.columnId === columnId)
+      ?.reason ?? ''
+  );
+}
+
+function traceCellActual(column: InputColumn): unknown {
+  return resolvePath(props.traceInput, column.fieldPath);
+}
+
+function traceRowStatus(rowId: string): 'matched' | 'unmatched' | 'unknown' {
+  if (!hasTrace.value) return 'unknown';
+  const row = traceRowState.value.find((entry) => entry.rowId === rowId);
+  if (!row) return 'unknown';
+  return row.matched && traceActiveRowId.value === rowId ? 'matched' : 'unmatched';
+}
+
+function traceRowReason(rowId: string): string {
+  return traceRowState.value.find((entry) => entry.rowId === rowId)?.reason ?? '';
+}
+
+function traceOutputValue(fieldName: string): unknown {
+  return props.traceOutput?.[fieldName];
+}
+
+function traceResultClass(verdict: TraceVerdict): string {
+  if (verdict === true) return 'ordo-decision-table__trace-actual--match';
+  if (verdict === false) return 'ordo-decision-table__trace-actual--mismatch';
+  return 'ordo-decision-table__trace-actual--neutral';
+}
 
 // ============================
 // Mutation helpers
@@ -346,9 +485,10 @@ function cellTypeClass(cell: CellValue): string {
 </script>
 
 <template>
-  <div class="ordo-decision-table" :class="{ disabled }">
+  <div class="ordo-decision-table" :class="{ disabled, 'has-trace': hasTrace }">
     <!-- Toolbar -->
     <OrdoTableToolbar
+      v-if="!disabled"
       :hit-policy="modelValue.hitPolicy"
       :schema="schema"
       :disabled="disabled"
@@ -389,6 +529,10 @@ function cellTypeClass(cell: CellValue): string {
           <tr class="ordo-decision-table__group-row">
             <th class="ordo-decision-table__group-spacer"></th>
             <th
+              v-if="hasTrace"
+              class="ordo-decision-table__group-th ordo-decision-table__group-th--trace"
+            >{{ t('table.traceStatus') }}</th>
+            <th
               v-if="modelValue.inputColumns.length > 0"
               :colspan="modelValue.inputColumns.length"
               class="ordo-decision-table__group-th ordo-decision-table__group-th--input"
@@ -406,6 +550,9 @@ function cellTypeClass(cell: CellValue): string {
 
           <tr>
             <th class="ordo-decision-table__th ordo-decision-table__th--handle">#</th>
+            <th v-if="hasTrace" class="ordo-decision-table__th ordo-decision-table__th--trace">
+              {{ t('table.traceStatus') }}
+            </th>
             <!-- Input columns -->
             <th
               v-for="col in modelValue.inputColumns"
@@ -525,11 +672,45 @@ function cellTypeClass(cell: CellValue): string {
               class="ordo-decision-table__th ordo-decision-table__th--actions"
             ></th>
           </tr>
+
+          <tr v-if="hasTrace" class="ordo-decision-table__trace-input-row">
+            <th class="ordo-decision-table__th ordo-decision-table__th--handle">
+              {{ t('table.traceInputRow') }}
+            </th>
+            <th class="ordo-decision-table__th ordo-decision-table__th--trace">
+              {{ t('table.traceActual') }}
+            </th>
+            <th
+              v-for="col in modelValue.inputColumns"
+              :key="`trace-input-${col.id}`"
+              class="ordo-decision-table__th ordo-decision-table__th--input"
+            >
+              <div class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral">
+                {{ formatTraceValue(traceCellActual(col)) }}
+              </div>
+            </th>
+            <th
+              v-for="(col, index) in modelValue.outputColumns"
+              :key="`trace-output-${col.id}`"
+              class="ordo-decision-table__th ordo-decision-table__th--output"
+              :class="{ 'col-group-start--output': index === 0 }"
+            >
+              <div class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral">
+                {{ formatTraceValue(traceOutputValue(col.fieldName)) }}
+              </div>
+            </th>
+            <th class="ordo-decision-table__th ordo-decision-table__th--result col-group-start--result">
+              <div class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral">
+                {{ formatTraceValue(traceResultCode) }}
+              </div>
+            </th>
+            <th class="ordo-decision-table__th ordo-decision-table__th--result">—</th>
+          </tr>
         </thead>
 
         <tbody>
           <tr v-if="!hasRows">
-            <td :colspan="allColumns.length + 4" class="ordo-decision-table__empty-row">
+            <td :colspan="allColumns.length + (hasTrace ? 5 : 4)" class="ordo-decision-table__empty-row">
               {{ t('table.noRows') }}
             </td>
           </tr>
@@ -539,6 +720,7 @@ function cellTypeClass(cell: CellValue): string {
             :key="row.id"
             class="ordo-decision-table__row"
             :class="{
+              'ordo-decision-table__row--trace-match': hasTrace && traceActiveRowId === row.id,
               'ordo-decision-table__row--dragging': dragRowId === row.id,
               'ordo-decision-table__row--drop-target':
                 dropTargetRowId === row.id && dragRowId !== row.id,
@@ -565,11 +747,30 @@ function cellTypeClass(cell: CellValue): string {
               <span class="ordo-decision-table__priority">{{ row.priority }}</span>
             </td>
 
+            <td v-if="hasTrace" class="ordo-decision-table__td ordo-decision-table__td--trace">
+              <div
+                class="ordo-decision-table__trace-status"
+                :class="`ordo-decision-table__trace-status--${traceRowStatus(row.id)}`"
+              >
+                {{
+                  traceRowStatus(row.id) === 'matched'
+                    ? t('table.traceMatched')
+                    : traceRowStatus(row.id) === 'unmatched'
+                      ? t('table.traceNotMatched')
+                      : t('table.traceUnknown')
+                }}
+              </div>
+              <div class="ordo-decision-table__trace-reason">
+                {{ traceRowReason(row.id) }}
+              </div>
+            </td>
+
             <!-- Input cells -->
             <td
               v-for="col in modelValue.inputColumns"
               :key="col.id"
               class="ordo-decision-table__td ordo-decision-table__td--input"
+              :class="hasTrace ? traceResultClass(traceCellState(row.id, col.id)) : ''"
               @click="startEditing(row.id, col.id)"
             >
               <OrdoTableCellEditor
@@ -585,8 +786,14 @@ function cellTypeClass(cell: CellValue): string {
                 v-else
                 class="ordo-decision-table__cell-display"
                 :class="cellTypeClass(getCellValue(row, col.id, 'input'))"
+                :title="hasTrace ? traceCellReason(row.id, col.id) : undefined"
               >
-                {{ cellDisplayText(getCellValue(row, col.id, 'input')) }}
+                <div class="ordo-decision-table__cell-stack">
+                  <span>{{ cellDisplayText(getCellValue(row, col.id, 'input')) }}</span>
+                  <span v-if="hasTrace" class="ordo-decision-table__cell-actual">
+                    {{ t('table.traceActual') }}: {{ formatTraceValue(traceCellActual(col)) }}
+                  </span>
+                </div>
               </div>
             </td>
 
@@ -702,8 +909,7 @@ function cellTypeClass(cell: CellValue): string {
 }
 
 .ordo-decision-table.disabled {
-  opacity: 0.7;
-  pointer-events: none;
+  opacity: 1;
 }
 
 .ordo-decision-table__empty {
@@ -771,6 +977,12 @@ function cellTypeClass(cell: CellValue): string {
   color: var(--ordo-info);
 }
 
+.ordo-decision-table__group-th--trace {
+  background: color-mix(in srgb, var(--ordo-primary-500, #2563eb) 14%, var(--ordo-bg-secondary));
+  color: var(--ordo-primary-500, #2563eb);
+  border-right: 3px solid var(--ordo-primary-500, #2563eb);
+}
+
 /* ---- Column group separators ---- */
 
 .col-group-start--output {
@@ -820,6 +1032,12 @@ function cellTypeClass(cell: CellValue): string {
 
 .ordo-decision-table__th--actions {
   width: 68px;
+}
+
+.ordo-decision-table__th--trace {
+  min-width: 150px;
+  background: color-mix(in srgb, var(--ordo-primary-500, #2563eb) 8%, var(--ordo-bg-secondary));
+  border-bottom-color: var(--ordo-primary-500, #2563eb);
 }
 
 .ordo-decision-table__col-header {
@@ -924,6 +1142,10 @@ function cellTypeClass(cell: CellValue): string {
   background: var(--ordo-bg-secondary);
 }
 
+.ordo-decision-table__row--trace-match {
+  background: color-mix(in srgb, var(--ordo-success) 9%, transparent);
+}
+
 .ordo-decision-table__row--dragging {
   opacity: 0.5;
 }
@@ -986,6 +1208,12 @@ function cellTypeClass(cell: CellValue): string {
   width: 68px;
 }
 
+.ordo-decision-table__td--trace {
+  width: 150px;
+  min-width: 150px;
+  background: color-mix(in srgb, var(--ordo-primary-500, #2563eb) 3%, transparent);
+}
+
 /* ---- Cell display ---- */
 
 .ordo-decision-table__cell-display {
@@ -998,6 +1226,80 @@ function cellTypeClass(cell: CellValue): string {
   align-items: center;
   transition: background 0.15s;
   word-break: break-word;
+}
+
+.ordo-decision-table__cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ordo-decision-table__cell-actual {
+  font-size: 10px;
+  color: var(--ordo-text-tertiary);
+}
+
+.ordo-decision-table__trace-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ordo-decision-table__trace-status--matched {
+  color: var(--ordo-success);
+  background: color-mix(in srgb, var(--ordo-success) 14%, transparent);
+}
+
+.ordo-decision-table__trace-status--unmatched {
+  color: var(--ordo-error);
+  background: color-mix(in srgb, var(--ordo-error) 12%, transparent);
+}
+
+.ordo-decision-table__trace-status--unknown {
+  color: var(--ordo-text-tertiary);
+  background: var(--ordo-bg-secondary);
+}
+
+.ordo-decision-table__trace-reason {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ordo-text-tertiary);
+}
+
+.ordo-decision-table__trace-input-row .ordo-decision-table__th {
+  top: 46px;
+  z-index: 1;
+}
+
+.ordo-decision-table__trace-actual {
+  font-family: var(--ordo-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.ordo-decision-table__trace-actual--match {
+  color: var(--ordo-success);
+}
+
+.ordo-decision-table__trace-actual--mismatch {
+  color: var(--ordo-error);
+}
+
+.ordo-decision-table__trace-actual--neutral {
+  color: var(--ordo-text-secondary);
+}
+
+.ordo-decision-table__td--input.ordo-decision-table__trace-actual--match {
+  background: color-mix(in srgb, var(--ordo-success) 8%, transparent);
+}
+
+.ordo-decision-table__td--input.ordo-decision-table__trace-actual--mismatch {
+  background: color-mix(in srgb, var(--ordo-error) 7%, transparent);
 }
 
 .ordo-decision-table__td:hover .ordo-decision-table__cell-display {

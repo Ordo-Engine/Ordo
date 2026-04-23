@@ -27,6 +27,7 @@ pub struct RuleSetConfig {
     pub description: String,
 
     /// Entry step ID
+    #[serde(default = "default_entry_step")]
     pub entry_step: String,
 
     /// Field missing behavior (default: lenient)
@@ -52,6 +53,10 @@ pub struct RuleSetConfig {
 
 fn default_version() -> String {
     "1.0.0".to_string()
+}
+
+fn default_entry_step() -> String {
+    "start".to_string()
 }
 
 fn default_max_depth() -> usize {

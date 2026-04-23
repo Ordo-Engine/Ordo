@@ -50,9 +50,11 @@
 //! | `ORDO_WAL_MAX_CLOSED_SEGMENTS` | Closed WAL segments to retain | `3` |
 
 use clap::Parser;
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use url::Url;
 
 /// Instance role in a distributed deployment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -338,6 +340,38 @@ pub struct ServerConfig {
     /// Path to the PEM-encoded CA certificate for verifying client certificates (mTLS).
     #[arg(long, env = "ORDO_GRPC_TLS_CLIENT_CA")]
     pub grpc_tls_client_ca: Option<PathBuf>,
+
+    // ── Platform Registration ──────────────────────────────────────────────
+    /// ordo-platform URL to register this server with (e.g. http://ordo-platform:3001).
+    /// When set together with --server-token, the server registers on startup and
+    /// sends heartbeats every 30 s so the platform can track health and metrics.
+    #[arg(long = "platform-url", env = "ORDO_PLATFORM_URL")]
+    pub platform_url: Option<String>,
+
+    /// Human-readable name for this server in the platform registry.
+    #[arg(
+        long = "server-name",
+        default_value = "ordo-server",
+        env = "ORDO_SERVER_NAME"
+    )]
+    pub server_name: String,
+
+    /// Shared secret token for platform registration (must be unique per server).
+    #[arg(long = "server-token", env = "ORDO_SERVER_TOKEN")]
+    pub server_token: Option<String>,
+
+    /// Platform-wide registration secret required by the platform's internal register endpoint.
+    /// Must match `ORDO_PLATFORM_REGISTRATION_SECRET` on the platform side.
+    #[arg(
+        long = "platform-registration-secret",
+        env = "ORDO_PLATFORM_REGISTRATION_SECRET"
+    )]
+    pub platform_registration_secret: Option<String>,
+
+    /// Public HTTP URL of this server as reachable by the platform.
+    /// Defaults to http://<http-addr> when not set.
+    #[arg(long = "server-url", env = "ORDO_SERVER_URL")]
+    pub server_url: Option<String>,
 }
 
 impl ServerConfig {
@@ -363,6 +397,41 @@ impl ServerConfig {
             return format!("0.0.0.0:{}", port).parse().unwrap();
         }
         "0.0.0.0:50051".parse().unwrap()
+    }
+
+    pub fn resolved_server_url(&self) -> String {
+        self.server_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}", self.http_addr()))
+    }
+
+    pub fn normalized_server_url(&self) -> anyhow::Result<String> {
+        let server_url = self.resolved_server_url();
+        let parsed = Url::parse(server_url.trim())
+            .map_err(|e| anyhow::anyhow!("invalid server url '{}': {}", server_url, e))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("server url '{}' is missing a host", server_url))?
+            .to_ascii_lowercase();
+        let port = parsed.port_or_known_default().ok_or_else(|| {
+            anyhow::anyhow!(
+                "server url '{}' is missing an explicit or default port",
+                server_url
+            )
+        })?;
+        let scheme = parsed.scheme().to_ascii_lowercase();
+        let authority = if host.contains(':') {
+            format!("[{}]:{}", host, port)
+        } else {
+            format!("{}:{}", host, port)
+        };
+        Ok(format!("{}://{}", scheme, authority))
+    }
+
+    pub fn resolve_server_id(&self) -> anyhow::Result<String> {
+        let normalized = self.normalized_server_url()?;
+        let digest = Sha256::digest(normalized.as_bytes());
+        Ok(format!("srv_{}", &hex::encode(digest)[..32]))
     }
 
     /// Check if HTTP server is enabled
@@ -553,6 +622,11 @@ impl Default for ServerConfig {
             wal_max_segment_bytes: 67108864,
             wal_max_closed_segments: 3,
             cors_allowed_origins: Vec::new(),
+            platform_url: None,
+            server_name: "ordo-server".to_string(),
+            server_token: None,
+            server_url: None,
+            platform_registration_secret: None,
         }
     }
 }

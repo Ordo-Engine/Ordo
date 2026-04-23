@@ -3,9 +3,13 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
 const packagesPath = resolve(__dirname, '../../packages')
+const platformProxyTarget =
+  process.env.ORDO_PLATFORM_PROXY_TARGET || 'http://localhost:3001'
+const cacheDir = resolve(__dirname, process.env.VITE_CACHE_DIR || 'node_modules/.vite')
 
 export default defineConfig({
   plugins: [vue()],
+  cacheDir,
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -17,11 +21,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3002,
     strictPort: true, // Always use 3002 — kill any process holding it first
+    allowedHosts: true,
     proxy: {
       // All /api traffic goes through ordo-platform (:3001)
       // ordo-platform proxies engine calls to ordo-server internally
       '/api': {
-        target: 'http://localhost:3001',
+        target: platformProxyTarget,
         changeOrigin: true,
       },
     },

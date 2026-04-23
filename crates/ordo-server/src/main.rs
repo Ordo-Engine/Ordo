@@ -542,8 +542,11 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "nats-sync")]
     let mut nats_subscriber_handle: Option<tokio::task::JoinHandle<()>> = None;
     #[cfg(feature = "nats-sync")]
+    let mut nats_jetstream: Option<async_nats::jetstream::Context> = None;
+    #[cfg(feature = "nats-sync")]
     if let Some(ref nats_url) = config.nats_url {
         let instance_id = config.resolve_instance_id();
+        let server_id = config.resolve_server_id()?;
         info!(
             "Initializing NATS sync (url={}, instance={}, prefix={})",
             nats_url, instance_id, config.nats_subject_prefix
@@ -572,25 +575,37 @@ async fn main() -> anyhow::Result<()> {
                         info!("NATS publisher started (writer mode)");
                     }
 
-                    // Reader (and writer for echo-suppressed fallback): set up subscriber
-                    if config.is_read_only() {
-                        match sync::nats_sync::create_consumer(&jetstream, &instance_id).await {
-                            Ok(consumer) => {
-                                let subscriber = sync::nats_sync::NatsSubscriber::new(
-                                    consumer,
-                                    instance_id.clone(),
-                                    store.clone(),
-                                    tenant_manager.clone(),
-                                );
-                                nats_subscriber_handle =
-                                    Some(subscriber.start(shutdown_rx.clone()));
-                                info!("NATS subscriber started (reader mode)");
-                            }
-                            Err(e) => {
-                                warn!("Failed to create NATS consumer: {} — reader will rely on file watcher only", e);
-                            }
+                    // All NATS-enabled instances subscribe so platform-published
+                    // events reach standalone, writer, and reader nodes uniformly.
+                    match sync::nats_sync::create_consumer(
+                        &jetstream,
+                        &instance_id,
+                        &config.nats_subject_prefix,
+                    )
+                    .await
+                    {
+                        Ok(consumer) => {
+                            let subscriber = sync::nats_sync::NatsSubscriber::new(
+                                consumer,
+                                jetstream.clone(),
+                                config.nats_subject_prefix.clone(),
+                                instance_id.clone(),
+                                server_id.clone(),
+                                store.clone(),
+                                tenant_manager.clone(),
+                            );
+                            nats_subscriber_handle = Some(subscriber.start(shutdown_rx.clone()));
+                            info!("NATS subscriber started");
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to create NATS consumer: {} — sync subscriber disabled",
+                                e
+                            );
                         }
                     }
+
+                    nats_jetstream = Some(jetstream.clone());
                 }
             }
             Err(e) => {
@@ -599,6 +614,118 @@ async fn main() -> anyhow::Result<()> {
                     nats_url, e
                 );
             }
+        }
+    }
+
+    // Platform/server registry announcements.
+    if let Some(token) = config.server_token.clone() {
+        let server_id = config.resolve_server_id()?;
+        let server_name = config.server_name.clone();
+        let server_url = config.resolved_server_url();
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let reg_secret = config.platform_registration_secret.clone();
+
+        if let Some(platform_url) = config.platform_url.clone() {
+            let http_server_id = server_id.clone();
+            let http_server_name = server_name.clone();
+            let http_server_url = server_url.clone();
+            let http_version = version.clone();
+            let http_token = token.clone();
+            let http_reg_secret = reg_secret.clone();
+            let log_url = platform_url.clone();
+            let log_name = http_server_name.clone();
+
+            tokio::spawn(async move {
+                let client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(5))
+                    .build()
+                    .unwrap_or_default();
+
+                let reg_url = format!("{}/api/v1/internal/register", platform_url);
+                let hb_url = format!("{}/api/v1/internal/heartbeat", platform_url);
+                let payload = serde_json::json!({
+                    "server_id": http_server_id,
+                    "name": http_server_name,
+                    "url": http_server_url,
+                    "token": http_token,
+                    "version": http_version,
+                });
+                let hb_payload = serde_json::json!({ "server_id": http_server_id });
+
+                let hb_req_builder = || {
+                    let mut r = client.post(&hb_url).json(&hb_payload);
+                    if let Some(ref secret) = http_reg_secret {
+                        r = r.header("x-registration-secret", secret.as_str());
+                    }
+                    r
+                };
+
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    let mut r = client.post(&reg_url).json(&payload);
+                    if let Some(ref secret) = http_reg_secret {
+                        r = r.header("x-registration-secret", secret.as_str());
+                    }
+                    let _ = r.send().await;
+                    interval.tick().await;
+                    let _ = hb_req_builder().send().await;
+                }
+            });
+
+            info!(platform_url = %log_url, server_name = %log_name, "HTTP-based platform registration enabled");
+        }
+
+        #[cfg(feature = "nats-sync")]
+        if let Some(jetstream) = nats_jetstream.clone() {
+            let subject_prefix = config.nats_subject_prefix.clone();
+            let instance_id = config.resolve_instance_id();
+            let nats_server_id = server_id.clone();
+            let nats_server_name = server_name.clone();
+            let nats_server_url = server_url.clone();
+            let nats_version = version.clone();
+            let log_name2 = nats_server_name.clone();
+            let log_url2 = nats_server_url.clone();
+
+            tokio::spawn(async move {
+                // Announce presence without token — token is delivered via HTTP only.
+                let presence = sync::event::SyncEvent::ServerRegistered {
+                    server_id: nats_server_id.clone(),
+                    name: nats_server_name.clone(),
+                    url: nats_server_url.clone(),
+                    token: String::new(),
+                    version: Some(nats_version.clone()),
+                    org_id: None,
+                };
+
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    let _ = sync::nats_sync::publish_immediate(
+                        &jetstream,
+                        &subject_prefix,
+                        &instance_id,
+                        presence.clone(),
+                    )
+                    .await;
+
+                    interval.tick().await;
+
+                    let _ = sync::nats_sync::publish_immediate(
+                        &jetstream,
+                        &subject_prefix,
+                        &instance_id,
+                        sync::event::SyncEvent::ServerHeartbeat {
+                            server_id: nats_server_id.clone(),
+                        },
+                    )
+                    .await;
+                }
+            });
+
+            info!(server_name = %log_name2, server_url = %log_url2, "NATS-based server presence enabled (token registered via HTTP)");
         }
     }
 
@@ -737,6 +864,10 @@ async fn start_http_server(
         .route(
             "/api/v1/rulesets/:name/versions",
             get(api::list_versions),
+        )
+        .route(
+            "/api/v1/rulesets/:name/versions/:seq",
+            get(api::get_version_snapshot),
         )
         .route(
             "/api/v1/rulesets/:name/rollback",

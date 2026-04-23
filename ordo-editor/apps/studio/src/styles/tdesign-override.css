@@ -67,7 +67,8 @@
   --td-font-family: var(--ordo-font-sans);
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+:root[theme-mode='dark'] {
   --td-brand-color: var(--ordo-accent);
   --td-brand-color-1: rgba(55, 148, 255, 0.08);
   --td-brand-color-6: var(--ordo-accent);

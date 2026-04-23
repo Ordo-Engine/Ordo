@@ -72,6 +72,15 @@ export interface LocaleMessages {
     groupInput: string;
     groupOutput: string;
     groupResult: string;
+    traceStatus: string;
+    traceInputRow: string;
+    traceMatched: string;
+    traceNotMatched: string;
+    traceUnknown: string;
+    traceAllMatched: string;
+    traceAnyCell: string;
+    traceExprCell: string;
+    traceActual: string;
   };
   step: {
     decision: string;
@@ -255,6 +264,15 @@ const en: LocaleMessages = {
     groupInput: 'Conditions',
     groupOutput: 'Outputs',
     groupResult: 'Result',
+    traceStatus: 'Trace',
+    traceInputRow: 'Input',
+    traceMatched: 'Matched',
+    traceNotMatched: 'Skipped',
+    traceUnknown: 'Unknown',
+    traceAllMatched: 'All conditions matched',
+    traceAnyCell: 'Wildcard matched',
+    traceExprCell: 'Expression cell is not evaluated inline',
+    traceActual: 'Actual',
   },
   step: {
     decision: 'Decision',
@@ -438,6 +456,15 @@ const zhCN: LocaleMessages = {
     groupInput: '条件',
     groupOutput: '输出',
     groupResult: '结果',
+    traceStatus: '追踪',
+    traceInputRow: '输入',
+    traceMatched: '命中',
+    traceNotMatched: '未命中',
+    traceUnknown: '未知',
+    traceAllMatched: '全部条件命中',
+    traceAnyCell: '通配条件命中',
+    traceExprCell: '表达式单元格暂不做行内求值',
+    traceActual: '实际值',
   },
   step: {
     decision: '决策节点',
@@ -621,6 +648,15 @@ const zhTW: LocaleMessages = {
     groupInput: '條件',
     groupOutput: '輸出',
     groupResult: '結果',
+    traceStatus: '追蹤',
+    traceInputRow: '輸入',
+    traceMatched: '命中',
+    traceNotMatched: '未命中',
+    traceUnknown: '未知',
+    traceAllMatched: '全部條件命中',
+    traceAnyCell: '萬用條件命中',
+    traceExprCell: '表達式儲存格暫不做行內求值',
+    traceActual: '實際值',
   },
   step: {
     decision: '決策節點',

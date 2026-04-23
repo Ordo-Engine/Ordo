@@ -818,6 +818,41 @@ pub async fn list_versions(
     Ok(Json(versions))
 }
 
+/// Get a historical snapshot of a ruleset version.
+pub async fn get_version_snapshot(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((name, seq)): Path<(String, u32)>,
+) -> ApiResult<axum::response::Response> {
+    let store = state.store.read().await;
+
+    if !store.exists_for_tenant(&tenant.id, &name) {
+        return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
+    }
+
+    if !store.persistence_enabled() {
+        return Err(ApiError::bad_request(
+            "Version snapshots not available in memory-only mode".to_string(),
+        ));
+    }
+
+    let ruleset = store
+        .get_version_for_tenant(&tenant.id, &name, seq)
+        .map_err(|e| ApiError::internal(format!("Failed to load version: {}", e)))?
+        .ok_or_else(|| {
+            ApiError::not_found(format!("Version {} not found for rule '{}'", seq, name))
+        })?;
+
+    let body = serde_json::to_vec(&ruleset)
+        .map_err(|e| ApiError::internal(format!("Serialization error: {}", e)))?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body))
+        .unwrap())
+}
+
 /// Rollback a ruleset to a specific version
 pub async fn rollback_ruleset(
     State(state): State<AppState>,

@@ -6,11 +6,17 @@ import { useAuthStore } from '@/stores/auth'
 import { useOrgStore } from '@/stores/org'
 import { useProjectStore } from '@/stores/project'
 import { useCatalogStore } from '@/stores/catalog'
+import { useEnvironmentStore } from '@/stores/environment'
+import { useRbacStore } from '@/stores/rbac'
 import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue'
 import TestCasePanel from './TestCasePanel.vue'
 import { rulesetHistoryApi } from '@/api/platform-client'
+import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue'
+import { normalizeRuleset } from '@/utils/ruleset'
+import { getCurrentVersionDisplay, stripVersionSuffix } from '@/utils/ruleset-version'
 import type {
   AppendRulesetHistoryEntry,
+  DraftConflictResponse,
   RulesetHistoryEntry,
   RulesetHistorySource,
 } from '@/api/types'
@@ -37,6 +43,8 @@ const auth = useAuthStore()
 const orgStore = useOrgStore()
 const projectStore = useProjectStore()
 const catalogStore = useCatalogStore()
+const environmentStore = useEnvironmentStore()
+const rbacStore = useRbacStore()
 const { t } = useI18n()
 
 const LOCAL_HISTORY_LIMIT = 120
@@ -437,14 +445,17 @@ const executionTrace = ref<{
   resultMessage: string
   output?: Record<string, any>
 } | null>(null)
+const flowTraceMode = ref(false)
 
 function handleShowInFlow(trace: typeof executionTrace.value) {
-  executionTrace.value = trace
+  executionTrace.value = trace ? { ...trace, steps: [...trace.steps], path: [...trace.path] } : null
+  flowTraceMode.value = true
   setEditorMode('flow')
 }
 
 function handleClearFlowTrace() {
   executionTrace.value = null
+  flowTraceMode.value = false
 }
 
 function handleShowAsFlow() {
@@ -457,17 +468,50 @@ const creating = ref(false)
 const newName = ref('')
 const newType = ref<'flow' | 'table'>('flow')
 const saving = ref(false)
+const conflictState = ref<{
+  rulesetName: string
+  localDraft: RuleSet
+  serverDraft: RuleSet
+  serverSeq: number
+} | null>(null)
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 const canEdit = computed(() => {
   if (!auth.user) return false
-  return orgStore.canEdit(auth.user.id)
+  return rbacStore.can('ruleset:edit') || orgStore.canEdit(auth.user.id)
 })
 
 const canAdmin = computed(() => {
   if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
+  return rbacStore.can('project:manage') || orgStore.canAdmin(auth.user.id)
 })
+
+const canPublish = computed(() => {
+  if (!auth.user) return false
+  return rbacStore.can('ruleset:publish') || orgStore.canAdmin(auth.user.id)
+})
+
+const activeRulesetMeta = computed(() => {
+  const tab = projectStore.activeTab
+  if (!tab) return null
+  return projectStore.draftMetas.find((item) => item.name === tab.name) ?? null
+})
+
+const activeDraftVersion = computed(() =>
+  stripVersionSuffix(projectStore.activeTab?.ruleset.config.version),
+)
+
+const activePublishedVersion = computed(() =>
+  stripVersionSuffix(activeRulesetMeta.value?.published_version),
+)
+
+const activeVersionDisplay = computed(() =>
+  getCurrentVersionDisplay(activeHistoryEntries.value, projectStore.activeTab?.ruleset.config.version),
+)
+
+const requiresVersionBump = computed(() =>
+  !!activePublishedVersion.value && activePublishedVersion.value === activeDraftVersion.value,
+)
 
 // ── Table support ──────────────────────────────────────────────────────────────
 const decisionTables = ref<Record<string, DecisionTable>>({})
@@ -511,6 +555,9 @@ onMounted(async () => {
     }
   }
   await projectStore.fetchRulesets()
+  await rbacStore.fetchRoles(orgId.value)
+  await rbacStore.fetchMyRoles(orgId.value)
+  await environmentStore.fetchEnvironments(orgId.value, projectId.value)
 
   // Open ruleset from URL param
   if (rulesetNameParam.value) {
@@ -620,15 +667,64 @@ function handleRulesetChange(ruleset: RuleSet) {
   scheduleEditHistoryEntry(tab.name, ruleset, action)
 }
 
+function handleVersionChange(event: Event) {
+  const tab = projectStore.activeTab
+  if (!tab) return
+
+  const target = event.target as HTMLInputElement
+  const nextVersion = stripVersionSuffix(target.value)
+  const nextRuleset: RuleSet = {
+    ...tab.ruleset,
+    config: {
+      ...tab.ruleset.config,
+      version: nextVersion,
+    },
+  }
+
+  const action = buildHistoryAction(tab.ruleset, nextRuleset)
+  updateRulesetState(tab.name, nextRuleset)
+  scheduleEditHistoryEntry(tab.name, nextRuleset, action)
+}
+
 async function handleSave(name: string) {
   if (!canEdit.value) {
     MessagePlugin.warning(t('editor.noPermission'))
     return
   }
+  const tab = projectStore.openTabs.find((item) => item.name === name)
+  if (!tab) return
+
+  const nextVersion = stripVersionSuffix(tab.ruleset.config.version)
+  const meta = projectStore.draftMetas.find((item) => item.name === name) ?? null
+  const publishedVersion = stripVersionSuffix(meta?.published_version)
+  if (!nextVersion) {
+    MessagePlugin.warning(t('editor.versionRequired'))
+    return
+  }
+  if (publishedVersion && publishedVersion === nextVersion) {
+    MessagePlugin.warning(
+      t('editor.versionBumpRequired', { version: publishedVersion }),
+    )
+    return
+  }
   saving.value = true
   try {
     flushPendingEditHistory(name)
-    await projectStore.saveRuleset(name)
+    const result = await projectStore.saveRuleset(name)
+    if (result?.conflict) {
+      const tab = projectStore.openTabs.find((item) => item.name === name)
+      if (!tab) {
+        MessagePlugin.error(t('editor.saveFailed'))
+        return
+      }
+      conflictState.value = {
+        rulesetName: name,
+        localDraft: cloneRuleset(tab.ruleset),
+        serverDraft: cloneRuleset(normalizeRuleset(result.server_draft, name)),
+        serverSeq: result.server_seq,
+      }
+      return
+    }
     const tab = projectStore.openTabs.find((item) => item.name === name)
     if (tab) {
       savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset))
@@ -642,6 +738,50 @@ async function handleSave(name: string) {
   } finally {
     saving.value = false
   }
+}
+
+async function resolveConflictUseServer() {
+  const conflict = conflictState.value
+  if (!conflict) return
+  const tab = projectStore.openTabs.find((item) => item.name === conflict.rulesetName)
+  if (!tab) {
+    conflictState.value = null
+    return
+  }
+
+  tab.draft_seq = conflict.serverSeq
+  savedRulesetSnapshots.set(conflict.rulesetName, serializeRuleset(conflict.serverDraft))
+  projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.serverDraft), false)
+  syncDecisionTableFromRuleset(conflict.rulesetName, conflict.serverDraft)
+  conflictState.value = null
+  MessagePlugin.success(t('conflict.useServerSuccess'))
+}
+
+async function resolveConflictUseLocal() {
+  const conflict = conflictState.value
+  if (!conflict) return
+  const tab = projectStore.openTabs.find((item) => item.name === conflict.rulesetName)
+  if (!tab) {
+    conflictState.value = null
+    return
+  }
+
+  tab.draft_seq = conflict.serverSeq
+  projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.localDraft), true)
+  conflictState.value = null
+  await handleSave(conflict.rulesetName)
+}
+
+function openReleaseCenter() {
+  if (!projectStore.activeTab) return
+  router.push({
+    name: 'project-release-request-create',
+    params: {
+      orgId: route.params.orgId,
+      projectId: route.params.projectId,
+    },
+    query: { ruleset: projectStore.activeTab.name },
+  })
 }
 
 function handleCloseTab(name: string) {
@@ -841,6 +981,13 @@ onUnmounted(() => {
               <span>{{ t('menuBar.save') }}</span>
               <span class="editor-menu__shortcut">Ctrl+S</span>
             </button>
+            <button
+              class="editor-menu__item"
+              :disabled="!canPublish || !projectStore.activeTab"
+              @click="runMenuAction(openReleaseCenter)"
+            >
+              <span>{{ t('releaseCenter.createRequest') }}</span>
+            </button>
           </div>
         </div>
 
@@ -962,6 +1109,26 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="tab-divider" />
+          <div class="toolbar-version">
+            <label>{{ t('common.version') }}</label>
+            <input
+              :value="activeDraftVersion"
+              :disabled="!canEdit"
+              placeholder="1.0.0"
+              class="ordo-input-base toolbar-version__input"
+              @input="handleVersionChange"
+            />
+            <t-tag size="small" theme="primary" variant="light">
+              v{{ activeVersionDisplay }}
+            </t-tag>
+            <t-tag v-if="activePublishedVersion" size="small" variant="light">
+              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
+            </t-tag>
+          </div>
+          <div v-if="requiresVersionBump" class="toolbar-version__warning">
+            {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
+          </div>
+          <div class="tab-divider" />
           <button
             class="toolbar-btn"
             :class="{ 'is-active': showExecution }"
@@ -987,6 +1154,14 @@ onUnmounted(() => {
           >
             <t-icon name="save" size="15px" />
           </button>
+          <button
+            v-if="canPublish"
+            class="toolbar-btn toolbar-btn--publish"
+            :title="t('releaseCenter.createRequest')"
+            @click="openReleaseCenter"
+          >
+            <t-icon name="upload" size="15px" />
+          </button>
         </div>
       </div>
 
@@ -1009,6 +1184,7 @@ onUnmounted(() => {
           :style="showExecution ? { flex: 'none', height: `calc(100% - ${executionHeight}px - 2px)` } : showTests ? { flex: 'none', height: `calc(100% - ${testsHeight}px - 2px)` } : {}"
         >
           <template v-if="projectStore.activeTab">
+            <div class="editor-view-shell">
             <!-- Form mode -->
             <OrdoFormEditor
               v-if="editorMode === 'form'"
@@ -1023,6 +1199,7 @@ onUnmounted(() => {
               :model-value="projectStore.activeTab.ruleset"
               :disabled="!canEdit"
               :execution-trace="executionTrace"
+              :trace-mode="flowTraceMode"
               @update:model-value="handleRulesetChange"
             />
             <!-- Decision table mode -->
@@ -1033,6 +1210,7 @@ onUnmounted(() => {
               @update:model-value="handleTableChange"
               @show-as-flow="handleShowAsFlow"
             />
+            </div>
           </template>
         </div>
 
@@ -1118,6 +1296,14 @@ onUnmounted(() => {
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <DraftConflictDialog
+      v-if="conflictState"
+      :local-draft="conflictState.localDraft"
+      :server-draft="conflictState.serverDraft"
+      @use-local="resolveConflictUseLocal"
+      @use-server="resolveConflictUseServer"
+    />
   </div>
 </template>
 
@@ -1458,6 +1644,44 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.toolbar-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-version label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ordo-text-tertiary);
+  white-space: nowrap;
+}
+
+.toolbar-version__input {
+  width: 96px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--ordo-border-color);
+  background: var(--ordo-bg-app);
+  color: var(--ordo-text-primary);
+  outline: none;
+}
+
+.toolbar-version__input:focus {
+  border-color: var(--ordo-accent);
+}
+
+.toolbar-version__warning {
+  max-width: 240px;
+  font-size: 12px;
+  color: var(--ordo-warning);
+  line-height: 1.2;
+}
+
 .mode-switch {
   display: flex;
   align-items: center;
@@ -1539,6 +1763,12 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.editor-view-shell {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .execution-panel-wrap {

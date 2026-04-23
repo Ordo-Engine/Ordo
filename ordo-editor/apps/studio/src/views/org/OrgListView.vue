@@ -1,124 +1,124 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { useSystemStore } from '@/stores/system'
-import { useProjectStore } from '@/stores/project'
-import { MessagePlugin } from 'tdesign-vue-next'
-import type { Role } from '@/api/types'
+import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { useSystemStore } from '@/stores/system';
+import { useProjectStore } from '@/stores/project';
+import { MessagePlugin } from 'tdesign-vue-next';
+import type { Role } from '@/api/types';
 
-const router = useRouter()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const systemStore = useSystemStore()
-const projectStore = useProjectStore()
-const { t } = useI18n()
+const router = useRouter();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const systemStore = useSystemStore();
+const projectStore = useProjectStore();
+const { t } = useI18n();
 
 // Dialog state
-const showCreate = ref(false)
-const creating = ref(false)
-const newOrgName = ref('')
-const newOrgDesc = ref('')
+const showCreate = ref(false);
+const creating = ref(false);
+const newOrgName = ref('');
+const newOrgDesc = ref('');
 // When set, dialog creates a sub-org under this parent id
-const createParentId = ref<string | null>(null)
+const createParentId = ref<string | null>(null);
 // Optionally designate an admin when creating a sub-org
-const assignAdmin = ref(false)
-const assignAdminUserId = ref('')
-const assignAdminRole = ref<Role>('admin')
+const assignAdmin = ref(false);
+const assignAdminUserId = ref('');
+const assignAdminRole = ref<Role>('admin');
 
-const rootOrgs = computed(() => orgStore.orgs.filter((o) => o.depth === 0))
+const rootOrgs = computed(() => orgStore.orgs.filter((o) => o.depth === 0));
 
 // Exclude current user from "designate admin" dropdown (creator is auto-added as Owner)
 const parentMembersForAssign = computed(() =>
-  orgStore.members.filter((m) => m.user_id !== auth.user?.id),
-)
+  orgStore.members.filter((m) => m.user_id !== auth.user?.id)
+);
 
 function subOrgsOf(parentId: string) {
-  return orgStore.orgs.filter((o) => o.parent_org_id === parentId)
+  return orgStore.orgs.filter((o) => o.parent_org_id === parentId);
 }
 
 function isAdmin(orgId: string): boolean {
-  if (!auth.user) return false
-  const org = orgStore.orgs.find((o) => o.id === orgId)
-  if (!org) return false
+  if (!auth.user) return false;
+  const org = orgStore.orgs.find((o) => o.id === orgId);
+  if (!org) return false;
   // Check via currentOrg members if this is the currently loaded org
   if (orgStore.currentOrg?.id === orgId) {
-    return orgStore.canAdmin(auth.user.id)
+    return orgStore.canAdmin(auth.user.id);
   }
-  return false
+  return false;
 }
 
 onMounted(async () => {
-  await systemStore.fetchConfig()
+  await systemStore.fetchConfig();
   // For each root org the user has loaded, pre-fetch sub-orgs
   for (const org of rootOrgs.value) {
     if (org.child_count > 0) {
-      await orgStore.fetchSubOrgs(org.id)
+      await orgStore.fetchSubOrgs(org.id);
     }
   }
-})
+});
 
 function openCreateRoot() {
-  createParentId.value = null
-  newOrgName.value = ''
-  newOrgDesc.value = ''
-  showCreate.value = true
+  createParentId.value = null;
+  newOrgName.value = '';
+  newOrgDesc.value = '';
+  showCreate.value = true;
 }
 
 function openCreateSubOrg(parentId: string) {
-  createParentId.value = parentId
-  newOrgName.value = ''
-  newOrgDesc.value = ''
-  assignAdmin.value = false
-  assignAdminUserId.value = ''
-  assignAdminRole.value = 'admin'
-  showCreate.value = true
+  createParentId.value = parentId;
+  newOrgName.value = '';
+  newOrgDesc.value = '';
+  assignAdmin.value = false;
+  assignAdminUserId.value = '';
+  assignAdminRole.value = 'admin';
+  showCreate.value = true;
 }
 
 async function handleCreate() {
   if (!newOrgName.value.trim()) {
-    MessagePlugin.warning(t('org.nameRequired'))
-    return
+    MessagePlugin.warning(t('org.nameRequired'));
+    return;
   }
-  creating.value = true
+  creating.value = true;
   try {
     if (createParentId.value) {
       const org = await orgStore.createSubOrg(
         createParentId.value,
         newOrgName.value.trim(),
-        newOrgDesc.value || undefined,
-      )
+        newOrgDesc.value || undefined
+      );
       if (assignAdmin.value && assignAdminUserId.value) {
         try {
           await orgStore.addSubOrgMember(
             createParentId.value,
             org.id,
             assignAdminUserId.value,
-            assignAdminRole.value,
-          )
+            assignAdminRole.value
+          );
         } catch (e: any) {
-          if (!e.message?.toLowerCase().includes('already a member')) throw e
+          if (!e.message?.toLowerCase().includes('already a member')) throw e;
         }
       }
-      MessagePlugin.success(t('org.createSubOrgSuccess'))
+      MessagePlugin.success(t('org.createSubOrgSuccess'));
     } else {
-      await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined)
-      MessagePlugin.success(t('org.createSuccess'))
+      await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined);
+      MessagePlugin.success(t('org.createSuccess'));
     }
-    showCreate.value = false
+    showCreate.value = false;
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    creating.value = false
+    creating.value = false;
   }
 }
 
 async function selectAndGo(orgId: string) {
-  await orgStore.selectOrg(orgId)
-  await projectStore.fetchProjects(orgId)
-  router.push(`/orgs/${orgId}/projects`)
+  await orgStore.selectOrg(orgId);
+  await projectStore.fetchProjects(orgId);
+  router.push(`/orgs/${orgId}/projects`);
 }
 </script>
 
@@ -129,11 +129,7 @@ async function selectAndGo(orgId: string) {
         <h2 class="page-title">{{ t('org.title') }}</h2>
         <p class="page-subtitle">{{ t('org.subtitle') }}</p>
       </div>
-      <t-button
-        v-if="systemStore.allowOrgCreation"
-        theme="primary"
-        @click="openCreateRoot"
-      >
+      <t-button v-if="systemStore.allowOrgCreation" theme="primary" @click="openCreateRoot">
         <t-icon name="add" />
         {{ t('org.new') }}
       </t-button>
@@ -141,8 +137,13 @@ async function selectAndGo(orgId: string) {
 
     <!-- Loading -->
     <div v-if="orgStore.loading" class="org-skeleton-list">
-      <t-skeleton v-for="i in 3" :key="i" theme="paragraph" animation="gradient"
-        :row-col="[{ width: '40%' }, { width: '60%' }, { width: '30%' }]" />
+      <t-skeleton
+        v-for="i in 3"
+        :key="i"
+        theme="paragraph"
+        animation="gradient"
+        :row-col="[{ width: '40%' }, { width: '60%' }, { width: '30%' }]"
+      />
     </div>
 
     <!-- Empty -->
@@ -157,7 +158,6 @@ async function selectAndGo(orgId: string) {
     <!-- Hierarchy list -->
     <div v-else class="org-list">
       <div v-for="root in rootOrgs" :key="root.id" class="org-group">
-
         <!-- Root org card -->
         <div class="org-card org-card--root" @click="selectAndGo(root.id)">
           <div class="org-card__icon org-card__icon--root">
@@ -168,7 +168,9 @@ async function selectAndGo(orgId: string) {
             <div class="org-card__meta">
               {{ t('org.memberCount', { count: root.member_count }) }}
               <span v-if="root.project_count > 0" class="meta-sep">·</span>
-              <span v-if="root.project_count > 0">{{ t('org.projectCount', { count: root.project_count }) }}</span>
+              <span v-if="root.project_count > 0">{{
+                t('org.projectCount', { count: root.project_count })
+              }}</span>
               <span v-if="root.child_count > 0" class="meta-sep">·</span>
               <span v-if="root.child_count > 0">
                 {{ t('org.subOrgCount', { count: root.child_count }) }}
@@ -176,11 +178,7 @@ async function selectAndGo(orgId: string) {
             </div>
           </div>
           <div class="org-card__actions" @click.stop>
-            <t-button
-              size="small"
-              variant="outline"
-              @click="openCreateSubOrg(root.id)"
-            >
+            <t-button size="small" variant="outline" @click="openCreateSubOrg(root.id)">
               <t-icon name="add" />
               {{ t('org.addSubOrg') }}
             </t-button>
@@ -207,13 +205,14 @@ async function selectAndGo(orgId: string) {
               <div class="org-card__meta">
                 {{ t('org.memberCount', { count: sub.member_count }) }}
                 <span v-if="sub.project_count > 0" class="meta-sep">·</span>
-                <span v-if="sub.project_count > 0">{{ t('org.projectCount', { count: sub.project_count }) }}</span>
+                <span v-if="sub.project_count > 0">{{
+                  t('org.projectCount', { count: sub.project_count })
+                }}</span>
               </div>
             </div>
             <t-icon name="chevron-right" class="org-card__arrow" />
           </div>
         </div>
-
       </div>
     </div>
 
@@ -325,7 +324,9 @@ async function selectAndGo(orgId: string) {
   align-items: center;
   gap: 14px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .org-card:hover {

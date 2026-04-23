@@ -5,6 +5,7 @@
 use super::metrics::{MetricSink, NoOpMetricSink};
 use super::model::{FieldMissingBehavior, RuleSet};
 use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, TerminalResult};
+use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, ExprParser};
@@ -90,6 +91,8 @@ pub struct RuleExecutor {
     metric_sink: Arc<dyn MetricSink>,
     /// Optional resolver for CallRuleSet actions
     resolver: Option<Arc<dyn super::RuleSetResolver>>,
+    /// Optional capability invoker for ExternalCall actions
+    capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
     /// Maximum nesting depth for CallRuleSet (prevents unbounded recursion)
     max_call_depth: usize,
 }
@@ -101,6 +104,9 @@ impl Default for RuleExecutor {
 }
 
 impl RuleExecutor {
+    const METRIC_CAPABILITY: &'static str = "metrics.prometheus";
+    const METRIC_OPERATION_GAUGE: &'static str = "gauge";
+
     /// Create a new executor
     pub fn new() -> Self {
         Self {
@@ -108,6 +114,7 @@ impl RuleExecutor {
             trace_config: TraceConfig::default(),
             metric_sink: Arc::new(NoOpMetricSink),
             resolver: None,
+            capability_invoker: None,
             max_call_depth: 10,
         }
     }
@@ -119,6 +126,7 @@ impl RuleExecutor {
             trace_config,
             metric_sink: Arc::new(NoOpMetricSink),
             resolver: None,
+            capability_invoker: None,
             max_call_depth: 10,
         }
     }
@@ -130,6 +138,7 @@ impl RuleExecutor {
             trace_config: TraceConfig::default(),
             metric_sink,
             resolver: None,
+            capability_invoker: None,
             max_call_depth: 10,
         }
     }
@@ -144,6 +153,7 @@ impl RuleExecutor {
             trace_config,
             metric_sink,
             resolver: None,
+            capability_invoker: None,
             max_call_depth: 10,
         }
     }
@@ -151,6 +161,16 @@ impl RuleExecutor {
     /// Set a resolver for CallRuleSet actions
     pub fn set_resolver(&mut self, resolver: Arc<dyn super::RuleSetResolver>) {
         self.resolver = Some(resolver);
+    }
+
+    /// Set an invoker for ExternalCall actions
+    pub fn set_capability_invoker(&mut self, capability_invoker: Arc<dyn CapabilityInvoker>) {
+        self.capability_invoker = Some(capability_invoker);
+    }
+
+    /// Get the configured capability invoker
+    pub fn capability_invoker(&self) -> Option<Arc<dyn CapabilityInvoker>> {
+        self.capability_invoker.clone()
     }
 
     /// Get the metric sink
@@ -544,8 +564,7 @@ impl RuleExecutor {
                         return Ok(());
                     }
                 };
-                // Record metric via sink
-                self.metric_sink.record_gauge(name, metric_value, tags);
+                self.record_metric(name, metric_value, tags)?;
                 tracing::debug!(metric = %name, value = %metric_value, tags = ?tags, "Metric recorded");
             }
 
@@ -599,11 +618,78 @@ impl RuleExecutor {
                 ctx.set_variable(result_variable, result_obj);
             }
 
-            ActionKind::ExternalCall { .. } => {
-                // TODO: Implement external calls
-                tracing::warn!("External calls not yet implemented");
+            ActionKind::ExternalCall {
+                service,
+                method,
+                params,
+                result_variable,
+                timeout_ms,
+            } => {
+                let capability_invoker = self.capability_invoker.as_ref().ok_or_else(|| {
+                    OrdoError::eval_error("ExternalCall requires a capability invoker")
+                })?;
+
+                let mut payload = std::collections::HashMap::with_capacity(params.len());
+                for (name, expr) in params {
+                    payload.insert(name.clone(), self.evaluator.eval(expr, ctx)?);
+                }
+
+                let mut request =
+                    CapabilityRequest::new(service.clone(), method.clone(), Value::object(payload));
+                if *timeout_ms > 0 {
+                    request = request.with_timeout(*timeout_ms);
+                }
+
+                let response = capability_invoker.invoke(&request)?;
+                if let Some(result_variable) = result_variable {
+                    let response_obj = Value::object({
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("capability".to_string(), Value::string(service));
+                        m.insert("operation".to_string(), Value::string(method));
+                        m.insert("payload".to_string(), response.payload);
+                        let metadata = Value::object(
+                            response
+                                .metadata
+                                .into_iter()
+                                .map(|(key, value)| (key, Value::string(value)))
+                                .collect(),
+                        );
+                        m.insert("metadata".to_string(), metadata);
+                        m
+                    });
+                    ctx.set_variable(result_variable, response_obj);
+                }
             }
         }
+        Ok(())
+    }
+
+    fn record_metric(&self, name: &str, value: f64, tags: &[(String, String)]) -> Result<()> {
+        if let Some(capability_invoker) = &self.capability_invoker {
+            let mut tag_values = std::collections::HashMap::with_capacity(tags.len());
+            for (key, value) in tags {
+                tag_values.insert(key.clone(), Value::string(value));
+            }
+
+            let mut payload = std::collections::HashMap::with_capacity(3);
+            payload.insert("name".to_string(), Value::string(name));
+            payload.insert("value".to_string(), Value::float(value));
+            payload.insert("tags".to_string(), Value::object(tag_values));
+
+            let request = CapabilityRequest::new(
+                Self::METRIC_CAPABILITY,
+                Self::METRIC_OPERATION_GAUGE,
+                Value::object(payload),
+            );
+
+            match capability_invoker.invoke(&request) {
+                Ok(_) => return Ok(()),
+                Err(OrdoError::CapabilityNotFound { .. }) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.metric_sink.record_gauge(name, value, tags);
         Ok(())
     }
 
@@ -865,6 +951,79 @@ mod tests {
         assert_eq!(result.code, "OK");
         // Verify that the metric sink was called
         assert_eq!(sink.gauge_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_execute_metric_via_capability_invoker() {
+        use crate::capability::{
+            CapabilityCategory, CapabilityDescriptor, CapabilityProvider, CapabilityRegistry,
+            CapabilityRequest, CapabilityResponse,
+        };
+        use crate::rule::metrics::MetricSink;
+        use crate::rule::step::{Action, ActionKind};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct TestMetricSink {
+            gauge_calls: AtomicUsize,
+        }
+
+        impl MetricSink for TestMetricSink {
+            fn record_gauge(&self, _name: &str, _value: f64, _tags: &[(String, String)]) {
+                self.gauge_calls.fetch_add(1, Ordering::SeqCst);
+            }
+
+            fn record_counter(&self, _name: &str, _value: f64, _tags: &[(String, String)]) {}
+        }
+
+        struct TestMetricCapability {
+            calls: AtomicUsize,
+        }
+
+        impl CapabilityProvider for TestMetricCapability {
+            fn descriptor(&self) -> CapabilityDescriptor {
+                CapabilityDescriptor::new("metrics.prometheus", CapabilityCategory::Action)
+            }
+
+            fn invoke(&self, _request: &CapabilityRequest) -> Result<CapabilityResponse> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(CapabilityResponse::empty())
+            }
+        }
+
+        let sink = Arc::new(TestMetricSink {
+            gauge_calls: AtomicUsize::new(0),
+        });
+        let mut executor = RuleExecutor::with_metric_sink(sink.clone());
+        let registry = Arc::new(CapabilityRegistry::new());
+        let capability = Arc::new(TestMetricCapability {
+            calls: AtomicUsize::new(0),
+        });
+        let capability_ref = capability.clone();
+        registry.register(capability);
+        executor.set_capability_invoker(registry);
+
+        let mut ruleset = RuleSet::new("metric_capability_test", "record_metric");
+        ruleset.add_step(Step::action(
+            "record_metric",
+            "Record Metric",
+            vec![Action {
+                kind: ActionKind::Metric {
+                    name: "cap_metric".to_string(),
+                    value: Expr::literal(7.0f64),
+                    tags: vec![("env".to_string(), "test".to_string())],
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal("done", "Done", TerminalResult::new("OK")));
+
+        let input = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(capability_ref.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(sink.gauge_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
     <!-- Error -->
     <div v-else-if="error" class="marketplace-detail__error">
-      <t-icon name="close-circle" size="48" style="color:var(--td-error-color)" />
+      <t-icon name="close-circle" size="48" style="color: var(--td-error-color)" />
       <p>{{ error }}</p>
       <t-button @click="router.back()">{{ t('common.back') }}</t-button>
     </div>
@@ -33,7 +33,12 @@
         <div class="marketplace-detail__info">
           <h1 class="marketplace-detail__name">{{ detail.name }}</h1>
           <div class="marketplace-detail__meta">
-            <a :href="detail.github_url" target="_blank" rel="noopener" class="marketplace-detail__repo-link">
+            <a
+              :href="detail.github_url"
+              target="_blank"
+              rel="noopener"
+              class="marketplace-detail__repo-link"
+            >
               <t-icon name="logo-github" size="14" />
               {{ detail.full_name }}
             </a>
@@ -44,10 +49,21 @@
           </div>
           <p class="marketplace-detail__desc">{{ detail.description }}</p>
           <div class="marketplace-detail__tags">
-            <t-tag v-for="tag in detail.tags" :key="tag" size="small" theme="primary" variant="light">
+            <t-tag
+              v-for="tag in detail.tags"
+              :key="tag"
+              size="small"
+              theme="primary"
+              variant="light"
+            >
               {{ tag }}
             </t-tag>
-            <t-tag v-for="topic in (detail.topics || []).slice(0, 6)" :key="topic" size="small" variant="outline">
+            <t-tag
+              v-for="topic in (detail.topics || []).slice(0, 6)"
+              :key="topic"
+              size="small"
+              variant="outline"
+            >
               {{ topic }}
             </t-tag>
           </div>
@@ -120,7 +136,10 @@
           </div>
         </t-tab-panel>
 
-        <t-tab-panel value="tests" :label="`${t('marketplace.tabTests')} (${detail.tests?.length || 0})`">
+        <t-tab-panel
+          value="tests"
+          :label="`${t('marketplace.tabTests')} (${detail.tests?.length || 0})`"
+        >
           <div class="marketplace-detail__section">
             <t-table
               v-if="detail.tests?.length"
@@ -137,13 +156,29 @@
         <t-tab-panel v-if="detail.contract" value="contract" :label="t('marketplace.tabContract')">
           <div class="marketplace-detail__section marketplace-detail__contract">
             <div class="contract-meta">
-              <span><b>{{ t('marketplace.contractOwner') }}:</b> {{ detail.contract.owner }}</span>
-              <span v-if="detail.contract.sla_p99_ms"><b>SLA p99:</b> {{ detail.contract.sla_p99_ms }}ms</span>
+              <span
+                ><b>{{ t('marketplace.contractOwner') }}:</b> {{ detail.contract.owner }}</span
+              >
+              <span v-if="detail.contract.sla_p99_ms"
+                ><b>SLA p99:</b> {{ detail.contract.sla_p99_ms }}ms</span
+              >
             </div>
             <h4>{{ t('marketplace.contractInputs') }}</h4>
-            <t-table :data="detail.contract.input_fields" :columns="contractFieldColumns" size="small" row-key="name" stripe />
+            <t-table
+              :data="detail.contract.input_fields"
+              :columns="contractFieldColumns"
+              size="small"
+              row-key="name"
+              stripe
+            />
             <h4>{{ t('marketplace.contractOutputs') }}</h4>
-            <t-table :data="detail.contract.output_fields" :columns="contractFieldColumns" size="small" row-key="name" stripe />
+            <t-table
+              :data="detail.contract.output_fields"
+              :columns="contractFieldColumns"
+              size="small"
+              row-key="name"
+              stripe
+            />
           </div>
         </t-tab-panel>
       </t-tabs>
@@ -152,47 +187,47 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { marketplaceApi } from '@/api/platform-client'
-import type { MarketplaceDetail } from '@/api/types'
+import { ref, onMounted, computed } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { marketplaceApi } from '@/api/platform-client';
+import type { MarketplaceDetail } from '@/api/types';
 
-const { t } = useI18n()
-const router = useRouter()
-const route = useRoute()
-const authStore = useAuthStore()
-const orgStore = useOrgStore()
+const { t } = useI18n();
+const router = useRouter();
+const route = useRoute();
+const authStore = useAuthStore();
+const orgStore = useOrgStore();
 
-const owner = route.params.owner as string
-const repo = route.params.repo as string
+const owner = route.params.owner as string;
+const repo = route.params.repo as string;
 
-const detail = ref<MarketplaceDetail | null>(null)
-const loading = ref(true)
-const error = ref<string | null>(null)
-const activeTab = ref('overview')
+const detail = ref<MarketplaceDetail | null>(null);
+const loading = ref(true);
+const error = ref<string | null>(null);
+const activeTab = ref('overview');
 
-const selectedOrgId = ref('')
-const projectName = ref('')
-const projectDesc = ref('')
-const installing = ref(false)
+const selectedOrgId = ref('');
+const projectName = ref('');
+const projectDesc = ref('');
+const installing = ref(false);
 
 const factColumns = [
   { colKey: 'name', title: t('marketplace.colName'), width: 180 },
   { colKey: 'data_type', title: t('marketplace.colType'), width: 100 },
   { colKey: 'source', title: t('marketplace.colSource') },
   { colKey: 'description', title: t('marketplace.colDescription') },
-]
+];
 
 const conceptColumns = [
   { colKey: 'name', title: t('marketplace.colName'), width: 180 },
   { colKey: 'data_type', title: t('marketplace.colType'), width: 100 },
   { colKey: 'expression', title: t('marketplace.colExpression') },
   { colKey: 'description', title: t('marketplace.colDescription') },
-]
+];
 
 const testColumns = [
   { colKey: 'name', title: t('marketplace.colName') },
@@ -202,54 +237,54 @@ const testColumns = [
     title: t('marketplace.colTags'),
     cell: (_: any, { row }: any) => (row.tags || []).join(', '),
   },
-]
+];
 
 const contractFieldColumns = [
   { colKey: 'name', title: t('marketplace.colName'), width: 180 },
   { colKey: 'data_type', title: t('marketplace.colType'), width: 100 },
   { colKey: 'required', title: t('marketplace.colRequired'), width: 80 },
   { colKey: 'description', title: t('marketplace.colDescription') },
-]
+];
 
 async function loadDetail() {
-  loading.value = true
-  error.value = null
+  loading.value = true;
+  error.value = null;
   try {
-    detail.value = await marketplaceApi.getItem(authStore.token!, owner, repo)
-    projectName.value = detail.value.name || repo
+    detail.value = await marketplaceApi.getItem(authStore.token!, owner, repo);
+    projectName.value = detail.value.name || repo;
   } catch (e: any) {
-    error.value = e.message || t('marketplace.loadError')
+    error.value = e.message || t('marketplace.loadError');
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 async function handleInstall() {
-  if (!selectedOrgId.value || !projectName.value.trim()) return
-  installing.value = true
+  if (!selectedOrgId.value || !projectName.value.trim()) return;
+  installing.value = true;
   try {
     const project = await marketplaceApi.install(authStore.token!, owner, repo, {
       org_id: selectedOrgId.value,
       project_name: projectName.value.trim(),
       project_description: projectDesc.value.trim() || undefined,
-    })
-    MessagePlugin.success(t('marketplace.installSuccess', { name: project.name }))
+    });
+    MessagePlugin.success(t('marketplace.installSuccess', { name: project.name }));
     router.push({
       name: 'project-editor',
       params: { orgId: selectedOrgId.value, projectId: project.id },
-    })
+    });
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('marketplace.installError'))
+    MessagePlugin.error(e.message || t('marketplace.installError'));
   } finally {
-    installing.value = false
+    installing.value = false;
   }
 }
 
 onMounted(async () => {
-  await orgStore.fetchOrgs()
-  if (orgStore.orgs.length) selectedOrgId.value = orgStore.orgs[0].id
-  await loadDetail()
-})
+  await orgStore.fetchOrgs();
+  if (orgStore.orgs.length) selectedOrgId.value = orgStore.orgs[0].id;
+  await loadDetail();
+});
 </script>
 
 <style scoped>

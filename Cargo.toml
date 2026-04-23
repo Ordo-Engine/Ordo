@@ -8,6 +8,7 @@ members = [
     "crates/ordo-server",
     "crates/ordo-platform",
     "crates/ordo-wasm",
+    "examples/capability-demo",
 ]
 
 [workspace.package]

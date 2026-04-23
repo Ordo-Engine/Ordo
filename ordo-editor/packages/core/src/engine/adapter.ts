@@ -61,13 +61,19 @@ interface EngineBranch {
 }
 
 interface EngineAction {
-  action: 'set_variable' | 'log' | 'metric';
+  action: 'set_variable' | 'log' | 'metric' | 'external_call';
   // set_variable fields
   name?: string;
   value?: any; // Expr
   // log fields
   message?: string;
   level?: 'debug' | 'info' | 'warn' | 'error';
+  // external_call fields
+  service?: string;
+  method?: string;
+  params?: Array<[string, any]>;
+  result_variable?: string;
+  timeout_ms?: number;
   description?: string;
 }
 
@@ -288,6 +294,13 @@ function convertActionStep(step: ActionStep): EngineStep {
     }
   }
 
+  // Convert external calls
+  if (step.externalCalls) {
+    for (const externalCall of step.externalCalls) {
+      actions.push(convertExternalCall(externalCall));
+    }
+  }
+
   // Convert logging
   if (step.logging) {
     // Extract message string from logging object
@@ -318,6 +331,94 @@ function convertActionStep(step: ActionStep): EngineStep {
     actions,
     next_step: step.nextStepId || '',
   };
+}
+
+function convertExternalCall(call: NonNullable<ActionStep['externalCalls']>[number]): EngineAction {
+  const timeoutMs = call.timeout && call.timeout > 0 ? call.timeout : 0;
+
+  if (call.type === 'http') {
+    const { method, url } = parseHttpTarget(call.target);
+    const params: Array<[string, any]> = [['url', { Literal: url }]];
+
+    if (call.params && Object.keys(call.params).length > 0) {
+      params.push([
+        'json_body',
+        {
+          Object: Object.entries(call.params).map(([name, value]) => [
+            name,
+            convertToEngineExpr(value),
+          ]),
+        },
+      ]);
+    }
+
+    return {
+      action: 'external_call',
+      service: 'network.http',
+      method,
+      params,
+      result_variable: call.resultVariable,
+      timeout_ms: timeoutMs,
+      description: '',
+    };
+  }
+
+  const { service, method } = parseCapabilityTarget(call.target, call.type);
+
+  return {
+    action: 'external_call',
+    service,
+    method,
+    params: Object.entries(call.params || {}).map(([name, value]) => [
+      name,
+      convertToEngineExpr(value),
+    ]),
+    result_variable: call.resultVariable,
+    timeout_ms: timeoutMs,
+    description: '',
+  };
+}
+
+function parseHttpTarget(target: string): { method: string; url: string } {
+  const trimmed = target.trim();
+  const match = trimmed.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(.+)$/i);
+  if (match) {
+    return {
+      method: match[1].toLowerCase(),
+      url: match[2].trim(),
+    };
+  }
+
+  return {
+    method: 'post',
+    url: trimmed,
+  };
+}
+
+function parseCapabilityTarget(
+  target: string,
+  type: 'grpc' | 'function'
+): { service: string; method: string } {
+  const trimmed = target.trim();
+
+  for (const separator of ['#', '::']) {
+    const index = trimmed.indexOf(separator);
+    if (index > 0) {
+      return {
+        service: trimmed.slice(0, index).trim(),
+        method: trimmed.slice(index + separator.length).trim() || defaultCapabilityMethod(type),
+      };
+    }
+  }
+
+  return {
+    service: trimmed,
+    method: defaultCapabilityMethod(type),
+  };
+}
+
+function defaultCapabilityMethod(type: 'grpc' | 'function'): string {
+  return type === 'grpc' ? 'call' : 'invoke';
 }
 
 /**
@@ -415,6 +516,66 @@ function convertToEngineExpr(value: any): any {
       return { Literal: value.expression };
     }
 
+    if (value.type === 'binary') {
+      return {
+        Binary: {
+          op: convertBinaryOp(value.op),
+          left: convertToEngineExpr(value.left),
+          right: convertToEngineExpr(value.right),
+        },
+      };
+    }
+
+    if (value.type === 'unary') {
+      return {
+        Unary: {
+          op: convertUnaryOp(value.op),
+          operand: convertToEngineExpr(value.operand),
+        },
+      };
+    }
+
+    if (value.type === 'function') {
+      return {
+        Call: {
+          name: value.name,
+          args: (value.args || []).map(convertToEngineExpr),
+        },
+      };
+    }
+
+    if (value.type === 'conditional') {
+      return {
+        Conditional: {
+          condition: convertToEngineExpr(value.condition),
+          then_branch: convertToEngineExpr(value.thenExpr),
+          else_branch: convertToEngineExpr(value.elseExpr),
+        },
+      };
+    }
+
+    if (value.type === 'array') {
+      return {
+        Array: (value.elements || []).map(convertToEngineExpr),
+      };
+    }
+
+    if (value.type === 'object') {
+      return {
+        Object: Object.entries(value.properties || {}).map(([name, expr]) => [
+          name,
+          convertToEngineExpr(expr),
+        ]),
+      };
+    }
+
+    if (value.type === 'member') {
+      const path = toEngineFieldPath(value);
+      if (path) {
+        return { Field: path };
+      }
+    }
+
     // Check if it's already in Expr format (but with wrong nesting)
     if ('Literal' in value) {
       // Check if nested value also needs conversion
@@ -445,6 +606,72 @@ function convertToEngineExpr(value: any): any {
   }
 
   return { Literal: value };
+}
+
+function toEngineFieldPath(value: any): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  if (value.type === 'variable' || value.type === 'field') {
+    return normalizeFieldPath(value.path || value.name || '');
+  }
+
+  if (value.type === 'member' && !value.computed && typeof value.property === 'string') {
+    const base = toEngineFieldPath(value.object);
+    if (!base) {
+      return null;
+    }
+    return `${base}.${value.property}`;
+  }
+
+  return null;
+}
+
+function normalizeFieldPath(path: string): string {
+  if (path.startsWith('$.')) {
+    return path.slice(2);
+  }
+  if (path.startsWith('input.')) {
+    return path.slice(6);
+  }
+  if (path.startsWith('$')) {
+    return path.slice(1);
+  }
+  return path;
+}
+
+function convertBinaryOp(op: string): string {
+  const operatorMap: Record<string, string> = {
+    eq: 'Eq',
+    ne: 'Ne',
+    gt: 'Gt',
+    gte: 'Ge',
+    ge: 'Ge',
+    lt: 'Lt',
+    lte: 'Le',
+    le: 'Le',
+    and: 'And',
+    or: 'Or',
+    add: 'Add',
+    sub: 'Sub',
+    mul: 'Mul',
+    div: 'Div',
+    mod: 'Mod',
+    in: 'In',
+    contains: 'Contains',
+  };
+
+  return operatorMap[op] || op;
+}
+
+function convertUnaryOp(op: string): string {
+  const operatorMap: Record<string, string> = {
+    not: 'Not',
+    neg: 'Neg',
+  };
+
+  return operatorMap[op] || op;
 }
 
 /**

@@ -9,7 +9,7 @@ use crate::sync::event::SyncEvent;
 use crate::sync::file_watcher::RecentWrites;
 use crate::wal::{WalManager, WalOpKind};
 use once_cell::sync::Lazy;
-use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
+use ordo_core::prelude::{CapabilityInvoker, MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use ordo_core::signature::{strip_signature, RuleVerifier};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -114,11 +114,27 @@ pub struct VersionListResponse {
 }
 
 impl RuleStore {
+    fn build_executor(
+        metric_sink: Option<Arc<dyn MetricSink>>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> RuleExecutor {
+        let mut executor = match metric_sink {
+            Some(metric_sink) => {
+                RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink)
+            }
+            None => RuleExecutor::with_trace(TraceConfig::minimal()),
+        };
+        if let Some(capability_invoker) = capability_invoker {
+            executor.set_capability_invoker(capability_invoker);
+        }
+        executor
+    }
+
     /// Create a new in-memory store (no persistence)
     pub fn new() -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace(TraceConfig::minimal()),
+            executor: Self::build_executor(None, None),
             rules_dir: None,
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -137,9 +153,16 @@ impl RuleStore {
 
     /// Create a new in-memory store with a custom metric sink
     pub fn new_with_metrics(metric_sink: Arc<dyn MetricSink>) -> Self {
+        Self::new_with_metrics_and_capabilities(metric_sink, None)
+    }
+
+    pub fn new_with_metrics_and_capabilities(
+        metric_sink: Arc<dyn MetricSink>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
+            executor: Self::build_executor(Some(metric_sink), capability_invoker),
             rules_dir: None,
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -166,7 +189,7 @@ impl RuleStore {
     pub fn new_with_persistence_and_versions(rules_dir: PathBuf, max_versions: usize) -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace(TraceConfig::minimal()),
+            executor: Self::build_executor(None, None),
             rules_dir: Some(rules_dir),
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -189,9 +212,23 @@ impl RuleStore {
         max_versions: usize,
         metric_sink: Arc<dyn MetricSink>,
     ) -> Self {
+        Self::new_with_persistence_and_metrics_and_capabilities(
+            rules_dir,
+            max_versions,
+            metric_sink,
+            None,
+        )
+    }
+
+    pub fn new_with_persistence_and_metrics_and_capabilities(
+        rules_dir: PathBuf,
+        max_versions: usize,
+        metric_sink: Arc<dyn MetricSink>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
+            executor: Self::build_executor(Some(metric_sink), capability_invoker),
             rules_dir: Some(rules_dir),
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),

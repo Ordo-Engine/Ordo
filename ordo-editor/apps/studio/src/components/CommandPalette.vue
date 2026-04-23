@@ -1,33 +1,33 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useProjectStore } from '@/stores/project'
-import { useCatalogStore } from '@/stores/catalog'
-import { useOrgStore } from '@/stores/org'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useProjectStore } from '@/stores/project';
+import { useCatalogStore } from '@/stores/catalog';
+import { useOrgStore } from '@/stores/org';
 
-const { t } = useI18n()
-const router = useRouter()
-const projectStore = useProjectStore()
-const catalogStore = useCatalogStore()
-const orgStore = useOrgStore()
+const { t } = useI18n();
+const router = useRouter();
+const projectStore = useProjectStore();
+const catalogStore = useCatalogStore();
+const orgStore = useOrgStore();
 
-const visible = ref(false)
-const query = ref('')
-const selectedIdx = ref(0)
-const inputRef = ref<HTMLInputElement | null>(null)
+const visible = ref(false);
+const query = ref('');
+const selectedIdx = ref(0);
+const inputRef = ref<HTMLInputElement | null>(null);
 
 interface ResultItem {
-  id: string
-  label: string
-  desc?: string
-  group: string
-  action: () => void
+  id: string;
+  label: string;
+  desc?: string;
+  group: string;
+  action: () => void;
 }
 
 const results = computed<ResultItem[]>(() => {
-  const q = query.value.toLowerCase().trim()
-  const items: ResultItem[] = []
+  const q = query.value.toLowerCase().trim();
+  const items: ResultItem[] = [];
 
   // Projects
   for (const p of projectStore.projects) {
@@ -37,22 +37,28 @@ const results = computed<ResultItem[]>(() => {
         label: p.name,
         desc: p.description ?? undefined,
         group: t('search.groupProjects'),
-        action: () => { const oid = orgStore.currentOrg?.id; if (oid) router.push(`/orgs/${oid}/projects/${p.id}/editor`) },
-      })
+        action: () => {
+          const oid = orgStore.currentOrg?.id;
+          if (oid) router.push(`/orgs/${oid}/projects/${p.id}/editor`);
+        },
+      });
     }
   }
 
   // Rulesets
   for (const r of projectStore.rulesets) {
     if (!q || r.name.toLowerCase().includes(q)) {
-      const pid = projectStore.currentProject?.id
+      const pid = projectStore.currentProject?.id;
       items.push({
         id: `ruleset-${r.name}`,
         label: r.name,
         desc: projectStore.currentProject?.name,
         group: t('search.groupRulesets'),
-        action: () => { const oid = orgStore.currentOrg?.id; if (oid && pid) router.push(`/orgs/${oid}/projects/${pid}/editor/${r.name}`) },
-      })
+        action: () => {
+          const oid = orgStore.currentOrg?.id;
+          if (oid && pid) router.push(`/orgs/${oid}/projects/${pid}/editor/${r.name}`);
+        },
+      });
     }
   }
 
@@ -65,11 +71,11 @@ const results = computed<ResultItem[]>(() => {
         desc: f.description ?? undefined,
         group: t('search.groupFacts'),
         action: () => {
-          const pid = projectStore.currentProject?.id
-          const oid = orgStore.currentOrg?.id
-          if (oid && pid) router.push(`/orgs/${oid}/projects/${pid}/facts`)
+          const pid = projectStore.currentProject?.id;
+          const oid = orgStore.currentOrg?.id;
+          if (oid && pid) router.push(`/orgs/${oid}/projects/${pid}/facts`);
         },
-      })
+      });
     }
   }
 
@@ -82,70 +88,72 @@ const results = computed<ResultItem[]>(() => {
         desc: c.description ?? undefined,
         group: t('search.groupConcepts'),
         action: () => {
-          const pid = projectStore.currentProject?.id
-          const oid = orgStore.currentOrg?.id
-          if (oid && pid) router.push(`/orgs/${oid}/projects/${pid}/concepts`)
+          const pid = projectStore.currentProject?.id;
+          const oid = orgStore.currentOrg?.id;
+          if (oid && pid) router.push(`/orgs/${oid}/projects/${pid}/concepts`);
         },
-      })
+      });
     }
   }
 
-  return items.slice(0, 20)
-})
+  return items.slice(0, 20);
+});
 
 // Group results for display
 const groups = computed(() => {
-  const map = new Map<string, ResultItem[]>()
+  const map = new Map<string, ResultItem[]>();
   for (const item of results.value) {
-    if (!map.has(item.group)) map.set(item.group, [])
-    map.get(item.group)!.push(item)
+    if (!map.has(item.group)) map.set(item.group, []);
+    map.get(item.group)!.push(item);
   }
-  return map
-})
+  return map;
+});
 
 // Flat list for keyboard nav
-const flatItems = computed(() => results.value)
+const flatItems = computed(() => results.value);
 
 function open() {
-  visible.value = true
-  query.value = ''
-  selectedIdx.value = 0
-  nextTick(() => inputRef.value?.focus())
+  visible.value = true;
+  query.value = '';
+  selectedIdx.value = 0;
+  nextTick(() => inputRef.value?.focus());
 }
 
 function close() {
-  visible.value = false
+  visible.value = false;
 }
 
 function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault()
-    visible.value ? close() : open()
+    e.preventDefault();
+    visible.value ? close() : open();
   }
 }
 
 function onPaletteKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    close()
+    close();
   } else if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    selectedIdx.value = Math.min(selectedIdx.value + 1, flatItems.value.length - 1)
+    e.preventDefault();
+    selectedIdx.value = Math.min(selectedIdx.value + 1, flatItems.value.length - 1);
   } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    selectedIdx.value = Math.max(selectedIdx.value - 1, 0)
+    e.preventDefault();
+    selectedIdx.value = Math.max(selectedIdx.value - 1, 0);
   } else if (e.key === 'Enter') {
-    const item = flatItems.value[selectedIdx.value]
+    const item = flatItems.value[selectedIdx.value];
     if (item) {
-      item.action()
-      close()
+      item.action();
+      close();
     }
   }
 }
 
-watch(query, () => { selectedIdx.value = 0 })
+watch(query, () => {
+  selectedIdx.value = 0;
+});
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 </script>
 
 <template>
@@ -176,7 +184,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 :key="item.id"
                 class="palette-item"
                 :class="{ 'is-selected': flatItems.indexOf(item) === selectedIdx }"
-                @click="item.action(); close()"
+                @click="
+                  item.action();
+                  close();
+                "
                 @mouseenter="selectedIdx = flatItems.indexOf(item)"
               >
                 <span class="palette-item__label">{{ item.label }}</span>

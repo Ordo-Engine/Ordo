@@ -582,12 +582,17 @@ impl OrdoService for OrdoGrpcService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::AuditLogger;
+    use crate::capability_registry::build_server_executor;
+    use crate::metrics::PrometheusMetricSink;
     use crate::rate_limiter::RateLimiter;
     use crate::tenant::{TenantDefaults, TenantManager};
 
     async fn create_test_service() -> OrdoGrpcService {
         let store = Arc::new(RwLock::new(RuleStore::new()));
-        let executor = Arc::new(RuleExecutor::new());
+        let metric_sink = Arc::new(PrometheusMetricSink::new());
+        let audit_logger = Arc::new(AuditLogger::new(None, 0));
+        let executor = build_server_executor(metric_sink, Some(audit_logger));
         let defaults = TenantDefaults {
             default_qps_limit: Some(1000),
             default_burst_limit: Some(100),

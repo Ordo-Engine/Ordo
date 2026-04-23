@@ -4,12 +4,7 @@
  * 决策步骤编辑器
  */
 import { computed } from 'vue';
-import type {
-  DecisionStep,
-  Branch,
-  Step,
-  SchemaContext,
-} from '@ordo-engine/editor-core';
+import type { DecisionStep, Branch, Step, SchemaContext } from '@ordo-engine/editor-core';
 import { Condition as ConditionFactory, Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoConditionBuilder from '../base/OrdoConditionBuilder.vue';
 import OrdoSmartConditionBuilder from '../base/OrdoSmartConditionBuilder.vue';

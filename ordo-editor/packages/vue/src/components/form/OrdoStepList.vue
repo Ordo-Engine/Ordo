@@ -45,8 +45,10 @@ const expandedGroups = ref<Set<string>>(new Set(['ungrouped']));
 const expandedSteps = ref<Set<string>>(new Set());
 
 // Get groups from ruleset
-const groups = computed(() => Array.isArray(props.modelValue.groups) ? props.modelValue.groups : []);
-const steps = computed(() => Array.isArray(props.modelValue.steps) ? props.modelValue.steps : []);
+const groups = computed(() =>
+  Array.isArray(props.modelValue.groups) ? props.modelValue.groups : []
+);
+const steps = computed(() => (Array.isArray(props.modelValue.steps) ? props.modelValue.steps : []));
 
 // Get steps organized by group
 const stepsInGroups = computed(() => {

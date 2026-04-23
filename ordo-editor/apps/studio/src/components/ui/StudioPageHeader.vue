@@ -1,13 +1,13 @@
 <script setup lang="ts">
 const props = withDefaults(
   defineProps<{
-    title: string
-    subtitle?: string
+    title: string;
+    subtitle?: string;
   }>(),
   {
     subtitle: '',
-  },
-)
+  }
+);
 </script>
 
 <template>

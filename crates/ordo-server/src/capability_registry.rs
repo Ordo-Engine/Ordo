@@ -158,7 +158,7 @@ pub fn invoke_http_json(
 
     let mut request = CapabilityRequest::new(
         "network.http",
-        method.to_ascii_lowercase(),
+        method.to_ascii_uppercase(),
         Value::object(payload),
     );
     if let Some(timeout_ms) = timeout_ms {

@@ -352,7 +352,7 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
     // Pair each instance with its server
     let pairs: Vec<_> = instances
         .into_iter()
-        .zip(bound_servers.into_iter())
+        .zip(bound_servers)
         .collect();
     let total_batches = pairs.len().div_ceil(batch_size);
 

@@ -54,9 +54,7 @@ pub struct AuthResponse {
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 /// GET /api/v1/system/config — public, returns feature flags the UI needs before login
-pub async fn system_config(
-    State(state): State<AppState>,
-) -> axum::Json<serde_json::Value> {
+pub async fn system_config(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({
         "allow_registration": state.config.allow_registration,
         "allow_org_creation": state.config.allow_org_creation,

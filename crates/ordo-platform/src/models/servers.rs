@@ -86,7 +86,10 @@ pub fn normalize_server_url(server_url: &str) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("server url '{}' is missing a host", server_url))?
         .to_ascii_lowercase();
     let port = parsed.port_or_known_default().ok_or_else(|| {
-        anyhow::anyhow!("server url '{}' is missing an explicit or default port", server_url)
+        anyhow::anyhow!(
+            "server url '{}' is missing an explicit or default port",
+            server_url
+        )
     })?;
     let scheme = parsed.scheme().to_ascii_lowercase();
     let authority = if host.contains(':') {

@@ -76,10 +76,14 @@ pub(super) fn build_release_content_diff(
             != extract_schema_len(Some(target), "outputSchema"),
         tags_changed: extract_string_array(
             baseline.and_then(|value| value.get("config").and_then(|cfg| cfg.get("tags"))),
-        ) != extract_string_array(target.get("config").and_then(|cfg| cfg.get("tags"))),
+        ) != extract_string_array(
+            target.get("config").and_then(|cfg| cfg.get("tags")),
+        ),
         description_changed: extract_optional_string(
             baseline.and_then(|value| value.get("config").and_then(|cfg| cfg.get("description"))),
-        ) != extract_optional_string(target.get("config").and_then(|cfg| cfg.get("description"))),
+        ) != extract_optional_string(
+            target.get("config").and_then(|cfg| cfg.get("description")),
+        ),
     }
 }
 

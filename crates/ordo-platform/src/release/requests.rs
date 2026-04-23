@@ -234,7 +234,10 @@ pub async fn create_release_request(
             .iter()
             .map(|user| user.display_name.clone())
             .collect(),
-        approver_emails: approver_users.iter().map(|user| user.email.clone()).collect(),
+        approver_emails: approver_users
+            .iter()
+            .map(|user| user.email.clone())
+            .collect(),
         rollout_strategy: policy.rollout_strategy.clone(),
         rollback_policy: policy.rollback_policy.clone(),
         affected_instance_count: req.affected_instance_count.unwrap_or_default(),
@@ -297,7 +300,11 @@ pub async fn create_release_request(
         .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
 
     // Notify each reviewer that their approval is requested
-    for reviewer_id in policy.approver_ids.iter().take(policy.min_approvals as usize) {
+    for reviewer_id in policy
+        .approver_ids
+        .iter()
+        .take(policy.min_approvals as usize)
+    {
         if *reviewer_id == claims.sub {
             continue;
         }

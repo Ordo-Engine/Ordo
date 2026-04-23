@@ -137,13 +137,19 @@ async fn main() -> anyhow::Result<()> {
         }
 
         match store.fail_stuck_queued_deployments().await {
-            Ok(n) if n > 0 => tracing::warn!(count = n, "Marked stuck queued deployments as failed on startup"),
+            Ok(n) if n > 0 => tracing::warn!(
+                count = n,
+                "Marked stuck queued deployments as failed on startup"
+            ),
             Ok(_) => {}
             Err(e) => tracing::warn!("fail_stuck_queued_deployments: {}", e),
         }
 
         match store.fail_stuck_active_executions().await {
-            Ok(n) if n > 0 => tracing::warn!(count = n, "Marked stuck active release executions as failed on startup"),
+            Ok(n) if n > 0 => tracing::warn!(
+                count = n,
+                "Marked stuck active release executions as failed on startup"
+            ),
             Ok(_) => {}
             Err(e) => tracing::warn!("fail_stuck_active_executions: {}", e),
         }

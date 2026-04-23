@@ -310,8 +310,13 @@ pub fn start_registry_subscriber(
                                             };
                                             // Reject if a different server already owns this token
                                             if !preserved_token.is_empty() {
-                                                match store.find_server_by_token(&preserved_token).await {
-                                                    Ok(Some(ref owner)) if owner.id != effective_server_id => {
+                                                match store
+                                                    .find_server_by_token(&preserved_token)
+                                                    .await
+                                                {
+                                                    Ok(Some(ref owner))
+                                                        if owner.id != effective_server_id =>
+                                                    {
                                                         let _ = msg.ack().await;
                                                         continue;
                                                     }
@@ -324,7 +329,9 @@ pub fn start_registry_subscriber(
                                                 url,
                                                 token: preserved_token,
                                                 org_id,
-                                                labels: serde_json::Value::Object(Default::default()),
+                                                labels: serde_json::Value::Object(
+                                                    Default::default(),
+                                                ),
                                                 version,
                                                 status: crate::models::ServerStatus::Online,
                                                 last_seen: Some(chrono::Utc::now()),
@@ -344,9 +351,7 @@ pub fn start_registry_subscriber(
                     },
                     SyncEvent::ServerHeartbeat { server_id } => {
                         if server_id.is_empty() {
-                            tracing::debug!(
-                                "Ignoring legacy server heartbeat without server_id"
-                            );
+                            tracing::debug!("Ignoring legacy server heartbeat without server_id");
                             Ok(())
                         } else {
                             store.update_server_heartbeat(&server_id).await.map(|_| ())
@@ -365,7 +370,9 @@ pub fn start_registry_subscriber(
                                 .update_release_execution_instance(
                                     &instance.id,
                                     crate::models::ReleaseInstanceStatus::Success,
-                                    message.as_deref().or(Some("Server applied release payload")),
+                                    message
+                                        .as_deref()
+                                        .or(Some("Server applied release payload")),
                                     Some("release_ack"),
                                 )
                                 .await;

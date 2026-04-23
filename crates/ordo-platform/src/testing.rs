@@ -342,23 +342,23 @@ pub async fn run_project_tests(
             req.rulesets.get(rname),
             req.include_trace,
         )
-            .await
-            .unwrap_or_else(|_| {
-                tests
-                    .iter()
-                    .map(|t| TestRunResult {
-                        test_id: t.id.clone(),
-                        test_name: t.name.clone(),
-                        passed: false,
-                        failures: vec!["engine error".to_string()],
-                        duration_us: 0,
-                        actual_code: None,
-                        actual_message: None,
-                        actual_output: None,
-                        trace: None,
-                    })
-                    .collect()
-            });
+        .await
+        .unwrap_or_else(|_| {
+            tests
+                .iter()
+                .map(|t| TestRunResult {
+                    test_id: t.id.clone(),
+                    test_name: t.name.clone(),
+                    passed: false,
+                    failures: vec!["engine error".to_string()],
+                    duration_us: 0,
+                    actual_code: None,
+                    actual_message: None,
+                    actual_output: None,
+                    trace: None,
+                })
+                .collect()
+        });
 
         let r_total = results.len() as u32;
         let r_passed = results.iter().filter(|r| r.passed).count() as u32;
@@ -464,10 +464,13 @@ async fn execute_tests(
     provided_ruleset: Option<&JsonValue>,
     include_trace: bool,
 ) -> ApiResult<Vec<TestRunResult>> {
-    let ruleset_json = resolve_execution_ruleset(state, project_id, ruleset_name, provided_ruleset)
-        .await?;
+    let ruleset_json =
+        resolve_execution_ruleset(state, project_id, ruleset_name, provided_ruleset).await?;
     let ruleset = compile_ruleset(&ruleset_json).map_err(|e| {
-        PlatformError::bad_request(format!("Failed to compile ruleset for test execution: {}", e))
+        PlatformError::bad_request(format!(
+            "Failed to compile ruleset for test execution: {}",
+            e
+        ))
     })?;
     let executor = RuleExecutor::new();
     let mut results = Vec::with_capacity(tests.len());
@@ -619,7 +622,10 @@ fn compare_expectation(
     }
 
     if let Some(expected_output) = &expect.output {
-        match (expected_output.as_object(), actual_output.and_then(JsonValue::as_object)) {
+        match (
+            expected_output.as_object(),
+            actual_output.and_then(JsonValue::as_object),
+        ) {
             (Some(expected_fields), Some(actual_fields)) => {
                 for (key, expected_val) in expected_fields {
                     match actual_fields.get(key) {
@@ -663,7 +669,11 @@ fn json_string(value: &JsonValue) -> String {
 fn map_trace(trace: &ExecutionTrace) -> TestExecutionTrace {
     TestExecutionTrace {
         trace_id: trace.trace_id.clone(),
-        path: trace.steps.iter().map(|step| step.step_id.clone()).collect(),
+        path: trace
+            .steps
+            .iter()
+            .map(|step| step.step_id.clone())
+            .collect(),
         path_string: trace.path_string(),
         result_code: trace.result_code.clone(),
         total_duration_us: trace.total_duration_us,

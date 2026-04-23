@@ -306,11 +306,10 @@ impl PlatformStore {
     /// A queued deployment means the platform crashed after persisting the record
     /// but before publishing to NATS.
     pub async fn fail_stuck_queued_deployments(&self) -> Result<u64> {
-        let result = sqlx::query(
-            "UPDATE ruleset_deployments SET status = 'failed' WHERE status = 'queued'",
-        )
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE ruleset_deployments SET status = 'failed' WHERE status = 'queued'")
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected())
     }
 

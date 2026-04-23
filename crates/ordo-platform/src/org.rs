@@ -92,7 +92,8 @@ pub async fn create_org(
 
     let (parent_org_id, depth) = if let Some(ref pid) = req.parent_org_id {
         // Sub-org: caller must be Admin+ in the parent org.
-        let parent = load_org_and_check_role(&state, pid, &claims.sub, crate::models::Role::Admin).await?;
+        let parent =
+            load_org_and_check_role(&state, pid, &claims.sub, crate::models::Role::Admin).await?;
         if parent.depth >= 1 {
             return Err(PlatformError::bad_request(
                 "Organization hierarchy is limited to two levels. Cannot create a sub-org under another sub-org.",
@@ -267,7 +268,11 @@ pub async fn update_org(
         .count_projects(&org.id)
         .await
         .map_err(PlatformError::Internal)? as usize;
-    Ok(Json(OrgResponse::from_org(&org, child_count, project_count)))
+    Ok(Json(OrgResponse::from_org(
+        &org,
+        child_count,
+        project_count,
+    )))
 }
 
 /// DELETE /api/v1/orgs/:id — delete org (owner only)

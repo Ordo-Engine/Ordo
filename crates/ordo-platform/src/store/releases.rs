@@ -522,7 +522,8 @@ impl PlatformStore {
         .bind(target_instance_id)
         .fetch_optional(&self.pool)
         .await?;
-        row.map(|r| row_to_release_execution_instance(&r)).transpose()
+        row.map(|r| row_to_release_execution_instance(&r))
+            .transpose()
     }
 
     pub async fn list_release_execution_instances(

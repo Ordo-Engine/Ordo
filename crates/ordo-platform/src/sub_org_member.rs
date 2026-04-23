@@ -56,7 +56,9 @@ pub async fn list_sub_org_members(
 ) -> ApiResult<Json<Vec<MemberResponse>>> {
     load_org_and_check_role(&state, &parent_id, &claims.sub, Role::Admin).await?;
     let sub_org = load_sub_org(&state, &parent_id, &sub_id).await?;
-    Ok(Json(sub_org.members.iter().map(MemberResponse::from).collect()))
+    Ok(Json(
+        sub_org.members.iter().map(MemberResponse::from).collect(),
+    ))
 }
 
 /// POST /api/v1/orgs/:parent_id/sub-orgs/:sub_id/members
@@ -92,9 +94,7 @@ pub async fn add_sub_org_member(
         .iter()
         .find(|m| m.user_id == req.user_id)
         .ok_or_else(|| {
-            PlatformError::bad_request(
-                "User must be a member of the parent organization",
-            )
+            PlatformError::bad_request("User must be a member of the parent organization")
         })?;
 
     // Reject if already in sub-org

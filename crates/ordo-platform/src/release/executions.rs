@@ -141,7 +141,9 @@ pub async fn execute_release_request(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Environment not found"))?;
     if env.server_ids.is_empty() {
-        return Err(PlatformError::bad_request("Environment has no bound server"));
+        return Err(PlatformError::bad_request(
+            "Environment has no bound server",
+        ));
     }
     let mut bound_servers = Vec::new();
     for server_id in &env.server_ids {
@@ -163,7 +165,7 @@ pub async fn execute_release_request(
     let strategy = release.request_snapshot.rollout_strategy.clone();
     let total_instances = bound_servers.len();
     let batch_size = compute_batch_size(&strategy, total_instances);
-    let total_batches = (total_instances + batch_size - 1) / batch_size;
+    let total_batches = total_instances.div_ceil(batch_size);
 
     let execution_id = Uuid::new_v4().to_string();
 
@@ -242,11 +244,11 @@ pub async fn execute_release_request(
         deployed_by: claims.sub.clone(),
         deployer_email: deployer.as_ref().map(|u| u.email.clone()),
         deployer_display_name: deployer.as_ref().map(|u| u.display_name.clone()),
-        auto_rollback: release
-            .request_snapshot
-            .rollback_policy
-            .auto_rollback,
-        rollback_version: release.version_diff.rollback_version.clone()
+        auto_rollback: release.request_snapshot.rollback_policy.auto_rollback,
+        rollback_version: release
+            .version_diff
+            .rollback_version
+            .clone()
             .or_else(|| release.rollback_version.clone()),
         release_note: release.release_note.clone(),
     };
@@ -348,8 +350,11 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
     let batch_size = compute_batch_size(&strategy, instances.len());
     let interval_secs = batch_interval_secs(&strategy);
     // Pair each instance with its server
-    let pairs: Vec<_> = instances.into_iter().zip(bound_servers.into_iter()).collect();
-    let total_batches = (pairs.len() + batch_size - 1) / batch_size;
+    let pairs: Vec<_> = instances
+        .into_iter()
+        .zip(bound_servers.into_iter())
+        .collect();
+    let total_batches = pairs.len().div_ceil(batch_size);
 
     let mut failed = false;
     let mut terminal_batch = 0;
@@ -360,6 +365,7 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
         let batch_start = std::time::Instant::now();
 
         // Honour pause: spin-wait until resumed or terminal
+        #[allow(clippy::while_let_loop)]
         loop {
             match state.store.get_release_execution(&execution_id).await {
                 Ok(Some(exec)) => match exec.status {
@@ -399,7 +405,10 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
             )
             .await
         {
-            error!(execution_id, "Failed to update execution status to RollingOut: {e}");
+            error!(
+                execution_id,
+                "Failed to update execution status to RollingOut: {e}"
+            );
             failed = true;
             break 'batches;
         }
@@ -457,7 +466,10 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
                                 "duration_ms": duration_ms,
                                 "applied_at": chrono::Utc::now().to_rfc3339(),
                             });
-                            let _ = state.store.update_execution_instance_metric_summary(&inst.id, summary).await;
+                            let _ = state
+                                .store
+                                .update_execution_instance_metric_summary(&inst.id, summary)
+                                .await;
                         }
                     }
                     Err(err) => {
@@ -545,7 +557,17 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
         if auto_rollback {
             if let Some(rb_version) = &rollback_version {
                 info!(execution_id, rollback_version = %rb_version, "Starting auto-rollback");
-                let _ = trigger_auto_rollback(&state, &execution_id, &env, &project_id, &release_id, &ruleset_name, rb_version, &deployed_by).await;
+                let _ = trigger_auto_rollback(
+                    &state,
+                    &execution_id,
+                    &env,
+                    &project_id,
+                    &release_id,
+                    &ruleset_name,
+                    rb_version,
+                    &deployed_by,
+                )
+                .await;
             }
         }
         return;
@@ -568,7 +590,10 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
         .set_release_request_status(&release_id, ReleaseRequestStatus::Completed)
         .await
     {
-        error!(execution_id, "Failed to mark release request Completed: {e}");
+        error!(
+            execution_id,
+            "Failed to mark release request Completed: {e}"
+        );
     }
     if let Err(e) = state
         .store
@@ -609,9 +634,13 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
         .append_ruleset_history(&org_id, &project_id, &ruleset_name, &[entry])
         .await;
 
-    info!(execution_id, "Rolling deployment completed ({} batch(es))", total_batches);
+    info!(
+        execution_id,
+        "Rolling deployment completed ({} batch(es))", total_batches
+    );
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn trigger_auto_rollback(
     state: &AppState,
     execution_id: &str,
@@ -634,7 +663,10 @@ async fn trigger_auto_rollback(
         });
 
     let Some(rb) = rollback_deployment else {
-        warn!(execution_id, "Auto-rollback: snapshot not found for version {}", rollback_version);
+        warn!(
+            execution_id,
+            "Auto-rollback: snapshot not found for version {}", rollback_version
+        );
         return Err(anyhow::anyhow!("Rollback snapshot not found"));
     };
 
@@ -661,14 +693,33 @@ async fn trigger_auto_rollback(
 
     match push_result {
         Ok(()) => {
-            let _ = state.store.mark_ruleset_published(project_id, ruleset_name, rollback_version).await;
-            let _ = state.store.update_release_execution_status(execution_id, ReleaseExecutionStatus::Completed, None).await;
-            let _ = state.store.set_release_request_status(release_id, ReleaseRequestStatus::RolledBack).await;
-            info!(execution_id, "Auto-rollback to {} succeeded", rollback_version);
+            let _ = state
+                .store
+                .mark_ruleset_published(project_id, ruleset_name, rollback_version)
+                .await;
+            let _ = state
+                .store
+                .update_release_execution_status(
+                    execution_id,
+                    ReleaseExecutionStatus::Completed,
+                    None,
+                )
+                .await;
+            let _ = state
+                .store
+                .set_release_request_status(release_id, ReleaseRequestStatus::RolledBack)
+                .await;
+            info!(
+                execution_id,
+                "Auto-rollback to {} succeeded", rollback_version
+            );
         }
         Err(err) => {
             warn!(execution_id, "Auto-rollback failed: {}", err);
-            let _ = state.store.update_release_execution_status(execution_id, ReleaseExecutionStatus::Failed, None).await;
+            let _ = state
+                .store
+                .update_release_execution_status(execution_id, ReleaseExecutionStatus::Failed, None)
+                .await;
         }
     }
     Ok(())
@@ -1052,6 +1103,7 @@ async fn control_release_execution(
     Ok(Json(updated))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn publish_release_via_nats(
     state: &AppState,
     env: &crate::models::ProjectEnvironment,

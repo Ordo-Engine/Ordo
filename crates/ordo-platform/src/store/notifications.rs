@@ -16,6 +16,7 @@ fn row_to_notification(r: &sqlx::postgres::PgRow) -> Result<PlatformNotification
 }
 
 impl PlatformStore {
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_notification(
         &self,
         id: &str,

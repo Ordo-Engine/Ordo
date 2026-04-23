@@ -65,7 +65,8 @@ pub async fn register_server(
             return Err(PlatformError::unauthorized("Invalid registration secret"));
         }
     }
-    if req.server_id.is_empty() || req.token.is_empty() || req.url.is_empty() || req.name.is_empty() {
+    if req.server_id.is_empty() || req.token.is_empty() || req.url.is_empty() || req.name.is_empty()
+    {
         return Err(PlatformError::bad_request(
             "server_id, name, url and token are required",
         ));

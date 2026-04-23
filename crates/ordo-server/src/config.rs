@@ -362,7 +362,10 @@ pub struct ServerConfig {
 
     /// Platform-wide registration secret required by the platform's internal register endpoint.
     /// Must match `ORDO_PLATFORM_REGISTRATION_SECRET` on the platform side.
-    #[arg(long = "platform-registration-secret", env = "ORDO_PLATFORM_REGISTRATION_SECRET")]
+    #[arg(
+        long = "platform-registration-secret",
+        env = "ORDO_PLATFORM_REGISTRATION_SECRET"
+    )]
     pub platform_registration_secret: Option<String>,
 
     /// Public HTTP URL of this server as reachable by the platform.
@@ -411,7 +414,10 @@ impl ServerConfig {
             .ok_or_else(|| anyhow::anyhow!("server url '{}' is missing a host", server_url))?
             .to_ascii_lowercase();
         let port = parsed.port_or_known_default().ok_or_else(|| {
-            anyhow::anyhow!("server url '{}' is missing an explicit or default port", server_url)
+            anyhow::anyhow!(
+                "server url '{}' is missing an explicit or default port",
+                server_url
+            )
         })?;
         let scheme = parsed.scheme().to_ascii_lowercase();
         let authority = if host.contains(':') {

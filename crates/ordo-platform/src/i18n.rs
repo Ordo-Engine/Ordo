@@ -412,19 +412,15 @@ fn translate_known_error(status: StatusCode, message: &str, locale: Locale) -> O
             "你不是该发布单的指定审批人",
             "你不是該發佈單的指定審批人",
         ),
-        (
-            StatusCode::CONFLICT,
-            "Cross-version rollback requires an approved release request",
-        ) => tr(
-            locale,
-            "Cross-version rollback requires an approved release request",
-            "跨版本回退需要先走审批后的发布单",
-            "跨版本回退需要先經過審批的發佈單",
-        ),
-        (
-            StatusCode::CONFLICT,
-            "Published ruleset changes require a new version number",
-        ) => tr(
+        (StatusCode::CONFLICT, "Cross-version rollback requires an approved release request") => {
+            tr(
+                locale,
+                "Cross-version rollback requires an approved release request",
+                "跨版本回退需要先走审批后的发布单",
+                "跨版本回退需要先經過審批的發佈單",
+            )
+        }
+        (StatusCode::CONFLICT, "Published ruleset changes require a new version number") => tr(
             locale,
             "Published ruleset changes require a new version number",
             "已发布版本继续修改前必须先更新版本号",

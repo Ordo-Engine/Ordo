@@ -270,7 +270,7 @@ impl NatsSubscriber {
                     release_execution_id.as_deref(),
                     target_server_ids.as_deref(),
                 )
-                    .await
+                .await
             }
             SyncEvent::RuleDeleted { tenant_id, name } => {
                 self.apply_rule_deleted(tenant_id, name).await
@@ -317,15 +317,13 @@ impl NatsSubscriber {
                 if existing.config.version == *version {
                     if let Some(execution_id) = release_execution_id {
                         if let Err(e) = self
-                            .publish_release_feedback(
-                                SyncEvent::ReleaseExecutionAck {
-                                    execution_id: execution_id.to_string(),
-                                    server_id: self.server_id.clone(),
-                                    message: Some(
-                                        "Ruleset version already present on target server".to_string(),
-                                    ),
-                                },
-                            )
+                            .publish_release_feedback(SyncEvent::ReleaseExecutionAck {
+                                execution_id: execution_id.to_string(),
+                                server_id: self.server_id.clone(),
+                                message: Some(
+                                    "Ruleset version already present on target server".to_string(),
+                                ),
+                            })
                             .await
                         {
                             warn!(

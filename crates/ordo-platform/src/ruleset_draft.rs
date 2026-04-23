@@ -208,18 +208,21 @@ pub async fn trace_draft(
     let output: serde_json::Value = serde_json::to_value(&result.output)
         .unwrap_or(serde_json::Value::Object(Default::default()));
 
-    let trace = result.trace.as_ref().map(|t: &ExecutionTrace| TraceResponseTrace {
-        path: t.path_string(),
-        steps: t
-            .steps
-            .iter()
-            .map(|s| TraceResponseStep {
-                id: s.step_id.clone(),
-                name: s.step_name.clone(),
-                duration_us: s.duration_us,
-            })
-            .collect(),
-    });
+    let trace = result
+        .trace
+        .as_ref()
+        .map(|t: &ExecutionTrace| TraceResponseTrace {
+            path: t.path_string(),
+            steps: t
+                .steps
+                .iter()
+                .map(|s| TraceResponseStep {
+                    id: s.step_id.clone(),
+                    name: s.step_name.clone(),
+                    duration_us: s.duration_us,
+                })
+                .collect(),
+        });
 
     Ok(Json(TraceResponse {
         code: result.code,

@@ -1,20 +1,20 @@
-import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { defineStore } from 'pinia';
+import { computed, ref } from 'vue';
 
-export type NotifType = 'success' | 'error' | 'warning' | 'info'
+export type NotifType = 'success' | 'error' | 'warning' | 'info';
 
 export interface Notification {
-  id: string
-  type: NotifType
-  title: string
-  message?: string
-  timestamp: Date
-  read: boolean
+  id: string;
+  type: NotifType;
+  title: string;
+  message?: string;
+  timestamp: Date;
+  read: boolean;
 }
 
 export const useNotificationStore = defineStore('notification', () => {
-  const notifications = ref<Notification[]>([])
-  const unreadCount = computed(() => notifications.value.filter((n) => !n.read).length)
+  const notifications = ref<Notification[]>([]);
+  const unreadCount = computed(() => notifications.value.filter((n) => !n.read).length);
 
   function push(type: NotifType, title: string, message?: string) {
     notifications.value.unshift({
@@ -24,17 +24,17 @@ export const useNotificationStore = defineStore('notification', () => {
       message,
       timestamp: new Date(),
       read: false,
-    })
-    if (notifications.value.length > 50) notifications.value.pop()
+    });
+    if (notifications.value.length > 50) notifications.value.pop();
   }
 
   function markAllRead() {
-    notifications.value.forEach((n) => (n.read = true))
+    notifications.value.forEach((n) => (n.read = true));
   }
 
   function clear() {
-    notifications.value = []
+    notifications.value = [];
   }
 
-  return { notifications, unreadCount, push, markAllRead, clear }
-})
+  return { notifications, unreadCount, push, markAllRead, clear };
+});

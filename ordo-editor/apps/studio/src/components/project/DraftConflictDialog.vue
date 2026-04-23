@@ -33,22 +33,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { RuleSet } from '@ordo-engine/editor-core'
-import { StudioDialogActions } from '@/components/ui'
+import { computed } from 'vue';
+import type { RuleSet } from '@ordo-engine/editor-core';
+import { StudioDialogActions } from '@/components/ui';
 
 const props = defineProps<{
-  localDraft: RuleSet
-  serverDraft: RuleSet
-}>()
+  localDraft: RuleSet;
+  serverDraft: RuleSet;
+}>();
 
 defineEmits<{
-  (e: 'useLocal'): void
-  (e: 'useServer'): void
-}>()
+  (e: 'useLocal'): void;
+  (e: 'useServer'): void;
+}>();
 
-const localJson = computed(() => JSON.stringify(props.localDraft, null, 2))
-const serverJson = computed(() => JSON.stringify(props.serverDraft, null, 2))
+const localJson = computed(() => JSON.stringify(props.localDraft, null, 2));
+const serverJson = computed(() => JSON.stringify(props.serverDraft, null, 2));
 </script>
 
 <style scoped>

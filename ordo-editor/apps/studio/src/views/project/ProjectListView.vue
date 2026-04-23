@@ -1,93 +1,97 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { useProjectStore } from '@/stores/project'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import CreateFromTemplateDialog from '@/components/project/CreateFromTemplateDialog.vue'
-import type { Project } from '@/api/types'
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { useProjectStore } from '@/stores/project';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import CreateFromTemplateDialog from '@/components/project/CreateFromTemplateDialog.vue';
+import type { Project } from '@/api/types';
 
-const router = useRouter()
-const route = useRoute()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const projectStore = useProjectStore()
-const { t, locale } = useI18n()
+const router = useRouter();
+const route = useRoute();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const projectStore = useProjectStore();
+const { t, locale } = useI18n();
 
-const orgId = computed(() => route.params.orgId as string)
+const orgId = computed(() => route.params.orgId as string);
 
-const showCreate = ref(false)
-const showTemplateDialog = ref(false)
-const creating = ref(false)
-const newName = ref('')
-const newDesc = ref('')
+const showCreate = ref(false);
+const showTemplateDialog = ref(false);
+const creating = ref(false);
+const newName = ref('');
+const newDesc = ref('');
 
 async function handleTemplateCreated(p: Project) {
-  projectStore.projects.unshift(p)
-  MessagePlugin.success(t('template.createSuccess'))
-  await openProject(p.id)
+  projectStore.projects.unshift(p);
+  MessagePlugin.success(t('template.createSuccess'));
+  await openProject(p.id);
 }
 
 const isAdmin = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
-})
+  if (!auth.user) return false;
+  return orgStore.canAdmin(auth.user.id);
+});
 
 onMounted(async () => {
   // On refresh, orgId comes from the URL — ensure the org is selected
   if (orgId.value && orgStore.currentOrg?.id !== orgId.value) {
-    await orgStore.selectOrg(orgId.value)
+    await orgStore.selectOrg(orgId.value);
   }
-  await projectStore.fetchProjects(orgId.value)
-})
+  await projectStore.fetchProjects(orgId.value);
+});
 
 watch(
   () => route.query.openTemplate,
   (value) => {
     if (value === '1' && isAdmin.value) {
-      showTemplateDialog.value = true
+      showTemplateDialog.value = true;
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 async function handleCreate() {
   if (!newName.value.trim()) {
-    MessagePlugin.warning(t('project.nameRequired'))
-    return
+    MessagePlugin.warning(t('project.nameRequired'));
+    return;
   }
-  if (!orgStore.currentOrg) return
-  creating.value = true
+  if (!orgStore.currentOrg) return;
+  creating.value = true;
   try {
-    const p = await projectStore.createProject(orgStore.currentOrg.id, newName.value.trim(), newDesc.value || undefined)
-    showCreate.value = false
-    newName.value = ''
-    newDesc.value = ''
-    MessagePlugin.success(t('project.createSuccess'))
-    await openProject(p.id)
+    const p = await projectStore.createProject(
+      orgStore.currentOrg.id,
+      newName.value.trim(),
+      newDesc.value || undefined
+    );
+    showCreate.value = false;
+    newName.value = '';
+    newDesc.value = '';
+    MessagePlugin.success(t('project.createSuccess'));
+    await openProject(p.id);
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    creating.value = false
+    creating.value = false;
   }
 }
 
 async function openProject(projectId: string) {
-  const p = projectStore.projects.find((p) => p.id === projectId)
-  if (!p) return
-  await projectStore.selectProject(p)
-  router.push(`/orgs/${orgId.value}/projects/${projectId}/editor`)
+  const p = projectStore.projects.find((p) => p.id === projectId);
+  if (!p) return;
+  await projectStore.selectProject(p);
+  router.push(`/orgs/${orgId.value}/projects/${projectId}/editor`);
 }
 
 function goToMarketplace() {
-  router.push('/marketplace')
+  router.push('/marketplace');
 }
 
 function handleDelete(projectId: string, name: string) {
-  if (!orgStore.currentOrg) return
-  const orgId = orgStore.currentOrg.id
+  if (!orgStore.currentOrg) return;
+  const orgId = orgStore.currentOrg.id;
   const dlg = DialogPlugin.confirm({
     header: t('project.deleteDialog'),
     body: t('project.deleteConfirm', { name }),
@@ -95,21 +99,21 @@ function handleDelete(projectId: string, name: string) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await projectStore.deleteProject(orgId, projectId)
-        dlg.hide()
-        MessagePlugin.success(t('project.deleteSuccess'))
+        await projectStore.deleteProject(orgId, projectId);
+        dlg.hide();
+        MessagePlugin.success(t('project.deleteSuccess'));
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(
     locale.value === 'zh-TW' ? 'zh-TW' : locale.value === 'zh-CN' ? 'zh-CN' : 'en-US',
-    { year: 'numeric', month: 'short', day: 'numeric' },
-  )
+    { year: 'numeric', month: 'short', day: 'numeric' }
+  );
 }
 </script>
 
@@ -140,18 +144,22 @@ function formatDate(iso: string) {
 
     <!-- Loading -->
     <div v-if="projectStore.loading" class="project-skeleton-grid">
-      <t-skeleton v-for="i in 4" :key="i" theme="paragraph" animation="gradient"
-        :row-col="[{ width: '50%' }, { width: '70%' }, { width: '40%' }]" />
+      <t-skeleton
+        v-for="i in 4"
+        :key="i"
+        theme="paragraph"
+        animation="gradient"
+        :row-col="[{ width: '50%' }, { width: '70%' }, { width: '40%' }]"
+      />
     </div>
 
     <!-- Empty -->
     <div v-else-if="projectStore.projects.length === 0" class="state-center">
-      <t-empty
-        :title="t('project.emptyTitle')"
-        :description="t('project.emptyDesc')"
-      >
+      <t-empty :title="t('project.emptyTitle')" :description="t('project.emptyDesc')">
         <template #action>
-          <t-button v-if="isAdmin" theme="primary" @click="showCreate = true">{{ t('project.createBtn') }}</t-button>
+          <t-button v-if="isAdmin" theme="primary" @click="showCreate = true">{{
+            t('project.createBtn')
+          }}</t-button>
         </template>
       </t-empty>
     </div>
@@ -274,7 +282,9 @@ function formatDate(iso: string) {
   border-radius: var(--ordo-radius-lg);
   padding: 20px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
   display: flex;
   flex-direction: column;
   gap: 8px;

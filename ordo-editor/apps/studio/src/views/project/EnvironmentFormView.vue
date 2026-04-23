@@ -1,30 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import type { ProjectEnvironment, ServerInfo } from '@/api/types'
-import { useEnvironmentStore } from '@/stores/environment'
-import { useServerStore } from '@/stores/server'
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import type { ProjectEnvironment, ServerInfo } from '@/api/types';
+import { useEnvironmentStore } from '@/stores/environment';
+import { useServerStore } from '@/stores/server';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const envStore = useEnvironmentStore()
-const serverStore = useServerStore()
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const envStore = useEnvironmentStore();
+const serverStore = useServerStore();
 
-const orgId = route.params.orgId as string
-const projectId = route.params.projectId as string
-const envId = computed(() => route.params.envId as string | undefined)
-const isEdit = computed(() => !!envId.value)
+const orgId = route.params.orgId as string;
+const projectId = route.params.projectId as string;
+const envId = computed(() => route.params.envId as string | undefined);
+const isEdit = computed(() => !!envId.value);
 
-const loading = ref(true)
-const saving = ref(false)
-const environment = ref<ProjectEnvironment | null>(null)
-const serverKeyword = ref('')
-const serverFilter = ref<'healthy' | 'all'>('healthy')
-const natsPrefixTouched = ref(false)
-const lastSelectedServerId = ref<string | null>(null)
+const loading = ref(true);
+const saving = ref(false);
+const environment = ref<ProjectEnvironment | null>(null);
+const serverKeyword = ref('');
+const serverFilter = ref<'healthy' | 'all'>('healthy');
+const natsPrefixTouched = ref(false);
+const lastSelectedServerId = ref<string | null>(null);
 
 const form = ref({
   name: '',
@@ -32,25 +32,25 @@ const form = ref({
   nats_subject_prefix: '',
   canary_target_env_id: '',
   canary_percentage: 0,
-})
+});
 
 const availableCanaryTargets = computed(() =>
   envStore.environments
     .filter((env) => env.id !== envId.value)
-    .map((env) => ({ label: env.name, value: env.id })),
-)
+    .map((env) => ({ label: env.name, value: env.id }))
+);
 
 const selectedServers = computed(() =>
   form.value.server_ids
     .map((id) => serverStore.getById(id))
-    .filter((server): server is ServerInfo => !!server),
-)
+    .filter((server): server is ServerInfo => !!server)
+);
 
 const visibleServers = computed(() => {
-  const query = serverKeyword.value.trim().toLowerCase()
+  const query = serverKeyword.value.trim().toLowerCase();
   return serverStore.servers.filter((server) => {
-    if (serverFilter.value === 'healthy' && server.status === 'offline') return false
-    if (!query) return true
+    if (serverFilter.value === 'healthy' && server.status === 'offline') return false;
+    if (!query) return true;
     const haystack = [
       server.name,
       server.url,
@@ -58,76 +58,79 @@ const visibleServers = computed(() => {
       ...Object.entries(server.labels).map(([key, value]) => `${key}=${value}`),
     ]
       .join(' ')
-      .toLowerCase()
-    return haystack.includes(query)
-  })
-})
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+});
 
 const tableServers = computed(() =>
-  visibleServers.value
-    .slice()
-    .sort((left, right) => {
-      const statusOrder = { online: 0, degraded: 1, offline: 2 }
-      const statusDelta = statusOrder[left.status] - statusOrder[right.status]
-      if (statusDelta !== 0) return statusDelta
-      return left.name.localeCompare(right.name)
-    }),
-)
+  visibleServers.value.slice().sort((left, right) => {
+    const statusOrder = { online: 0, degraded: 1, offline: 2 };
+    const statusDelta = statusOrder[left.status] - statusOrder[right.status];
+    if (statusDelta !== 0) return statusDelta;
+    return left.name.localeCompare(right.name);
+  })
+);
 
-const selectableVisibleCount = computed(() =>
-  tableServers.value.filter((server) => server.status !== 'offline').length,
-)
+const selectableVisibleCount = computed(
+  () => tableServers.value.filter((server) => server.status !== 'offline').length
+);
 
-const selectedVisibleCount = computed(() =>
-  tableServers.value.filter((server) => server.status !== 'offline' && isSelected(server.id)).length,
-)
+const selectedVisibleCount = computed(
+  () =>
+    tableServers.value.filter((server) => server.status !== 'offline' && isSelected(server.id))
+      .length
+);
 
-const allVisibleSelected = computed(() =>
-  selectableVisibleCount.value > 0 && selectedVisibleCount.value === selectableVisibleCount.value,
-)
+const allVisibleSelected = computed(
+  () =>
+    selectableVisibleCount.value > 0 && selectedVisibleCount.value === selectableVisibleCount.value
+);
 
 const selectedSummary = computed(() => {
-  if (selectedServers.value.length === 0) return t('environment.selectionEmpty')
-  const names = selectedServers.value.slice(0, 3).map((server) => server.name)
-  const extra = selectedServers.value.length - names.length
-  return extra > 0 ? `${names.join(', ')} +${extra}` : names.join(', ')
-})
+  if (selectedServers.value.length === 0) return t('environment.selectionEmpty');
+  const names = selectedServers.value.slice(0, 3).map((server) => server.name);
+  const extra = selectedServers.value.length - names.length;
+  return extra > 0 ? `${names.join(', ')} +${extra}` : names.join(', ');
+});
 
 const degradedSelectedServers = computed(() =>
-  selectedServers.value.filter((server) => server.status === 'degraded'),
-)
+  selectedServers.value.filter((server) => server.status === 'degraded')
+);
 
 const mismatchedSelectedServers = computed(() => {
-  const targetTier = inferTier(form.value.name)
-  if (!targetTier) return []
+  const targetTier = inferTier(form.value.name);
+  if (!targetTier) return [];
   return selectedServers.value.filter((server) => {
-    const serverTier = inferTier([
-      server.name,
-      server.url,
-      ...Object.entries(server.labels).map(([key, value]) => `${key}=${value}`),
-    ].join(' '))
-    return !!serverTier && serverTier !== targetTier
-  })
-})
+    const serverTier = inferTier(
+      [
+        server.name,
+        server.url,
+        ...Object.entries(server.labels).map(([key, value]) => `${key}=${value}`),
+      ].join(' ')
+    );
+    return !!serverTier && serverTier !== targetTier;
+  });
+});
 
 function fillForm(env: ProjectEnvironment | null) {
-  environment.value = env
-  natsPrefixTouched.value = !!env?.nats_subject_prefix
+  environment.value = env;
+  natsPrefixTouched.value = !!env?.nats_subject_prefix;
   form.value = {
     name: env?.name ?? '',
     server_ids: env?.server_ids ? [...env.server_ids] : [],
     nats_subject_prefix: env?.nats_subject_prefix ?? '',
     canary_target_env_id: env?.canary_target_env_id ?? '',
     canary_percentage: env?.canary_percentage ?? 0,
-  }
+  };
 }
 
 function inferTier(input: string) {
-  const text = input.toLowerCase()
-  if (/(prod|production|生产)/.test(text)) return 'prod'
-  if (/(staging|stage|预发|預發)/.test(text)) return 'staging'
-  if (/(test|testing|dev|develop|测试|測試|开发|開發)/.test(text)) return 'dev'
-  return null
+  const text = input.toLowerCase();
+  if (/(prod|production|生产)/.test(text)) return 'prod';
+  if (/(staging|stage|预发|預發)/.test(text)) return 'staging';
+  if (/(test|testing|dev|develop|测试|測試|开发|開發)/.test(text)) return 'dev';
+  return null;
 }
 
 function slugifyEnvironmentName(input: string) {
@@ -135,171 +138,173 @@ function slugifyEnvironmentName(input: string) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return normalized || 'environment'
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'environment';
 }
 
 const suggestedNatsPrefix = computed(() => {
-  const base = `ordo.rules.${slugifyEnvironmentName(form.value.name)}`
-  const currentEnvId = envId.value
+  const base = `ordo.rules.${slugifyEnvironmentName(form.value.name)}`;
+  const currentEnvId = envId.value;
   const existing = new Set(
     envStore.environments
       .filter((env) => env.id !== currentEnvId)
       .map((env) => env.nats_subject_prefix)
-      .filter((value): value is string => !!value && value.trim().length > 0),
-  )
+      .filter((value): value is string => !!value && value.trim().length > 0)
+  );
 
-  if (!existing.has(base)) return base
+  if (!existing.has(base)) return base;
 
-  let index = 2
-  let candidate = `${base}-${index}`
+  let index = 2;
+  let candidate = `${base}-${index}`;
   while (existing.has(candidate)) {
-    index += 1
-    candidate = `${base}-${index}`
+    index += 1;
+    candidate = `${base}-${index}`;
   }
-  return candidate
-})
+  return candidate;
+});
 
 function isSelected(serverId: string) {
-  return form.value.server_ids.includes(serverId)
+  return form.value.server_ids.includes(serverId);
 }
 
 function setSelectedServers(serverIds: string[]) {
-  form.value.server_ids = Array.from(new Set(serverIds))
+  form.value.server_ids = Array.from(new Set(serverIds));
 }
 
 function toggleServer(serverId: string, range = false) {
   if (range && lastSelectedServerId.value) {
     const visibleSelectableIds = tableServers.value
       .filter((server) => server.status !== 'offline')
-      .map((server) => server.id)
-    const start = visibleSelectableIds.indexOf(lastSelectedServerId.value)
-    const end = visibleSelectableIds.indexOf(serverId)
+      .map((server) => server.id);
+    const start = visibleSelectableIds.indexOf(lastSelectedServerId.value);
+    const end = visibleSelectableIds.indexOf(serverId);
     if (start !== -1 && end !== -1) {
-      const [from, to] = start < end ? [start, end] : [end, start]
-      const rangeIds = visibleSelectableIds.slice(from, to + 1)
-      setSelectedServers([...form.value.server_ids, ...rangeIds])
-      lastSelectedServerId.value = serverId
-      return
+      const [from, to] = start < end ? [start, end] : [end, start];
+      const rangeIds = visibleSelectableIds.slice(from, to + 1);
+      setSelectedServers([...form.value.server_ids, ...rangeIds]);
+      lastSelectedServerId.value = serverId;
+      return;
     }
   }
 
-  const next = new Set(form.value.server_ids)
+  const next = new Set(form.value.server_ids);
   if (next.has(serverId)) {
-    next.delete(serverId)
+    next.delete(serverId);
   } else {
-    next.add(serverId)
+    next.add(serverId);
   }
-  setSelectedServers(Array.from(next))
-  lastSelectedServerId.value = serverId
+  setSelectedServers(Array.from(next));
+  lastSelectedServerId.value = serverId;
 }
 
 function selectVisibleServers() {
   setSelectedServers([
     ...form.value.server_ids,
-    ...tableServers.value.filter((server) => server.status !== 'offline').map((server) => server.id),
-  ])
+    ...tableServers.value
+      .filter((server) => server.status !== 'offline')
+      .map((server) => server.id),
+  ]);
 }
 
 function clearVisibleServers() {
-  const visibleIds = new Set(tableServers.value.map((server) => server.id))
-  setSelectedServers(form.value.server_ids.filter((serverId) => !visibleIds.has(serverId)))
+  const visibleIds = new Set(tableServers.value.map((server) => server.id));
+  setSelectedServers(form.value.server_ids.filter((serverId) => !visibleIds.has(serverId)));
 }
 
 function toggleVisibleServers(checked: boolean) {
   if (checked) {
-    selectVisibleServers()
+    selectVisibleServers();
   } else {
-    clearVisibleServers()
+    clearVisibleServers();
   }
 }
 
 function markNatsPrefixTouched() {
-  natsPrefixTouched.value = true
+  natsPrefixTouched.value = true;
 }
 
 function statusTheme(status: ServerInfo['status']) {
-  if (status === 'online') return 'success'
-  if (status === 'degraded') return 'warning'
-  return 'danger'
+  if (status === 'online') return 'success';
+  if (status === 'degraded') return 'warning';
+  return 'danger';
 }
 
 function statusLabel(status: ServerInfo['status']) {
-  return t(`releaseCenter.serverStatusMap.${status}`)
+  return t(`releaseCenter.serverStatusMap.${status}`);
 }
 
 function labelsText(server: ServerInfo) {
-  const labels = Object.entries(server.labels)
-  if (labels.length === 0) return t('environment.labelsEmpty')
-  return labels.map(([key, value]) => `${key}=${value}`).join(', ')
+  const labels = Object.entries(server.labels);
+  if (labels.length === 0) return t('environment.labelsEmpty');
+  return labels.map(([key, value]) => `${key}=${value}`).join(', ');
 }
 
 watch(
   () => form.value.name,
   (name) => {
-    if (natsPrefixTouched.value) return
-    form.value.nats_subject_prefix = name.trim() ? suggestedNatsPrefix.value : ''
-  },
-)
+    if (natsPrefixTouched.value) return;
+    form.value.nats_subject_prefix = name.trim() ? suggestedNatsPrefix.value : '';
+  }
+);
 
 onMounted(async () => {
   try {
-    await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()])
+    await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()]);
     const current = isEdit.value
       ? envStore.environments.find((env) => env.id === envId.value) ?? null
-      : null
+      : null;
     if (isEdit.value && !current) {
-      MessagePlugin.error(t('common.loadFailed'))
-      router.replace({ name: 'project-environments', params: { orgId, projectId } })
-      return
+      MessagePlugin.error(t('common.loadFailed'));
+      router.replace({ name: 'project-environments', params: { orgId, projectId } });
+      return;
     }
-    fillForm(current)
+    fillForm(current);
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('common.loadFailed'))
+    MessagePlugin.error(e.message || t('common.loadFailed'));
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 async function save() {
-  const name = form.value.name.trim()
+  const name = form.value.name.trim();
   if (!name) {
-    MessagePlugin.warning(t('environment.name'))
-    return
+    MessagePlugin.warning(t('environment.name'));
+    return;
   }
 
-  saving.value = true
+  saving.value = true;
   try {
     const payload = {
       name,
       server_ids: form.value.server_ids,
       nats_subject_prefix: form.value.nats_subject_prefix.trim() || null,
-    }
+    };
 
-    let saved: ProjectEnvironment
+    let saved: ProjectEnvironment;
     if (isEdit.value && environment.value) {
-      saved = await envStore.updateEnvironment(orgId, projectId, environment.value.id, payload)
-      MessagePlugin.success(t('environment.updated'))
+      saved = await envStore.updateEnvironment(orgId, projectId, environment.value.id, payload);
+      MessagePlugin.success(t('environment.updated'));
     } else {
-      saved = await envStore.createEnvironment(orgId, projectId, payload)
-      MessagePlugin.success(t('environment.created'))
+      saved = await envStore.createEnvironment(orgId, projectId, payload);
+      MessagePlugin.success(t('environment.created'));
     }
 
     await envStore.setCanary(orgId, projectId, saved.id, {
       canary_target_env_id: form.value.canary_target_env_id || null,
       canary_percentage: form.value.canary_percentage,
-    })
+    });
 
-    router.replace({ name: 'project-environments', params: { orgId, projectId } })
+    router.replace({ name: 'project-environments', params: { orgId, projectId } });
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('common.saveFailed'))
+    MessagePlugin.error(e.message || t('common.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
 function cancel() {
-  router.push({ name: 'project-environments', params: { orgId, projectId } })
+  router.push({ name: 'project-environments', params: { orgId, projectId } });
 }
 </script>
 
@@ -339,14 +344,20 @@ function cancel() {
                 </div>
                 <div class="server-picker__actions">
                   <t-radio-group v-model="serverFilter" variant="default-filled">
-                    <t-radio-button value="healthy">{{ t('environment.serverFilterHealthy') }}</t-radio-button>
-                    <t-radio-button value="all">{{ t('environment.serverFilterAll') }}</t-radio-button>
+                    <t-radio-button value="healthy">{{
+                      t('environment.serverFilterHealthy')
+                    }}</t-radio-button>
+                    <t-radio-button value="all">{{
+                      t('environment.serverFilterAll')
+                    }}</t-radio-button>
                   </t-radio-group>
                 </div>
               </div>
 
               <div class="server-picker__selection">
-                <span class="server-picker__selection-label">{{ t('environment.selectedNodesTitle') }}</span>
+                <span class="server-picker__selection-label">{{
+                  t('environment.selectedNodesTitle')
+                }}</span>
                 <strong class="server-picker__selection-value">{{ selectedSummary }}</strong>
               </div>
 
@@ -387,7 +398,9 @@ function cancel() {
                         'server-row--selected': isSelected(server.id),
                         'server-row--disabled': server.status === 'offline',
                       }"
-                      @click="server.status !== 'offline' && toggleServer(server.id, $event.shiftKey)"
+                      @click="
+                        server.status !== 'offline' && toggleServer(server.id, $event.shiftKey)
+                      "
                     >
                       <td class="col-check">
                         <t-checkbox
@@ -418,11 +431,22 @@ function cancel() {
           </t-form-item>
 
           <div v-if="degradedSelectedServers.length" class="server-warning">
-            {{ t('environment.degradedWarning', { names: degradedSelectedServers.map((server) => server.name).join(', ') }) }}
+            {{
+              t('environment.degradedWarning', {
+                names: degradedSelectedServers.map((server) => server.name).join(', '),
+              })
+            }}
           </div>
 
-          <div v-if="mismatchedSelectedServers.length" class="server-warning server-warning--danger">
-            {{ t('environment.mismatchWarning', { names: mismatchedSelectedServers.map((server) => server.name).join(', ') }) }}
+          <div
+            v-if="mismatchedSelectedServers.length"
+            class="server-warning server-warning--danger"
+          >
+            {{
+              t('environment.mismatchWarning', {
+                names: mismatchedSelectedServers.map((server) => server.name).join(', '),
+              })
+            }}
           </div>
 
           <t-form-item>
@@ -460,7 +484,9 @@ function cancel() {
 
         <div class="form-actions">
           <t-button variant="outline" @click="cancel">{{ t('common.cancel') }}</t-button>
-          <t-button theme="primary" :loading="saving" @click="save">{{ t('environment.save') }}</t-button>
+          <t-button theme="primary" :loading="saving" @click="save">{{
+            t('environment.save')
+          }}</t-button>
         </div>
       </div>
 
@@ -483,7 +509,10 @@ function cancel() {
             </div>
             <div class="preview-item">
               <span>{{ t('environment.canaryTarget') }}</span>
-              <strong>{{ availableCanaryTargets.find((item) => item.value === form.canary_target_env_id)?.label || '—' }}</strong>
+              <strong>{{
+                availableCanaryTargets.find((item) => item.value === form.canary_target_env_id)
+                  ?.label || '—'
+              }}</strong>
             </div>
             <div class="preview-item">
               <span>{{ t('environment.canaryPct') }}</span>

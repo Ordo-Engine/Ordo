@@ -111,7 +111,9 @@ function formatValue(assignment: VariableAssignment): string {
     <!-- Info chips (logging, external call) -->
     <div class="node-section info-section" v-if="hasLogging || hasExternalCall">
       <div class="info-row">
-        <span class="info-chip" v-if="hasLogging"> <OrdoIcon name="check" :size="10" /> {{ t('step.logging') }} </span>
+        <span class="info-chip" v-if="hasLogging">
+          <OrdoIcon name="check" :size="10" /> {{ t('step.logging') }}
+        </span>
         <span class="info-chip external" v-if="hasExternalCall">
           <OrdoIcon name="action" :size="10" /> {{ t('flow.externalCall') }}
         </span>

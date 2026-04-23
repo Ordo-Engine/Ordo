@@ -1,32 +1,36 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { useDashboardStore } from '@/stores/dashboard'
-import { useOrgStore } from '@/stores/org'
-import { useProjectStore } from '@/stores/project'
-import { useTemplateStore } from '@/stores/template'
-import { serverApi } from '@/api/platform-client'
-import type { Project, ServerInfo } from '@/api/types'
-import CreateFromTemplateDialog from '@/components/project/CreateFromTemplateDialog.vue'
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useDashboardStore } from '@/stores/dashboard';
+import { useOrgStore } from '@/stores/org';
+import { useProjectStore } from '@/stores/project';
+import { useTemplateStore } from '@/stores/template';
+import { serverApi } from '@/api/platform-client';
+import type { Project, ServerInfo } from '@/api/types';
+import CreateFromTemplateDialog from '@/components/project/CreateFromTemplateDialog.vue';
 
-const router = useRouter()
-const { t, locale } = useI18n()
-const auth = useAuthStore()
-const dash = useDashboardStore()
-const orgStore = useOrgStore()
-const projectStore = useProjectStore()
-const templateStore = useTemplateStore()
+const router = useRouter();
+const { t, locale } = useI18n();
+const auth = useAuthStore();
+const dash = useDashboardStore();
+const orgStore = useOrgStore();
+const projectStore = useProjectStore();
+const templateStore = useTemplateStore();
 
-const showTemplateDialog = ref(false)
-const serverLoading = ref(false)
-const servers = ref<ServerInfo[]>([])
+const showTemplateDialog = ref(false);
+const serverLoading = ref(false);
+const servers = ref<ServerInfo[]>([]);
 
-const currentOrgId = computed(() => orgStore.currentOrg?.id ?? '')
-const recentProjects = computed(() => dash.recentProjects)
-const onlineServers = computed(() => servers.value.filter((server) => server.status === 'online').length)
-const offlineServers = computed(() => servers.value.filter((server) => server.status !== 'online').length)
+const currentOrgId = computed(() => orgStore.currentOrg?.id ?? '');
+const recentProjects = computed(() => dash.recentProjects);
+const onlineServers = computed(
+  () => servers.value.filter((server) => server.status === 'online').length
+);
+const offlineServers = computed(
+  () => servers.value.filter((server) => server.status !== 'online').length
+);
 
 const workspaceStats = computed(() => [
   {
@@ -44,87 +48,87 @@ const workspaceStats = computed(() => [
     value: dash.totalOrgs,
     hint: t('dashboard.orgHint'),
   },
-])
+]);
 
 const isAdmin = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
-})
+  if (!auth.user) return false;
+  return orgStore.canAdmin(auth.user.id);
+});
 
 onMounted(async () => {
-  await dash.fetchDashboardData()
-  await Promise.all([loadTemplates(), loadServers()])
-})
+  await dash.fetchDashboardData();
+  await Promise.all([loadTemplates(), loadServers()]);
+});
 
 async function loadTemplates() {
-  await templateStore.fetchTemplates()
+  await templateStore.fetchTemplates();
 }
 
 async function loadServers() {
-  if (!auth.token) return
-  serverLoading.value = true
+  if (!auth.token) return;
+  serverLoading.value = true;
   try {
-    servers.value = await serverApi.list(auth.token)
+    servers.value = await serverApi.list(auth.token);
   } catch {
-    servers.value = []
+    servers.value = [];
   } finally {
-    serverLoading.value = false
+    serverLoading.value = false;
   }
 }
 
 async function openProject(projectId: string) {
-  const orgId = orgStore.currentOrg?.id
-  if (!orgId) return
+  const orgId = orgStore.currentOrg?.id;
+  if (!orgId) return;
   const project =
     projectStore.projects.find((item) => item.id === projectId) ??
-    recentProjects.value.find((item) => item.id === projectId)
+    recentProjects.value.find((item) => item.id === projectId);
   if (project) {
-    await projectStore.selectProject(project)
+    await projectStore.selectProject(project);
   }
-  router.push(`/orgs/${orgId}/projects/${projectId}/editor`)
+  router.push(`/orgs/${orgId}/projects/${projectId}/editor`);
 }
 
 function goToProjects(query?: Record<string, string>) {
-  const orgId = orgStore.currentOrg?.id
+  const orgId = orgStore.currentOrg?.id;
   if (orgId) {
-    router.push({ path: `/orgs/${orgId}/projects`, query })
-    return
+    router.push({ path: `/orgs/${orgId}/projects`, query });
+    return;
   }
-  router.push('/orgs')
+  router.push('/orgs');
 }
 
 function goToMarketplace() {
-  router.push('/marketplace')
+  router.push('/marketplace');
 }
 
 function goToCreateOrg() {
-  router.push('/orgs')
+  router.push('/orgs');
 }
 
 function goToMembers() {
-  const orgId = orgStore.currentOrg?.id
+  const orgId = orgStore.currentOrg?.id;
   if (orgId) {
-    router.push(`/orgs/${orgId}/members`)
-    return
+    router.push(`/orgs/${orgId}/members`);
+    return;
   }
-  router.push('/orgs')
+  router.push('/orgs');
 }
 
 function openServerRegistry() {
-  router.push('/servers')
+  router.push('/servers');
 }
 
 async function handleTemplateCreated(project: Project) {
-  projectStore.projects.unshift(project)
-  await projectStore.selectProject(project)
-  router.push(`/orgs/${project.org_id}/projects/${project.id}/editor`)
+  projectStore.projects.unshift(project);
+  await projectStore.selectProject(project);
+  router.push(`/orgs/${project.org_id}/projects/${project.id}/editor`);
 }
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(
     locale.value === 'zh-TW' ? 'zh-TW' : locale.value === 'zh-CN' ? 'zh-CN' : 'en-US',
-    { year: 'numeric', month: 'short', day: 'numeric' },
-  )
+    { year: 'numeric', month: 'short', day: 'numeric' }
+  );
 }
 </script>
 
@@ -246,7 +250,11 @@ function formatDate(iso: string) {
           </div>
 
           <div v-if="serverLoading" class="stack-loading">
-            <t-skeleton theme="paragraph" animation="gradient" :row-col="[{ width: '70%' }, { width: '55%' }]" />
+            <t-skeleton
+              theme="paragraph"
+              animation="gradient"
+              :row-col="[{ width: '70%' }, { width: '55%' }]"
+            />
           </div>
 
           <template v-else>

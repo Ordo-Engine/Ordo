@@ -11,18 +11,18 @@ outline: [2, 3]
 
 Ordo 已具备生产级的核心能力：
 
-| 模块 | 能力 |
-|------|------|
-| **执行引擎** | 亚微秒级规则执行、字节码 VM + Cranelift JIT、表达式优化器 |
-| **传输协议** | HTTP REST、gRPC（支持 TLS/mTLS）、Unix Domain Socket |
-| **可视化编辑器** | 三种编辑模式（表单 / 流程图 / JSON）、决策表、执行与性能面板 |
-| **CLI** | `ordo eval`、`ordo exec`、`ordo test` |
-| **WASM** | 在浏览器中运行引擎 |
-| **SDK** | Go、Java、Python |
-| **Studio** | 组织/项目/成员管理、事实目录、概念注册、决策契约、版本历史 |
-| **多租户** | 租户级 QPS 限流、突发控制、超时管理 |
-| **可观测性** | Prometheus 指标、OTLP 链路追踪、JSON Lines 审计日志、WAL 崩溃安全持久化 |
-| **国际化** | 英文、简体中文、繁体中文 |
+| 模块             | 能力                                                                    |
+| ---------------- | ----------------------------------------------------------------------- |
+| **执行引擎**     | 亚微秒级规则执行、字节码 VM + Cranelift JIT、表达式优化器               |
+| **传输协议**     | HTTP REST、gRPC（支持 TLS/mTLS）、Unix Domain Socket                    |
+| **可视化编辑器** | 三种编辑模式（表单 / 流程图 / JSON）、决策表、执行与性能面板            |
+| **CLI**          | `ordo eval`、`ordo exec`、`ordo test`                                   |
+| **WASM**         | 在浏览器中运行引擎                                                      |
+| **SDK**          | Go、Java、Python                                                        |
+| **Studio**       | 组织/项目/成员管理、事实目录、概念注册、决策契约、版本历史              |
+| **多租户**       | 租户级 QPS 限流、突发控制、超时管理                                     |
+| **可观测性**     | Prometheus 指标、OTLP 链路追踪、JSON Lines 审计日志、WAL 崩溃安全持久化 |
+| **国际化**       | 英文、简体中文、繁体中文                                                |
 
 ---
 
@@ -34,12 +34,12 @@ Ordo 已具备生产级的核心能力：
 
 预置行业模板——每个模板包含完整的 RuleSet、预定义的 Facts 和 Concepts、示例输入数据，以及"从 if/else 到 Ordo"的迁移对比说明。
 
-| 模板 | 场景 | 展示能力 |
-|------|------|----------|
-| 电商优惠券发放 | 满减 + VIP 等级 + 时间窗口 | 决策表、命中策略 |
-| 贷款审批 | 多条件分支 + 评分卡 | 决策图、多步骤流程 |
-| API 路由选择 | 权重路由 + 地域 + 降级 | Action 节点、评分聚合 |
-| 权限判定 | RBAC + 属性条件 | 策略层、DENY_OVERRIDES |
+| 模板           | 场景                       | 展示能力               |
+| -------------- | -------------------------- | ---------------------- |
+| 电商优惠券发放 | 满减 + VIP 等级 + 时间窗口 | 决策表、命中策略       |
+| 贷款审批       | 多条件分支 + 评分卡        | 决策图、多步骤流程     |
+| API 路由选择   | 权重路由 + 地域 + 降级     | Action 节点、评分聚合  |
+| 权限判定       | RBAC + 属性条件            | 策略层、DENY_OVERRIDES |
 
 ### 引导式 Onboarding
 
@@ -124,12 +124,12 @@ Ordo 已具备生产级的核心能力：
 
 可配置的告警 + Webhook 通知：
 
-| 条件 | 示例 |
-|------|------|
-| 错误率飙升 | 表达式执行失败率 > 1% |
-| 延迟异常 | P99 连续 5 分钟超过阈值 |
-| 流量骤降 | QPS 突然下降（可能上游出问题） |
-| 结果偏移 | 拒绝率从 10% 跳到 40% |
+| 条件       | 示例                           |
+| ---------- | ------------------------------ |
+| 错误率飙升 | 表达式执行失败率 > 1%          |
+| 延迟异常   | P99 连续 5 分钟超过阈值        |
+| 流量骤降   | QPS 突然下降（可能上游出问题） |
+| 结果偏移   | 拒绝率从 10% 跳到 40%          |
 
 ---
 
@@ -204,17 +204,17 @@ Ordo 已具备生产级的核心能力：
 
 ### Cloud 增值功能
 
-| 能力 | 自部署（开源） | Ordo Cloud |
-|------|--------------|------------|
-| 规则编辑与发布 | :white_check_mark: | :white_check_mark: |
-| 自管理 Engine | :white_check_mark: | :white_check_mark: |
-| **托管 Engine**（共享或独占） | — | :white_check_mark: |
-| **接入自有 Engine**（注册到 Cloud） | — | :white_check_mark: |
-| **实时协同编辑** | — | :white_check_mark: |
-| **SSO / SAML** | — | :white_check_mark: |
-| **长期指标存储 + 自定义 Dashboard** | — | :white_check_mark: |
-| **合规报告导出** | — | :white_check_mark: |
-| **SLA 保证 + 优先支持** | — | :white_check_mark: |
+| 能力                                | 自部署（开源）     | Ordo Cloud         |
+| ----------------------------------- | ------------------ | ------------------ |
+| 规则编辑与发布                      | :white_check_mark: | :white_check_mark: |
+| 自管理 Engine                       | :white_check_mark: | :white_check_mark: |
+| **托管 Engine**（共享或独占）       | —                  | :white_check_mark: |
+| **接入自有 Engine**（注册到 Cloud） | —                  | :white_check_mark: |
+| **实时协同编辑**                    | —                  | :white_check_mark: |
+| **SSO / SAML**                      | —                  | :white_check_mark: |
+| **长期指标存储 + 自定义 Dashboard** | —                  | :white_check_mark: |
+| **合规报告导出**                    | —                  | :white_check_mark: |
+| **SLA 保证 + 优先支持**             | —                  | :white_check_mark: |
 
 ---
 

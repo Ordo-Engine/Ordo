@@ -1,74 +1,77 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { usePersistentNotificationStore } from '@/stores/persistentNotifications'
-import { useOrgStore } from '@/stores/org'
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { usePersistentNotificationStore } from '@/stores/persistentNotifications';
+import { useOrgStore } from '@/stores/org';
 
-const { t } = useI18n()
-const router = useRouter()
-const orgStore = useOrgStore()
-const store = usePersistentNotificationStore()
+const { t } = useI18n();
+const router = useRouter();
+const orgStore = useOrgStore();
+const store = usePersistentNotificationStore();
 
-const orgId = computed(() => orgStore.currentOrg?.id ?? '')
-const unreadOnly = ref(false)
-const loading = ref(false)
+const orgId = computed(() => orgStore.currentOrg?.id ?? '');
+const unreadOnly = ref(false);
+const loading = ref(false);
 
 onMounted(async () => {
-  if (!orgId.value) return
-  loading.value = true
+  if (!orgId.value) return;
+  loading.value = true;
   try {
-    await store.fetchNotifications(orgId.value, false)
+    await store.fetchNotifications(orgId.value, false);
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 const filtered = computed(() =>
-  unreadOnly.value ? store.notifications.filter((n) => !n.read_at) : store.notifications,
-)
+  unreadOnly.value ? store.notifications.filter((n) => !n.read_at) : store.notifications
+);
 
 function notifIcon(type: string) {
-  if (type === 'release_approved') return 'check-circle'
-  if (type === 'release_rejected') return 'close-circle'
-  if (type === 'release_review_requested') return 'notification'
-  return 'info-circle'
+  if (type === 'release_approved') return 'check-circle';
+  if (type === 'release_rejected') return 'close-circle';
+  if (type === 'release_review_requested') return 'notification';
+  return 'info-circle';
 }
 
 function notifIconClass(type: string) {
-  if (type === 'release_approved') return 'notif-icon--success'
-  if (type === 'release_rejected') return 'notif-icon--error'
-  return 'notif-icon--info'
+  if (type === 'release_approved') return 'notif-icon--success';
+  if (type === 'release_rejected') return 'notif-icon--error';
+  return 'notif-icon--info';
 }
 
 function notifTitle(type: string, payload: Record<string, unknown>) {
-  const releaseTitle = (payload.title as string) ?? ''
-  if (type === 'release_review_requested') return t('notifications.types.releaseReviewRequested', { title: releaseTitle })
-  if (type === 'release_approved') return t('notifications.types.releaseApproved', { title: releaseTitle })
-  if (type === 'release_rejected') return t('notifications.types.releaseRejected', { title: releaseTitle })
-  return type
+  const releaseTitle = (payload.title as string) ?? '';
+  if (type === 'release_review_requested')
+    return t('notifications.types.releaseReviewRequested', { title: releaseTitle });
+  if (type === 'release_approved')
+    return t('notifications.types.releaseApproved', { title: releaseTitle });
+  if (type === 'release_rejected')
+    return t('notifications.types.releaseRejected', { title: releaseTitle });
+  return type;
 }
 
 function formatTime(isoDate: string) {
-  const diff = Date.now() - new Date(isoDate).getTime()
-  if (diff < 60_000) return t('shell.justNow')
-  if (diff < 3_600_000) return t('shell.minutesAgo', { n: Math.floor(diff / 60_000) })
-  if (diff < 86_400_000) return t('shell.hoursAgo', { n: Math.floor(diff / 3_600_000) })
-  return new Date(isoDate).toLocaleDateString()
+  const diff = Date.now() - new Date(isoDate).getTime();
+  if (diff < 60_000) return t('shell.justNow');
+  if (diff < 3_600_000) return t('shell.minutesAgo', { n: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t('shell.hoursAgo', { n: Math.floor(diff / 3_600_000) });
+  return new Date(isoDate).toLocaleDateString();
 }
 
 async function handleMarkAllRead() {
-  await store.markAllRead(orgId.value)
+  await store.markAllRead(orgId.value);
 }
 
 async function handleMarkRead(notifId: string) {
-  await store.markRead(orgId.value, notifId)
+  await store.markRead(orgId.value, notifId);
 }
 
 function navigateToRelease(n: { ref_id?: string; payload: Record<string, unknown> }) {
-  const projectId = n.payload.project_id as string | undefined
+  const projectId = n.payload.project_id as string | undefined;
   if (n.ref_id && projectId && orgId.value) {
-    router.push(`/orgs/${orgId.value}/projects/${projectId}/releases`)
+    router.push(`/orgs/${orgId.value}/projects/${projectId}/releases`);
   }
 }
 </script>
@@ -114,11 +117,7 @@ function navigateToRelease(n: { ref_id?: string; payload: Record<string, unknown
           <div class="notif-row__title">{{ notifTitle(n.type, n.payload) }}</div>
           <div class="notif-row__time">{{ formatTime(n.created_at) }}</div>
         </div>
-        <button
-          v-if="!n.read_at"
-          class="notif-row__mark-read"
-          @click.stop="handleMarkRead(n.id)"
-        >
+        <button v-if="!n.read_at" class="notif-row__mark-read" @click.stop="handleMarkRead(n.id)">
           <t-icon name="check" size="14px" />
         </button>
       </div>

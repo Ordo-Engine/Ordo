@@ -1,30 +1,35 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { useProjectStore } from '@/stores/project'
-import { useServerStore } from '@/stores/server'
-import { projectApi } from '@/api/platform-client'
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { useProjectStore } from '@/stores/project';
+import { useServerStore } from '@/stores/server';
+import { projectApi } from '@/api/platform-client';
 
-const { t } = useI18n()
-const route = useRoute()
-const router = useRouter()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const projectStore = useProjectStore()
-const serverStore = useServerStore()
+const { t } = useI18n();
+const route = useRoute();
+const router = useRouter();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const projectStore = useProjectStore();
+const serverStore = useServerStore();
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
-const project = computed(() => projectStore.currentProject)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
+const project = computed(() => projectStore.currentProject);
 
-const selectedServerId = ref<string>('default')
-const binding = ref(false)
-const healthLoading = ref(false)
-const healthStatus = ref<{ online: boolean; response?: string; error?: string; url: string } | null>(null)
+const selectedServerId = ref<string>('default');
+const binding = ref(false);
+const healthLoading = ref(false);
+const healthStatus = ref<{
+  online: boolean;
+  response?: string;
+  error?: string;
+  url: string;
+} | null>(null);
 
 const serverOptions = computed(() => [
   { label: t('projectInstances.useDefault'), value: 'default' },
@@ -32,65 +37,68 @@ const serverOptions = computed(() => [
     label: `${s.name}${s.version ? ` (${s.version})` : ''}`,
     value: s.id,
   })),
-])
+]);
 
 const boundServer = computed(() => {
-  if (selectedServerId.value === 'default') return null
-  return serverStore.getById(selectedServerId.value) ?? null
-})
+  if (selectedServerId.value === 'default') return null;
+  return serverStore.getById(selectedServerId.value) ?? null;
+});
 
 const statusTheme = computed(() => {
-  if (!boundServer.value) return 'default'
+  if (!boundServer.value) return 'default';
   switch (boundServer.value.status) {
-    case 'online': return 'success'
-    case 'degraded': return 'warning'
-    default: return 'danger'
+    case 'online':
+      return 'success';
+    case 'degraded':
+      return 'warning';
+    default:
+      return 'danger';
   }
-})
+});
 
 function formatTs(v: string | null | undefined) {
-  if (!v) return t('projectInstances.neverSeen')
-  return new Date(v).toLocaleString()
+  if (!v) return t('projectInstances.neverSeen');
+  return new Date(v).toLocaleString();
 }
 
-const canAdmin = computed(() => !!auth.user && orgStore.canAdmin(auth.user.id))
+const canAdmin = computed(() => !!auth.user && orgStore.canAdmin(auth.user.id));
 
 onMounted(async () => {
-  await serverStore.fetchServers()
+  await serverStore.fetchServers();
   if (project.value) {
-    selectedServerId.value = project.value.server_id ?? 'default'
+    selectedServerId.value = project.value.server_id ?? 'default';
   }
-})
+});
 
 async function saveBinding() {
-  if (!orgStore.currentOrg || !auth.token) return
-  binding.value = true
+  if (!orgStore.currentOrg || !auth.token) return;
+  binding.value = true;
   try {
     await projectApi.bindServer(auth.token, orgStore.currentOrg.id, projectId.value, {
       server_id: selectedServerId.value === 'default' ? null : selectedServerId.value,
-    })
-    const updated = await projectApi.get(auth.token, orgStore.currentOrg.id, projectId.value)
-    await projectStore.fetchProjects(orgStore.currentOrg.id)
-    await projectStore.selectProject(updated)
-    healthStatus.value = null
-    MessagePlugin.success(t('projectInstances.saveSuccess'))
+    });
+    const updated = await projectApi.get(auth.token, orgStore.currentOrg.id, projectId.value);
+    await projectStore.fetchProjects(orgStore.currentOrg.id);
+    await projectStore.selectProject(updated);
+    healthStatus.value = null;
+    MessagePlugin.success(t('projectInstances.saveSuccess'));
   } catch {
-    MessagePlugin.error(t('projectInstances.saveFailed'))
+    MessagePlugin.error(t('projectInstances.saveFailed'));
   } finally {
-    binding.value = false
+    binding.value = false;
   }
 }
 
 async function checkHealth() {
-  if (!auth.token || !boundServer.value) return
-  healthLoading.value = true
+  if (!auth.token || !boundServer.value) return;
+  healthLoading.value = true;
   try {
-    const { serverApi } = await import('@/api/platform-client')
-    healthStatus.value = await serverApi.getHealth(auth.token, boundServer.value.id)
+    const { serverApi } = await import('@/api/platform-client');
+    healthStatus.value = await serverApi.getHealth(auth.token, boundServer.value.id);
   } catch {
-    MessagePlugin.error(t('projectInstances.healthFailed'))
+    MessagePlugin.error(t('projectInstances.healthFailed'));
   } finally {
-    healthLoading.value = false
+    healthLoading.value = false;
   }
 }
 </script>
@@ -98,8 +106,12 @@ async function checkHealth() {
 <template>
   <div class="instances-page">
     <t-breadcrumb class="breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
-      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{ t('breadcrumb.projects') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{
+        t('breadcrumb.projects')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ project?.name }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('projectNav.instances') }}</t-breadcrumb-item>
     </t-breadcrumb>
@@ -141,7 +153,9 @@ async function checkHealth() {
           </t-button>
           <div v-if="healthStatus" class="health-result">
             <t-tag :theme="healthStatus.online ? 'success' : 'danger'" variant="light">
-              {{ healthStatus.online ? t('projectInstances.online') : t('projectInstances.offline') }}
+              {{
+                healthStatus.online ? t('projectInstances.online') : t('projectInstances.offline')
+              }}
             </t-tag>
             <pre v-if="healthStatus.response || healthStatus.error" class="health-pre">{{
               healthStatus.response || healthStatus.error
@@ -157,7 +171,12 @@ async function checkHealth() {
             <h2 class="card-title">{{ t('projectInstances.binding') }}</h2>
             <p class="card-desc">{{ t('projectInstances.bindingDesc') }}</p>
           </div>
-          <t-button variant="text" size="small" :loading="serverStore.loading" @click="serverStore.fetchServers()">
+          <t-button
+            variant="text"
+            size="small"
+            :loading="serverStore.loading"
+            @click="serverStore.fetchServers()"
+          >
             {{ t('projectInstances.refresh') }}
           </t-button>
         </div>

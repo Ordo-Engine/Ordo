@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::capability_registry::emit_rule_execution_audit;
 use crate::error::ApiError;
 use crate::json::SimdJson;
 use crate::metrics;
@@ -486,9 +487,14 @@ pub async fn execute_ruleset(
             // Log audit event (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
             let rule_id = format!("{}/{}", tenant.id, name);
-            state
-                .audit_logger
-                .log_execution(&rule_id, result.duration_us, &result.code, source_ip);
+            emit_rule_execution_audit(
+                state.executor.capability_invoker(),
+                &state.audit_logger,
+                &rule_id,
+                result.duration_us,
+                &result.code,
+                source_ip,
+            );
 
             result
         }
@@ -504,7 +510,9 @@ pub async fn execute_ruleset(
             // Log audit event for errors (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
             let rule_id = format!("{}/{}", tenant.id, name);
-            state.audit_logger.log_execution(
+            emit_rule_execution_audit(
+                state.executor.capability_invoker(),
+                &state.audit_logger,
                 &rule_id,
                 start.elapsed().as_micros() as u64,
                 "error",
@@ -1437,6 +1445,9 @@ pub async fn execute_pipeline(
     let mut pipeline_executor =
         RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), state.metric_sink.clone());
     pipeline_executor.set_resolver(Arc::new(snapshot));
+    if let Some(capability_invoker) = state.executor.capability_invoker() {
+        pipeline_executor.set_capability_invoker(capability_invoker);
+    }
 
     let mut current_input = request.input;
     let mut stages = Vec::with_capacity(resolved.len());

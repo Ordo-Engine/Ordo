@@ -405,8 +405,14 @@ export function decompileStepsToTable(
         break;
       }
       if (cell.type === 'exact') {
-        if (typeof cell.value === 'number') { col.type = 'number'; break; }
-        if (typeof cell.value === 'boolean') { col.type = 'boolean'; break; }
+        if (typeof cell.value === 'number') {
+          col.type = 'number';
+          break;
+        }
+        if (typeof cell.value === 'boolean') {
+          col.type = 'boolean';
+          break;
+        }
       }
     }
   }
@@ -417,8 +423,14 @@ export function decompileStepsToTable(
       const cell = row.outputValues[col.id];
       if (!cell) continue;
       if (cell.type === 'exact') {
-        if (typeof cell.value === 'number') { col.type = 'number'; break; }
-        if (typeof cell.value === 'boolean') { col.type = 'boolean'; break; }
+        if (typeof cell.value === 'number') {
+          col.type = 'number';
+          break;
+        }
+        if (typeof cell.value === 'boolean') {
+          col.type = 'boolean';
+          break;
+        }
       }
     }
   }

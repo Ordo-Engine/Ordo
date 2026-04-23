@@ -1,139 +1,139 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { StudioPageHeader } from '@/components/ui'
-import { RBAC_PERMISSION_GROUPS, permissionI18nKey } from '@/constants/rbac'
-import { useRbacStore } from '@/stores/rbac'
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { StudioPageHeader } from '@/components/ui';
+import { RBAC_PERMISSION_GROUPS, permissionI18nKey } from '@/constants/rbac';
+import { useRbacStore } from '@/stores/rbac';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const rbacStore = useRbacStore()
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const rbacStore = useRbacStore();
 
-const orgId = computed(() => route.params.orgId as string)
-const roleId = computed(() => route.params.roleId as string | undefined)
-const isEdit = computed(() => Boolean(roleId.value))
+const orgId = computed(() => route.params.orgId as string);
+const roleId = computed(() => route.params.roleId as string | undefined);
+const isEdit = computed(() => Boolean(roleId.value));
 
-const loading = ref(false)
-const saving = ref(false)
-const formName = ref('')
-const formDesc = ref('')
-const formPerms = ref<string[]>([])
-const permissionFilter = ref<'all' | 'selected' | 'unselected'>('all')
+const loading = ref(false);
+const saving = ref(false);
+const formName = ref('');
+const formDesc = ref('');
+const formPerms = ref<string[]>([]);
+const permissionFilter = ref<'all' | 'selected' | 'unselected'>('all');
 
 const editingRole = computed(() =>
-  roleId.value ? rbacStore.roles.find((role) => role.id === roleId.value) ?? null : null,
-)
+  roleId.value ? rbacStore.roles.find((role) => role.id === roleId.value) ?? null : null
+);
 
-const pageTitle = computed(() => (isEdit.value ? t('rbac.editRole') : t('rbac.addRole')))
-const pageSubtitle = computed(() => (isEdit.value ? t('rbac.editSubtitle') : t('rbac.createSubtitle')))
-const allPermissions = computed(() =>
-  RBAC_PERMISSION_GROUPS.flatMap((group) => group.permissions),
-)
+const pageTitle = computed(() => (isEdit.value ? t('rbac.editRole') : t('rbac.addRole')));
+const pageSubtitle = computed(() =>
+  isEdit.value ? t('rbac.editSubtitle') : t('rbac.createSubtitle')
+);
+const allPermissions = computed(() => RBAC_PERMISSION_GROUPS.flatMap((group) => group.permissions));
 const visibleGroups = computed(() =>
   RBAC_PERMISSION_GROUPS.map((group) => ({
     ...group,
     visiblePermissions: group.permissions.filter((perm) => {
-      if (permissionFilter.value === 'selected') return formPerms.value.includes(perm)
-      if (permissionFilter.value === 'unselected') return !formPerms.value.includes(perm)
-      return true
+      if (permissionFilter.value === 'selected') return formPerms.value.includes(perm);
+      if (permissionFilter.value === 'unselected') return !formPerms.value.includes(perm);
+      return true;
     }),
-  })).filter((group) => group.visiblePermissions.length > 0),
-)
+  })).filter((group) => group.visiblePermissions.length > 0)
+);
 
 onMounted(async () => {
-  loading.value = true
+  loading.value = true;
   try {
-    await rbacStore.fetchRoles(orgId.value)
+    await rbacStore.fetchRoles(orgId.value);
     if (editingRole.value) {
       if (editingRole.value.is_system) {
-        MessagePlugin.warning(t('rbac.systemRoleReadonly'))
-        backToList()
-        return
+        MessagePlugin.warning(t('rbac.systemRoleReadonly'));
+        backToList();
+        return;
       }
-      formName.value = editingRole.value.name
-      formDesc.value = editingRole.value.description ?? ''
-      formPerms.value = [...editingRole.value.permissions]
+      formName.value = editingRole.value.name;
+      formDesc.value = editingRole.value.description ?? '';
+      formPerms.value = [...editingRole.value.permissions];
     }
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 async function handleSave() {
-  const trimmedName = formName.value.trim()
+  const trimmedName = formName.value.trim();
   if (!trimmedName) {
-    MessagePlugin.warning(t('rbac.roleNameRequired'))
-    return
+    MessagePlugin.warning(t('rbac.roleNameRequired'));
+    return;
   }
 
-  saving.value = true
+  saving.value = true;
   try {
     if (isEdit.value && editingRole.value) {
       await rbacStore.updateRole(orgId.value, editingRole.value.id, {
         name: trimmedName,
         description: formDesc.value.trim() || undefined,
         permissions: formPerms.value,
-      })
-      MessagePlugin.success(t('rbac.updated'))
+      });
+      MessagePlugin.success(t('rbac.updated'));
     } else {
       await rbacStore.createRole(orgId.value, {
         name: trimmedName,
         description: formDesc.value.trim() || undefined,
         permissions: formPerms.value,
-      })
-      MessagePlugin.success(t('rbac.created'))
+      });
+      MessagePlugin.success(t('rbac.created'));
     }
-    backToList()
+    backToList();
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
 function selectedCountForGroup(perms: string[]) {
-  return perms.filter((perm) => formPerms.value.includes(perm)).length
+  return perms.filter((perm) => formPerms.value.includes(perm)).length;
 }
 
 function selectAllPermissions() {
-  formPerms.value = [...allPermissions.value]
+  formPerms.value = [...allPermissions.value];
 }
 
 function clearAllPermissions() {
-  formPerms.value = []
+  formPerms.value = [];
 }
 
 function selectGroupPermissions(perms: string[]) {
-  const merged = new Set([...formPerms.value, ...perms])
-  formPerms.value = Array.from(merged)
+  const merged = new Set([...formPerms.value, ...perms]);
+  formPerms.value = Array.from(merged);
 }
 
 function clearGroupPermissions(perms: string[]) {
-  const target = new Set(perms)
-  formPerms.value = formPerms.value.filter((perm) => !target.has(perm))
+  const target = new Set(perms);
+  formPerms.value = formPerms.value.filter((perm) => !target.has(perm));
 }
 
 function setFilter(mode: 'all' | 'selected' | 'unselected') {
-  permissionFilter.value = mode
+  permissionFilter.value = mode;
 }
 
 function permissionLabel(perm: string) {
-  return t(`rbac.permissionLabels.${permissionI18nKey(perm)}`)
+  return t(`rbac.permissionLabels.${permissionI18nKey(perm)}`);
 }
 
 function permissionDesc(perm: string) {
-  return t(`rbac.permissionDescriptions.${permissionI18nKey(perm)}`)
+  return t(`rbac.permissionDescriptions.${permissionI18nKey(perm)}`);
 }
 
 function groupLabel(groupKey: string) {
-  return t(`rbac.permissionGroups.${groupKey}`)
+  return t(`rbac.permissionGroups.${groupKey}`);
 }
 
 function backToList() {
-  router.push(`/orgs/${orgId.value}/roles`)
+  router.push(`/orgs/${orgId.value}/roles`);
 }
 </script>
 
@@ -160,7 +160,9 @@ function backToList() {
             <t-input v-model="formDesc" :placeholder="$t('rbac.roleDescPlaceholder')" />
           </t-form-item>
 
-          <t-form-item :label="`${$t('rbac.permissions')} (${formPerms.length} ${$t('rbac.selected')})`">
+          <t-form-item
+            :label="`${$t('rbac.permissions')} (${formPerms.length} ${$t('rbac.selected')})`"
+          >
             <div class="perm-table-shell">
               <div class="perm-table-tools">
                 <t-space size="8px" break-line>
@@ -204,14 +206,24 @@ function backToList() {
                           <div class="group-row__title">
                             <span>{{ groupLabel(group.key) }}</span>
                             <t-tag size="small" variant="light">
-                              {{ selectedCountForGroup(group.permissions) }}/{{ group.permissions.length }}
+                              {{ selectedCountForGroup(group.permissions) }}/{{
+                                group.permissions.length
+                              }}
                             </t-tag>
                           </div>
                           <div class="group-row__actions">
-                            <t-button size="small" variant="text" @click="selectGroupPermissions(group.permissions)">
+                            <t-button
+                              size="small"
+                              variant="text"
+                              @click="selectGroupPermissions(group.permissions)"
+                            >
                               {{ $t('rbac.selectGroup') }}
                             </t-button>
-                            <t-button size="small" variant="text" @click="clearGroupPermissions(group.permissions)">
+                            <t-button
+                              size="small"
+                              variant="text"
+                              @click="clearGroupPermissions(group.permissions)"
+                            >
                               {{ $t('rbac.clearGroup') }}
                             </t-button>
                           </div>
@@ -233,12 +245,18 @@ function backToList() {
 
           <div class="form-actions">
             <t-button variant="outline" @click="backToList">{{ $t('common.cancel') }}</t-button>
-            <t-button theme="primary" :loading="saving" @click="handleSave">{{ $t('rbac.save') }}</t-button>
+            <t-button theme="primary" :loading="saving" @click="handleSave">{{
+              $t('rbac.save')
+            }}</t-button>
           </div>
         </t-form>
 
         <div v-else class="list-skeleton">
-          <t-skeleton theme="paragraph" animation="gradient" :row-col="[{ width: '40%' }, 1, 1, 1]" />
+          <t-skeleton
+            theme="paragraph"
+            animation="gradient"
+            :row-col="[{ width: '40%' }, 1, 1, 1]"
+          />
         </div>
       </t-card>
     </div>
@@ -383,6 +401,5 @@ function backToList() {
   .form-card :deep(.t-card__body) {
     padding: 16px;
   }
-
 }
 </style>

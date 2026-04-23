@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
 import {
   OrdoDecisionTable,
   OrdoFlowEditor,
@@ -10,58 +10,59 @@ import {
   type DecisionTable,
   type ExecutionTraceData,
   type RuleSet,
-} from '@ordo-engine/editor-vue'
-import { rulesetDraftApi } from '@/api/platform-client'
-import { normalizeRuleset } from '@/utils/ruleset'
-import { useAuthStore } from '@/stores/auth'
-import { useProjectStore } from '@/stores/project'
-import { useTestStore } from '@/stores/test'
+} from '@ordo-engine/editor-vue';
+import { rulesetDraftApi } from '@/api/platform-client';
+import { normalizeRuleset } from '@/utils/ruleset';
+import { useAuthStore } from '@/stores/auth';
+import { useProjectStore } from '@/stores/project';
+import { useTestStore } from '@/stores/test';
 import type {
   RulesetTestSummary,
   TestCase,
   TestExecutionTraceStep,
   TestRunResult,
-} from '@/api/types'
+} from '@/api/types';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const auth = useAuthStore()
-const projectStore = useProjectStore()
-const testStore = useTestStore()
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const auth = useAuthStore();
+const projectStore = useProjectStore();
+const testStore = useTestStore();
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
 
-const selectedRuleset = ref<string | null>(null)
-const selectedTestId = ref<string | null>(null)
-const selectedDetailTab = ref<'diff' | 'trace' | 'flow' | 'table'>('diff')
-const selectedDraft = ref<RuleSet | null>(null)
-const draftLoading = ref(false)
-const contentContainer = ref<HTMLElement | null>(null)
-const resultsPaneWidth = ref(520)
-const isResizingResultsPane = ref(false)
-const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440)
+const selectedRuleset = ref<string | null>(null);
+const selectedTestId = ref<string | null>(null);
+const selectedDetailTab = ref<'diff' | 'trace' | 'flow' | 'table'>('diff');
+const selectedDraft = ref<RuleSet | null>(null);
+const draftLoading = ref(false);
+const contentContainer = ref<HTMLElement | null>(null);
+const resultsPaneWidth = ref(520);
+const isResizingResultsPane = ref(false);
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
-const projectResult = computed(() => testStore.projectRunResult)
-const running = computed(() => testStore.projectRunning)
+const projectResult = computed(() => testStore.projectRunResult);
+const running = computed(() => testStore.projectRunning);
 const summaryMap = computed(
-  () => new Map(projectResult.value?.rulesets.map((ruleset) => [ruleset.ruleset_name, ruleset]) ?? []),
-)
+  () =>
+    new Map(projectResult.value?.rulesets.map((ruleset) => [ruleset.ruleset_name, ruleset]) ?? [])
+);
 const rulesetRows = computed(() =>
   projectStore.rulesets.map((ruleset) => ({
     name: ruleset.name,
     version: ruleset.version,
     summary: summaryMap.value.get(ruleset.name) ?? null,
-  })),
-)
+  }))
+);
 
 const selectedSummary = computed<RulesetTestSummary | null>(
-  () => summaryMap.value.get(selectedRuleset.value ?? '') ?? null,
-)
+  () => summaryMap.value.get(selectedRuleset.value ?? '') ?? null
+);
 const selectedTests = computed<TestCase[]>(
-  () => testStore.testsByRuleset.get(selectedRuleset.value ?? '') ?? [],
-)
+  () => testStore.testsByRuleset.get(selectedRuleset.value ?? '') ?? []
+);
 const selectedResultsOrPending = computed(() => {
   if (selectedSummary.value?.results.length) {
     return selectedSummary.value.results.map((result) => ({
@@ -73,7 +74,7 @@ const selectedResultsOrPending = computed(() => {
       passed: result.passed,
       failures: result.failures,
       result,
-    }))
+    }));
   }
 
   return selectedTests.value.map((test) => ({
@@ -85,261 +86,264 @@ const selectedResultsOrPending = computed(() => {
     passed: false,
     failures: [],
     result: null,
-  }))
-})
+  }));
+});
 const selectedResult = computed<TestRunResult | null>(() => {
-  const summary = selectedSummary.value
-  if (!summary) return null
-  if (!summary.results.length) return null
-  return summary.results.find((result) => result.test_id === selectedTestId.value) ?? summary.results[0]
-})
+  const summary = selectedSummary.value;
+  if (!summary) return null;
+  if (!summary.results.length) return null;
+  return (
+    summary.results.find((result) => result.test_id === selectedTestId.value) ?? summary.results[0]
+  );
+});
 const selectedTestCase = computed<TestCase | null>(
-  () => selectedTests.value.find((test) => test.id === selectedResult.value?.test_id) ?? null,
-)
+  () => selectedTests.value.find((test) => test.id === selectedResult.value?.test_id) ?? null
+);
 
-const expectedCode = computed(() => selectedTestCase.value?.expect.code ?? null)
-const expectedMessage = computed(() => selectedTestCase.value?.expect.message ?? null)
-const expectedOutput = computed(() => selectedTestCase.value?.expect.output ?? null)
-const actualCode = computed(() => selectedResult.value?.actual_code ?? null)
-const actualMessage = computed(() => selectedResult.value?.actual_message ?? null)
-const actualOutput = computed(() => selectedResult.value?.actual_output ?? null)
+const expectedCode = computed(() => selectedTestCase.value?.expect.code ?? null);
+const expectedMessage = computed(() => selectedTestCase.value?.expect.message ?? null);
+const expectedOutput = computed(() => selectedTestCase.value?.expect.output ?? null);
+const actualCode = computed(() => selectedResult.value?.actual_code ?? null);
+const actualMessage = computed(() => selectedResult.value?.actual_message ?? null);
+const actualOutput = computed(() => selectedResult.value?.actual_output ?? null);
 const rawExpected = computed(() => ({
   code: expectedCode.value,
   message: expectedMessage.value,
   output: expectedOutput.value ?? null,
-}))
+}));
 const rawActual = computed(() => ({
   code: actualCode.value,
   message: actualMessage.value,
   output: actualOutput.value ?? null,
-}))
+}));
 
 const outputDiffs = computed(() => {
-  const expected = expectedOutput.value ?? {}
-  const actual = actualOutput.value ?? {}
-  const keys = Array.from(new Set([...Object.keys(expected), ...Object.keys(actual)])).sort()
+  const expected = expectedOutput.value ?? {};
+  const actual = actualOutput.value ?? {};
+  const keys = Array.from(new Set([...Object.keys(expected), ...Object.keys(actual)])).sort();
   return keys.map((key) => {
-    const expectedValue = key in expected ? expected[key] : undefined
-    const actualValue = key in actual ? actual[key] : undefined
+    const expectedValue = key in expected ? expected[key] : undefined;
+    const actualValue = key in actual ? actual[key] : undefined;
     return {
       key,
       expected: expectedValue,
       actual: actualValue,
       matches: isEqual(expectedValue, actualValue),
-    }
-  })
-})
+    };
+  });
+});
 
-const traceSummary = computed(() => selectedResult.value?.trace ?? null)
+const traceSummary = computed(() => selectedResult.value?.trace ?? null);
 const flowTrace = computed<ExecutionTraceData | null>(() => {
-  const trace = traceSummary.value
-  const result = selectedResult.value
-  if (!trace || !result) return null
+  const trace = traceSummary.value;
+  const result = selectedResult.value;
+  if (!trace || !result) return null;
   return {
     path: trace.path,
     steps: trace.steps.map((step) => ({
       id: step.id,
       name: step.name,
       duration_us: step.duration_us,
-      result: step.is_terminal ? (result.actual_code ?? trace.result_code) : null,
+      result: step.is_terminal ? result.actual_code ?? trace.result_code : null,
     })),
     resultCode: result.actual_code ?? trace.result_code,
     resultMessage: result.actual_message ?? '',
     output: result.actual_output ?? {},
-  }
-})
+  };
+});
 const selectedDecisionTable = computed<DecisionTable | null>(() => {
-  const draft = selectedDraft.value
-  if (!draft) return null
-  return decompileStepsToTable(draft.steps, draft.startStepId) ?? null
-})
+  const draft = selectedDraft.value;
+  if (!draft) return null;
+  return decompileStepsToTable(draft.steps, draft.startStepId) ?? null;
+});
 const contentGridStyle = computed(() => {
-  if (viewportWidth.value <= 1200) return {}
+  if (viewportWidth.value <= 1200) return {};
   return {
     gridTemplateColumns: `240px minmax(320px, ${resultsPaneWidth.value}px) 10px minmax(420px, 1fr)`,
-  }
-})
+  };
+});
 
 watch(selectedDecisionTable, (table) => {
   if (!table && selectedDetailTab.value === 'table') {
-    selectedDetailTab.value = 'diff'
+    selectedDetailTab.value = 'diff';
   }
-})
+});
 
 watch(
   rulesetRows,
   (rows) => {
     if (rows.length === 0) {
-      selectedRuleset.value = null
-      return
+      selectedRuleset.value = null;
+      return;
     }
     if (!selectedRuleset.value || !rows.some((row) => row.name === selectedRuleset.value)) {
-      selectedRuleset.value = rows[0].name
+      selectedRuleset.value = rows[0].name;
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 watch(
   selectedSummary,
   (summary) => {
     if (!summary || summary.results.length === 0) {
-      selectedTestId.value = null
-      return
+      selectedTestId.value = null;
+      return;
     }
-    if (!selectedTestId.value || !summary.results.some((result) => result.test_id === selectedTestId.value)) {
-      selectedTestId.value = summary.results[0].test_id
+    if (
+      !selectedTestId.value ||
+      !summary.results.some((result) => result.test_id === selectedTestId.value)
+    ) {
+      selectedTestId.value = summary.results[0].test_id;
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 watch(
   selectedRuleset,
   async (name) => {
-    selectedDraft.value = null
-    if (!name || !auth.token) return
+    selectedDraft.value = null;
+    if (!name || !auth.token) return;
 
     try {
-      await testStore.fetchTests(projectId.value, name)
+      await testStore.fetchTests(projectId.value, name);
     } catch {
       // Test cases are optional for diagnostics.
     }
 
-    draftLoading.value = true
+    draftLoading.value = true;
     try {
-      const draft = await rulesetDraftApi.get(auth.token, orgId.value, projectId.value, name)
-      selectedDraft.value = normalizeRuleset(draft.draft, name)
+      const draft = await rulesetDraftApi.get(auth.token, orgId.value, projectId.value, name);
+      selectedDraft.value = normalizeRuleset(draft.draft, name);
     } catch {
-      selectedDraft.value = null
+      selectedDraft.value = null;
     } finally {
-      draftLoading.value = false
+      draftLoading.value = false;
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 async function runAll() {
   if (rulesetRows.value.length === 0) {
-    MessagePlugin.warning(t('test.project.noRulesets'))
-    return
+    MessagePlugin.warning(t('test.project.noRulesets'));
+    return;
   }
   try {
     await testStore.runProjectTests(
       orgId.value,
       projectId.value,
-      rulesetRows.value.map((ruleset) => ruleset.name),
-    )
+      rulesetRows.value.map((ruleset) => ruleset.name)
+    );
     if (!selectedRuleset.value && rulesetRows.value.length > 0) {
-      selectedRuleset.value = rulesetRows.value[0].name
+      selectedRuleset.value = rulesetRows.value[0].name;
     }
-    MessagePlugin.success(t('test.runSuccess'))
+    MessagePlugin.success(t('test.runSuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('test.saveFailed'))
+    MessagePlugin.error(e?.message ?? t('test.saveFailed'));
   }
 }
 
 function selectRuleset(name: string) {
-  selectedRuleset.value = name
+  selectedRuleset.value = name;
 }
 
 function selectResult(result: TestRunResult) {
-  selectedTestId.value = result.test_id
+  selectedTestId.value = result.test_id;
 }
 
 function goToEditor(rulesetName: string) {
-  router.push(`/orgs/${orgId.value}/projects/${projectId.value}/editor/${rulesetName}`)
+  router.push(`/orgs/${orgId.value}/projects/${projectId.value}/editor/${rulesetName}`);
 }
 
 function displayTestName(name: string): string {
-  if (!name.startsWith('i18n:')) return name
-  const key = name.slice(5)
-  const fallback = key.split('.').pop() ?? key
-  return fallback
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  if (!name.startsWith('i18n:')) return name;
+  const key = name.slice(5);
+  const fallback = key.split('.').pop() ?? key;
+  return fallback.replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function durationMs(us: number): string {
-  return `${(us / 1000).toFixed(1)}ms`
+  return `${(us / 1000).toFixed(1)}ms`;
 }
 
 function formatJson(value: unknown): string {
-  if (value === undefined) return '—'
-  if (value === null) return 'null'
-  return JSON.stringify(value, null, 2)
+  if (value === undefined) return '—';
+  if (value === null) return 'null';
+  return JSON.stringify(value, null, 2);
 }
 
 function isEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function resultClass(result: TestRunResult): string {
-  return result.passed ? 'is-pass' : 'is-fail'
+  return result.passed ? 'is-pass' : 'is-fail';
 }
 
 function summaryBadgeClass(summary: RulesetTestSummary | null): string {
-  if (!summary) return 'badge--idle'
-  if (summary.total === 0) return 'badge--idle'
-  if (summary.failed === 0) return 'badge--pass'
-  return 'badge--fail'
+  if (!summary) return 'badge--idle';
+  if (summary.total === 0) return 'badge--idle';
+  if (summary.failed === 0) return 'badge--pass';
+  return 'badge--fail';
 }
 
 function stepLabel(step: TestExecutionTraceStep, index: number): string {
-  return step.name || step.id || `${index + 1}`
+  return step.name || step.id || `${index + 1}`;
 }
 
 function stopResultsResize() {
-  if (!isResizingResultsPane.value) return
-  isResizingResultsPane.value = false
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
+  if (!isResizingResultsPane.value) return;
+  isResizingResultsPane.value = false;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
 }
 
 function resizeResultsPane(event: MouseEvent) {
-  if (!isResizingResultsPane.value || !contentContainer.value) return
+  if (!isResizingResultsPane.value || !contentContainer.value) return;
 
-  const bounds = contentContainer.value.getBoundingClientRect()
-  const leftPaneWidth = 240
-  const splitterWidth = 10
-  const leftOffset = event.clientX - bounds.left
-  const nextWidth = leftOffset - leftPaneWidth
-  const minWidth = 320
-  const minDiagnosticsWidth = 420
+  const bounds = contentContainer.value.getBoundingClientRect();
+  const leftPaneWidth = 240;
+  const splitterWidth = 10;
+  const leftOffset = event.clientX - bounds.left;
+  const nextWidth = leftOffset - leftPaneWidth;
+  const minWidth = 320;
+  const minDiagnosticsWidth = 420;
   const maxWidth = Math.max(
     minWidth,
-    bounds.width - leftPaneWidth - splitterWidth - minDiagnosticsWidth,
-  )
+    bounds.width - leftPaneWidth - splitterWidth - minDiagnosticsWidth
+  );
 
-  resultsPaneWidth.value = Math.max(minWidth, Math.min(maxWidth, nextWidth))
+  resultsPaneWidth.value = Math.max(minWidth, Math.min(maxWidth, nextWidth));
 }
 
 function startResultsResize(event: MouseEvent) {
-  isResizingResultsPane.value = true
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  resizeResultsPane(event)
+  isResizingResultsPane.value = true;
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  resizeResultsPane(event);
 }
 
 function syncViewportWidth() {
-  viewportWidth.value = window.innerWidth
+  viewportWidth.value = window.innerWidth;
 }
 
 onMounted(() => {
   if (projectStore.currentProject?.id === projectId.value) {
-    void projectStore.fetchRulesets()
+    void projectStore.fetchRulesets();
   }
-  window.addEventListener('resize', syncViewportWidth)
-  window.addEventListener('mousemove', resizeResultsPane)
-  window.addEventListener('mouseup', stopResultsResize)
-})
+  window.addEventListener('resize', syncViewportWidth);
+  window.addEventListener('mousemove', resizeResultsPane);
+  window.addEventListener('mouseup', stopResultsResize);
+});
 
 onUnmounted(() => {
-  window.removeEventListener('resize', syncViewportWidth)
-  window.removeEventListener('mousemove', resizeResultsPane)
-  window.removeEventListener('mouseup', stopResultsResize)
-  stopResultsResize()
-})
+  window.removeEventListener('resize', syncViewportWidth);
+  window.removeEventListener('mousemove', resizeResultsPane);
+  window.removeEventListener('mouseup', stopResultsResize);
+  stopResultsResize();
+});
 </script>
 
 <template>
@@ -352,7 +356,9 @@ onUnmounted(() => {
       <div class="test-view__header-actions">
         <span class="mode-chip">{{ t('test.project.localDraftMode') }}</span>
         <div v-if="projectResult" class="summary-chip">
-          {{ t('test.project.summary', { passed: projectResult.passed, total: projectResult.total }) }}
+          {{
+            t('test.project.summary', { passed: projectResult.passed, total: projectResult.total })
+          }}
         </div>
         <t-button theme="primary" :loading="running" @click="runAll">
           <t-icon name="play-circle" size="14px" />
@@ -362,7 +368,10 @@ onUnmounted(() => {
     </div>
 
     <div v-if="rulesetRows.length === 0" class="test-view__empty">
-      <t-empty :title="t('test.project.noRulesets')" :description="t('test.project.noRulesetsHint')" />
+      <t-empty
+        :title="t('test.project.noRulesets')"
+        :description="t('test.project.noRulesetsHint')"
+      />
     </div>
 
     <div v-else-if="running" class="test-view__loading">
@@ -384,7 +393,9 @@ onUnmounted(() => {
             <span class="ruleset-row__version">{{ ruleset.version }}</span>
           </div>
           <span class="ruleset-row__badge" :class="summaryBadgeClass(ruleset.summary)">
-            <template v-if="ruleset.summary">{{ ruleset.summary.passed }}/{{ ruleset.summary.total }}</template>
+            <template v-if="ruleset.summary"
+              >{{ ruleset.summary.passed }}/{{ ruleset.summary.total }}</template
+            >
             <template v-else>{{ t('test.statusPending') }}</template>
           </span>
         </button>
@@ -419,17 +430,28 @@ onUnmounted(() => {
         <template v-else>
           <div class="results-header">
             <div>
-              <div class="results-header__name">{{ selectedSummary?.ruleset_name ?? selectedRuleset }}</div>
+              <div class="results-header__name">
+                {{ selectedSummary?.ruleset_name ?? selectedRuleset }}
+              </div>
               <div class="results-header__hint">
                 <template v-if="selectedSummary">
-                  {{ t('test.project.summary', { passed: selectedSummary.passed, total: selectedSummary.total }) }}
+                  {{
+                    t('test.project.summary', {
+                      passed: selectedSummary.passed,
+                      total: selectedSummary.total,
+                    })
+                  }}
                 </template>
                 <template v-else>
                   {{ t('test.project.testCount', { total: selectedTests.length }) }}
                 </template>
               </div>
             </div>
-            <t-button size="small" variant="text" @click="goToEditor(selectedSummary?.ruleset_name ?? selectedRuleset!)">
+            <t-button
+              size="small"
+              variant="text"
+              @click="goToEditor(selectedSummary?.ruleset_name ?? selectedRuleset!)"
+            >
               <t-icon name="edit" size="12px" />
               {{ t('contracts.openEditor') }}
             </t-button>
@@ -454,14 +476,20 @@ onUnmounted(() => {
                 <div>
                   <div class="result-card__name">{{ displayTestName(resultItem.name) }}</div>
                   <div class="result-card__meta">
-                    <span>{{ resultItem.kind === 'result' ? durationMs(resultItem.duration_us) : t('test.statusPending') }}</span>
+                    <span>{{
+                      resultItem.kind === 'result'
+                        ? durationMs(resultItem.duration_us)
+                        : t('test.statusPending')
+                    }}</span>
                     <span v-if="resultItem.actual_code">{{ resultItem.actual_code }}</span>
                   </div>
                 </div>
                 <span class="result-card__status">
                   {{
                     resultItem.kind === 'result'
-                      ? (resultItem.passed ? t('test.statusPassed') : t('test.statusFailed'))
+                      ? resultItem.passed
+                        ? t('test.statusPassed')
+                        : t('test.statusFailed')
                       : t('test.statusPending')
                   }}
                 </span>
@@ -496,7 +524,9 @@ onUnmounted(() => {
         <template v-else>
           <div class="diagnostics-header">
             <div>
-              <div class="diagnostics-header__title">{{ displayTestName(selectedResult.test_name) }}</div>
+              <div class="diagnostics-header__title">
+                {{ displayTestName(selectedResult.test_name) }}
+              </div>
               <div class="diagnostics-header__meta">
                 <span>{{ durationMs(selectedResult.duration_us) }}</span>
                 <span v-if="traceSummary">{{ traceSummary.path_string }}</span>
@@ -556,11 +586,17 @@ onUnmounted(() => {
             <div class="section-card">
               <div class="section-card__title">{{ t('test.project.code') }}</div>
               <div class="compare-grid">
-                <div class="compare-block" :class="{ mismatch: !isEqual(expectedCode, actualCode) }">
+                <div
+                  class="compare-block"
+                  :class="{ mismatch: !isEqual(expectedCode, actualCode) }"
+                >
                   <div class="compare-block__label">{{ t('test.result.expected') }}</div>
                   <pre>{{ formatJson(expectedCode) }}</pre>
                 </div>
-                <div class="compare-block" :class="{ mismatch: !isEqual(expectedCode, actualCode) }">
+                <div
+                  class="compare-block"
+                  :class="{ mismatch: !isEqual(expectedCode, actualCode) }"
+                >
                   <div class="compare-block__label">{{ t('test.result.actual') }}</div>
                   <pre>{{ formatJson(actualCode) }}</pre>
                 </div>
@@ -570,11 +606,17 @@ onUnmounted(() => {
             <div class="section-card">
               <div class="section-card__title">{{ t('test.project.message') }}</div>
               <div class="compare-grid">
-                <div class="compare-block" :class="{ mismatch: !isEqual(expectedMessage, actualMessage) }">
+                <div
+                  class="compare-block"
+                  :class="{ mismatch: !isEqual(expectedMessage, actualMessage) }"
+                >
                   <div class="compare-block__label">{{ t('test.result.expected') }}</div>
                   <pre>{{ formatJson(expectedMessage) }}</pre>
                 </div>
-                <div class="compare-block" :class="{ mismatch: !isEqual(expectedMessage, actualMessage) }">
+                <div
+                  class="compare-block"
+                  :class="{ mismatch: !isEqual(expectedMessage, actualMessage) }"
+                >
                   <div class="compare-block__label">{{ t('test.result.actual') }}</div>
                   <pre>{{ formatJson(actualMessage) }}</pre>
                 </div>
@@ -665,7 +707,9 @@ onUnmounted(() => {
                       <pre>{{ formatJson(step.input_snapshot ?? null) }}</pre>
                     </div>
                     <div class="snapshot-block">
-                      <div class="snapshot-block__label">{{ t('test.project.variablesSnapshot') }}</div>
+                      <div class="snapshot-block__label">
+                        {{ t('test.project.variablesSnapshot') }}
+                      </div>
                       <pre>{{ formatJson(step.variables_snapshot ?? null) }}</pre>
                     </div>
                   </div>
@@ -674,7 +718,10 @@ onUnmounted(() => {
             </template>
           </div>
 
-          <div v-else-if="selectedDetailTab === 'flow'" class="diagnostics-body diagnostics-body--flow">
+          <div
+            v-else-if="selectedDetailTab === 'flow'"
+            class="diagnostics-body diagnostics-body--flow"
+          >
             <div v-if="draftLoading" class="placeholder-block">
               <t-loading size="medium" :text="t('common.loading')" />
             </div>

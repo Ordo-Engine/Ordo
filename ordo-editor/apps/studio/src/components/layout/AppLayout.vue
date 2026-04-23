@@ -1,80 +1,81 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import platformLogo from '@/assets/platform-logo.png'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { useProjectStore } from '@/stores/project'
-import { useServerStore } from '@/stores/server'
-import { useNotificationStore } from '@/stores/notification'
-import { usePersistentNotificationStore } from '@/stores/persistentNotifications'
-import { i18n, LOCALE_OPTIONS, setLocale, type Locale } from '@/i18n'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import platformLogo from '@/assets/platform-logo.png';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { useProjectStore } from '@/stores/project';
+import { useServerStore } from '@/stores/server';
+import { useNotificationStore } from '@/stores/notification';
+import { usePersistentNotificationStore } from '@/stores/persistentNotifications';
+import { i18n, LOCALE_OPTIONS, setLocale, type Locale } from '@/i18n';
 
-const router = useRouter()
-const route = useRoute()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const projectStore = useProjectStore()
-const serverStore = useServerStore()
-const notifStore = useNotificationStore()
-const persistentNotifStore = usePersistentNotificationStore()
-const { t } = useI18n()
+const router = useRouter();
+const route = useRoute();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const projectStore = useProjectStore();
+const serverStore = useServerStore();
+const notifStore = useNotificationStore();
+const persistentNotifStore = usePersistentNotificationStore();
+const { t } = useI18n();
 
-const currentLocale = computed(() => (i18n.global.locale as any).value as Locale)
+const currentLocale = computed(() => (i18n.global.locale as any).value as Locale);
 const currentLocaleLabel = computed(
-  () => LOCALE_OPTIONS.find((option) => option.value === currentLocale.value)?.label ?? 'EN',
-)
+  () => LOCALE_OPTIONS.find((option) => option.value === currentLocale.value)?.label ?? 'EN'
+);
 
-const currentOrgId = computed(() => orgStore.currentOrg?.id ?? '')
+const currentOrgId = computed(() => orgStore.currentOrg?.id ?? '');
 const currentProjectId = computed(() =>
-  typeof route.params.projectId === 'string' ? route.params.projectId : null,
-)
+  typeof route.params.projectId === 'string' ? route.params.projectId : null
+);
 
 const currentProject = computed(() =>
   currentProjectId.value
     ? projectStore.projects.find((project) => project.id === currentProjectId.value) ?? null
-    : projectStore.currentProject,
-)
+    : projectStore.currentProject
+);
 
 // ── Topbar dropdown state ────────────────────────────────────────────────────
 
-const projectPickerOpen = ref(false)
-const orgSwitcherOpen = ref(false)
-const healthOpen = ref(false)
-const notifOpen = ref(false)
-const orgSwitcherRef = ref<HTMLElement | null>(null)
-const projectPickerRef = ref<HTMLElement | null>(null)
-const healthRef = ref<HTMLElement | null>(null)
-const notifRef = ref<HTMLElement | null>(null)
-const showCreateOrg = ref(false)
-const creatingOrg = ref(false)
-const newOrgName = ref('')
-const newOrgDesc = ref('')
+const projectPickerOpen = ref(false);
+const orgSwitcherOpen = ref(false);
+const healthOpen = ref(false);
+const notifOpen = ref(false);
+const orgSwitcherRef = ref<HTMLElement | null>(null);
+const projectPickerRef = ref<HTMLElement | null>(null);
+const healthRef = ref<HTMLElement | null>(null);
+const notifRef = ref<HTMLElement | null>(null);
+const showCreateOrg = ref(false);
+const creatingOrg = ref(false);
+const newOrgName = ref('');
+const newOrgDesc = ref('');
 
 function onDocumentClick(e: MouseEvent) {
-  const target = e.target as Node
-  if (orgSwitcherRef.value && !orgSwitcherRef.value.contains(target)) orgSwitcherOpen.value = false
-  if (projectPickerRef.value && !projectPickerRef.value.contains(target)) projectPickerOpen.value = false
-  if (healthRef.value && !healthRef.value.contains(target)) healthOpen.value = false
-  if (notifRef.value && !notifRef.value.contains(target)) notifOpen.value = false
+  const target = e.target as Node;
+  if (orgSwitcherRef.value && !orgSwitcherRef.value.contains(target)) orgSwitcherOpen.value = false;
+  if (projectPickerRef.value && !projectPickerRef.value.contains(target))
+    projectPickerOpen.value = false;
+  if (healthRef.value && !healthRef.value.contains(target)) healthOpen.value = false;
+  if (notifRef.value && !notifRef.value.contains(target)) notifOpen.value = false;
 }
 
 // ── Server health ────────────────────────────────────────────────────────────
 
 const boundServer = computed(() => {
-  if (!currentProject.value?.server_id) return null
-  return serverStore.getById(currentProject.value.server_id) ?? null
-})
+  if (!currentProject.value?.server_id) return null;
+  return serverStore.getById(currentProject.value.server_id) ?? null;
+});
 
-const boundServerStatus = computed(() => boundServer.value?.status ?? 'default')
+const boundServerStatus = computed(() => boundServer.value?.status ?? 'default');
 
 function statusTheme(status: string) {
-  if (status === 'online') return 'success'
-  if (status === 'degraded') return 'warning'
-  if (status === 'default') return 'default'
-  return 'danger'
+  if (status === 'online') return 'success';
+  if (status === 'degraded') return 'warning';
+  if (status === 'default') return 'default';
+  return 'danger';
 }
 
 // ── Project picker ───────────────────────────────────────────────────────────
@@ -84,178 +85,262 @@ const projectOptions = computed(() =>
     id: p.id,
     name: p.name,
     active: p.id === currentProject.value?.id,
-  })),
-)
+  }))
+);
 
 function switchProject(projectId: string) {
-  projectPickerOpen.value = false
-  navigate(`/orgs/${currentOrgId.value}/projects/${projectId}/editor`)
+  projectPickerOpen.value = false;
+  navigate(`/orgs/${currentOrgId.value}/projects/${projectId}/editor`);
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
 function formatNotifTime(date: Date) {
-  const diff = Date.now() - date.getTime()
-  if (diff < 60_000) return t('shell.justNow')
-  if (diff < 3_600_000) return t('shell.minutesAgo', { n: Math.floor(diff / 60_000) })
-  if (diff < 86_400_000) return t('shell.hoursAgo', { n: Math.floor(diff / 3_600_000) })
-  return date.toLocaleDateString()
+  const diff = Date.now() - date.getTime();
+  if (diff < 60_000) return t('shell.justNow');
+  if (diff < 3_600_000) return t('shell.minutesAgo', { n: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t('shell.hoursAgo', { n: Math.floor(diff / 3_600_000) });
+  return date.toLocaleDateString();
 }
 
 function notifIcon(type: string) {
-  if (type === 'success') return 'check-circle'
-  if (type === 'error') return 'close-circle'
-  if (type === 'warning') return 'error-circle'
-  return 'info-circle'
+  if (type === 'success') return 'check-circle';
+  if (type === 'error') return 'close-circle';
+  if (type === 'warning') return 'error-circle';
+  return 'info-circle';
 }
 
 // ── Page info ────────────────────────────────────────────────────────────────
 
 const pageInfo = computed(() => {
-  const name = route.name?.toString()
+  const name = route.name?.toString();
   switch (name) {
-    case 'dashboard':      return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle', { projects: projectStore.projects.length, members: orgStore.members.length, servers: serverStore.servers.filter(s => s.status === 'online').length }) }
-    case 'projects':       return { title: t('nav.projects'), subtitle: t('shell.projectsSubtitle') }
-    case 'org-members':    return { title: t('nav.members'), subtitle: t('shell.membersSubtitle') }
+    case 'dashboard':
+      return {
+        title: t('nav.dashboard'),
+        subtitle: t('shell.dashboardSubtitle', {
+          projects: projectStore.projects.length,
+          members: orgStore.members.length,
+          servers: serverStore.servers.filter((s) => s.status === 'online').length,
+        }),
+      };
+    case 'projects':
+      return { title: t('nav.projects'), subtitle: t('shell.projectsSubtitle') };
+    case 'org-members':
+      return { title: t('nav.members'), subtitle: t('shell.membersSubtitle') };
     case 'org-roles':
     case 'org-role-create':
-    case 'org-role-edit':  return { title: t('nav.roles'), subtitle: t('shell.rolesSubtitle') }
-    case 'org-settings':   return { title: t('nav.orgSettings'), subtitle: t('shell.orgSettingsSubtitle') }
-    case 'settings':       return { title: t('nav.settings'), subtitle: t('shell.settingsSubtitle') }
-    case 'servers':        return { title: t('settings.serverRegistry.title'), subtitle: t('shell.serversSubtitle') }
-    case 'org-servers':    return { title: t('settings.serverRegistry.title'), subtitle: t('shell.serversSubtitle') }
+    case 'org-role-edit':
+      return { title: t('nav.roles'), subtitle: t('shell.rolesSubtitle') };
+    case 'org-settings':
+      return { title: t('nav.orgSettings'), subtitle: t('shell.orgSettingsSubtitle') };
+    case 'settings':
+      return { title: t('nav.settings'), subtitle: t('shell.settingsSubtitle') };
+    case 'servers':
+      return { title: t('settings.serverRegistry.title'), subtitle: t('shell.serversSubtitle') };
+    case 'org-servers':
+      return { title: t('settings.serverRegistry.title'), subtitle: t('shell.serversSubtitle') };
     case 'editor':
-    case 'editor-ruleset': return { title: currentProject.value?.name ?? t('projectNav.rules'), subtitle: t('shell.editorSubtitle') }
-    case 'facts':          return { title: t('projectNav.facts'), subtitle: t('facts.desc') }
-    case 'concepts':       return { title: t('projectNav.concepts'), subtitle: t('concepts.desc') }
-    case 'contracts':      return { title: t('projectNav.contracts'), subtitle: t('contracts.desc') }
-    case 'tests':          return { title: t('projectNav.tests'), subtitle: t('shell.testsSubtitle') }
-    case 'versions':       return { title: t('projectNav.versions'), subtitle: t('shell.versionsSubtitle') }
+    case 'editor-ruleset':
+      return {
+        title: currentProject.value?.name ?? t('projectNav.rules'),
+        subtitle: t('shell.editorSubtitle'),
+      };
+    case 'facts':
+      return { title: t('projectNav.facts'), subtitle: t('facts.desc') };
+    case 'concepts':
+      return { title: t('projectNav.concepts'), subtitle: t('concepts.desc') };
+    case 'contracts':
+      return { title: t('projectNav.contracts'), subtitle: t('contracts.desc') };
+    case 'tests':
+      return { title: t('projectNav.tests'), subtitle: t('shell.testsSubtitle') };
+    case 'versions':
+      return { title: t('projectNav.versions'), subtitle: t('shell.versionsSubtitle') };
     case 'project-releases':
     case 'project-release-requests':
     case 'project-release-request-detail':
     case 'project-release-policies':
     case 'project-release-history':
-      return { title: t('projectNav.releases'), subtitle: t('releaseCenter.subtitle') }
-    case 'project-instances': return { title: t('projectNav.instances'), subtitle: t('projectInstances.bindingDesc') }
-    case 'project-settings':    return { title: t('projectNav.settings'), subtitle: t('projectSettings.serverBindingDesc') }
-    case 'marketplace':         return { title: t('marketplace.title'), subtitle: t('marketplace.subtitle') }
-    case 'marketplace-detail':  return { title: t('marketplace.detail'), subtitle: t('marketplace.subtitle') }
-    default:               return { title: t('nav.dashboard'), subtitle: t('shell.dashboardSubtitle', { projects: projectStore.projects.length, members: orgStore.members.length, servers: serverStore.servers.filter(s => s.status === 'online').length }) }
+      return { title: t('projectNav.releases'), subtitle: t('releaseCenter.subtitle') };
+    case 'project-instances':
+      return { title: t('projectNav.instances'), subtitle: t('projectInstances.bindingDesc') };
+    case 'project-settings':
+      return { title: t('projectNav.settings'), subtitle: t('projectSettings.serverBindingDesc') };
+    case 'marketplace':
+      return { title: t('marketplace.title'), subtitle: t('marketplace.subtitle') };
+    case 'marketplace-detail':
+      return { title: t('marketplace.detail'), subtitle: t('marketplace.subtitle') };
+    default:
+      return {
+        title: t('nav.dashboard'),
+        subtitle: t('shell.dashboardSubtitle', {
+          projects: projectStore.projects.length,
+          members: orgStore.members.length,
+          servers: serverStore.servers.filter((s) => s.status === 'online').length,
+        }),
+      };
   }
-})
+});
 
 // ── Nav items ────────────────────────────────────────────────────────────────
 
 const workspaceItems = computed(() => {
-  const projectTarget = currentOrgId.value ? `/orgs/${currentOrgId.value}/projects` : '/orgs'
+  const projectTarget = currentOrgId.value ? `/orgs/${currentOrgId.value}/projects` : '/orgs';
   return [
-    { value: 'dashboard', label: t('nav.dashboard'), icon: 'dashboard-1', active: route.path.startsWith('/dashboard'), action: () => navigate('/dashboard') },
-    { value: 'projects',  label: t('nav.projects'), icon: 'layers', active: route.path.includes('/projects') && route.query.openTemplate !== '1', action: () => navigate(projectTarget) },
-    { value: 'templates', label: t('template.fromTemplate'), icon: 'gesture-applause', active: route.path.includes('/projects') && route.query.openTemplate === '1', action: () => navigate(projectTarget, { openTemplate: '1' }) },
-  ]
-})
+    {
+      value: 'dashboard',
+      label: t('nav.dashboard'),
+      icon: 'dashboard-1',
+      active: route.path.startsWith('/dashboard'),
+      action: () => navigate('/dashboard'),
+    },
+    {
+      value: 'projects',
+      label: t('nav.projects'),
+      icon: 'layers',
+      active: route.path.includes('/projects') && route.query.openTemplate !== '1',
+      action: () => navigate(projectTarget),
+    },
+    {
+      value: 'templates',
+      label: t('template.fromTemplate'),
+      icon: 'gesture-applause',
+      active: route.path.includes('/projects') && route.query.openTemplate === '1',
+      action: () => navigate(projectTarget, { openTemplate: '1' }),
+    },
+  ];
+});
 
 const orgItems = computed(() => {
-  if (!currentOrgId.value) return []
+  if (!currentOrgId.value) return [];
   return [
-    { value: 'members',    label: t('nav.members'), icon: 'usergroup', active: route.path.includes('/members'), action: () => navigate(`/orgs/${currentOrgId.value}/members`) },
-    { value: 'roles',      label: t('nav.roles'), icon: 'secured', active: route.path.includes('/roles'), action: () => navigate(`/orgs/${currentOrgId.value}/roles`) },
-    { value: 'servers',    label: t('settings.serverRegistry.title'), icon: 'internet', active: route.path.includes(`/orgs/${currentOrgId.value}/servers`), action: () => navigate(`/orgs/${currentOrgId.value}/servers`) },
-    { value: 'orgSettings', label: t('nav.orgSettings'), icon: 'setting-1', active: route.path.includes(`/orgs/${currentOrgId.value}/settings`), action: () => navigate(`/orgs/${currentOrgId.value}/settings`) },
-  ]
-})
+    {
+      value: 'members',
+      label: t('nav.members'),
+      icon: 'usergroup',
+      active: route.path.includes('/members'),
+      action: () => navigate(`/orgs/${currentOrgId.value}/members`),
+    },
+    {
+      value: 'roles',
+      label: t('nav.roles'),
+      icon: 'secured',
+      active: route.path.includes('/roles'),
+      action: () => navigate(`/orgs/${currentOrgId.value}/roles`),
+    },
+    {
+      value: 'servers',
+      label: t('settings.serverRegistry.title'),
+      icon: 'internet',
+      active: route.path.includes(`/orgs/${currentOrgId.value}/servers`),
+      action: () => navigate(`/orgs/${currentOrgId.value}/servers`),
+    },
+    {
+      value: 'orgSettings',
+      label: t('nav.orgSettings'),
+      icon: 'setting-1',
+      active: route.path.includes(`/orgs/${currentOrgId.value}/settings`),
+      action: () => navigate(`/orgs/${currentOrgId.value}/settings`),
+    },
+  ];
+});
 
 const systemItems = computed(() => [
-  { value: 'settings', label: t('nav.settings'), icon: 'setting', active: route.path.startsWith('/settings'), action: () => navigate('/settings') },
-])
+  {
+    value: 'settings',
+    label: t('nav.settings'),
+    icon: 'setting',
+    active: route.path.startsWith('/settings'),
+    action: () => navigate('/settings'),
+  },
+]);
 
 // Org switcher list: root orgs first, then their sub-orgs indented below each parent
 const orgOptions = computed(() => {
-  const roots = orgStore.orgs.filter((o) => o.depth === 0)
-  const result: { label: string; value: string; depth: number }[] = []
+  const roots = orgStore.orgs.filter((o) => o.depth === 0);
+  const result: { label: string; value: string; depth: number }[] = [];
   for (const root of roots) {
-    result.push({ label: root.name, value: root.id, depth: 0 })
-    const subs = orgStore.orgs.filter((o) => o.parent_org_id === root.id)
+    result.push({ label: root.name, value: root.id, depth: 0 });
+    const subs = orgStore.orgs.filter((o) => o.parent_org_id === root.id);
     for (const sub of subs) {
-      result.push({ label: sub.name, value: sub.id, depth: 1 })
+      result.push({ label: sub.name, value: sub.id, depth: 1 });
     }
   }
-  return result
-})
+  return result;
+});
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
-  await orgStore.fetchOrgs()
+  await orgStore.fetchOrgs();
   if (orgStore.currentOrg) {
-    await projectStore.fetchProjects(orgStore.currentOrg.id)
-    persistentNotifStore.startPolling(orgStore.currentOrg.id)
+    await projectStore.fetchProjects(orgStore.currentOrg.id);
+    persistentNotifStore.startPolling(orgStore.currentOrg.id);
   }
-  await serverStore.fetchServers()
-  document.addEventListener('click', onDocumentClick, true)
-})
+  await serverStore.fetchServers();
+  document.addEventListener('click', onDocumentClick, true);
+});
 
 onUnmounted(() => {
-  persistentNotifStore.stopPolling()
-  document.removeEventListener('click', onDocumentClick, true)
-})
+  persistentNotifStore.stopPolling();
+  document.removeEventListener('click', onDocumentClick, true);
+});
 
 watch(currentOrgId, async (id) => {
   if (id) {
-    await serverStore.fetchServers()
-    persistentNotifStore.stopPolling()
-    persistentNotifStore.startPolling(id)
+    await serverStore.fetchServers();
+    persistentNotifStore.stopPolling();
+    persistentNotifStore.startPolling(id);
   }
-})
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function navigate(to: string, query?: Record<string, string>) {
-  router.push(query ? { path: to, query } : to)
+  router.push(query ? { path: to, query } : to);
 }
 
 async function onOrgChange(value: string) {
-  await orgStore.selectOrg(value)
-  await projectStore.fetchProjects(value)
-  orgSwitcherOpen.value = false
-  navigate(`/orgs/${value}/projects`)
+  await orgStore.selectOrg(value);
+  await projectStore.fetchProjects(value);
+  orgSwitcherOpen.value = false;
+  navigate(`/orgs/${value}/projects`);
 }
 
 function cycleLocale() {
-  const locales = LOCALE_OPTIONS.map((option) => option.value)
-  const index = locales.indexOf(currentLocale.value)
-  setLocale(locales[(index + 1) % locales.length])
+  const locales = LOCALE_OPTIONS.map((option) => option.value);
+  const index = locales.indexOf(currentLocale.value);
+  setLocale(locales[(index + 1) % locales.length]);
 }
 
 function triggerGlobalCommandPalette() {
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
 }
 
 function handleLogout() {
-  auth.logout()
-  router.push('/login')
+  auth.logout();
+  router.push('/login');
 }
 
 async function handleCreateOrg() {
   if (!newOrgName.value.trim()) {
-    MessagePlugin.warning(t('org.nameRequired'))
-    return
+    MessagePlugin.warning(t('org.nameRequired'));
+    return;
   }
-  creatingOrg.value = true
+  creatingOrg.value = true;
   try {
-    const org = await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined)
-    newOrgName.value = ''
-    newOrgDesc.value = ''
-    showCreateOrg.value = false
-    orgSwitcherOpen.value = false
-    await projectStore.fetchProjects(org.id)
-    MessagePlugin.success(t('org.createSuccess'))
-    navigate(`/orgs/${org.id}/projects`)
+    const org = await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined);
+    newOrgName.value = '';
+    newOrgDesc.value = '';
+    showCreateOrg.value = false;
+    orgSwitcherOpen.value = false;
+    await projectStore.fetchProjects(org.id);
+    MessagePlugin.success(t('org.createSuccess'));
+    navigate(`/orgs/${org.id}/projects`);
   } catch (error: any) {
-    MessagePlugin.error(error.message)
+    MessagePlugin.error(error.message);
   } finally {
-    creatingOrg.value = false
+    creatingOrg.value = false;
   }
 }
 </script>
@@ -280,7 +365,13 @@ async function handleCreateOrg() {
 
       <section class="sidebar__section">
         <div class="sidebar__section-label">{{ t('shell.workspace') }}</div>
-        <button v-for="item in workspaceItems" :key="item.value" class="sidebar-link" :class="{ 'is-active': item.active }" @click="item.action">
+        <button
+          v-for="item in workspaceItems"
+          :key="item.value"
+          class="sidebar-link"
+          :class="{ 'is-active': item.active }"
+          @click="item.action"
+        >
           <t-icon :name="item.icon" />
           <span>{{ item.label }}</span>
         </button>
@@ -288,7 +379,13 @@ async function handleCreateOrg() {
 
       <section v-if="orgItems.length" class="sidebar__section">
         <div class="sidebar__section-label">{{ t('shell.orgContext') }}</div>
-        <button v-for="item in orgItems" :key="item.value" class="sidebar-link" :class="{ 'is-active': item.active }" @click="item.action">
+        <button
+          v-for="item in orgItems"
+          :key="item.value"
+          class="sidebar-link"
+          :class="{ 'is-active': item.active }"
+          @click="item.action"
+        >
           <t-icon :name="item.icon" />
           <span>{{ item.label }}</span>
         </button>
@@ -296,7 +393,13 @@ async function handleCreateOrg() {
 
       <section class="sidebar__section sidebar__section--grow">
         <div class="sidebar__section-label">{{ t('shell.system') }}</div>
-        <button v-for="item in systemItems" :key="item.value" class="sidebar-link" :class="{ 'is-active': item.active }" @click="item.action">
+        <button
+          v-for="item in systemItems"
+          :key="item.value"
+          class="sidebar-link"
+          :class="{ 'is-active': item.active }"
+          @click="item.action"
+        >
           <t-icon :name="item.icon" />
           <span>{{ item.label }}</span>
         </button>
@@ -350,8 +453,15 @@ async function handleCreateOrg() {
               @click="orgSwitcherOpen = !orgSwitcherOpen"
             >
               <t-icon name="institution" size="13px" />
-              <span class="topbar-pill__text">{{ orgStore.currentOrg?.name ?? t('shell.noOrg') }}</span>
-              <t-icon name="chevron-down" size="12px" class="topbar-pill__arrow" :class="{ 'is-flipped': orgSwitcherOpen }" />
+              <span class="topbar-pill__text">{{
+                orgStore.currentOrg?.name ?? t('shell.noOrg')
+              }}</span>
+              <t-icon
+                name="chevron-down"
+                size="12px"
+                class="topbar-pill__arrow"
+                :class="{ 'is-flipped': orgSwitcherOpen }"
+              />
             </button>
 
             <div v-show="orgSwitcherOpen" class="topbar-dropdown topbar-dropdown--orgs">
@@ -363,10 +473,19 @@ async function handleCreateOrg() {
                 :class="{ 'is-active': org.value === currentOrgId, 'is-suborg': org.depth > 0 }"
                 @click="onOrgChange(org.value)"
               >
-                <span v-if="org.depth > 0" class="suborg-indent-connector" aria-hidden="true"></span>
+                <span
+                  v-if="org.depth > 0"
+                  class="suborg-indent-connector"
+                  aria-hidden="true"
+                ></span>
                 <t-icon :name="org.depth > 0 ? 'root-list' : 'institution'" size="13px" />
                 <span>{{ org.label }}</span>
-                <t-icon v-if="org.value === currentOrgId" name="check" size="13px" class="topbar-dropdown__check" />
+                <t-icon
+                  v-if="org.value === currentOrgId"
+                  name="check"
+                  size="13px"
+                  class="topbar-dropdown__check"
+                />
               </button>
               <div class="topbar-dropdown__footer">
                 <button class="topbar-dropdown__action" @click="showCreateOrg = true">
@@ -389,8 +508,15 @@ async function handleCreateOrg() {
               @click="projectPickerOpen = !projectPickerOpen"
             >
               <t-icon name="layers" size="13px" />
-              <span class="topbar-pill__text">{{ currentProject?.name ?? t('shell.noProject') }}</span>
-              <t-icon name="chevron-down" size="12px" class="topbar-pill__arrow" :class="{ 'is-flipped': projectPickerOpen }" />
+              <span class="topbar-pill__text">{{
+                currentProject?.name ?? t('shell.noProject')
+              }}</span>
+              <t-icon
+                name="chevron-down"
+                size="12px"
+                class="topbar-pill__arrow"
+                :class="{ 'is-flipped': projectPickerOpen }"
+              />
             </button>
 
             <div v-show="projectPickerOpen" class="topbar-dropdown topbar-dropdown--wide">
@@ -404,7 +530,12 @@ async function handleCreateOrg() {
               >
                 <t-icon name="layers" size="13px" />
                 <span>{{ proj.name }}</span>
-                <t-icon v-if="proj.active" name="check" size="13px" class="topbar-dropdown__check" />
+                <t-icon
+                  v-if="proj.active"
+                  name="check"
+                  size="13px"
+                  class="topbar-dropdown__check"
+                />
               </button>
             </div>
           </div>
@@ -441,9 +572,19 @@ async function handleCreateOrg() {
                 </div>
                 <div class="health-row">
                   <span>{{ t('shell.healthLastSeen') }}</span>
-                  <strong>{{ boundServer.last_seen ? new Date(boundServer.last_seen).toLocaleString() : t('shell.never') }}</strong>
+                  <strong>{{
+                    boundServer.last_seen
+                      ? new Date(boundServer.last_seen).toLocaleString()
+                      : t('shell.never')
+                  }}</strong>
                 </div>
-                <button class="health-detail-link" @click="healthOpen = false; navigate(`/orgs/${currentOrgId}/servers`)">
+                <button
+                  class="health-detail-link"
+                  @click="
+                    healthOpen = false;
+                    navigate(`/orgs/${currentOrgId}/servers`);
+                  "
+                >
                   {{ t('shell.openRegistry') }} →
                 </button>
               </template>
@@ -455,12 +596,22 @@ async function handleCreateOrg() {
           <div ref="notifRef" class="topbar-pill-wrap">
             <button
               class="topbar-pill topbar-pill--icon"
-              :class="{ 'is-open': notifOpen, 'has-unread': persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0 }"
+              :class="{
+                'is-open': notifOpen,
+                'has-unread': persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0,
+              }"
               @click="notifOpen = !notifOpen"
             >
               <t-icon name="notification" size="16px" />
-              <span v-if="persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0" class="notif-badge">
-                {{ (persistentNotifStore.unreadCount + notifStore.unreadCount) > 99 ? '99+' : persistentNotifStore.unreadCount + notifStore.unreadCount }}
+              <span
+                v-if="persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0"
+                class="notif-badge"
+              >
+                {{
+                  persistentNotifStore.unreadCount + notifStore.unreadCount > 99
+                    ? '99+'
+                    : persistentNotifStore.unreadCount + notifStore.unreadCount
+                }}
               </span>
             </button>
 
@@ -477,7 +628,7 @@ async function handleCreateOrg() {
               </div>
 
               <div v-if="notifStore.notifications.length === 0" class="notif-empty">
-                <t-icon name="notification" size="24px" style="opacity:0.25" />
+                <t-icon name="notification" size="24px" style="opacity: 0.25" />
                 <span>{{ t('shell.noNotifications') }}</span>
               </div>
 
@@ -500,7 +651,13 @@ async function handleCreateOrg() {
               </div>
 
               <div v-if="currentOrgId" class="topbar-dropdown__footer">
-                <button class="topbar-dropdown__action" @click="notifOpen = false; navigate(`/orgs/${currentOrgId}/notifications`)">
+                <button
+                  class="topbar-dropdown__action"
+                  @click="
+                    notifOpen = false;
+                    navigate(`/orgs/${currentOrgId}/notifications`);
+                  "
+                >
                   <t-icon name="inbox" size="13px" />
                   <span>{{ t('notifications.viewInbox') }}</span>
                 </button>
@@ -652,7 +809,9 @@ async function handleCreateOrg() {
   cursor: pointer;
   color: var(--ordo-text-secondary);
   background: transparent;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .sidebar-link:hover {
@@ -857,7 +1016,10 @@ async function handleCreateOrg() {
   color: var(--ordo-text-primary);
   background: var(--ordo-bg-panel);
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  transition:
+    border-color 0.12s,
+    background 0.12s,
+    color 0.12s;
   white-space: nowrap;
 }
 
@@ -911,7 +1073,9 @@ async function handleCreateOrg() {
   border: 1px solid var(--ordo-border-color);
   border-radius: 12px;
   background: var(--ordo-bg-panel);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10), 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.1),
+    0 2px 6px rgba(0, 0, 0, 0.06);
   overflow: hidden;
 }
 
@@ -1022,7 +1186,9 @@ async function handleCreateOrg() {
   gap: 8px;
   color: var(--ordo-text-primary);
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
 }
 
 .topbar-dropdown__action:hover {
@@ -1039,10 +1205,21 @@ async function handleCreateOrg() {
   flex-shrink: 0;
 }
 
-.health-dot--online   { background: #34c759; box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.2); }
-.health-dot--degraded { background: #ff9500; box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.2); }
-.health-dot--offline  { background: #ff3b30; box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.2); }
-.health-dot--default  { background: #aeaaa2; }
+.health-dot--online {
+  background: #34c759;
+  box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.2);
+}
+.health-dot--degraded {
+  background: #ff9500;
+  box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.2);
+}
+.health-dot--offline {
+  background: #ff3b30;
+  box-shadow: 0 0 0 2px rgba(255, 59, 48, 0.2);
+}
+.health-dot--default {
+  background: #aeaaa2;
+}
 
 .health-row {
   display: flex;
@@ -1173,10 +1350,22 @@ async function handleCreateOrg() {
   justify-content: center;
 }
 
-.notif-icon--success { background: #e8f8ef; color: #00a854; }
-.notif-icon--error   { background: #fff1f0; color: #f53f3f; }
-.notif-icon--warning { background: #fff8e8; color: #e8a805; }
-.notif-icon--info    { background: #edf4ff; color: #3065a4; }
+.notif-icon--success {
+  background: #e8f8ef;
+  color: #00a854;
+}
+.notif-icon--error {
+  background: #fff1f0;
+  color: #f53f3f;
+}
+.notif-icon--warning {
+  background: #fff8e8;
+  color: #e8a805;
+}
+.notif-icon--info {
+  background: #edf4ff;
+  color: #3065a4;
+}
 
 .notif-content {
   min-width: 0;

@@ -27,6 +27,7 @@ use tower_http::trace::TraceLayer;
 use crate::{
     api,
     audit::AuditLogger,
+    capability_registry::build_server_executor,
     debug::DebugSessionManager,
     metrics::PrometheusMetricSink,
     middleware,
@@ -36,14 +37,13 @@ use crate::{
     tenant::{TenantDefaults, TenantManager},
     AppState, ServerConfig,
 };
-use ordo_core::prelude::RuleExecutor;
 
 /// Build a full test app with all API routes and middleware (matching main.rs router).
 async fn build_full_test_app() -> Router {
     let store = Arc::new(RwLock::new(RuleStore::new()));
-    let executor = Arc::new(RuleExecutor::new());
     let metric_sink = Arc::new(PrometheusMetricSink::new());
     let audit_logger = Arc::new(AuditLogger::new(None, 10));
+    let executor = build_server_executor(metric_sink.clone(), Some(audit_logger.clone()));
     let debug_sessions = Arc::new(DebugSessionManager::new());
     let defaults = TenantDefaults {
         default_qps_limit: None,

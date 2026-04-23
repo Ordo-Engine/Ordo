@@ -14,13 +14,13 @@ Most teams start with a rule engine. Then they realize the hard part isn't execu
 
 Ordo addresses the full lifecycle:
 
-| Stage | What Ordo provides |
-|-------|--------------------|
-| **Author** | Studio flow editor, decision tables, template library |
-| **Test** | Per-ruleset test cases, run in CI, export to YAML |
-| **Govern** | Fact catalog, typed contracts, version history, audit log |
-| **Execute** | Fast engine, hot reload, multi-tenancy |
-| **Observe** | Execution traces, Prometheus metrics, structured logs |
+| Stage       | What Ordo provides                                        |
+| ----------- | --------------------------------------------------------- |
+| **Author**  | Studio flow editor, decision tables, template library     |
+| **Test**    | Per-ruleset test cases, run in CI, export to YAML         |
+| **Govern**  | Fact catalog, typed contracts, version history, audit log |
+| **Execute** | Fast engine, hot reload, multi-tenancy                    |
+| **Observe** | Execution traces, Prometheus metrics, structured logs     |
 
 ## Architecture
 

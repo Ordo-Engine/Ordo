@@ -1,28 +1,28 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useRouter, useRoute } from 'vue-router'
-import { useCatalogStore } from '@/stores/catalog'
-import { useOrgStore } from '@/stores/org'
-import { useAuthStore } from '@/stores/auth'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import type { FactDataType, FactDefinition, NullPolicy } from '@/api/types'
+import { ref, computed, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter, useRoute } from 'vue-router';
+import { useCatalogStore } from '@/stores/catalog';
+import { useOrgStore } from '@/stores/org';
+import { useAuthStore } from '@/stores/auth';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import type { FactDataType, FactDefinition, NullPolicy } from '@/api/types';
 
-const catalog = useCatalogStore()
-const orgStore = useOrgStore()
-const auth = useAuthStore()
-const { t } = useI18n()
-const router = useRouter()
-const route = useRoute()
-const orgId = computed(() => route.params.orgId as string)
+const catalog = useCatalogStore();
+const orgStore = useOrgStore();
+const auth = useAuthStore();
+const { t } = useI18n();
+const router = useRouter();
+const route = useRoute();
+const orgId = computed(() => route.params.orgId as string);
 
-const canEdit = computed(() => auth.user ? orgStore.canAdmin(auth.user.id) : false)
+const canEdit = computed(() => (auth.user ? orgStore.canAdmin(auth.user.id) : false));
 
-const selected = ref<FactDefinition | null>(null)
-const saving = ref(false)
-const isNew = ref(false)
-const searchQuery = ref('')
-const prefillHint = ref('')
+const selected = ref<FactDefinition | null>(null);
+const saving = ref(false);
+const isNew = ref(false);
+const searchQuery = ref('');
+const prefillHint = ref('');
 
 const emptyForm = (name = ''): Omit<FactDefinition, 'created_at' | 'updated_at'> => ({
   name,
@@ -32,20 +32,21 @@ const emptyForm = (name = ''): Omit<FactDefinition, 'created_at' | 'updated_at'>
   latency_ms: undefined,
   description: '',
   owner: '',
-})
+});
 
-const form = ref(emptyForm())
+const form = ref(emptyForm());
 
 const filteredFacts = computed(() => {
-  const keyword = searchQuery.value.trim().toLowerCase()
-  const facts = [...catalog.facts].sort((a, b) => a.name.localeCompare(b.name))
-  if (!keyword) return facts
+  const keyword = searchQuery.value.trim().toLowerCase();
+  const facts = [...catalog.facts].sort((a, b) => a.name.localeCompare(b.name));
+  if (!keyword) return facts;
 
   return facts.filter((fact) =>
-    [fact.name, fact.source, fact.owner ?? '', fact.description ?? '']
-      .some((value) => value.toLowerCase().includes(keyword)),
-  )
-})
+    [fact.name, fact.source, fact.owner ?? '', fact.description ?? ''].some((value) =>
+      value.toLowerCase().includes(keyword)
+    )
+  );
+});
 
 const dataTypeLabel = computed<Record<FactDataType, string>>(() => ({
   string: t('facts.typeString'),
@@ -53,62 +54,62 @@ const dataTypeLabel = computed<Record<FactDataType, string>>(() => ({
   boolean: t('facts.typeBoolean'),
   date: t('facts.typeDate'),
   object: t('facts.typeObject'),
-}))
+}));
 
 const nullPolicyLabel = computed<Record<NullPolicy, string>>(() => ({
   error: t('facts.policyError'),
   default: t('facts.policyDefault'),
   skip: t('facts.policySkip'),
-}))
+}));
 
 watch(
   () => catalog.facts,
   (facts) => {
-    if (isNew.value) return
+    if (isNew.value) return;
     if (!selected.value && facts.length > 0) {
-      openEdit([...facts].sort((a, b) => a.name.localeCompare(b.name))[0])
-      return
+      openEdit([...facts].sort((a, b) => a.name.localeCompare(b.name))[0]);
+      return;
     }
     if (selected.value) {
-      const next = facts.find((fact) => fact.name === selected.value?.name) ?? null
-      selected.value = next
+      const next = facts.find((fact) => fact.name === selected.value?.name) ?? null;
+      selected.value = next;
     }
   },
-  { immediate: true, deep: true },
-)
+  { immediate: true, deep: true }
+);
 
 watch(
   () => route.query.createFact,
   (value) => {
-    const requestedName = typeof value === 'string' ? value.trim() : ''
-    if (!requestedName) return
+    const requestedName = typeof value === 'string' ? value.trim() : '';
+    if (!requestedName) return;
 
-    const existing = catalog.facts.find((fact) => fact.name === requestedName)
+    const existing = catalog.facts.find((fact) => fact.name === requestedName);
     if (existing) {
-      openEdit(existing)
+      openEdit(existing);
     } else {
-      openNew(requestedName)
-      prefillHint.value = t('facts.prefillHint', { name: requestedName })
+      openNew(requestedName);
+      prefillHint.value = t('facts.prefillHint', { name: requestedName });
     }
 
-    const nextQuery = { ...route.query }
-    delete nextQuery.createFact
-    void router.replace({ query: nextQuery })
+    const nextQuery = { ...route.query };
+    delete nextQuery.createFact;
+    void router.replace({ query: nextQuery });
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 function openNew(prefillName = '') {
-  isNew.value = true
-  selected.value = null
-  form.value = emptyForm(prefillName)
-  prefillHint.value = prefillName ? t('facts.prefillHint', { name: prefillName }) : ''
+  isNew.value = true;
+  selected.value = null;
+  form.value = emptyForm(prefillName);
+  prefillHint.value = prefillName ? t('facts.prefillHint', { name: prefillName }) : '';
 }
 
 function openEdit(fact: FactDefinition) {
-  isNew.value = false
-  selected.value = fact
-  prefillHint.value = ''
+  isNew.value = false;
+  selected.value = fact;
+  prefillHint.value = '';
   form.value = {
     name: fact.name,
     data_type: fact.data_type,
@@ -117,20 +118,20 @@ function openEdit(fact: FactDefinition) {
     latency_ms: fact.latency_ms,
     description: fact.description ?? '',
     owner: fact.owner ?? '',
-  }
+  };
 }
 
 async function handleSave() {
   if (!form.value.name.trim()) {
-    MessagePlugin.warning(t('facts.nameRequired'))
-    return
+    MessagePlugin.warning(t('facts.nameRequired'));
+    return;
   }
   if (!form.value.source.trim()) {
-    MessagePlugin.warning(t('facts.sourceRequired'))
-    return
+    MessagePlugin.warning(t('facts.sourceRequired'));
+    return;
   }
 
-  saving.value = true
+  saving.value = true;
   try {
     const saved = await catalog.upsertFact({
       ...form.value,
@@ -138,17 +139,17 @@ async function handleSave() {
       source: form.value.source.trim(),
       description: form.value.description?.trim() || undefined,
       owner: form.value.owner?.trim() || undefined,
-    })
+    });
     if (!saved) {
-      throw new Error(t('facts.saveFailed'))
+      throw new Error(t('facts.saveFailed'));
     }
 
-    MessagePlugin.success(isNew.value ? t('facts.createSuccess') : t('facts.updateSuccess'))
-    openEdit(saved)
+    MessagePlugin.success(isNew.value ? t('facts.createSuccess') : t('facts.updateSuccess'));
+    openEdit(saved);
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('facts.saveFailed'))
+    MessagePlugin.error(e.message || t('facts.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
@@ -160,35 +161,35 @@ function handleDelete(fact: FactDefinition) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await catalog.deleteFact(fact.name)
+        await catalog.deleteFact(fact.name);
         if (selected.value?.name === fact.name) {
-          selected.value = null
+          selected.value = null;
           const next = [...catalog.facts]
             .filter((item) => item.name !== fact.name)
-            .sort((a, b) => a.name.localeCompare(b.name))[0]
+            .sort((a, b) => a.name.localeCompare(b.name))[0];
           if (next) {
-            openEdit(next)
+            openEdit(next);
           } else {
-            isNew.value = false
-            form.value = emptyForm()
+            isNew.value = false;
+            form.value = emptyForm();
           }
         }
-        dlg.hide()
-        MessagePlugin.success(t('facts.deleteSuccess'))
+        dlg.hide();
+        MessagePlugin.success(t('facts.deleteSuccess'));
       } catch (e: any) {
-        MessagePlugin.error(e.message || t('facts.saveFailed'))
+        MessagePlugin.error(e.message || t('facts.saveFailed'));
       }
     },
-  })
+  });
 }
 
 function cancelEdit() {
-  prefillHint.value = ''
+  prefillHint.value = '';
   if (selected.value) {
-    openEdit(selected.value)
+    openEdit(selected.value);
   } else {
-    isNew.value = false
-    form.value = emptyForm()
+    isNew.value = false;
+    form.value = emptyForm();
   }
 }
 </script>
@@ -196,8 +197,12 @@ function cancelEdit() {
 <template>
   <div class="fact-view">
     <t-breadcrumb class="asset-breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
-      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{ t('breadcrumb.projects') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{
+        t('breadcrumb.projects')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('projectNav.facts') }}</t-breadcrumb-item>
     </t-breadcrumb>
 
@@ -227,7 +232,7 @@ function cancelEdit() {
           <t-loading size="small" />
         </div>
         <div v-else-if="catalog.facts.length === 0" class="asset-empty">
-          <t-icon name="data" size="32px" style="opacity:0.3" />
+          <t-icon name="data" size="32px" style="opacity: 0.3" />
           <p>{{ t('facts.empty') }}</p>
         </div>
         <div
@@ -243,15 +248,15 @@ function cancelEdit() {
             <span class="fact-item__policy">{{ nullPolicyLabel[fact.null_policy] }}</span>
           </div>
           <div class="fact-item__source">{{ fact.source }}</div>
-          <button
-            v-if="canEdit"
-            class="fact-item__del"
-            @click.stop="handleDelete(fact)"
-          ><t-icon name="close" size="12px" /></button>
+          <button v-if="canEdit" class="fact-item__del" @click.stop="handleDelete(fact)">
+            <t-icon name="close" size="12px" />
+          </button>
         </div>
 
         <div v-if="isNew" class="fact-item is-active">
-          <div class="fact-item__name" style="opacity:0.5">{{ form.name || t('facts.newPlaceholder') }}</div>
+          <div class="fact-item__name" style="opacity: 0.5">
+            {{ form.name || t('facts.newPlaceholder') }}
+          </div>
           <div class="fact-item__source">{{ prefillHint || t('facts.editorNew') }}</div>
         </div>
       </div>
@@ -286,13 +291,21 @@ function cancelEdit() {
             </t-select>
           </t-form-item>
           <t-form-item :label="t('facts.latencyLabel')">
-            <t-input-number v-model="form.latency_ms" :min="0" :placeholder="t('facts.latencyPlaceholder')" />
+            <t-input-number
+              v-model="form.latency_ms"
+              :min="0"
+              :placeholder="t('facts.latencyPlaceholder')"
+            />
           </t-form-item>
           <t-form-item :label="t('facts.ownerLabel')">
             <t-input v-model="form.owner" :placeholder="t('facts.ownerPlaceholder')" />
           </t-form-item>
           <t-form-item :label="t('facts.descLabel')">
-            <t-textarea v-model="form.description" :rows="4" :placeholder="t('facts.descPlaceholder')" />
+            <t-textarea
+              v-model="form.description"
+              :rows="4"
+              :placeholder="t('facts.descPlaceholder')"
+            />
           </t-form-item>
         </t-form>
 
@@ -305,7 +318,7 @@ function cancelEdit() {
       </div>
 
       <div v-else class="fact-placeholder">
-        <t-icon name="data" size="36px" style="opacity:0.15" />
+        <t-icon name="data" size="36px" style="opacity: 0.15" />
         <p>{{ t('facts.placeholder') }}</p>
       </div>
     </div>
@@ -370,8 +383,12 @@ function cancelEdit() {
   position: relative;
 }
 
-.fact-item:hover { background: var(--ordo-hover-bg); }
-.fact-item.is-active { background: var(--ordo-active-bg); }
+.fact-item:hover {
+  background: var(--ordo-hover-bg);
+}
+.fact-item.is-active {
+  background: var(--ordo-active-bg);
+}
 
 .fact-item__name {
   font-size: 13px;
@@ -413,8 +430,13 @@ function cancelEdit() {
   justify-content: center;
 }
 
-.fact-item:hover .fact-item__del { display: flex; }
-.fact-item__del:hover { background: rgba(255,80,80,0.15); color: #e34d59; }
+.fact-item:hover .fact-item__del {
+  display: flex;
+}
+.fact-item__del:hover {
+  background: rgba(255, 80, 80, 0.15);
+  color: #e34d59;
+}
 
 .fact-editor {
   flex: 1;
@@ -450,7 +472,8 @@ function cancelEdit() {
   font-size: 13px;
 }
 
-.asset-loading, .asset-empty {
+.asset-loading,
+.asset-empty {
   display: flex;
   flex-direction: column;
   align-items: center;

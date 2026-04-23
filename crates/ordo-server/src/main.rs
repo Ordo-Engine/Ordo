@@ -49,6 +49,7 @@ use tracing::{info, warn};
 
 mod api;
 mod audit;
+mod capability_registry;
 mod config;
 pub mod debug;
 mod error;
@@ -67,10 +68,11 @@ pub mod wal;
 pub mod webhook;
 
 use audit::AuditLogger;
+use capability_registry::{build_rule_executor, build_server_capability_invoker, invoke_http_json};
 use config::ServerConfig;
 use grpc::OrdoGrpcService;
 use metrics::PrometheusMetricSink;
-use ordo_core::prelude::{RuleExecutor, TraceConfig};
+use ordo_core::prelude::RuleExecutor;
 use ordo_core::signature::ed25519::decode_public_key;
 use ordo_core::signature::RuleVerifier;
 use rate_limiter::RateLimiter;
@@ -225,13 +227,29 @@ async fn main() -> anyhow::Result<()> {
     let metric_sink = Arc::new(PrometheusMetricSink::new());
     info!("Initialized Prometheus metric sink for custom rule metrics");
 
-    // Initialize shared executor (moved out of RuleStore for lock-free execution)
-    let executor = Arc::new(RuleExecutor::with_trace_and_metrics(
-        TraceConfig::minimal(),
-        metric_sink.clone(),
+    let signature_verifier = build_signature_verifier(&config)?;
+
+    // Initialize audit logger
+    let audit_logger = Arc::new(AuditLogger::new(
+        config.audit_dir.clone(),
+        config.audit_sample_rate,
     ));
 
-    let signature_verifier = build_signature_verifier(&config)?;
+    // Log audit configuration
+    if config.audit_dir.is_some() {
+        info!(
+            "Audit logging enabled: dir={:?}, sample_rate={}%",
+            config.audit_dir, config.audit_sample_rate
+        );
+    } else {
+        info!(
+            "Audit logging to stdout only, sample_rate={}%",
+            config.audit_sample_rate
+        );
+    }
+
+    let capability_invoker =
+        build_server_capability_invoker(metric_sink.clone(), Some(audit_logger.clone()));
 
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
@@ -244,10 +262,11 @@ async fn main() -> anyhow::Result<()> {
             "Initializing store with persistence at {:?} (max {} versions)",
             store_dir, config.max_versions
         );
-        let mut store = RuleStore::new_with_persistence_and_metrics(
+        let mut store = RuleStore::new_with_persistence_and_metrics_and_capabilities(
             store_dir,
             config.max_versions,
             metric_sink.clone(),
+            Some(capability_invoker.clone()),
         );
         if let Some(verifier) = signature_verifier.clone() {
             store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
@@ -335,7 +354,10 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(RwLock::new(store))
     } else {
         info!("Initializing in-memory store (no persistence)");
-        let mut store = RuleStore::new_with_metrics(metric_sink.clone());
+        let mut store = RuleStore::new_with_metrics_and_capabilities(
+            metric_sink.clone(),
+            Some(capability_invoker.clone()),
+        );
         if let Some(verifier) = signature_verifier.clone() {
             store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
         }
@@ -357,24 +379,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Initialize audit logger
-    let audit_logger = Arc::new(AuditLogger::new(
-        config.audit_dir.clone(),
-        config.audit_sample_rate,
+    // Initialize shared executor (moved out of RuleStore for lock-free execution)
+    let metric_sink_trait: Arc<dyn ordo_core::prelude::MetricSink> = metric_sink.clone();
+    let executor = Arc::new(build_rule_executor(
+        metric_sink_trait,
+        Some(capability_invoker.clone()),
     ));
-
-    // Log audit configuration
-    if config.audit_dir.is_some() {
-        info!(
-            "Audit logging enabled: dir={:?}, sample_rate={}%",
-            config.audit_dir, config.audit_sample_rate
-        );
-    } else {
-        info!(
-            "Audit logging to stdout only, sample_rate={}%",
-            config.audit_sample_rate
-        );
-    }
 
     // Initialize debug session manager
     let debug_sessions = Arc::new(debug::DebugSessionManager::new());
@@ -408,7 +418,10 @@ async fn main() -> anyhow::Result<()> {
     // Shutdown broadcast channel — signal handlers and servers share this.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let webhook_manager = webhook::WebhookManager::new(shutdown_rx.clone());
+    let webhook_manager = webhook::WebhookManager::new_with_capabilities(
+        shutdown_rx.clone(),
+        Some(capability_invoker.clone()),
+    );
 
     // Log server started event
     {
@@ -632,6 +645,7 @@ async fn main() -> anyhow::Result<()> {
             let http_version = version.clone();
             let http_token = token.clone();
             let http_reg_secret = reg_secret.clone();
+            let http_capability_invoker = capability_invoker.clone();
             let log_url = platform_url.clone();
             let log_name = http_server_name.clone();
 
@@ -652,25 +666,49 @@ async fn main() -> anyhow::Result<()> {
                 });
                 let hb_payload = serde_json::json!({ "server_id": http_server_id });
 
-                let hb_req_builder = || {
-                    let mut r = client.post(&hb_url).json(&hb_payload);
-                    if let Some(ref secret) = http_reg_secret {
-                        r = r.header("x-registration-secret", secret.as_str());
-                    }
-                    r
-                };
-
                 let mut interval = tokio::time::interval(Duration::from_secs(30));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                 loop {
-                    let mut r = client.post(&reg_url).json(&payload);
+                    let mut headers = std::collections::HashMap::new();
                     if let Some(ref secret) = http_reg_secret {
-                        r = r.header("x-registration-secret", secret.as_str());
+                        headers.insert("x-registration-secret".to_string(), secret.to_string());
                     }
-                    let _ = r.send().await;
+                    match invoke_http_json(
+                        Some(http_capability_invoker.clone()),
+                        "post",
+                        &reg_url,
+                        headers.clone(),
+                        &payload,
+                        Some(5_000),
+                    ) {
+                        Ok(Some(_)) => {}
+                        Ok(None) | Err(_) => {
+                            let mut r = client.post(&reg_url).json(&payload);
+                            if let Some(ref secret) = http_reg_secret {
+                                r = r.header("x-registration-secret", secret.as_str());
+                            }
+                            let _ = r.send().await;
+                        }
+                    }
                     interval.tick().await;
-                    let _ = hb_req_builder().send().await;
+                    match invoke_http_json(
+                        Some(http_capability_invoker.clone()),
+                        "post",
+                        &hb_url,
+                        headers.clone(),
+                        &hb_payload,
+                        Some(5_000),
+                    ) {
+                        Ok(Some(_)) => {}
+                        Ok(None) | Err(_) => {
+                            let mut r = client.post(&hb_url).json(&hb_payload);
+                            if let Some(ref secret) = http_reg_secret {
+                                r = r.header("x-registration-secret", secret.as_str());
+                            }
+                            let _ = r.send().await;
+                        }
+                    }
                 }
             });
 

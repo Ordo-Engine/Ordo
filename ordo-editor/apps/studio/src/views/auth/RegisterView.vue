@@ -1,48 +1,48 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { useSystemStore } from '@/stores/system'
-import { MessagePlugin } from 'tdesign-vue-next'
-import platformLogo from '@/assets/platform-logo.png'
+import { onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useSystemStore } from '@/stores/system';
+import { MessagePlugin } from 'tdesign-vue-next';
+import platformLogo from '@/assets/platform-logo.png';
 
-const router = useRouter()
-const auth = useAuthStore()
-const systemStore = useSystemStore()
-const { t } = useI18n()
+const router = useRouter();
+const auth = useAuthStore();
+const systemStore = useSystemStore();
+const { t } = useI18n();
 
-const displayName = ref('')
-const email = ref('')
-const password = ref('')
-const password2 = ref('')
-const loading = ref(false)
+const displayName = ref('');
+const email = ref('');
+const password = ref('');
+const password2 = ref('');
+const loading = ref(false);
 
 onMounted(() => {
-  systemStore.fetchConfig()
-})
+  systemStore.fetchConfig();
+});
 
 async function handleRegister() {
   if (!email.value || !password.value || !displayName.value) {
-    MessagePlugin.warning(t('auth.fillRequired'))
-    return
+    MessagePlugin.warning(t('auth.fillRequired'));
+    return;
   }
   if (password.value !== password2.value) {
-    MessagePlugin.warning(t('auth.passwordMismatch'))
-    return
+    MessagePlugin.warning(t('auth.passwordMismatch'));
+    return;
   }
   if (password.value.length < 8) {
-    MessagePlugin.warning(t('auth.passwordTooShort'))
-    return
+    MessagePlugin.warning(t('auth.passwordTooShort'));
+    return;
   }
-  loading.value = true
+  loading.value = true;
   try {
-    await auth.register(email.value, password.value, displayName.value)
-    router.push('/')
+    await auth.register(email.value, password.value, displayName.value);
+    router.push('/');
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('auth.registerFailed'))
+    MessagePlugin.error(e.message || t('auth.registerFailed'));
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 </script>
@@ -64,22 +64,40 @@ async function handleRegister() {
       <ul class="brand-features">
         <li>
           <svg class="feat-check" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15"/>
-            <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15" />
+            <path
+              d="M4.5 8l2.5 2.5 4.5-4.5"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           {{ t('auth.feature1') }}
         </li>
         <li>
           <svg class="feat-check" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15"/>
-            <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15" />
+            <path
+              d="M4.5 8l2.5 2.5 4.5-4.5"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           {{ t('auth.feature2') }}
         </li>
         <li>
           <svg class="feat-check" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15"/>
-            <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15" />
+            <path
+              d="M4.5 8l2.5 2.5 4.5-4.5"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           {{ t('auth.feature3') }}
         </li>
@@ -88,10 +106,13 @@ async function handleRegister() {
 
     <!-- Right: floating form card -->
     <div class="form-card">
-
       <!-- Loading skeleton -->
       <div v-if="systemStore.loading" class="loading-state">
-        <t-skeleton theme="paragraph" animation="gradient" :row-col="[{ width: '40%' }, { width: '100%' }, { width: '100%' }, { width: '100%' }]" />
+        <t-skeleton
+          theme="paragraph"
+          animation="gradient"
+          :row-col="[{ width: '40%' }, { width: '100%' }, { width: '100%' }, { width: '100%' }]"
+        />
       </div>
 
       <!-- Registration disabled -->
@@ -99,15 +120,16 @@ async function handleRegister() {
         <div class="disabled-header">
           <div class="disabled-icon">
             <svg viewBox="0 0 24 24" fill="none" width="24" height="24">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+                fill="currentColor"
+              />
             </svg>
           </div>
           <h2 class="form-title">{{ t('auth.registrationDisabled') }}</h2>
         </div>
         <p class="disabled-desc">{{ t('auth.registrationDisabledDesc') }}</p>
-        <router-link to="/login" class="back-btn">
-          ← {{ t('auth.backToLogin') }}
-        </router-link>
+        <router-link to="/login" class="back-btn"> ← {{ t('auth.backToLogin') }} </router-link>
       </template>
 
       <!-- Registration form -->
@@ -173,7 +195,6 @@ async function handleRegister() {
           <router-link to="/login" class="form-link">{{ t('auth.loginLink') }}</router-link>
         </div>
       </template>
-
     </div>
   </div>
 </template>
@@ -268,7 +289,9 @@ async function handleRegister() {
   flex-shrink: 0;
   background: #ffffff;
   border-radius: 16px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04), 0 10px 40px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.04),
+    0 10px 40px rgba(0, 0, 0, 0.08);
   padding: 40px;
   display: flex;
   flex-direction: column;

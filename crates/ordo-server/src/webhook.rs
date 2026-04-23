@@ -5,12 +5,15 @@
 //! to avoid blocking the main request path.
 
 use chrono::{DateTime, Utc};
+use ordo_core::prelude::CapabilityInvoker;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
+
+use crate::capability_registry::{http_response_status, invoke_http_json};
 
 /// Events that can trigger webhooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -99,6 +102,13 @@ pub struct WebhookManager {
 impl WebhookManager {
     /// Create a new WebhookManager and spawn the background delivery task.
     pub fn new(shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Arc<Self> {
+        Self::new_with_capabilities(shutdown_rx, None)
+    }
+
+    pub fn new_with_capabilities(
+        shutdown_rx: tokio::sync::watch::Receiver<bool>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> Arc<Self> {
         let (tx, rx) = mpsc::channel::<DeliveryJob>(1024);
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -113,7 +123,7 @@ impl WebhookManager {
         });
 
         // Spawn background delivery task
-        tokio::spawn(delivery_loop(rx, client, shutdown_rx));
+        tokio::spawn(delivery_loop(rx, client, capability_invoker, shutdown_rx));
 
         manager
     }
@@ -198,13 +208,14 @@ impl WebhookManager {
 async fn delivery_loop(
     mut rx: mpsc::Receiver<DeliveryJob>,
     client: reqwest::Client,
+    capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) {
     loop {
         tokio::select! {
             job = rx.recv() => {
                 match job {
-                    Some(job) => deliver_with_retry(&client, job).await,
+                    Some(job) => deliver_with_retry(&client, capability_invoker.clone(), job).await,
                     None => break, // Channel closed
                 }
             }
@@ -212,7 +223,7 @@ async fn delivery_loop(
                 info!("Webhook delivery task shutting down");
                 // Drain remaining jobs
                 while let Ok(job) = rx.try_recv() {
-                    deliver_with_retry(&client, job).await;
+                    deliver_with_retry(&client, capability_invoker.clone(), job).await;
                 }
                 break;
             }
@@ -222,55 +233,117 @@ async fn delivery_loop(
 }
 
 /// Deliver a single webhook with exponential backoff retry.
-async fn deliver_with_retry(client: &reqwest::Client, job: DeliveryJob) {
+async fn deliver_with_retry(
+    client: &reqwest::Client,
+    capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    job: DeliveryJob,
+) {
     let webhook_id = &job.webhook.id;
     let max_retries = job.webhook.max_retries as u32;
+    let body_json = serde_json::to_value(&job.payload).unwrap_or(serde_json::Value::Null);
+    let mut headers = HashMap::new();
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    headers.insert(
+        "User-Agent".to_string(),
+        format!("ordo-webhook/{}", ordo_core::VERSION),
+    );
+    headers.insert(
+        "X-Ordo-Event".to_string(),
+        format!("{:?}", job.payload.event).to_lowercase(),
+    );
+    headers.insert("X-Ordo-Webhook-ID".to_string(), webhook_id.clone());
 
     for attempt in 0..=max_retries {
-        let mut request = client
-            .post(&job.webhook.url)
-            .header("Content-Type", "application/json")
-            .header("User-Agent", format!("ordo-webhook/{}", ordo_core::VERSION))
-            .header(
-                "X-Ordo-Event",
-                format!("{:?}", job.payload.event).to_lowercase(),
-            )
-            .header("X-Ordo-Webhook-ID", webhook_id.as_str())
-            .header("X-Ordo-Delivery-Attempt", (attempt + 1).to_string());
+        let mut attempt_headers = headers.clone();
+        attempt_headers.insert(
+            "X-Ordo-Delivery-Attempt".to_string(),
+            (attempt + 1).to_string(),
+        );
 
         // HMAC signature if secret is set
         if let Some(ref secret) = job.webhook.secret {
             if let Ok(body_bytes) = serde_json::to_vec(&job.payload) {
                 let signature = hmac_sha256(secret.as_bytes(), &body_bytes);
-                request = request.header("X-Ordo-Signature", format!("sha256={}", signature));
+                attempt_headers.insert(
+                    "X-Ordo-Signature".to_string(),
+                    format!("sha256={}", signature),
+                );
             }
         }
 
-        match request.json(&job.payload).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                debug!(
-                    webhook_id = %webhook_id,
-                    status = %resp.status(),
-                    attempt = attempt + 1,
-                    "Webhook delivered"
-                );
-                return;
+        let capability_result = invoke_http_json(
+            capability_invoker.clone(),
+            "post",
+            &job.webhook.url,
+            attempt_headers.clone(),
+            &body_json,
+            Some(10_000),
+        );
+
+        let mut delivered = false;
+        match capability_result {
+            Ok(Some(response)) => {
+                if let Some(status) = http_response_status(&response) {
+                    if (200..300).contains(&status) {
+                        debug!(
+                            webhook_id = %webhook_id,
+                            status = status,
+                            attempt = attempt + 1,
+                            "Webhook delivered"
+                        );
+                        return;
+                    }
+                    warn!(
+                        webhook_id = %webhook_id,
+                        status = status,
+                        attempt = attempt + 1,
+                        "Webhook delivery failed"
+                    );
+                    delivered = true;
+                }
             }
-            Ok(resp) => {
+            Ok(None) => {}
+            Err(error) => {
                 warn!(
                     webhook_id = %webhook_id,
-                    status = %resp.status(),
+                    error = %error,
                     attempt = attempt + 1,
-                    "Webhook delivery failed"
+                    "Webhook capability delivery error"
                 );
             }
-            Err(e) => {
-                warn!(
-                    webhook_id = %webhook_id,
-                    error = %e,
-                    attempt = attempt + 1,
-                    "Webhook delivery error"
-                );
+        }
+
+        if !delivered {
+            let mut request = client.post(&job.webhook.url);
+            for (name, value) in &attempt_headers {
+                request = request.header(name, value);
+            }
+            match request.json(&job.payload).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    debug!(
+                        webhook_id = %webhook_id,
+                        status = %resp.status(),
+                        attempt = attempt + 1,
+                        "Webhook delivered"
+                    );
+                    return;
+                }
+                Ok(resp) => {
+                    warn!(
+                        webhook_id = %webhook_id,
+                        status = %resp.status(),
+                        attempt = attempt + 1,
+                        "Webhook delivery failed"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        webhook_id = %webhook_id,
+                        error = %e,
+                        attempt = attempt + 1,
+                        "Webhook delivery error"
+                    );
+                }
             }
         }
 
@@ -310,6 +383,8 @@ fn generate_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability_registry::build_server_capability_invoker;
+    use crate::metrics::PrometheusMetricSink;
 
     #[test]
     fn test_generate_id() {
@@ -353,7 +428,13 @@ mod tests {
     #[tokio::test]
     async fn test_webhook_manager_crud() {
         let (_tx, rx) = tokio::sync::watch::channel(false);
-        let manager = WebhookManager::new(rx);
+        let manager = WebhookManager::new_with_capabilities(
+            rx,
+            Some(build_server_capability_invoker(
+                Arc::new(PrometheusMetricSink::new()),
+                None,
+            )),
+        );
 
         // Register
         let id = manager
@@ -408,7 +489,13 @@ mod tests {
     #[tokio::test]
     async fn test_fire_filters_inactive_and_events() {
         let (_tx, rx) = tokio::sync::watch::channel(false);
-        let manager = WebhookManager::new(rx);
+        let manager = WebhookManager::new_with_capabilities(
+            rx,
+            Some(build_server_capability_invoker(
+                Arc::new(PrometheusMetricSink::new()),
+                None,
+            )),
+        );
 
         // Register inactive hook
         manager

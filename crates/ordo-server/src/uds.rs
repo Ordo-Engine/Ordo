@@ -84,6 +84,9 @@ pub fn cleanup_uds(uds_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::AuditLogger;
+    use crate::capability_registry::build_server_executor;
+    use crate::metrics::PrometheusMetricSink;
     use crate::tenant::{TenantDefaults, TenantManager};
     use std::time::Duration;
     use tempfile::tempdir;
@@ -94,7 +97,9 @@ mod tests {
         let socket_path = temp_dir.path().join("test.sock");
 
         let store = Arc::new(tokio::sync::RwLock::new(RuleStore::new()));
-        let executor = Arc::new(RuleExecutor::new());
+        let metric_sink = Arc::new(PrometheusMetricSink::new());
+        let audit_logger = Arc::new(AuditLogger::new(None, 0));
+        let executor = build_server_executor(metric_sink, Some(audit_logger));
         let defaults = TenantDefaults {
             default_qps_limit: Some(1000),
             default_burst_limit: Some(100),
@@ -126,11 +131,30 @@ mod tests {
             .await
         });
 
-        // Give server time to start
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Wait for the socket file to appear rather than assuming a fixed startup latency.
+        let mut started = false;
+        for _ in 0..20 {
+            if socket_path.exists() {
+                started = true;
+                break;
+            }
+            if server_handle.is_finished() {
+                let result = server_handle.await.expect("UDS task join failed");
+                match result {
+                    Err(error)
+                        if error
+                            .downcast_ref::<std::io::Error>()
+                            .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) =>
+                    {
+                        return;
+                    }
+                    other => panic!("UDS server exited before socket creation: {:?}", other),
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
 
-        // Verify socket file exists
-        assert!(socket_path.exists());
+        assert!(started, "UDS socket was not created in time");
 
         // Abort server
         server_handle.abort();

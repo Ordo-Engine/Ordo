@@ -1,11 +1,10 @@
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import { resolve } from 'path';
 
-const packagesPath = resolve(__dirname, '../../packages')
-const platformProxyTarget =
-  process.env.ORDO_PLATFORM_PROXY_TARGET || 'http://localhost:3001'
-const cacheDir = resolve(__dirname, process.env.VITE_CACHE_DIR || 'node_modules/.vite')
+const packagesPath = resolve(__dirname, '../../packages');
+const platformProxyTarget = process.env.ORDO_PLATFORM_PROXY_TARGET || 'http://localhost:3001';
+const cacheDir = resolve(__dirname, process.env.VITE_CACHE_DIR || 'node_modules/.vite');
 
 export default defineConfig({
   plugins: [vue()],
@@ -31,11 +30,7 @@ export default defineConfig({
       },
     },
     fs: {
-      allow: [
-        resolve(__dirname, '..'),
-        packagesPath,
-        resolve(__dirname, '../../node_modules'),
-      ],
+      allow: [resolve(__dirname, '..'), packagesPath, resolve(__dirname, '../../node_modules')],
     },
   },
   optimizeDeps: {
@@ -49,4 +44,4 @@ export default defineConfig({
       'tdesign-vue-next',
     ],
   },
-})
+});

@@ -544,7 +544,8 @@ export default {
   },
   dashboard: {
     workspaceTitle: '專案工作台',
-    workspaceSubtitle: '你目前在 {org} 中工作。可以快速回到專案、從模板開始，或查看 engine 節點狀態。',
+    workspaceSubtitle:
+      '你目前在 {org} 中工作。可以快速回到專案、從模板開始，或查看 engine 節點狀態。',
     workspaceSubtitleNoOrg: '請先選擇一個組織，然後開啟專案或從模板開始。',
     newProject: '新建專案',
     statOrgs: '組織',
@@ -601,7 +602,8 @@ export default {
     serverRegistry: {
       title: 'Servers',
       desc: '查看目前已註冊到此平台的 ordo-server 節點。',
-      cleanupHint: '節點超過 90 秒無心跳會先退化，10 分鐘後標記離線，30 分鐘後自動清理離線殭屍記錄。',
+      cleanupHint:
+        '節點超過 90 秒無心跳會先退化，10 分鐘後標記離線，30 分鐘後自動清理離線殭屍記錄。',
       refresh: '重新整理',
       empty: '目前此帳號還看不到任何已註冊 Server。',
       loadFailed: '載入 Server 註冊表失敗',
@@ -933,11 +935,13 @@ export default {
     selectionEmpty: '尚未選擇節點',
     labelsEmpty: '無 labels',
     degradedWarning: '已選擇退化節點：{names}。發佈仍可繼續，但建議先確認節點健康狀態。',
-    mismatchWarning: '已選節點與環境名稱看起來不匹配：{names}。請確認沒有把測試節點綁定到生產環境。',
+    mismatchWarning:
+      '已選節點與環境名稱看起來不匹配：{names}。請確認沒有把測試節點綁定到生產環境。',
     delete: '刪除',
     confirmDelete: '刪除環境 "{name}"？',
     natsPrefix: 'NATS 主題前綴',
-    natsPrefixHelp: '通常不需要手動填寫。系統會依環境名稱自動產生，用於該環境下規則下發的主題命名空間。',
+    natsPrefixHelp:
+      '通常不需要手動填寫。系統會依環境名稱自動產生，用於該環境下規則下發的主題命名空間。',
     save: '儲存',
     cancel: '取消',
     noEnvs: '尚無環境',
@@ -1330,4 +1334,4 @@ export default {
       release_instance_view: '查看單一實例發佈狀態與遙測。',
     },
   },
-}
+};

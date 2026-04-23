@@ -1,56 +1,61 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { useProjectStore } from '@/stores/project'
-import { projectApi, serverApi } from '@/api/platform-client'
-import type { ServerInfo } from '@/api/types'
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { useProjectStore } from '@/stores/project';
+import { projectApi, serverApi } from '@/api/platform-client';
+import type { ServerInfo } from '@/api/types';
 
-const { t } = useI18n()
-const route = useRoute()
-const router = useRouter()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const projectStore = useProjectStore()
+const { t } = useI18n();
+const route = useRoute();
+const router = useRouter();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const projectStore = useProjectStore();
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
-const project = computed(() => projectStore.currentProject)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
+const project = computed(() => projectStore.currentProject);
 
-const nameValue = ref('')
-const descValue = ref('')
-const saving = ref(false)
+const nameValue = ref('');
+const descValue = ref('');
+const saving = ref(false);
 
-const servers = ref<ServerInfo[]>([])
-const serversLoading = ref(false)
-const selectedServerId = ref('default')
-const binding = ref(false)
-const healthLoading = ref(false)
-const healthStatus = ref<{ online: boolean; response?: string; error?: string; url: string } | null>(null)
+const servers = ref<ServerInfo[]>([]);
+const serversLoading = ref(false);
+const selectedServerId = ref('default');
+const binding = ref(false);
+const healthLoading = ref(false);
+const healthStatus = ref<{
+  online: boolean;
+  response?: string;
+  error?: string;
+  url: string;
+} | null>(null);
 
 watch(
   project,
   (value) => {
-    if (!value) return
-    nameValue.value = value.name
-    descValue.value = value.description ?? ''
-    selectedServerId.value = value.server_id ?? 'default'
+    if (!value) return;
+    nameValue.value = value.name;
+    descValue.value = value.description ?? '';
+    selectedServerId.value = value.server_id ?? 'default';
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 const canEdit = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canEdit(auth.user.id)
-})
+  if (!auth.user) return false;
+  return orgStore.canEdit(auth.user.id);
+});
 
 const canAdmin = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
-})
+  if (!auth.user) return false;
+  return orgStore.canAdmin(auth.user.id);
+});
 
 const serverOptions = computed(() => [
   { label: t('projectSettings.serverDefault'), value: 'default' },
@@ -58,127 +63,127 @@ const serverOptions = computed(() => [
     label: `${server.name}${server.version ? ` (${server.version})` : ''}`,
     value: server.id,
   })),
-])
+]);
 
 const boundServer = computed(() => {
-  if (selectedServerId.value === 'default') return null
-  return servers.value.find((server) => server.id === selectedServerId.value) ?? null
-})
+  if (selectedServerId.value === 'default') return null;
+  return servers.value.find((server) => server.id === selectedServerId.value) ?? null;
+});
 
 const engineTagTheme = computed(() => {
-  if (!boundServer.value) return 'default'
+  if (!boundServer.value) return 'default';
   switch (boundServer.value.status) {
     case 'online':
-      return 'success'
+      return 'success';
     case 'degraded':
-      return 'warning'
+      return 'warning';
     default:
-      return 'danger'
+      return 'danger';
   }
-})
+});
 
 const engineStatusText = computed(() => {
-  if (!boundServer.value) return t('projectSettings.engineDefault')
+  if (!boundServer.value) return t('projectSettings.engineDefault');
   switch (boundServer.value.status) {
     case 'online':
-      return t('projectSettings.engineConnected')
+      return t('projectSettings.engineConnected');
     case 'degraded':
-      return t('projectSettings.engineDegraded')
+      return t('projectSettings.engineDegraded');
     default:
-      return t('projectSettings.engineDisconnected')
+      return t('projectSettings.engineDisconnected');
   }
-})
+});
 
 function formatTimestamp(value: string | null | undefined) {
-  if (!value) return t('projectSettings.serverNeverSeen')
-  return new Date(value).toLocaleString()
+  if (!value) return t('projectSettings.serverNeverSeen');
+  return new Date(value).toLocaleString();
 }
 
 async function loadServers() {
-  if (!auth.token) return
-  serversLoading.value = true
+  if (!auth.token) return;
+  serversLoading.value = true;
   try {
-    servers.value = await serverApi.list(auth.token)
+    servers.value = await serverApi.list(auth.token);
   } catch {
-    MessagePlugin.error(t('projectSettings.serverLoadFailed'))
+    MessagePlugin.error(t('projectSettings.serverLoadFailed'));
   } finally {
-    serversLoading.value = false
+    serversLoading.value = false;
   }
 }
 
-onMounted(loadServers)
+onMounted(loadServers);
 
 async function saveGeneral() {
   if (!nameValue.value.trim()) {
-    MessagePlugin.warning(t('projectSettings.nameRequired'))
-    return
+    MessagePlugin.warning(t('projectSettings.nameRequired'));
+    return;
   }
-  if (!orgStore.currentOrg || !auth.token) return
+  if (!orgStore.currentOrg || !auth.token) return;
 
-  saving.value = true
+  saving.value = true;
   try {
     const updated = await projectApi.update(auth.token, orgStore.currentOrg.id, projectId.value, {
       name: nameValue.value.trim(),
       description: descValue.value.trim() || undefined,
-    })
-    await projectStore.fetchProjects(orgStore.currentOrg.id)
-    await projectStore.selectProject(updated)
-    MessagePlugin.success(t('projectSettings.saveSuccess'))
+    });
+    await projectStore.fetchProjects(orgStore.currentOrg.id);
+    await projectStore.selectProject(updated);
+    MessagePlugin.success(t('projectSettings.saveSuccess'));
   } catch {
-    MessagePlugin.error(t('projectSettings.saveFailed'))
+    MessagePlugin.error(t('projectSettings.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
 async function saveServerBinding() {
-  if (!orgStore.currentOrg || !auth.token) return
+  if (!orgStore.currentOrg || !auth.token) return;
 
-  binding.value = true
+  binding.value = true;
   try {
     await projectApi.bindServer(auth.token, orgStore.currentOrg.id, projectId.value, {
       server_id: selectedServerId.value === 'default' ? null : selectedServerId.value,
-    })
-    const updated = await projectApi.get(auth.token, orgStore.currentOrg.id, projectId.value)
-    await projectStore.fetchProjects(orgStore.currentOrg.id)
-    await projectStore.selectProject(updated)
-    healthStatus.value = null
-    MessagePlugin.success(t('projectSettings.serverSaveSuccess'))
+    });
+    const updated = await projectApi.get(auth.token, orgStore.currentOrg.id, projectId.value);
+    await projectStore.fetchProjects(orgStore.currentOrg.id);
+    await projectStore.selectProject(updated);
+    healthStatus.value = null;
+    MessagePlugin.success(t('projectSettings.serverSaveSuccess'));
   } catch {
-    MessagePlugin.error(t('projectSettings.serverSaveFailed'))
+    MessagePlugin.error(t('projectSettings.serverSaveFailed'));
   } finally {
-    binding.value = false
+    binding.value = false;
   }
 }
 
 async function checkServerHealth() {
-  if (!auth.token || !boundServer.value) return
+  if (!auth.token || !boundServer.value) return;
 
-  healthLoading.value = true
+  healthLoading.value = true;
   try {
-    healthStatus.value = await serverApi.getHealth(auth.token, boundServer.value.id)
+    healthStatus.value = await serverApi.getHealth(auth.token, boundServer.value.id);
   } catch {
-    MessagePlugin.error(t('projectSettings.serverHealthFailed'))
+    MessagePlugin.error(t('projectSettings.serverHealthFailed'));
   } finally {
-    healthLoading.value = false
+    healthLoading.value = false;
   }
 }
 
-const showDeleteDialog = ref(false)
-const deleting = ref(false)
+const showDeleteDialog = ref(false);
+const deleting = ref(false);
 
 async function confirmDelete() {
-  if (!orgStore.currentOrg) return
-  deleting.value = true
+  if (!orgStore.currentOrg) return;
+  deleting.value = true;
   try {
-    await projectStore.deleteProject(orgStore.currentOrg.id, projectId.value)
-    MessagePlugin.success(t('projectSettings.deleteSuccess'))
-    router.push(`/orgs/${orgId.value}/projects`)
+    await projectStore.deleteProject(orgStore.currentOrg.id, projectId.value);
+    MessagePlugin.success(t('projectSettings.deleteSuccess'));
+    router.push(`/orgs/${orgId.value}/projects`);
   } catch {
-    MessagePlugin.error(t('common.saveFailed'))
+    MessagePlugin.error(t('common.saveFailed'));
   } finally {
-    deleting.value = false
-    showDeleteDialog.value = false
+    deleting.value = false;
+    showDeleteDialog.value = false;
   }
 }
 </script>
@@ -186,8 +191,12 @@ async function confirmDelete() {
 <template>
   <div class="project-settings-page">
     <t-breadcrumb class="breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
-      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{ t('breadcrumb.projects') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{
+        t('breadcrumb.projects')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ project?.name }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('breadcrumb.projectSettings') }}</t-breadcrumb-item>
     </t-breadcrumb>
@@ -199,7 +208,11 @@ async function confirmDelete() {
         <h2 class="card-title">{{ t('projectSettings.general') }}</h2>
         <t-form label-align="top" :colon="false" class="settings-form">
           <t-form-item :label="t('projectSettings.nameLabel')">
-            <t-input v-model="nameValue" :disabled="!canEdit" :placeholder="t('project.namePlaceholder')" />
+            <t-input
+              v-model="nameValue"
+              :disabled="!canEdit"
+              :placeholder="t('project.namePlaceholder')"
+            />
           </t-form-item>
           <t-form-item :label="t('projectSettings.descLabel')">
             <t-textarea
@@ -220,7 +233,11 @@ async function confirmDelete() {
       <t-card :bordered="false" class="settings-card">
         <h2 class="card-title">{{ t('projectSettings.members') }}</h2>
         <p class="card-desc">{{ t('projectSettings.membersDesc') }}</p>
-        <t-button variant="outline" size="small" @click="router.push(`/orgs/${orgStore.currentOrg?.id}/members`)">
+        <t-button
+          variant="outline"
+          size="small"
+          @click="router.push(`/orgs/${orgStore.currentOrg?.id}/members`)"
+        >
           <t-icon name="user" />
           {{ t('projectSettings.viewMembers') }}
         </t-button>
@@ -240,7 +257,10 @@ async function confirmDelete() {
         </div>
         <div v-if="boundServer" class="engine-meta">
           <span>{{ boundServer.url }}</span>
-          <span>{{ t('projectSettings.serverLastSeen') }}: {{ formatTimestamp(boundServer.last_seen) }}</span>
+          <span
+            >{{ t('projectSettings.serverLastSeen') }}:
+            {{ formatTimestamp(boundServer.last_seen) }}</span
+          >
         </div>
       </t-card>
 
@@ -284,14 +304,25 @@ async function confirmDelete() {
             <span class="server-detail__label">{{ t('projectSettings.serverLastSeen') }}</span>
             <span>{{ formatTimestamp(boundServer.last_seen) }}</span>
           </div>
-          <t-button variant="outline" size="small" :loading="healthLoading" @click="checkServerHealth">
+          <t-button
+            variant="outline"
+            size="small"
+            :loading="healthLoading"
+            @click="checkServerHealth"
+          >
             {{ t('projectSettings.serverCheckHealth') }}
           </t-button>
           <div v-if="healthStatus" class="health-box">
             <t-tag :theme="healthStatus.online ? 'success' : 'danger'" variant="light">
-              {{ healthStatus.online ? t('projectSettings.serverHealthOnline') : t('projectSettings.serverHealthOffline') }}
+              {{
+                healthStatus.online
+                  ? t('projectSettings.serverHealthOnline')
+                  : t('projectSettings.serverHealthOffline')
+              }}
             </t-tag>
-            <pre class="health-response">{{ healthStatus.response || healthStatus.error || healthStatus.url }}</pre>
+            <pre class="health-response">{{
+              healthStatus.response || healthStatus.error || healthStatus.url
+            }}</pre>
           </div>
         </div>
         <p v-else class="card-desc server-unbound">{{ t('projectSettings.serverUnbound') }}</p>

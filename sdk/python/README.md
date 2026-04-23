@@ -1,6 +1,6 @@
 # Ordo Python SDK
 
-Python SDK for the [Ordo Rule Engine](https://github.com/Pama-Lee/Ordo) — a high-performance rule engine with sub-microsecond execution latency.
+Python SDK for the [Ordo Rule Engine](https://github.com/Ordo-Engine/Ordo) — a high-performance rule engine with sub-microsecond execution latency.
 
 ## Installation
 

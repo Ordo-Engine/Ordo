@@ -1,80 +1,90 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
-import { serverApi } from '@/api/platform-client'
-import type { ServerInfo } from '@/api/types'
-import { useAuthStore } from '@/stores/auth'
+import { computed, onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import { serverApi } from '@/api/platform-client';
+import type { ServerInfo } from '@/api/types';
+import { useAuthStore } from '@/stores/auth';
 
 interface HealthPayload {
-  online: boolean
-  response?: string
-  error?: string
-  url: string
+  online: boolean;
+  response?: string;
+  error?: string;
+  url: string;
 }
 
 interface MetricSample {
-  name: string
-  value: string
-  labels: string[]
+  name: string;
+  value: string;
+  labels: string[];
 }
 
-type ServerFilter = 'active' | 'offline' | 'all'
+type ServerFilter = 'active' | 'offline' | 'all';
 
-const { t } = useI18n()
-const router = useRouter()
-const auth = useAuthStore()
+const { t } = useI18n();
+const router = useRouter();
+const auth = useAuthStore();
 
-const loadingServers = ref(false)
-const removingServerId = ref<string | null>(null)
-const servers = ref<ServerInfo[]>([])
-const serverFilter = ref<ServerFilter>('active')
-const keyword = ref('')
+const loadingServers = ref(false);
+const removingServerId = ref<string | null>(null);
+const servers = ref<ServerInfo[]>([]);
+const serverFilter = ref<ServerFilter>('active');
+const keyword = ref('');
 
-const healthDialogVisible = ref(false)
-const healthDialogServer = ref<ServerInfo | null>(null)
-const healthLoading = ref(false)
-const healthRawOpen = ref(false)
-const healthContent = ref<HealthPayload | null>(null)
+const healthDialogVisible = ref(false);
+const healthDialogServer = ref<ServerInfo | null>(null);
+const healthLoading = ref(false);
+const healthRawOpen = ref(false);
+const healthContent = ref<HealthPayload | null>(null);
 
-const metricsDialogVisible = ref(false)
-const metricsDialogServer = ref<ServerInfo | null>(null)
-const metricsLoading = ref(false)
-const metricsRawOpen = ref(false)
-const metricsRaw = ref('')
-const metricsParsed = ref<MetricSample[]>([])
+const metricsDialogVisible = ref(false);
+const metricsDialogServer = ref<ServerInfo | null>(null);
+const metricsLoading = ref(false);
+const metricsRawOpen = ref(false);
+const metricsRaw = ref('');
+const metricsParsed = ref<MetricSample[]>([]);
 
 const filterOptions = computed(() => [
   { label: t('settings.serverRegistry.filterActive'), value: 'active' },
   { label: t('settings.serverRegistry.filterOffline'), value: 'offline' },
   { label: t('settings.serverRegistry.filterAll'), value: 'all' },
-])
+]);
 
 const columns = computed(() => [
   { colKey: 'name', title: t('settings.serverRegistry.serverName'), width: 240 },
   { colKey: 'url', title: t('settings.serverRegistry.endpoint'), minWidth: 240 },
-  { colKey: 'status', title: t('settings.serverRegistry.status'), width: 120, align: 'center' as const },
+  {
+    colKey: 'status',
+    title: t('settings.serverRegistry.status'),
+    width: 120,
+    align: 'center' as const,
+  },
   { colKey: 'version', title: t('settings.serverRegistry.version'), width: 120 },
   { colKey: 'last_seen', title: t('settings.serverRegistry.lastSeen'), width: 190 },
   { colKey: 'registered_at', title: t('settings.serverRegistry.registeredAt'), width: 190 },
   { colKey: 'labels', title: t('settings.serverRegistry.labels'), minWidth: 180 },
-  { colKey: 'actions', title: t('settings.serverRegistry.actions'), width: 220, align: 'right' as const },
-])
+  {
+    colKey: 'actions',
+    title: t('settings.serverRegistry.actions'),
+    width: 220,
+    align: 'right' as const,
+  },
+]);
 
 const filteredServers = computed(() => {
-  const query = keyword.value.trim().toLowerCase()
+  const query = keyword.value.trim().toLowerCase();
   const statusWeight: Record<ServerInfo['status'], number> = {
     online: 0,
     degraded: 1,
     offline: 2,
-  }
+  };
 
   return servers.value
     .filter((server) => {
-      if (serverFilter.value === 'active' && server.status === 'offline') return false
-      if (serverFilter.value === 'offline' && server.status !== 'offline') return false
-      if (!query) return true
+      if (serverFilter.value === 'active' && server.status === 'offline') return false;
+      if (serverFilter.value === 'offline' && server.status !== 'offline') return false;
+      if (!query) return true;
       return [
         server.name,
         server.url,
@@ -83,36 +93,36 @@ const filteredServers = computed(() => {
       ]
         .join(' ')
         .toLowerCase()
-        .includes(query)
+        .includes(query);
     })
     .slice()
     .sort((left, right) => {
-      const statusDelta = statusWeight[left.status] - statusWeight[right.status]
-      if (statusDelta !== 0) return statusDelta
-      const leftSeen = left.last_seen ? new Date(left.last_seen).getTime() : 0
-      const rightSeen = right.last_seen ? new Date(right.last_seen).getTime() : 0
-      if (leftSeen !== rightSeen) return rightSeen - leftSeen
-      return new Date(right.registered_at).getTime() - new Date(left.registered_at).getTime()
-    })
-})
+      const statusDelta = statusWeight[left.status] - statusWeight[right.status];
+      if (statusDelta !== 0) return statusDelta;
+      const leftSeen = left.last_seen ? new Date(left.last_seen).getTime() : 0;
+      const rightSeen = right.last_seen ? new Date(right.last_seen).getTime() : 0;
+      if (leftSeen !== rightSeen) return rightSeen - leftSeen;
+      return new Date(right.registered_at).getTime() - new Date(left.registered_at).getTime();
+    });
+});
 
 function formatTimestamp(value: string | null | undefined) {
-  if (!value) return t('settings.serverRegistry.neverSeen')
-  return new Date(value).toLocaleString()
+  if (!value) return t('settings.serverRegistry.neverSeen');
+  return new Date(value).toLocaleString();
 }
 
 function statusLabel(status: ServerInfo['status']) {
-  return t(`settings.serverRegistry.statusMap.${status}`)
+  return t(`settings.serverRegistry.statusMap.${status}`);
 }
 
 function serverTheme(status: ServerInfo['status']) {
   switch (status) {
     case 'online':
-      return 'success'
+      return 'success';
     case 'degraded':
-      return 'warning'
+      return 'warning';
     default:
-      return 'danger'
+      return 'danger';
   }
 }
 
@@ -122,70 +132,70 @@ function parseMetrics(raw: string): MetricSample[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith('#'))
     .map((line) => {
-      const match = line.match(/^([^\s{]+)(?:\{([^}]*)\})?\s+(.+)$/)
-      if (!match) return { name: line, value: '', labels: [] }
-      const [, name, labelsPart, value] = match
+      const match = line.match(/^([^\s{]+)(?:\{([^}]*)\})?\s+(.+)$/);
+      if (!match) return { name: line, value: '', labels: [] };
+      const [, name, labelsPart, value] = match;
       const labels = labelsPart
         ? labelsPart
             .split(/,(?=[a-zA-Z_][a-zA-Z0-9_]*=)/)
             .map((label) => label.trim())
             .filter(Boolean)
-        : []
-      return { name, value: value.trim(), labels }
-    })
+        : [];
+      return { name, value: value.trim(), labels };
+    });
 }
 
 async function loadServers() {
-  if (!auth.token) return
-  loadingServers.value = true
+  if (!auth.token) return;
+  loadingServers.value = true;
   try {
-    servers.value = await serverApi.list(auth.token)
+    servers.value = await serverApi.list(auth.token);
   } catch {
-    MessagePlugin.error(t('settings.serverRegistry.loadFailed'))
+    MessagePlugin.error(t('settings.serverRegistry.loadFailed'));
   } finally {
-    loadingServers.value = false
+    loadingServers.value = false;
   }
 }
 
 async function openHealth(server: ServerInfo) {
-  if (!auth.token) return
-  healthDialogServer.value = server
-  healthDialogVisible.value = true
-  healthRawOpen.value = false
-  healthLoading.value = true
+  if (!auth.token) return;
+  healthDialogServer.value = server;
+  healthDialogVisible.value = true;
+  healthRawOpen.value = false;
+  healthLoading.value = true;
   try {
-    healthContent.value = await serverApi.getHealth(auth.token, server.id)
+    healthContent.value = await serverApi.getHealth(auth.token, server.id);
   } catch (error: any) {
     healthContent.value = {
       online: false,
       error: error.message || t('settings.serverRegistry.healthFailed'),
       url: server.url,
-    }
+    };
   } finally {
-    healthLoading.value = false
+    healthLoading.value = false;
   }
 }
 
 async function openMetrics(server: ServerInfo) {
-  if (!auth.token) return
-  metricsDialogServer.value = server
-  metricsDialogVisible.value = true
-  metricsRawOpen.value = false
-  metricsLoading.value = true
+  if (!auth.token) return;
+  metricsDialogServer.value = server;
+  metricsDialogVisible.value = true;
+  metricsRawOpen.value = false;
+  metricsLoading.value = true;
   try {
-    const raw = await serverApi.getMetrics(auth.token, server.id)
-    metricsRaw.value = raw
-    metricsParsed.value = parseMetrics(raw)
+    const raw = await serverApi.getMetrics(auth.token, server.id);
+    metricsRaw.value = raw;
+    metricsParsed.value = parseMetrics(raw);
   } catch (error: any) {
-    metricsRaw.value = error.message || t('settings.serverRegistry.metricsFailed')
-    metricsParsed.value = []
+    metricsRaw.value = error.message || t('settings.serverRegistry.metricsFailed');
+    metricsParsed.value = [];
   } finally {
-    metricsLoading.value = false
+    metricsLoading.value = false;
   }
 }
 
 async function removeServer(server: ServerInfo) {
-  if (!auth.token) return
+  if (!auth.token) return;
 
   const dialog = DialogPlugin.confirm({
     header: t('settings.serverRegistry.removeDialog'),
@@ -193,28 +203,30 @@ async function removeServer(server: ServerInfo) {
     confirmBtn: { content: t('common.confirm'), theme: 'danger' },
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
-      removingServerId.value = server.id
+      removingServerId.value = server.id;
       try {
-        await serverApi.delete(auth.token!, server.id)
-        servers.value = servers.value.filter((item) => item.id !== server.id)
-        dialog.hide()
-        MessagePlugin.success(t('settings.serverRegistry.removeSuccess'))
+        await serverApi.delete(auth.token!, server.id);
+        servers.value = servers.value.filter((item) => item.id !== server.id);
+        dialog.hide();
+        MessagePlugin.success(t('settings.serverRegistry.removeSuccess'));
       } catch {
-        MessagePlugin.error(t('settings.serverRegistry.removeFailed'))
+        MessagePlugin.error(t('settings.serverRegistry.removeFailed'));
       } finally {
-        removingServerId.value = null
+        removingServerId.value = null;
       }
     },
-  })
+  });
 }
 
-onMounted(loadServers)
+onMounted(loadServers);
 </script>
 
 <template>
   <div class="registry-page">
     <t-breadcrumb class="breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('settings.serverRegistry.title') }}</t-breadcrumb-item>
     </t-breadcrumb>
 
@@ -284,7 +296,9 @@ onMounted(loadServers)
 
         <template #labels="{ row }">
           <div v-if="Object.keys(row.labels).length" class="label-list">
-            <span v-for="(value, key) in row.labels" :key="key" class="label-chip">{{ key }}={{ value }}</span>
+            <span v-for="(value, key) in row.labels" :key="key" class="label-chip"
+              >{{ key }}={{ value }}</span
+            >
           </div>
           <span v-else class="text-muted">{{ t('settings.serverRegistry.noLabels') }}</span>
         </template>
@@ -314,7 +328,11 @@ onMounted(loadServers)
 
     <t-dialog
       v-model:visible="healthDialogVisible"
-      :header="healthDialogServer ? `${t('settings.serverRegistry.healthDialog')} · ${healthDialogServer.name}` : t('settings.serverRegistry.healthDialog')"
+      :header="
+        healthDialogServer
+          ? `${t('settings.serverRegistry.healthDialog')} · ${healthDialogServer.name}`
+          : t('settings.serverRegistry.healthDialog')
+      "
       width="720px"
       destroy-on-close
     >
@@ -326,7 +344,11 @@ onMounted(loadServers)
       <template v-else-if="healthDialogServer && healthContent">
         <div class="dialog-summary">
           <t-tag :theme="healthContent.online ? 'success' : 'danger'" variant="light">
-            {{ healthContent.online ? t('settings.serverRegistry.healthOnline') : t('settings.serverRegistry.healthOffline') }}
+            {{
+              healthContent.online
+                ? t('settings.serverRegistry.healthOnline')
+                : t('settings.serverRegistry.healthOffline')
+            }}
           </t-tag>
         </div>
         <div class="detail-grid">
@@ -349,16 +371,26 @@ onMounted(loadServers)
         </div>
         <div class="raw-toggle">
           <t-button size="small" variant="text" @click="healthRawOpen = !healthRawOpen">
-            {{ healthRawOpen ? t('settings.serverRegistry.hideRaw') : t('settings.serverRegistry.showRaw') }}
+            {{
+              healthRawOpen
+                ? t('settings.serverRegistry.hideRaw')
+                : t('settings.serverRegistry.showRaw')
+            }}
           </t-button>
         </div>
-        <pre v-if="healthRawOpen" class="detail-pre">{{ JSON.stringify(healthContent, null, 2) }}</pre>
+        <pre v-if="healthRawOpen" class="detail-pre">{{
+          JSON.stringify(healthContent, null, 2)
+        }}</pre>
       </template>
     </t-dialog>
 
     <t-dialog
       v-model:visible="metricsDialogVisible"
-      :header="metricsDialogServer ? `${t('settings.serverRegistry.metricsDialog')} · ${metricsDialogServer.name}` : t('settings.serverRegistry.metricsDialog')"
+      :header="
+        metricsDialogServer
+          ? `${t('settings.serverRegistry.metricsDialog')} · ${metricsDialogServer.name}`
+          : t('settings.serverRegistry.metricsDialog')
+      "
       width="920px"
       destroy-on-close
     >
@@ -374,11 +406,19 @@ onMounted(loadServers)
             <span>{{ t('settings.serverRegistry.metricValue') }}</span>
             <span>{{ t('settings.serverRegistry.labels') }}</span>
           </div>
-          <div v-for="sample in metricsParsed" :key="`${sample.name}-${sample.value}-${sample.labels.join('|')}`" class="metrics-table__row">
+          <div
+            v-for="sample in metricsParsed"
+            :key="`${sample.name}-${sample.value}-${sample.labels.join('|')}`"
+            class="metrics-table__row"
+          >
             <span class="metrics-table__name">{{ sample.name }}</span>
             <strong class="metrics-table__value">{{ sample.value }}</strong>
             <span class="metrics-table__labels">
-              {{ sample.labels.length ? sample.labels.join(', ') : t('settings.serverRegistry.noLabels') }}
+              {{
+                sample.labels.length
+                  ? sample.labels.join(', ')
+                  : t('settings.serverRegistry.noLabels')
+              }}
             </span>
           </div>
         </div>
@@ -386,7 +426,11 @@ onMounted(loadServers)
 
         <div class="raw-toggle">
           <t-button size="small" variant="text" @click="metricsRawOpen = !metricsRawOpen">
-            {{ metricsRawOpen ? t('settings.serverRegistry.hideRaw') : t('settings.serverRegistry.showRaw') }}
+            {{
+              metricsRawOpen
+                ? t('settings.serverRegistry.hideRaw')
+                : t('settings.serverRegistry.showRaw')
+            }}
           </t-button>
         </div>
         <pre v-if="metricsRawOpen" class="detail-pre">{{ metricsRaw }}</pre>

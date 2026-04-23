@@ -5,6 +5,7 @@ use super::compiled::{
 };
 use super::metrics::{MetricSink, NoOpMetricSink};
 use super::{ExecutionResult, TerminalResult};
+use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, IString, Value};
 use crate::error::{OrdoError, Result};
 use crate::expr::BytecodeVM;
@@ -36,6 +37,7 @@ use wasm_time::Instant;
 pub struct CompiledRuleExecutor {
     vm: BytecodeVM,
     metric_sink: Arc<dyn MetricSink>,
+    capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
 }
 
 impl Default for CompiledRuleExecutor {
@@ -49,6 +51,7 @@ impl CompiledRuleExecutor {
         Self {
             vm: BytecodeVM::new(),
             metric_sink: Arc::new(NoOpMetricSink),
+            capability_invoker: None,
         }
     }
 
@@ -56,7 +59,16 @@ impl CompiledRuleExecutor {
         Self {
             vm: BytecodeVM::new(),
             metric_sink,
+            capability_invoker: None,
         }
+    }
+
+    pub fn set_capability_invoker(&mut self, capability_invoker: Arc<dyn CapabilityInvoker>) {
+        self.capability_invoker = Some(capability_invoker);
+    }
+
+    pub fn capability_invoker(&self) -> Option<Arc<dyn CapabilityInvoker>> {
+        self.capability_invoker.clone()
     }
 
     pub fn execute(&self, ruleset: &CompiledRuleSet, input: Value) -> Result<ExecutionResult> {
@@ -234,9 +246,35 @@ impl CompiledRuleExecutor {
                         ))
                     })
                     .collect::<Result<Vec<(String, String)>>>()?;
-                self.metric_sink.record_gauge(name, metric_value, &tags);
+                self.record_metric(name, metric_value, &tags)?;
             }
         }
+        Ok(())
+    }
+
+    fn record_metric(&self, name: &str, value: f64, tags: &[(String, String)]) -> Result<()> {
+        if let Some(capability_invoker) = &self.capability_invoker {
+            let mut tag_values = std::collections::HashMap::with_capacity(tags.len());
+            for (key, value) in tags {
+                tag_values.insert(key.clone(), Value::string(value));
+            }
+
+            let mut payload = std::collections::HashMap::with_capacity(3);
+            payload.insert("name".to_string(), Value::string(name));
+            payload.insert("value".to_string(), Value::float(value));
+            payload.insert("tags".to_string(), Value::object(tag_values));
+
+            let request =
+                CapabilityRequest::new("metrics.prometheus", "gauge", Value::object(payload));
+
+            match capability_invoker.invoke(&request) {
+                Ok(_) => return Ok(()),
+                Err(OrdoError::CapabilityNotFound { .. }) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.metric_sink.record_gauge(name, value, tags);
         Ok(())
     }
 
@@ -271,5 +309,84 @@ impl CompiledRuleExecutor {
         }
 
         Ok(Value::object_optimized(output))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capability::{
+        CapabilityCategory, CapabilityDescriptor, CapabilityProvider, CapabilityRegistry,
+        CapabilityResponse,
+    };
+    use crate::expr::Expr;
+    use crate::rule::metrics::MetricSink;
+    use crate::rule::{Action, ActionKind, RuleSet, RuleSetCompiler, Step, TerminalResult};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct TestMetricSink {
+        gauge_calls: AtomicUsize,
+    }
+
+    impl MetricSink for TestMetricSink {
+        fn record_gauge(&self, _name: &str, _value: f64, _tags: &[(String, String)]) {
+            self.gauge_calls.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn record_counter(&self, _name: &str, _value: f64, _tags: &[(String, String)]) {}
+    }
+
+    struct TestMetricCapability {
+        calls: AtomicUsize,
+    }
+
+    impl CapabilityProvider for TestMetricCapability {
+        fn descriptor(&self) -> CapabilityDescriptor {
+            CapabilityDescriptor::new("metrics.prometheus", CapabilityCategory::Action)
+        }
+
+        fn invoke(&self, _request: &CapabilityRequest) -> Result<CapabilityResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(CapabilityResponse::empty())
+        }
+    }
+
+    #[test]
+    fn compiled_executor_prefers_capability_metrics_when_available() {
+        let mut ruleset = RuleSet::new("compiled_metric_test", "record_metric");
+        ruleset.add_step(Step::action(
+            "record_metric",
+            "Record Metric",
+            vec![Action {
+                kind: ActionKind::Metric {
+                    name: "compiled_metric".to_string(),
+                    value: Expr::literal(9.0f64),
+                    tags: vec![("env".to_string(), "test".to_string())],
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal("done", "Done", TerminalResult::new("OK")));
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+
+        let sink = Arc::new(TestMetricSink {
+            gauge_calls: AtomicUsize::new(0),
+        });
+        let mut executor = CompiledRuleExecutor::with_metric_sink(sink.clone());
+        let registry = Arc::new(CapabilityRegistry::new());
+        let capability = Arc::new(TestMetricCapability {
+            calls: AtomicUsize::new(0),
+        });
+        let capability_ref = capability.clone();
+        registry.register(capability);
+        executor.set_capability_invoker(registry);
+
+        let input = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&compiled, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(capability_ref.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(sink.gauge_calls.load(Ordering::SeqCst), 0);
     }
 }

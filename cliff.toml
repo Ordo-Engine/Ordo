@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 """
 body = """
 {%- macro remote_url() -%}
-  https://github.com/Pama-Lee/Ordo
+  https://github.com/Ordo-Engine/Ordo
 {%- endmacro -%}
 
 {% if version -%}
@@ -41,7 +41,7 @@ body = """
 """
 footer = """
 {%- macro remote_url() -%}
-  https://github.com/Pama-Lee/Ordo
+  https://github.com/Ordo-Engine/Ordo
 {%- endmacro -%}
 
 {% for release in releases -%}
@@ -64,7 +64,7 @@ split_commits = false
 
 commit_preprocessors = [
     # Link PR numbers to GitHub
-    { pattern = '\(#(\d+)\)', replace = '([#${1}](https://github.com/Pama-Lee/Ordo/pull/${1}))' },
+    { pattern = '\(#(\d+)\)', replace = '([#${1}](https://github.com/Ordo-Engine/Ordo/pull/${1}))' },
 ]
 
 # Strip commit body to keep changelog concise — only the first line matters

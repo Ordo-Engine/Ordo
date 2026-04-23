@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useProjectStore } from '@/stores/project'
-import { useCatalogStore } from '@/stores/catalog'
+import { computed, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useProjectStore } from '@/stores/project';
+import { useCatalogStore } from '@/stores/catalog';
 
-const route = useRoute()
-const router = useRouter()
-const projectStore = useProjectStore()
-const catalogStore = useCatalogStore()
-const { t } = useI18n()
+const route = useRoute();
+const router = useRouter();
+const projectStore = useProjectStore();
+const catalogStore = useCatalogStore();
+const { t } = useI18n();
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
 
-const base = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}`)
+const base = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}`);
 
 const tabs = computed(() => [
   {
@@ -87,21 +87,23 @@ const tabs = computed(() => [
     to: `${base.value}/settings`,
     active: route.path.endsWith('/settings'),
   },
-])
+]);
 
 // Load catalog when project changes
 async function loadProject(pid: string) {
-  if (!pid) return
+  if (!pid) return;
   // Ensure project is selected in store
-  const existing = projectStore.projects.find((p) => p.id === pid)
+  const existing = projectStore.projects.find((p) => p.id === pid);
   if (existing && (!projectStore.currentProject || projectStore.currentProject.id !== pid)) {
-    await projectStore.selectProject(existing)
+    await projectStore.selectProject(existing);
   }
-  await catalogStore.fetchAll(pid)
+  await catalogStore.fetchAll(pid);
 }
 
-onMounted(() => loadProject(projectId.value))
-watch(projectId, (pid) => { if (pid) loadProject(pid) })
+onMounted(() => loadProject(projectId.value));
+watch(projectId, (pid) => {
+  if (pid) loadProject(pid);
+});
 </script>
 
 <template>
@@ -121,7 +123,7 @@ watch(projectId, (pid) => { if (pid) loadProject(pid) })
         </RouterLink>
       </div>
       <div class="project-nav__project-name">
-        <t-icon name="layers" size="12px" style="opacity:0.5" />
+        <t-icon name="layers" size="12px" style="opacity: 0.5" />
         {{ projectStore.currentProject?.name ?? '...' }}
       </div>
     </nav>
@@ -171,7 +173,9 @@ watch(projectId, (pid) => { if (pid) loadProject(pid) })
   color: var(--ordo-text-secondary);
   text-decoration: none;
   border-bottom: 2px solid transparent;
-  transition: color 0.1s, border-color 0.1s;
+  transition:
+    color 0.1s,
+    border-color 0.1s;
   white-space: nowrap;
 }
 

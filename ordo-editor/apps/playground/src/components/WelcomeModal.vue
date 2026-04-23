@@ -13,8 +13,8 @@ const isVisible = ref(true);
 
 const docsLink = computed(() => {
   return locale.value === 'zh-CN'
-    ? 'https://pama-lee.github.io/Ordo/docs/zh/'
-    : 'https://pama-lee.github.io/Ordo/docs/en/';
+    ? 'https://ordo-engine.github.io/Ordo/docs/zh/'
+    : 'https://ordo-engine.github.io/Ordo/docs/en/';
 });
 
 function startTour() {

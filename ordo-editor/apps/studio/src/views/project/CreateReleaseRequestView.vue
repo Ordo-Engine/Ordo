@@ -1,33 +1,33 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import type { ReleaseTargetPreview } from '@/api/types'
-import { releaseApi } from '@/api/platform-client'
-import { useAuthStore } from '@/stores/auth'
-import { useEnvironmentStore } from '@/stores/environment'
-import { useProjectStore } from '@/stores/project'
-import { useRbacStore } from '@/stores/rbac'
-import { useRolloutStrategyLabel } from '@/constants/release-center'
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import type { ReleaseTargetPreview } from '@/api/types';
+import { releaseApi } from '@/api/platform-client';
+import { useAuthStore } from '@/stores/auth';
+import { useEnvironmentStore } from '@/stores/environment';
+import { useProjectStore } from '@/stores/project';
+import { useRbacStore } from '@/stores/rbac';
+import { useRolloutStrategyLabel } from '@/constants/release-center';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const labelRolloutStrategy = useRolloutStrategyLabel()
-const auth = useAuthStore()
-const envStore = useEnvironmentStore()
-const projectStore = useProjectStore()
-const rbacStore = useRbacStore()
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const labelRolloutStrategy = useRolloutStrategyLabel();
+const auth = useAuthStore();
+const envStore = useEnvironmentStore();
+const projectStore = useProjectStore();
+const rbacStore = useRbacStore();
 
-const orgId = route.params.orgId as string
-const projectId = route.params.projectId as string
+const orgId = route.params.orgId as string;
+const projectId = route.params.projectId as string;
 
-const loading = ref(true)
-const submitting = ref(false)
-const policies = ref<any[]>([])
-const previewLoading = ref(false)
-const targetPreview = ref<ReleaseTargetPreview | null>(null)
+const loading = ref(true);
+const submitting = ref(false);
+const policies = ref<any[]>([]);
+const previewLoading = ref(false);
+const targetPreview = ref<ReleaseTargetPreview | null>(null);
 
 const form = ref({
   ruleset_name: (route.query.ruleset as string) || '',
@@ -39,79 +39,80 @@ const form = ref({
   release_note: '',
   rollback_version: '',
   affected_instance_count: 0,
-})
+});
 
 // ── Derived options ──────────────────────────────────────────────────────────
 
 const ruleOptions = computed(() =>
-  projectStore.rulesets.map((r) => ({ label: r.name, value: r.name, version: r.version })),
-)
+  projectStore.rulesets.map((r) => ({ label: r.name, value: r.name, version: r.version }))
+);
 const environmentOptions = computed(() =>
-  envStore.environments.map((e) => ({ label: e.name, value: e.id })),
-)
+  envStore.environments.map((e) => ({ label: e.name, value: e.id }))
+);
 const policyOptions = computed(() =>
-  policies.value.map((p) => ({ label: p.name, value: p.id, target_id: p.target_id })),
-)
+  policies.value.map((p) => ({ label: p.name, value: p.id, target_id: p.target_id }))
+);
 
-const selectedRule = computed(() =>
-  projectStore.rulesets.find((r) => r.name === form.value.ruleset_name) ?? null,
-)
-const selectedPublishedVersion = computed(() => selectedRule.value?.published_version ?? '')
-const selectedEnvironment = computed(() =>
-  envStore.environments.find((e) => e.id === form.value.environment_id) ?? null,
-)
-const selectedPolicy = computed(() =>
-  policies.value.find((p) => p.id === form.value.policy_id) ?? null,
-)
-const canManagePolicies = computed(() => rbacStore.can('release:policy.manage'))
-const hasPolicies = computed(() => policies.value.length > 0)
+const selectedRule = computed(
+  () => projectStore.rulesets.find((r) => r.name === form.value.ruleset_name) ?? null
+);
+const selectedPublishedVersion = computed(() => selectedRule.value?.published_version ?? '');
+const selectedEnvironment = computed(
+  () => envStore.environments.find((e) => e.id === form.value.environment_id) ?? null
+);
+const selectedPolicy = computed(
+  () => policies.value.find((p) => p.id === form.value.policy_id) ?? null
+);
+const canManagePolicies = computed(() => rbacStore.can('release:policy.manage'));
+const hasPolicies = computed(() => policies.value.length > 0);
 
 // ── Auto-fill logic ──────────────────────────────────────────────────────────
 
 watch(
   () => form.value.ruleset_name,
   (name) => {
-    const match = projectStore.rulesets.find((r) => r.name === name)
+    const match = projectStore.rulesets.find((r) => r.name === name);
     if (!match) {
-      form.value.version = ''
-      form.value.rollback_version = ''
-      return
+      form.value.version = '';
+      form.value.rollback_version = '';
+      return;
     }
-    form.value.version = match.version || '1.0.0'
-    form.value.rollback_version = match.published_version || ''
-    if (!form.value.title) form.value.title = `${match.name} ${t('releaseCenter.requestTitleSuffix')}`
+    form.value.version = match.version || '1.0.0';
+    form.value.rollback_version = match.published_version || '';
+    if (!form.value.title)
+      form.value.title = `${match.name} ${t('releaseCenter.requestTitleSuffix')}`;
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 watch(
   () => [form.value.environment_id, policies.value.length] as const,
   ([envId]) => {
-    if (!envId) return
-    const matched = policies.value.find((p) => p.target_id === envId)
-    if (matched && !form.value.policy_id) form.value.policy_id = matched.id
-  },
-)
+    if (!envId) return;
+    const matched = policies.value.find((p) => p.target_id === envId);
+    if (matched && !form.value.policy_id) form.value.policy_id = matched.id;
+  }
+);
 
 watch(
   () => form.value.environment_id,
   async (environmentId) => {
-    targetPreview.value = null
-    form.value.affected_instance_count = 0
-    if (!environmentId || !auth.token) return
-    previewLoading.value = true
+    targetPreview.value = null;
+    form.value.affected_instance_count = 0;
+    if (!environmentId || !auth.token) return;
+    previewLoading.value = true;
     try {
-      const preview = await releaseApi.previewTarget(auth.token, orgId, projectId, environmentId)
-      targetPreview.value = preview
-      form.value.affected_instance_count = preview.affected_instance_count
+      const preview = await releaseApi.previewTarget(auth.token, orgId, projectId, environmentId);
+      targetPreview.value = preview;
+      form.value.affected_instance_count = preview.affected_instance_count;
     } catch (e: any) {
-      MessagePlugin.error(e.message || t('common.loadFailed'))
+      MessagePlugin.error(e.message || t('common.loadFailed'));
     } finally {
-      previewLoading.value = false
+      previewLoading.value = false;
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -123,39 +124,39 @@ onMounted(async () => {
       rbacStore.fetchRoles(orgId),
       rbacStore.fetchMyRoles(orgId),
       refreshPolicies(),
-    ])
-    await nextTick()
+    ]);
+    await nextTick();
     if (!form.value.ruleset_name && projectStore.rulesets.length > 0) {
-      form.value.ruleset_name = projectStore.rulesets[0].name
+      form.value.ruleset_name = projectStore.rulesets[0].name;
     }
     // Set default environment
     if (!form.value.environment_id) {
-      const def = envStore.environments.find((e) => e.is_default) ?? envStore.environments[0]
-      if (def) form.value.environment_id = def.id
+      const def = envStore.environments.find((e) => e.is_default) ?? envStore.environments[0];
+      if (def) form.value.environment_id = def.id;
     }
     // Set default policy for environment
     if (form.value.environment_id && !form.value.policy_id) {
-      const matched = policies.value.find((p) => p.target_id === form.value.environment_id)
-      if (matched) form.value.policy_id = matched.id
+      const matched = policies.value.find((p) => p.target_id === form.value.environment_id);
+      if (matched) form.value.policy_id = matched.id;
     }
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('common.loadFailed'))
+    MessagePlugin.error(e.message || t('common.loadFailed'));
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 async function refreshPolicies() {
-  if (!auth.token) return
-  policies.value = await releaseApi.listPolicies(auth.token, orgId, projectId)
+  if (!auth.token) return;
+  policies.value = await releaseApi.listPolicies(auth.token, orgId, projectId);
 }
 
 // ── Submit ───────────────────────────────────────────────────────────────────
 
 async function handleSubmit() {
   if (!auth.token) {
-    MessagePlugin.error(t('auth.loginFailed'))
-    return
+    MessagePlugin.error(t('auth.loginFailed'));
+    return;
   }
   if (
     !form.value.ruleset_name ||
@@ -164,10 +165,10 @@ async function handleSubmit() {
     !form.value.title ||
     !form.value.change_summary
   ) {
-    MessagePlugin.warning(t('releaseCenter.formRequired'))
-    return
+    MessagePlugin.warning(t('releaseCenter.formRequired'));
+    return;
   }
-  submitting.value = true
+  submitting.value = true;
   try {
     const created = await releaseApi.createRequest(auth.token, orgId, projectId, {
       ruleset_name: form.value.ruleset_name,
@@ -179,21 +180,21 @@ async function handleSubmit() {
       release_note: form.value.release_note || undefined,
       rollback_version: form.value.rollback_version || undefined,
       affected_instance_count: targetPreview.value?.affected_instance_count ?? 0,
-    })
-    MessagePlugin.success(t('releaseCenter.requestCreated'))
+    });
+    MessagePlugin.success(t('releaseCenter.requestCreated'));
     router.replace({
       name: 'project-release-request-detail',
       params: { orgId, projectId, releaseId: created.id },
-    })
+    });
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('releaseCenter.requestCreateFailed'))
+    MessagePlugin.error(e.message || t('releaseCenter.requestCreateFailed'));
   } finally {
-    submitting.value = false
+    submitting.value = false;
   }
 }
 
 function handleCancel() {
-  router.push({ name: 'project-release-requests', params: { orgId, projectId } })
+  router.push({ name: 'project-release-requests', params: { orgId, projectId } });
 }
 
 function goToPolicies() {
@@ -201,7 +202,7 @@ function goToPolicies() {
     name: 'project-release-policies',
     params: { orgId, projectId },
     query: { create: '1' },
-  })
+  });
 }
 </script>
 
@@ -224,7 +225,6 @@ function goToPolicies() {
       <!-- Left: form -->
       <div class="form-col">
         <t-form label-align="top" :colon="false">
-
           <div class="section-label">{{ t('releaseCenter.sectionTarget') }}</div>
           <div class="field-row">
             <t-form-item :label="t('releaseCenter.rulesetField')" required>
@@ -322,20 +322,24 @@ function goToPolicies() {
               <span>
                 {{
                   targetPreview?.bound_servers?.length
-                    ? `${targetPreview.bound_servers.length} ${t('releaseCenter.affectedInstances')} · ${targetPreview.bound_servers.map((server) => server.name).join(', ')}`
-                    : (targetPreview?.message || t('releaseCenter.noBoundServer'))
+                    ? `${targetPreview.bound_servers.length} ${t(
+                        'releaseCenter.affectedInstances'
+                      )} · ${targetPreview.bound_servers.map((server) => server.name).join(', ')}`
+                    : targetPreview?.message || t('releaseCenter.noBoundServer')
                 }}
               </span>
             </div>
             <div v-if="targetPreview?.bound_servers?.length" class="notice-sub">
               {{
                 targetPreview.bound_servers
-                  .map((server) => `${server.name} · ${t(`releaseCenter.serverStatusMap.${server.status}`)}`)
+                  .map(
+                    (server) =>
+                      `${server.name} · ${t(`releaseCenter.serverStatusMap.${server.status}`)}`
+                  )
                   .join(' / ')
               }}
             </div>
           </div>
-
         </t-form>
 
         <!-- Actions -->
@@ -369,7 +373,9 @@ function goToPolicies() {
           <div class="preview-kv">
             <div class="kv-item">
               <span>{{ t('releaseCenter.rolloutStrategy') }}</span>
-              <strong>{{ selectedPolicy ? labelRolloutStrategy(selectedPolicy.rollout_strategy) : '—' }}</strong>
+              <strong>{{
+                selectedPolicy ? labelRolloutStrategy(selectedPolicy.rollout_strategy) : '—'
+              }}</strong>
             </div>
             <div class="kv-item">
               <span>{{ t('releaseCenter.policyField') }}</span>
@@ -385,7 +391,9 @@ function goToPolicies() {
             </div>
             <div class="kv-item">
               <span>{{ t('releaseCenter.executionNode') }}</span>
-              <strong>{{ targetPreview?.bound_servers?.map((server) => server.name).join(', ') || '—' }}</strong>
+              <strong>{{
+                targetPreview?.bound_servers?.map((server) => server.name).join(', ') || '—'
+              }}</strong>
             </div>
             <div class="kv-item">
               <span>{{ t('releaseCenter.requesterLabel') }}</span>

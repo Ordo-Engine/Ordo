@@ -40,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Pama-Lee/Ordo.git",
+    "url": "https://github.com/Ordo-Engine/Ordo.git",
     "directory": "ordo-editor/packages/core"
   },
   "publishConfig": {

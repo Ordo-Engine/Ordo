@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pama-lee.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
+  <a href="https://ordo-engine.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
   <img src="https://img.shields.io/badge/rust-1.83%2B-orange?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <a href="https://www.npmjs.com/package/@ordo-engine/editor-core"><img src="https://img.shields.io/npm/v/@ordo-engine/editor-core?label=npm&color=cb3837" alt="npm" /></a>
@@ -53,7 +53,7 @@ docker compose up          # platform + engine + studio
 # open http://localhost:5173
 ```
 
-Or use the hosted **[Live Playground](https://pama-lee.github.io/Ordo/)** — no install needed.
+Or use the hosted **[Live Playground](https://ordo-engine.github.io/Ordo/)** — no install needed.
 
 ### Engine only
 
@@ -140,7 +140,7 @@ ordo/
 | **Govern** | v0.8 | Change requests, impact analysis, approval flows |
 | **Ordo Cloud** | v1.0 | Managed platform with hosted engine |
 
-Full roadmap → [docs/roadmap](https://pama-lee.github.io/Ordo/docs/en/roadmap)
+Full roadmap → [docs/roadmap](https://ordo-engine.github.io/Ordo/docs/en/roadmap)
 
 ---
 
@@ -148,4 +148,4 @@ Full roadmap → [docs/roadmap](https://pama-lee.github.io/Ordo/docs/en/roadmap)
 
 MIT — see [LICENSE](LICENSE).
 
-<p align="center"><sub>Built with Rust · <a href="https://discord.gg/Y529FkArhh">Discord</a> · <a href="https://pama-lee.github.io/Ordo/">Docs</a></sub></p>
+<p align="center"><sub>Built with Rust · <a href="https://discord.gg/Y529FkArhh">Discord</a> · <a href="https://ordo-engine.github.io/Ordo/">Docs</a></sub></p>

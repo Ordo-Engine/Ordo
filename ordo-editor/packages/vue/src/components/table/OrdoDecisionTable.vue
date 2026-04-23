@@ -62,7 +62,10 @@ function commitEditCol() {
   const colId = editingColId.value;
   if (!colId) return;
   const field = editingColField.value.trim();
-  if (!field) { editingColId.value = null; return; }
+  if (!field) {
+    editingColId.value = null;
+    return;
+  }
 
   const inputIdx = props.modelValue.inputColumns.findIndex((c) => c.id === colId);
   if (inputIdx !== -1) {
@@ -133,13 +136,17 @@ function evaluateCell(cell: CellValue, actual: unknown): { verdict: TraceVerdict
     case 'exact':
       return {
         verdict: valuesEqual(actual, cell.value),
-        reason: `${formatTraceValue(actual)} ${valuesEqual(actual, cell.value) ? '==' : '!='} ${formatTraceValue(cell.value)}`,
+        reason: `${formatTraceValue(actual)} ${
+          valuesEqual(actual, cell.value) ? '==' : '!='
+        } ${formatTraceValue(cell.value)}`,
       };
     case 'in': {
       const matched = cell.values.some((value) => valuesEqual(actual, value));
       return {
         verdict: matched,
-        reason: `${formatTraceValue(actual)} ${matched ? 'in' : 'not in'} [${cell.values.map(formatTraceValue).join(', ')}]`,
+        reason: `${formatTraceValue(actual)} ${matched ? 'in' : 'not in'} [${cell.values
+          .map(formatTraceValue)
+          .join(', ')}]`,
       };
     }
     case 'range': {
@@ -147,9 +154,11 @@ function evaluateCell(cell: CellValue, actual: unknown): { verdict: TraceVerdict
         return { verdict: false, reason: `${formatTraceValue(actual)} is not a number` };
       }
       const minOk =
-        cell.min === undefined || (cell.minInclusive !== false ? actual >= cell.min : actual > cell.min);
+        cell.min === undefined ||
+        (cell.minInclusive !== false ? actual >= cell.min : actual > cell.min);
       const maxOk =
-        cell.max === undefined || (cell.maxInclusive !== false ? actual <= cell.max : actual < cell.max);
+        cell.max === undefined ||
+        (cell.maxInclusive !== false ? actual <= cell.max : actual < cell.max);
       return {
         verdict: minOk && maxOk,
         reason: `${actual} in ${cellValueToString(cell)}`,
@@ -187,19 +196,23 @@ const traceRowState = computed(() => {
   });
 });
 
-const traceActiveRowId = computed(() => traceRowState.value.find((row) => row.matched)?.rowId ?? null);
+const traceActiveRowId = computed(
+  () => traceRowState.value.find((row) => row.matched)?.rowId ?? null
+);
 
 function traceCellState(rowId: string, columnId: string): TraceVerdict {
   return (
-    traceRowState.value.find((row) => row.rowId === rowId)?.cellChecks.find((cell) => cell.columnId === columnId)
-      ?.verdict ?? null
+    traceRowState.value
+      .find((row) => row.rowId === rowId)
+      ?.cellChecks.find((cell) => cell.columnId === columnId)?.verdict ?? null
   );
 }
 
 function traceCellReason(rowId: string, columnId: string): string {
   return (
-    traceRowState.value.find((row) => row.rowId === rowId)?.cellChecks.find((cell) => cell.columnId === columnId)
-      ?.reason ?? ''
+    traceRowState.value
+      .find((row) => row.rowId === rowId)
+      ?.cellChecks.find((cell) => cell.columnId === columnId)?.reason ?? ''
   );
 }
 
@@ -531,18 +544,27 @@ function cellTypeClass(cell: CellValue): string {
             <th
               v-if="hasTrace"
               class="ordo-decision-table__group-th ordo-decision-table__group-th--trace"
-            >{{ t('table.traceStatus') }}</th>
+            >
+              {{ t('table.traceStatus') }}
+            </th>
             <th
               v-if="modelValue.inputColumns.length > 0"
               :colspan="modelValue.inputColumns.length"
               class="ordo-decision-table__group-th ordo-decision-table__group-th--input"
-            >{{ t('table.groupInput') }}</th>
+            >
+              {{ t('table.groupInput') }}
+            </th>
             <th
               v-if="modelValue.outputColumns.length > 0"
               :colspan="modelValue.outputColumns.length"
               class="ordo-decision-table__group-th ordo-decision-table__group-th--output"
-            >{{ t('table.groupOutput') }}</th>
-            <th colspan="2" class="ordo-decision-table__group-th ordo-decision-table__group-th--result">
+            >
+              {{ t('table.groupOutput') }}
+            </th>
+            <th
+              colspan="2"
+              class="ordo-decision-table__group-th ordo-decision-table__group-th--result"
+            >
               {{ t('table.groupResult') }}
             </th>
             <th v-if="!disabled" class="ordo-decision-table__group-spacer"></th>
@@ -585,7 +607,10 @@ function cellTypeClass(cell: CellValue): string {
                   </svg>
                 </button>
               </div>
-              <div class="ordo-decision-table__col-path" @click="startEditCol(col.id, col.fieldPath)">
+              <div
+                class="ordo-decision-table__col-path"
+                @click="startEditCol(col.id, col.fieldPath)"
+              >
                 <input
                   v-if="editingColId === col.id"
                   class="ordo-decision-table__col-input"
@@ -633,7 +658,10 @@ function cellTypeClass(cell: CellValue): string {
                   </svg>
                 </button>
               </div>
-              <div class="ordo-decision-table__col-path" @click="startEditCol(col.id, col.fieldName)">
+              <div
+                class="ordo-decision-table__col-path"
+                @click="startEditCol(col.id, col.fieldName)"
+              >
                 <input
                   v-if="editingColId === col.id"
                   class="ordo-decision-table__col-input"
@@ -649,7 +677,9 @@ function cellTypeClass(cell: CellValue): string {
             </th>
 
             <!-- Result columns -->
-            <th class="ordo-decision-table__th ordo-decision-table__th--result col-group-start--result">
+            <th
+              class="ordo-decision-table__th ordo-decision-table__th--result col-group-start--result"
+            >
               <div class="ordo-decision-table__col-header">
                 <span class="ordo-decision-table__col-badge ordo-decision-table__col-badge--result"
                   >CODE</span
@@ -685,7 +715,9 @@ function cellTypeClass(cell: CellValue): string {
               :key="`trace-input-${col.id}`"
               class="ordo-decision-table__th ordo-decision-table__th--input"
             >
-              <div class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral">
+              <div
+                class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral"
+              >
                 {{ formatTraceValue(traceCellActual(col)) }}
               </div>
             </th>
@@ -695,12 +727,18 @@ function cellTypeClass(cell: CellValue): string {
               class="ordo-decision-table__th ordo-decision-table__th--output"
               :class="{ 'col-group-start--output': index === 0 }"
             >
-              <div class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral">
+              <div
+                class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral"
+              >
                 {{ formatTraceValue(traceOutputValue(col.fieldName)) }}
               </div>
             </th>
-            <th class="ordo-decision-table__th ordo-decision-table__th--result col-group-start--result">
-              <div class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral">
+            <th
+              class="ordo-decision-table__th ordo-decision-table__th--result col-group-start--result"
+            >
+              <div
+                class="ordo-decision-table__trace-actual ordo-decision-table__trace-actual--neutral"
+              >
                 {{ formatTraceValue(traceResultCode) }}
               </div>
             </th>
@@ -710,7 +748,10 @@ function cellTypeClass(cell: CellValue): string {
 
         <tbody>
           <tr v-if="!hasRows">
-            <td :colspan="allColumns.length + (hasTrace ? 5 : 4)" class="ordo-decision-table__empty-row">
+            <td
+              :colspan="allColumns.length + (hasTrace ? 5 : 4)"
+              class="ordo-decision-table__empty-row"
+            >
               {{ t('table.noRows') }}
             </td>
           </tr>
@@ -824,7 +865,9 @@ function cellTypeClass(cell: CellValue): string {
             </td>
 
             <!-- Result Code -->
-            <td class="ordo-decision-table__td ordo-decision-table__td--result col-group-start--result">
+            <td
+              class="ordo-decision-table__td ordo-decision-table__td--result col-group-start--result"
+            >
               <input
                 :value="row.resultCode || ''"
                 class="ordo-decision-table__inline-input"

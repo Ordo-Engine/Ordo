@@ -1,239 +1,248 @@
 <script setup lang="ts">
-import { ref, watch, computed, onBeforeUnmount } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useTemplateStore } from '@/stores/template'
-import { useGithubStore } from '@/stores/github'
-import { useAuthStore } from '@/stores/auth'
-import { marketplaceApi } from '@/api/platform-client'
-import type { MarketplaceDetail, MarketplaceItem, Project, TemplateDetail, TemplateMetadata } from '@/api/types'
+import { ref, watch, computed, onBeforeUnmount } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useTemplateStore } from '@/stores/template';
+import { useGithubStore } from '@/stores/github';
+import { useAuthStore } from '@/stores/auth';
+import { marketplaceApi } from '@/api/platform-client';
+import type {
+  MarketplaceDetail,
+  MarketplaceItem,
+  Project,
+  TemplateDetail,
+  TemplateMetadata,
+} from '@/api/types';
 
 const props = defineProps<{
-  visible: boolean
-  orgId: string
-}>()
+  visible: boolean;
+  orgId: string;
+}>();
 
 const emit = defineEmits<{
-  (e: 'update:visible', v: boolean): void
-  (e: 'created', p: Project): void
-}>()
+  (e: 'update:visible', v: boolean): void;
+  (e: 'created', p: Project): void;
+}>();
 
-type TemplateSource = 'builtin' | 'github'
+type TemplateSource = 'builtin' | 'github';
 
-const { t } = useI18n()
-const store = useTemplateStore()
-const githubStore = useGithubStore()
-const authStore = useAuthStore()
+const { t } = useI18n();
+const store = useTemplateStore();
+const githubStore = useGithubStore();
+const authStore = useAuthStore();
 
-const source = ref<TemplateSource>('builtin')
-const selectedId = ref<string | null>(null)
-const selectedRepo = ref<string | null>(null)
-const projectName = ref('')
-const projectDesc = ref('')
-const githubQuery = ref('')
+const source = ref<TemplateSource>('builtin');
+const selectedId = ref<string | null>(null);
+const selectedRepo = ref<string | null>(null);
+const projectName = ref('');
+const projectDesc = ref('');
+const githubQuery = ref('');
 
-const marketplaceItems = ref<MarketplaceItem[]>([])
-const marketplaceDetail = ref<MarketplaceDetail | null>(null)
-const marketplaceLoading = ref(false)
-const marketplaceDetailLoading = ref(false)
-const marketplaceInstalling = ref(false)
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+const marketplaceItems = ref<MarketplaceItem[]>([]);
+const marketplaceDetail = ref<MarketplaceDetail | null>(null);
+const marketplaceLoading = ref(false);
+const marketplaceDetailLoading = ref(false);
+const marketplaceInstalling = ref(false);
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-const selectedTemplate = computed<TemplateMetadata | null>(() =>
-  store.templates.find((tpl) => tpl.id === selectedId.value) ?? null,
-)
+const selectedTemplate = computed<TemplateMetadata | null>(
+  () => store.templates.find((tpl) => tpl.id === selectedId.value) ?? null
+);
 
-const selectedMarketplaceItem = computed<MarketplaceItem | null>(() =>
-  marketplaceItems.value.find((item) => item.full_name === selectedRepo.value) ?? null,
-)
+const selectedMarketplaceItem = computed<MarketplaceItem | null>(
+  () => marketplaceItems.value.find((item) => item.full_name === selectedRepo.value) ?? null
+);
 
 const activeDetail = computed<TemplateDetail | MarketplaceDetail | null>(() =>
-  source.value === 'github' ? marketplaceDetail.value : store.currentDetail,
-)
+  source.value === 'github' ? marketplaceDetail.value : store.currentDetail
+);
 
 const activeCreating = computed(() =>
-  source.value === 'github' ? marketplaceInstalling.value : store.creating,
-)
+  source.value === 'github' ? marketplaceInstalling.value : store.creating
+);
 
-const activeFacts = computed(() => activeDetail.value?.facts ?? [])
-const activeConcepts = computed(() => activeDetail.value?.concepts ?? [])
-const activeSamples = computed(() => activeDetail.value?.samples ?? [])
-const activeFeatures = computed(() => activeDetail.value?.features ?? [])
+const activeFacts = computed(() => activeDetail.value?.facts ?? []);
+const activeConcepts = computed(() => activeDetail.value?.concepts ?? []);
+const activeSamples = computed(() => activeDetail.value?.samples ?? []);
+const activeFeatures = computed(() => activeDetail.value?.features ?? []);
 
 async function onOpen() {
-  source.value = 'builtin'
-  selectedId.value = null
-  selectedRepo.value = null
-  projectName.value = ''
-  projectDesc.value = ''
-  githubQuery.value = ''
-  marketplaceItems.value = []
-  marketplaceDetail.value = null
-  store.clearDetail()
+  source.value = 'builtin';
+  selectedId.value = null;
+  selectedRepo.value = null;
+  projectName.value = '';
+  projectDesc.value = '';
+  githubQuery.value = '';
+  marketplaceItems.value = [];
+  marketplaceDetail.value = null;
+  store.clearDetail();
 
-  await Promise.all([store.fetchTemplates(), githubStore.fetchStatus()])
+  await Promise.all([store.fetchTemplates(), githubStore.fetchStatus()]);
 
   if (store.templates.length > 0) {
-    await selectBuiltinTemplate(store.templates[0].id)
+    await selectBuiltinTemplate(store.templates[0].id);
   }
 }
 
 watch(
   () => props.visible,
   async (open) => {
-    if (!open) return
-    await onOpen()
-  },
-)
+    if (!open) return;
+    await onOpen();
+  }
+);
 
 watch(source, async (mode) => {
-  projectName.value = ''
-  projectDesc.value = ''
+  projectName.value = '';
+  projectDesc.value = '';
 
   if (mode === 'builtin') {
     if (!selectedId.value && store.templates.length > 0) {
-      await selectBuiltinTemplate(store.templates[0].id)
-      return
+      await selectBuiltinTemplate(store.templates[0].id);
+      return;
     }
-    const tpl = selectedTemplate.value
+    const tpl = selectedTemplate.value;
     if (tpl) {
-      projectName.value = `${tpl.name} - ${t('template.copySuffix')}`
+      projectName.value = `${tpl.name} - ${t('template.copySuffix')}`;
     }
-    return
+    return;
   }
 
-  await githubStore.fetchStatus()
+  await githubStore.fetchStatus();
   if (!marketplaceItems.value.length) {
-    await fetchMarketplaceItems()
+    await fetchMarketplaceItems();
   }
   if (!selectedRepo.value && marketplaceItems.value.length > 0) {
-    await selectMarketplaceItem(marketplaceItems.value[0])
-    return
+    await selectMarketplaceItem(marketplaceItems.value[0]);
+    return;
   }
-  const detail = marketplaceDetail.value
+  const detail = marketplaceDetail.value;
   if (detail) {
-    projectName.value = detail.name || detail.full_name || ''
+    projectName.value = detail.name || detail.full_name || '';
   }
-})
+});
 
 watch(githubQuery, () => {
-  if (source.value !== 'github') return
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  if (source.value !== 'github') return;
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
-    void fetchMarketplaceItems()
-  }, 350)
-})
+    void fetchMarketplaceItems();
+  }, 350);
+});
 
 onBeforeUnmount(() => {
   if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer)
+    clearTimeout(searchDebounceTimer);
   }
-})
+});
 
 async function selectBuiltinTemplate(id: string) {
-  selectedId.value = id
-  await store.fetchDetail(id)
-  const tpl = store.templates.find((x) => x.id === id)
+  selectedId.value = id;
+  await store.fetchDetail(id);
+  const tpl = store.templates.find((x) => x.id === id);
   if (tpl) {
-    projectName.value = `${tpl.name} - ${t('template.copySuffix')}`
+    projectName.value = `${tpl.name} - ${t('template.copySuffix')}`;
   }
 }
 
 async function fetchMarketplaceItems() {
-  if (!authStore.token) return
-  marketplaceLoading.value = true
+  if (!authStore.token) return;
+  marketplaceLoading.value = true;
   try {
     const resp = await marketplaceApi.search(authStore.token, {
       q: githubQuery.value.trim() || undefined,
       sort: 'stars',
       page: 1,
       per_page: 24,
-    })
-    marketplaceItems.value = resp.items
-    if (selectedRepo.value && !marketplaceItems.value.some((item) => item.full_name === selectedRepo.value)) {
-      selectedRepo.value = null
-      marketplaceDetail.value = null
+    });
+    marketplaceItems.value = resp.items;
+    if (
+      selectedRepo.value &&
+      !marketplaceItems.value.some((item) => item.full_name === selectedRepo.value)
+    ) {
+      selectedRepo.value = null;
+      marketplaceDetail.value = null;
     }
     if (!selectedRepo.value && marketplaceItems.value.length > 0) {
-      await selectMarketplaceItem(marketplaceItems.value[0])
+      await selectMarketplaceItem(marketplaceItems.value[0]);
     }
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('marketplace.loadError'))
+    MessagePlugin.error(e?.message ?? t('marketplace.loadError'));
   } finally {
-    marketplaceLoading.value = false
+    marketplaceLoading.value = false;
   }
 }
 
 async function selectMarketplaceItem(item: MarketplaceItem) {
-  if (!authStore.token) return
-  const [owner, repo] = item.full_name.split('/')
-  if (!owner || !repo) return
-  selectedRepo.value = item.full_name
-  marketplaceDetailLoading.value = true
+  if (!authStore.token) return;
+  const [owner, repo] = item.full_name.split('/');
+  if (!owner || !repo) return;
+  selectedRepo.value = item.full_name;
+  marketplaceDetailLoading.value = true;
   try {
-    marketplaceDetail.value = await marketplaceApi.getItem(authStore.token, owner, repo)
-    projectName.value = marketplaceDetail.value.name || marketplaceDetail.value.full_name || repo
+    marketplaceDetail.value = await marketplaceApi.getItem(authStore.token, owner, repo);
+    projectName.value = marketplaceDetail.value.name || marketplaceDetail.value.full_name || repo;
   } catch (e: any) {
-    marketplaceDetail.value = null
-    MessagePlugin.error(e?.message ?? t('marketplace.loadError'))
+    marketplaceDetail.value = null;
+    MessagePlugin.error(e?.message ?? t('marketplace.loadError'));
   } finally {
-    marketplaceDetailLoading.value = false
+    marketplaceDetailLoading.value = false;
   }
 }
 
 async function connectGithub() {
   try {
-    await githubStore.connect()
-    await fetchMarketplaceItems()
+    await githubStore.connect();
+    await fetchMarketplaceItems();
     if (marketplaceItems.value.length > 0) {
-      await selectMarketplaceItem(marketplaceItems.value[0])
+      await selectMarketplaceItem(marketplaceItems.value[0]);
     }
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('marketplace.connectError'))
+    MessagePlugin.error(e?.message ?? t('marketplace.connectError'));
   }
 }
 
 function close() {
-  emit('update:visible', false)
+  emit('update:visible', false);
 }
 
 async function handleCreate() {
   if (!projectName.value.trim()) {
-    MessagePlugin.warning(t('template.projectNameRequired'))
-    return
+    MessagePlugin.warning(t('template.projectNameRequired'));
+    return;
   }
 
   if (source.value === 'github') {
     if (!selectedRepo.value || !authStore.token) {
-      MessagePlugin.warning(t('template.selectRequired'))
-      return
+      MessagePlugin.warning(t('template.selectRequired'));
+      return;
     }
-    const [owner, repo] = selectedRepo.value.split('/')
+    const [owner, repo] = selectedRepo.value.split('/');
     if (!owner || !repo) {
-      MessagePlugin.warning(t('template.selectRequired'))
-      return
+      MessagePlugin.warning(t('template.selectRequired'));
+      return;
     }
-    marketplaceInstalling.value = true
+    marketplaceInstalling.value = true;
     try {
       const project = await marketplaceApi.install(authStore.token, owner, repo, {
         org_id: props.orgId,
         project_name: projectName.value.trim(),
         project_description: projectDesc.value.trim() || undefined,
-      })
-      MessagePlugin.success(t('template.createSuccess'))
-      emit('created', project)
-      close()
+      });
+      MessagePlugin.success(t('template.createSuccess'));
+      emit('created', project);
+      close();
     } catch (e: any) {
-      MessagePlugin.error(e?.message ?? t('template.createFailed'))
+      MessagePlugin.error(e?.message ?? t('template.createFailed'));
     } finally {
-      marketplaceInstalling.value = false
+      marketplaceInstalling.value = false;
     }
-    return
+    return;
   }
 
   if (!selectedId.value) {
-    MessagePlugin.warning(t('template.selectRequired'))
-    return
+    MessagePlugin.warning(t('template.selectRequired'));
+    return;
   }
 
   try {
@@ -241,24 +250,24 @@ async function handleCreate() {
       template_id: selectedId.value,
       project_name: projectName.value.trim(),
       project_description: projectDesc.value.trim() || undefined,
-    })
-    MessagePlugin.success(t('template.createSuccess'))
-    emit('created', project)
-    close()
+    });
+    MessagePlugin.success(t('template.createSuccess'));
+    emit('created', project);
+    close();
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('template.createFailed'))
+    MessagePlugin.error(e?.message ?? t('template.createFailed'));
   }
 }
 
 function difficultyTheme(d: string): 'primary' | 'warning' | 'danger' {
-  if (d === 'advanced') return 'danger'
-  if (d === 'intermediate') return 'warning'
-  return 'primary'
+  if (d === 'advanced') return 'danger';
+  if (d === 'intermediate') return 'warning';
+  return 'primary';
 }
 
 function stepCount(detail: TemplateDetail | MarketplaceDetail | null): number {
-  if (!detail?.ruleset?.steps) return 0
-  return Object.keys(detail.ruleset.steps).length
+  if (!detail?.ruleset?.steps) return 0;
+  return Object.keys(detail.ruleset.steps).length;
 }
 </script>
 
@@ -333,7 +342,12 @@ function stepCount(detail: TemplateDetail | MarketplaceDetail | null): number {
               >
                 {{ t(`template.difficulty.${item.difficulty}`) }}
               </t-tag>
-              <t-tag v-for="tag in (item.tags ?? []).slice(0, 3)" :key="tag" size="small" variant="outline">
+              <t-tag
+                v-for="tag in (item.tags ?? []).slice(0, 3)"
+                :key="tag"
+                size="small"
+                variant="outline"
+              >
                 {{ tag }}
               </t-tag>
             </div>
@@ -366,14 +380,22 @@ function stepCount(detail: TemplateDetail | MarketplaceDetail | null): number {
               <t-tag size="small" :theme="difficultyTheme(tpl.difficulty)" variant="light">
                 {{ t(`template.difficulty.${tpl.difficulty}`) }}
               </t-tag>
-              <t-tag v-for="tag in tpl.tags" :key="tag" size="small" variant="outline">{{ tag }}</t-tag>
+              <t-tag v-for="tag in tpl.tags" :key="tag" size="small" variant="outline">{{
+                tag
+              }}</t-tag>
             </div>
           </div>
         </template>
       </div>
 
       <div class="tpl-detail">
-        <div v-if="(source === 'github' && marketplaceDetailLoading) || (source === 'builtin' && store.detailLoading)" class="tpl-loading tpl-loading--detail">
+        <div
+          v-if="
+            (source === 'github' && marketplaceDetailLoading) ||
+            (source === 'builtin' && store.detailLoading)
+          "
+          class="tpl-loading tpl-loading--detail"
+        >
           <t-skeleton theme="article" animation="gradient" :row-col="[1, 1, 1, 1, 1, 1]" />
         </div>
         <template v-else-if="activeDetail">
@@ -491,7 +513,9 @@ function stepCount(detail: TemplateDetail | MarketplaceDetail | null): number {
   border-radius: var(--ordo-radius-md);
   padding: 12px 14px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -134,7 +134,9 @@ function deserializeStep(data: unknown): Step {
         externalCalls: step.externalCalls as Step['type'] extends 'action'
           ? NonNullable<Extract<Step, { type: 'action' }>['externalCalls']>
           : never,
-        logging: step.logging as { message: Expr; level?: 'debug' | 'info' | 'warn' | 'error' } | undefined,
+        logging: step.logging as
+          | { message: Expr; level?: 'debug' | 'info' | 'warn' | 'error' }
+          | undefined,
         nextStepId: step.nextStepId as string,
       };
 

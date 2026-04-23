@@ -1,32 +1,32 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
-import type { ProjectEnvironment } from '@/api/types'
-import { StudioPageHeader } from '@/components/ui'
-import { useEnvironmentStore } from '@/stores/environment'
-import { useServerStore } from '@/stores/server'
+import { onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import type { ProjectEnvironment } from '@/api/types';
+import { StudioPageHeader } from '@/components/ui';
+import { useEnvironmentStore } from '@/stores/environment';
+import { useServerStore } from '@/stores/server';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const envStore = useEnvironmentStore()
-const serverStore = useServerStore()
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const envStore = useEnvironmentStore();
+const serverStore = useServerStore();
 
-const orgId = route.params.orgId as string
-const projectId = route.params.projectId as string
+const orgId = route.params.orgId as string;
+const projectId = route.params.projectId as string;
 
 onMounted(async () => {
-  await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()])
-})
+  await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()]);
+});
 
 function createEnv() {
-  router.push({ name: 'project-environment-create', params: { orgId, projectId } })
+  router.push({ name: 'project-environment-create', params: { orgId, projectId } });
 }
 
 function editEnv(envId: string) {
-  router.push({ name: 'project-environment-edit', params: { orgId, projectId, envId } })
+  router.push({ name: 'project-environment-edit', params: { orgId, projectId, envId } });
 }
 
 function deleteEnv(env: ProjectEnvironment) {
@@ -37,26 +37,24 @@ function deleteEnv(env: ProjectEnvironment) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await envStore.deleteEnvironment(orgId, projectId, env.id)
-        MessagePlugin.success(t('environment.deleted'))
-        dialog.hide()
+        await envStore.deleteEnvironment(orgId, projectId, env.id);
+        MessagePlugin.success(t('environment.deleted'));
+        dialog.hide();
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 function serverNames(serverIds: string[]) {
-  if (serverIds.length === 0) return t('environment.noServer')
-  return serverIds
-    .map((serverId) => serverStore.getById(serverId)?.name ?? serverId)
-    .join(', ')
+  if (serverIds.length === 0) return t('environment.noServer');
+  return serverIds.map((serverId) => serverStore.getById(serverId)?.name ?? serverId).join(', ');
 }
 
 function canaryTargetName(envId: string | null) {
-  if (!envId) return t('environment.noCanary')
-  return envStore.environments.find((env) => env.id === envId)?.name ?? envId
+  if (!envId) return t('environment.noCanary');
+  return envStore.environments.find((env) => env.id === envId)?.name ?? envId;
 }
 </script>
 
@@ -92,13 +90,21 @@ function canaryTargetName(envId: string | null) {
         <div class="env-header">
           <div class="env-name-row">
             <span class="env-name">{{ env.name }}</span>
-            <t-tag v-if="env.is_default" theme="primary" variant="light">{{ t('environment.default') }}</t-tag>
+            <t-tag v-if="env.is_default" theme="primary" variant="light">{{
+              t('environment.default')
+            }}</t-tag>
           </div>
           <div class="env-actions">
             <t-button variant="text" size="small" @click="editEnv(env.id)">
               {{ t('environment.edit') }}
             </t-button>
-            <t-button v-if="!env.is_default" variant="text" theme="danger" size="small" @click="deleteEnv(env)">
+            <t-button
+              v-if="!env.is_default"
+              variant="text"
+              theme="danger"
+              size="small"
+              @click="deleteEnv(env)"
+            >
               {{ t('environment.delete') }}
             </t-button>
           </div>
@@ -114,7 +120,9 @@ function canaryTargetName(envId: string | null) {
         </div>
         <div v-if="env.canary_percentage > 0" class="env-meta">
           <span class="meta-label">{{ t('environment.canary') }}:</span>
-          <span>{{ env.canary_percentage }}% → {{ canaryTargetName(env.canary_target_env_id) }}</span>
+          <span
+            >{{ env.canary_percentage }}% → {{ canaryTargetName(env.canary_target_env_id) }}</span
+          >
         </div>
       </t-card>
     </div>

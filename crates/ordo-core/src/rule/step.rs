@@ -332,11 +332,13 @@ pub enum ActionKind {
     },
 
     /// External call (future)
-    #[serde(skip)]
     ExternalCall {
         service: String,
         method: String,
         params: Vec<(String, Expr)>,
+        #[serde(default)]
+        result_variable: Option<String>,
+        #[serde(default)]
         timeout_ms: u64,
     },
 }

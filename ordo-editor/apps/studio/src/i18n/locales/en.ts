@@ -25,7 +25,8 @@ export default {
   },
   auth: {
     subtitle: 'Decision Management Platform',
-    tagline: 'Ship decisions with confidence — version, review, and roll out rule changes with an enterprise-grade control plane.',
+    tagline:
+      'Ship decisions with confidence — version, review, and roll out rule changes with an enterprise-grade control plane.',
     feature1: 'Visual rule editor with graph & table modes',
     feature2: 'Approval workflows and policy-gated rollouts',
     feature3: 'Multi-environment deployment with instant rollback',
@@ -51,7 +52,8 @@ export default {
     joinStudio: 'Join Ordo Studio',
     registerBtn: 'Create Account',
     registrationDisabled: 'Registration is closed',
-    registrationDisabledDesc: 'New accounts on this platform require an invitation. Ask your organization admin to invite you via email.',
+    registrationDisabledDesc:
+      'New accounts on this platform require an invitation. Ask your organization admin to invite you via email.',
     backToLogin: 'Back to sign in',
     forgotPassword: 'Forgot password?',
     orLoginWith: 'Or continue with',
@@ -85,10 +87,12 @@ export default {
     orgSettingsSubtitle: 'Manage organization metadata, descriptions, and workspace defaults.',
     projectsSubtitle: 'Browse decision projects, create new ones, or start from a template.',
     editorSubtitle: 'Edit rulesets, inspect execution paths, and keep project context in view.',
-    testsSubtitle: 'Run tests and inspect whether your decision behavior still matches expectations.',
+    testsSubtitle:
+      'Run tests and inspect whether your decision behavior still matches expectations.',
     versionsSubtitle: 'Review saved versions, restore points, and history for the current project.',
     settingsSubtitle: 'Personal preferences, language, and appearance controls for your account.',
-    serversSubtitle: 'Inspect registered servers, check availability, and review health and metrics inline.',
+    serversSubtitle:
+      'Inspect registered servers, check availability, and review health and metrics inline.',
     searchPlaceholder: 'Search projects, pages, or actions',
     searchShortcut: 'Ctrl K',
     commandTitle: 'Search and Jump',
@@ -139,7 +143,8 @@ export default {
       deleteDesc: 'All projects and rule data will be permanently deleted and cannot be recovered.',
       deleteBtn: 'Delete Organization',
       deleteDialog: 'Delete Organization',
-      deleteConfirm: 'Are you sure you want to delete organization "{name}"? This action is irreversible and all project data will be cleared.',
+      deleteConfirm:
+        'Are you sure you want to delete organization "{name}"? This action is irreversible and all project data will be cleared.',
       nameRequired: 'Organization name cannot be empty',
       saveSuccess: 'Saved successfully',
       deleteSuccess: 'Organization deleted',
@@ -232,7 +237,8 @@ export default {
     createSuccess: 'Project created',
     deleteSuccess: 'Project deleted',
     deleteDialog: 'Delete Project',
-    deleteConfirm: 'Are you sure you want to delete project "{name}"? This action is irreversible and all rules will be deleted.',
+    deleteConfirm:
+      'Are you sure you want to delete project "{name}"? This action is irreversible and all rules will be deleted.',
   },
   template: {
     fromTemplate: 'Start from Template',
@@ -304,7 +310,8 @@ export default {
     loadFailed: 'Load failed',
     saveSuccess: 'Saved',
     versionRequired: 'Set a version before saving',
-    versionBumpRequired: 'Version {version} is already published. Bump the version before saving more edits.',
+    versionBumpRequired:
+      'Version {version} is already published. Bump the version before saving more edits.',
     publishedVersionTag: 'Published {version}',
     noPermission: 'You do not have edit permission',
     closeConfirm: 'Unsaved Changes',
@@ -421,7 +428,8 @@ export default {
     exprRequired: 'Expression is required',
     cycleError: 'Circular dependency detected, please fix before saving',
     deleteDialog: 'Delete Concept',
-    deleteConfirm: 'Are you sure you want to delete "{name}"? Other concepts that depend on it may be affected.',
+    deleteConfirm:
+      'Are you sure you want to delete "{name}"? Other concepts that depend on it may be affected.',
     deleteSuccess: 'Deleted',
     depCount: 'Depends on {count} fields',
   },
@@ -507,7 +515,8 @@ export default {
     currentTag: 'Current',
     rollbackBtn: 'Roll back to this version',
     rollbackDialog: 'Roll Back Version',
-    rollbackConfirm: 'Are you sure you want to roll back "{name}" to version #{seq}? This will overwrite the current version.',
+    rollbackConfirm:
+      'Are you sure you want to roll back "{name}" to version #{seq}? This will overwrite the current version.',
     rollbackConfirmBtn: 'Confirm Rollback',
     rollbackCancel: 'Cancel',
     rollbackSuccess: 'Rolled back to version #{seq}',
@@ -544,8 +553,10 @@ export default {
   },
   dashboard: {
     workspaceTitle: 'Project Workspace',
-    workspaceSubtitle: 'You are working inside {org}. Jump back into a project, start from a template, or review the engine fleet.',
-    workspaceSubtitleNoOrg: 'Select an organization first, then open a project or start from a template.',
+    workspaceSubtitle:
+      'You are working inside {org}. Jump back into a project, start from a template, or review the engine fleet.',
+    workspaceSubtitleNoOrg:
+      'Select an organization first, then open a project or start from a template.',
     newProject: 'New Project',
     statOrgs: 'Organizations',
     statProjects: 'Projects',
@@ -601,7 +612,8 @@ export default {
     serverRegistry: {
       title: 'Servers',
       desc: 'Inspect the ordo-server nodes currently registered to this platform.',
-      cleanupHint: 'Nodes degrade after 90 seconds without heartbeat, go offline after 10 minutes, and stale offline records are pruned after 30 minutes.',
+      cleanupHint:
+        'Nodes degrade after 90 seconds without heartbeat, go offline after 10 minutes, and stale offline records are pruned after 30 minutes.',
       refresh: 'Refresh',
       empty: 'No registered servers are visible to this account yet.',
       loadFailed: 'Failed to load server registry',
@@ -650,7 +662,8 @@ export default {
     },
     github: {
       title: 'GitHub Integration',
-      description: 'Connect your GitHub account to access the template marketplace and install community templates directly into your projects.',
+      description:
+        'Connect your GitHub account to access the template marketplace and install community templates directly into your projects.',
       connectBtn: 'Connect with GitHub',
       disconnectBtn: 'Disconnect',
       connected: 'GitHub connected successfully',
@@ -702,7 +715,8 @@ export default {
     engineDegraded: 'Degraded',
     engineDisconnected: 'Disconnected',
     serverBinding: 'Server Binding',
-    serverBindingDesc: 'Route this project through a registered ordo-server, or keep using the platform default engine.',
+    serverBindingDesc:
+      'Route this project through a registered ordo-server, or keep using the platform default engine.',
     serverLabel: 'Bound Server',
     serverDefault: 'Use platform default',
     serverSave: 'Save Routing',
@@ -749,8 +763,10 @@ export default {
     title: 'Marketplace',
     subtitle: 'Browse community templates from GitHub',
     detail: 'Template Detail',
-    connectPrompt: 'Connect your GitHub account for higher rate limits and private repository access',
-    connectOptional: 'GitHub connection is optional. Public templates can be browsed and installed without it.',
+    connectPrompt:
+      'Connect your GitHub account for higher rate limits and private repository access',
+    connectOptional:
+      'GitHub connection is optional. Public templates can be browsed and installed without it.',
     connectBtn: 'Connect GitHub',
     connectError: 'Failed to connect GitHub',
     notConnected: 'GitHub connection is optional for public marketplace templates',
@@ -831,19 +847,24 @@ export default {
       title: 'Project Tests',
       runAll: 'Run All Project Tests',
       summary: '{passed}/{total} passed',
-      diagnosticsSubtitle: 'Run draft rules locally, inspect mismatches, and replay the execution path in readonly flow mode.',
+      diagnosticsSubtitle:
+        'Run draft rules locally, inspect mismatches, and replay the execution path in readonly flow mode.',
       localDraftMode: 'Local draft execution',
       localDraftHint: 'Runs inside ordo-platform with the latest draft, not against live servers.',
       runningLocal: 'Running draft tests locally...',
       noRulesets: 'No rulesets in this project',
-      noRulesetsHint: 'Create a ruleset first, then this workspace can run local diagnostics and flow replay.',
+      noRulesetsHint:
+        'Create a ruleset first, then this workspace can run local diagnostics and flow replay.',
       selectRuleset: 'Select a ruleset',
       testCount: '{total} test cases',
       runPromptTitle: 'Run tests to generate diagnostics',
-      runPromptBody: 'This workspace shows expected vs actual output, trace details, and readonly flow replay after a run.',
-      pendingNote: 'This test case is available but has not been executed in the current local run yet.',
+      runPromptBody:
+        'This workspace shows expected vs actual output, trace details, and readonly flow replay after a run.',
+      pendingNote:
+        'This test case is available but has not been executed in the current local run yet.',
       diagnosticsTitle: 'Diagnostics',
-      diagnosticsHint: 'Select a failed or passed test result to inspect output diffs, trace steps, and flow replay.',
+      diagnosticsHint:
+        'Select a failed or passed test result to inspect output diffs, trace steps, and flow replay.',
       expectedActual: 'Expected vs Actual',
       traceDetails: 'Trace Details',
       flowReplay: 'Flow Replay',
@@ -862,9 +883,11 @@ export default {
       variablesSnapshot: 'Variables snapshot',
       noTrace: 'This test run did not return trace data',
       noFlowReplay: 'Flow replay unavailable',
-      noFlowReplayHint: 'Run the test again after trace capture finishes, or open a ruleset that still has its draft available.',
+      noFlowReplayHint:
+        'Run the test again after trace capture finishes, or open a ruleset that still has its draft available.',
       noDecisionTableTrace: 'Decision table trace unavailable',
-      noDecisionTableTraceHint: 'This ruleset is not a standard decision table, or the selected result has no matching test input to replay.',
+      noDecisionTableTraceHint:
+        'This ruleset is not a standard decision table, or the selected result has no matching test input to replay.',
       noTests: 'No test cases in this project',
     },
     export: {
@@ -897,7 +920,8 @@ export default {
   },
   conflict: {
     title: 'Draft Conflict',
-    description: 'Someone else saved a newer version. Review the differences and choose how to proceed.',
+    description:
+      'Someone else saved a newer version. Review the differences and choose how to proceed.',
     local: 'Your draft',
     server: 'Server draft',
     useLocal: 'Use Mine',
@@ -932,12 +956,15 @@ export default {
     selectedNodesTitle: 'Selected nodes',
     selectionEmpty: 'No nodes selected',
     labelsEmpty: 'No labels',
-    degradedWarning: 'Degraded nodes selected: {names}. Publishing can continue, but verify node health first.',
-    mismatchWarning: 'Some selected nodes do not look like they belong to this environment: {names}. Verify you are not binding test nodes to production.',
+    degradedWarning:
+      'Degraded nodes selected: {names}. Publishing can continue, but verify node health first.',
+    mismatchWarning:
+      'Some selected nodes do not look like they belong to this environment: {names}. Verify you are not binding test nodes to production.',
     delete: 'Delete',
     confirmDelete: 'Delete environment "{name}"?',
     natsPrefix: 'NATS Subject Prefix',
-    natsPrefixHelp: 'This usually does not need manual input. It is auto-generated from the environment name and scopes rule delivery subjects for this environment.',
+    natsPrefixHelp:
+      'This usually does not need manual input. It is auto-generated from the environment name and scopes rule delivery subjects for this environment.',
     save: 'Save',
     cancel: 'Cancel',
     noEnvs: 'No environments yet',
@@ -1000,7 +1027,8 @@ export default {
   },
   releaseCenter: {
     title: 'Release Center',
-    subtitle: 'Manage approval workflows, batch rollouts, rollback policies, and release visibility.',
+    subtitle:
+      'Manage approval workflows, batch rollouts, rollback policies, and release visibility.',
     navOverview: 'Overview',
     navRequests: 'Requests',
     navPolicies: 'Policies',
@@ -1044,7 +1072,8 @@ export default {
     tabExecution: 'Execution',
     backToRequests: 'Back to Requests',
     requestDetailTitle: 'Release Request Detail',
-    requestDetailSubtitle: 'Review release context, approval chain, and ruleset diff before execution.',
+    requestDetailSubtitle:
+      'Review release context, approval chain, and ruleset diff before execution.',
     requestNotFound: 'Release request not found',
     diffSectionTitle: 'Ruleset diff summary',
     diffStepsBefore: 'Steps before',
@@ -1063,11 +1092,13 @@ export default {
     diffDescriptionChanged: 'Description changed',
     diffEmpty: 'No changes',
     requestsTitle: 'Release Requests',
-    requestsSubtitle: 'Track approval progress, rollout strategy, and rollback baseline before execution.',
+    requestsSubtitle:
+      'Track approval progress, rollout strategy, and rollback baseline before execution.',
     policiesTitle: 'Release Policies',
     policiesSubtitle: 'Bind approvers, rollout strategy, and rollback guards to project targets.',
     historyTitle: 'Release History',
-    historySubtitle: 'Browse completed publish and redeploy records while the new release flow is phased in.',
+    historySubtitle:
+      'Browse completed publish and redeploy records while the new release flow is phased in.',
     createRequest: 'Create Request',
     createPolicy: 'Create Policy',
     affectedInstances: 'Affected instances',
@@ -1123,22 +1154,29 @@ export default {
     batchIntervalField: 'Batch interval (seconds)',
     maxFailedInstancesField: 'Max failed instances',
     noPolicyForRequestTitle: 'No release policy is configured yet',
-    noPolicyForRequestDesc: 'Create a policy first so this release request can bind approvers, rollout, and rollback rules.',
-    noBoundServer: 'This environment has no bound execution node. The request will record 0 affected instances.',
+    noPolicyForRequestDesc:
+      'Create a policy first so this release request can bind approvers, rollout, and rollback rules.',
+    noBoundServer:
+      'This environment has no bound execution node. The request will record 0 affected instances.',
     serverStatusLabel: 'Node status',
     serverStatusMap: {
       online: 'Online',
       degraded: 'Degraded',
       offline: 'Offline',
     },
-    policyNameHelp: 'Use a stable, recognizable name so approvers can quickly understand where this policy applies.',
-    targetFieldHelp: 'Pick the environment this policy governs. Release requests targeting this environment will use it by default.',
+    policyNameHelp:
+      'Use a stable, recognizable name so approvers can quickly understand where this policy applies.',
+    targetFieldHelp:
+      'Pick the environment this policy governs. Release requests targeting this environment will use it by default.',
     minApprovalsHelp: 'The request cannot move forward until this many approvers have approved it.',
-    approversHelp: 'Only these members can review and approve release requests matched by this policy.',
+    approversHelp:
+      'Only these members can review and approve release requests matched by this policy.',
     batchSizeHelp: 'How many instances are released in each rollout batch.',
     batchIntervalHelp: 'How long the system waits before moving to the next batch.',
-    maxFailedInstancesHelp: 'Auto rollback is triggered once failures in this release exceed this count.',
-    metricGuardHelp: 'Optional guard expression, for example error rate or latency thresholds that should pause or rollback the release.',
+    maxFailedInstancesHelp:
+      'Auto rollback is triggered once failures in this release exceed this count.',
+    metricGuardHelp:
+      'Optional guard expression, for example error rate or latency thresholds that should pause or rollback the release.',
     statusMap: {
       draft: 'Draft',
       pending_approval: 'Pending approval',
@@ -1330,4 +1368,4 @@ export default {
       release_instance_view: 'Inspect per-instance rollout status and telemetry.',
     },
   },
-}
+};

@@ -1,21 +1,41 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 
-const route = useRoute()
-const { t } = useI18n()
+const route = useRoute();
+const { t } = useI18n();
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
-const base = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}/releases`)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
+const base = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}/releases`);
 
 const tabs = computed(() => [
-  { key: 'overview', label: t('releaseCenter.navOverview'), to: `${base.value}`, active: route.path === `${base.value}` },
-  { key: 'requests', label: t('releaseCenter.navRequests'), to: `${base.value}/requests`, active: route.path.includes('/releases/requests') },
-  { key: 'policies', label: t('releaseCenter.navPolicies'), to: `${base.value}/policies`, active: route.path.endsWith('/releases/policies') },
-  { key: 'history', label: t('releaseCenter.navHistory'), to: `${base.value}/history` , active: route.path.endsWith('/releases/history') || route.path.endsWith('/deployments') },
-])
+  {
+    key: 'overview',
+    label: t('releaseCenter.navOverview'),
+    to: `${base.value}`,
+    active: route.path === `${base.value}`,
+  },
+  {
+    key: 'requests',
+    label: t('releaseCenter.navRequests'),
+    to: `${base.value}/requests`,
+    active: route.path.includes('/releases/requests'),
+  },
+  {
+    key: 'policies',
+    label: t('releaseCenter.navPolicies'),
+    to: `${base.value}/policies`,
+    active: route.path.endsWith('/releases/policies'),
+  },
+  {
+    key: 'history',
+    label: t('releaseCenter.navHistory'),
+    to: `${base.value}/history`,
+    active: route.path.endsWith('/releases/history') || route.path.endsWith('/deployments'),
+  },
+]);
 </script>
 
 <template>
@@ -48,7 +68,9 @@ const tabs = computed(() => [
   font-size: 13px;
   color: var(--ordo-text-secondary);
   text-decoration: none;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .release-nav__link:hover {

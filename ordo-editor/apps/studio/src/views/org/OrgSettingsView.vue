@@ -1,110 +1,108 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { memberApi } from '@/api/platform-client'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import type { Role } from '@/api/types'
+import { ref, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { memberApi } from '@/api/platform-client';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import type { Role } from '@/api/types';
 
-const route = useRoute()
-const router = useRouter()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const { t, locale } = useI18n()
+const route = useRoute();
+const router = useRouter();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const { t, locale } = useI18n();
 
 // Sub-org management
-const showCreateSubOrg = ref(false)
-const creatingSubOrg = ref(false)
-const newSubOrgName = ref('')
-const newSubOrgDesc = ref('')
-const assignAdmin = ref(false)
-const assignAdminUserId = ref('')
-const assignAdminRole = ref<Role>('admin')
+const showCreateSubOrg = ref(false);
+const creatingSubOrg = ref(false);
+const newSubOrgName = ref('');
+const newSubOrgDesc = ref('');
+const assignAdmin = ref(false);
+const assignAdminUserId = ref('');
+const assignAdminRole = ref<Role>('admin');
 
 // Sub-org member panel
-const expandedSubOrgId = ref<string | null>(null)
-const showAddMemberDialog = ref(false)
-const addMemberTargetSubOrgId = ref('')
-const addMemberUserId = ref('')
-const addMemberRole = ref<Role>('editor')
-const addingMember = ref(false)
+const expandedSubOrgId = ref<string | null>(null);
+const showAddMemberDialog = ref(false);
+const addMemberTargetSubOrgId = ref('');
+const addMemberUserId = ref('');
+const addMemberRole = ref<Role>('editor');
+const addingMember = ref(false);
 
-const isRootOrg = computed(() => (orgStore.currentOrg?.depth ?? 0) === 0)
-const parentOrgId = computed(() => orgStore.currentOrg?.parent_org_id ?? null)
+const isRootOrg = computed(() => (orgStore.currentOrg?.depth ?? 0) === 0);
+const parentOrgId = computed(() => orgStore.currentOrg?.parent_org_id ?? null);
 const parentOrg = computed(() =>
-  parentOrgId.value ? orgStore.orgs.find((o) => o.id === parentOrgId.value) ?? null : null,
-)
-const currentSubOrgs = computed(() =>
-  orgId.value ? (orgStore.subOrgs[orgId.value] ?? []) : [],
-)
+  parentOrgId.value ? orgStore.orgs.find((o) => o.id === parentOrgId.value) ?? null : null
+);
+const currentSubOrgs = computed(() => (orgId.value ? orgStore.subOrgs[orgId.value] ?? [] : []));
 
 // Parent org members not yet in the target sub-org (for "Add from parent" dropdown)
 const parentMembersNotInSubOrg = computed(() => {
   const subMembers = new Set(
-    (orgStore.subOrgMembers[addMemberTargetSubOrgId.value] ?? []).map((m) => m.user_id),
-  )
-  return orgStore.members.filter((m) => !subMembers.has(m.user_id))
-})
+    (orgStore.subOrgMembers[addMemberTargetSubOrgId.value] ?? []).map((m) => m.user_id)
+  );
+  return orgStore.members.filter((m) => !subMembers.has(m.user_id));
+});
 
 // For "designate admin on create": exclude the current user (they become Owner automatically)
 const parentMembersForAssign = computed(() =>
-  orgStore.members.filter((m) => m.user_id !== auth.user?.id),
-)
+  orgStore.members.filter((m) => m.user_id !== auth.user?.id)
+);
 
-const orgId = computed(() => route.params.orgId as string)
-const saving = ref(false)
-const deleting = ref(false)
-const leaving = ref(false)
+const orgId = computed(() => route.params.orgId as string);
+const saving = ref(false);
+const deleting = ref(false);
+const leaving = ref(false);
 
-const name = ref('')
-const description = ref('')
+const name = ref('');
+const description = ref('');
 
 const isAdmin = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
-})
+  if (!auth.user) return false;
+  return orgStore.canAdmin(auth.user.id);
+});
 
 const isMember = computed(() => {
-  if (!auth.user) return false
-  return orgStore.currentOrg?.members.some((m) => m.user_id === auth.user!.id) ?? false
-})
+  if (!auth.user) return false;
+  return orgStore.currentOrg?.members.some((m) => m.user_id === auth.user!.id) ?? false;
+});
 
 const createdAtFormatted = computed(() => {
-  const raw = orgStore.currentOrg?.created_at
-  if (!raw) return '—'
+  const raw = orgStore.currentOrg?.created_at;
+  if (!raw) return '—';
   return new Intl.DateTimeFormat(locale.value, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  }).format(new Date(raw))
-})
+  }).format(new Date(raw));
+});
 
 onMounted(async () => {
   if (!orgStore.currentOrg || orgStore.currentOrg.id !== orgId.value) {
-    await orgStore.selectOrg(orgId.value)
+    await orgStore.selectOrg(orgId.value);
   }
-  name.value = orgStore.currentOrg?.name ?? ''
-  description.value = orgStore.currentOrg?.description ?? ''
+  name.value = orgStore.currentOrg?.name ?? '';
+  description.value = orgStore.currentOrg?.description ?? '';
   // Pre-load sub-orgs if this is a root org
   if (isRootOrg.value) {
-    await orgStore.fetchSubOrgs(orgId.value)
+    await orgStore.fetchSubOrgs(orgId.value);
   }
-})
+});
 
 async function handleCreateSubOrg() {
   if (!newSubOrgName.value.trim()) {
-    MessagePlugin.warning(t('org.nameRequired'))
-    return
+    MessagePlugin.warning(t('org.nameRequired'));
+    return;
   }
-  creatingSubOrg.value = true
+  creatingSubOrg.value = true;
   try {
     const org = await orgStore.createSubOrg(
       orgId.value,
       newSubOrgName.value.trim(),
-      newSubOrgDesc.value || undefined,
-    )
+      newSubOrgDesc.value || undefined
+    );
     // Optionally designate an admin from the parent org
     if (assignAdmin.value && assignAdminUserId.value) {
       try {
@@ -112,62 +110,62 @@ async function handleCreateSubOrg() {
           orgId.value,
           org.id,
           assignAdminUserId.value,
-          assignAdminRole.value,
-        )
+          assignAdminRole.value
+        );
       } catch (e: any) {
         // If the user is already a member (e.g. was auto-added as creator), ignore
-        if (!e.message?.toLowerCase().includes('already a member')) throw e
+        if (!e.message?.toLowerCase().includes('already a member')) throw e;
       }
     }
-    showCreateSubOrg.value = false
-    newSubOrgName.value = ''
-    newSubOrgDesc.value = ''
-    assignAdmin.value = false
-    assignAdminUserId.value = ''
-    assignAdminRole.value = 'admin'
-    MessagePlugin.success(t('org.createSubOrgSuccess'))
+    showCreateSubOrg.value = false;
+    newSubOrgName.value = '';
+    newSubOrgDesc.value = '';
+    assignAdmin.value = false;
+    assignAdminUserId.value = '';
+    assignAdminRole.value = 'admin';
+    MessagePlugin.success(t('org.createSubOrgSuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    creatingSubOrg.value = false
+    creatingSubOrg.value = false;
   }
 }
 
 async function toggleSubOrgMembers(subOrgId: string) {
   if (expandedSubOrgId.value === subOrgId) {
-    expandedSubOrgId.value = null
-    return
+    expandedSubOrgId.value = null;
+    return;
   }
-  expandedSubOrgId.value = subOrgId
-  await orgStore.fetchSubOrgMembers(orgId.value, subOrgId)
+  expandedSubOrgId.value = subOrgId;
+  await orgStore.fetchSubOrgMembers(orgId.value, subOrgId);
 }
 
 function openAddMemberDialog(subOrgId: string) {
-  addMemberTargetSubOrgId.value = subOrgId
-  addMemberUserId.value = ''
-  addMemberRole.value = 'editor'
-  showAddMemberDialog.value = true
+  addMemberTargetSubOrgId.value = subOrgId;
+  addMemberUserId.value = '';
+  addMemberRole.value = 'editor';
+  showAddMemberDialog.value = true;
 }
 
 async function handleAddSubOrgMember() {
   if (!addMemberUserId.value) {
-    MessagePlugin.warning(t('org.subOrgMember.selectRequired'))
-    return
+    MessagePlugin.warning(t('org.subOrgMember.selectRequired'));
+    return;
   }
-  addingMember.value = true
+  addingMember.value = true;
   try {
     await orgStore.addSubOrgMember(
       orgId.value,
       addMemberTargetSubOrgId.value,
       addMemberUserId.value,
-      addMemberRole.value,
-    )
-    showAddMemberDialog.value = false
-    MessagePlugin.success(t('org.subOrgMember.addSuccess'))
+      addMemberRole.value
+    );
+    showAddMemberDialog.value = false;
+    MessagePlugin.success(t('org.subOrgMember.addSuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    addingMember.value = false
+    addingMember.value = false;
   }
 }
 
@@ -179,14 +177,14 @@ function handleRemoveSubOrgMember(subOrgId: string, userId: string, userName: st
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await orgStore.removeSubOrgMember(orgId.value, subOrgId, userId)
-        dlg.hide()
-        MessagePlugin.success(t('org.subOrgMember.removeSuccess'))
+        await orgStore.removeSubOrgMember(orgId.value, subOrgId, userId);
+        dlg.hide();
+        MessagePlugin.success(t('org.subOrgMember.removeSuccess'));
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 function handleDeleteSubOrg(subOrgId: string, subOrgName: string) {
@@ -197,65 +195,65 @@ function handleDeleteSubOrg(subOrgId: string, subOrgName: string) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await orgStore.deleteSubOrg(subOrgId, orgId.value)
-        dlg.hide()
-        MessagePlugin.success(t('org.deleteSubOrgSuccess'))
+        await orgStore.deleteSubOrg(subOrgId, orgId.value);
+        dlg.hide();
+        MessagePlugin.success(t('org.deleteSubOrgSuccess'));
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 async function handleSave() {
   if (!name.value.trim()) {
-    MessagePlugin.warning(t('org.settings.nameRequired'))
-    return
+    MessagePlugin.warning(t('org.settings.nameRequired'));
+    return;
   }
-  saving.value = true
+  saving.value = true;
   try {
     await orgStore.updateOrg(orgId.value, {
       name: name.value.trim(),
       description: description.value || undefined,
-    })
-    MessagePlugin.success(t('org.settings.saveSuccess'))
+    });
+    MessagePlugin.success(t('org.settings.saveSuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
 function copyOrgId() {
   navigator.clipboard.writeText(orgId.value).then(() => {
-    MessagePlugin.success(t('org.settings.orgIdCopied'))
-  })
+    MessagePlugin.success(t('org.settings.orgIdCopied'));
+  });
 }
 
 function handleLeave() {
-  if (!auth.token || !auth.user?.id) return
-  const token = auth.token
-  const userId = auth.user.id
-  const orgName = orgStore.currentOrg?.name ?? ''
+  if (!auth.token || !auth.user?.id) return;
+  const token = auth.token;
+  const userId = auth.user.id;
+  const orgName = orgStore.currentOrg?.name ?? '';
   const dialog = DialogPlugin.confirm({
     header: t('org.settings.leaveOrgDialog'),
     body: t('org.settings.leaveOrgConfirm', { name: orgName }),
     confirmBtn: { content: t('org.settings.leaveOrgBtn'), theme: 'danger', loading: leaving.value },
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
-      leaving.value = true
+      leaving.value = true;
       try {
-        await memberApi.remove(token, orgId.value, userId)
-        dialog.hide()
-        MessagePlugin.success(t('org.settings.leaveOrgSuccess'))
-        router.push('/orgs')
+        await memberApi.remove(token, orgId.value, userId);
+        dialog.hide();
+        MessagePlugin.success(t('org.settings.leaveOrgSuccess'));
+        router.push('/orgs');
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       } finally {
-        leaving.value = false
+        leaving.value = false;
       }
     },
-  })
+  });
 }
 
 const roleTheme: Record<string, string> = {
@@ -263,29 +261,29 @@ const roleTheme: Record<string, string> = {
   admin: 'warning',
   editor: 'success',
   viewer: 'default',
-}
+};
 
 function handleDelete() {
-  const orgName = orgStore.currentOrg?.name ?? ''
+  const orgName = orgStore.currentOrg?.name ?? '';
   const dialog = DialogPlugin.confirm({
     header: t('org.settings.deleteDialog'),
     body: t('org.settings.deleteConfirm', { name: orgName }),
     confirmBtn: { content: t('org.settings.deleteBtn'), theme: 'danger', loading: deleting.value },
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
-      deleting.value = true
+      deleting.value = true;
       try {
-        await orgStore.deleteOrg(orgId.value)
-        dialog.hide()
-        MessagePlugin.success(t('org.settings.deleteSuccess'))
-        router.push('/orgs')
+        await orgStore.deleteOrg(orgId.value);
+        dialog.hide();
+        MessagePlugin.success(t('org.settings.deleteSuccess'));
+        router.push('/orgs');
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       } finally {
-        deleting.value = false
+        deleting.value = false;
       }
     },
-  })
+  });
 }
 </script>
 
@@ -355,7 +353,9 @@ function handleDelete() {
             <div class="org-mini-icon">{{ parentOrg.name[0]?.toUpperCase() }}</div>
             <div class="parent-org-info">
               <div class="parent-org-name">{{ parentOrg.name }}</div>
-              <div class="parent-org-meta">{{ t('org.memberCount', { count: parentOrg.member_count }) }}</div>
+              <div class="parent-org-meta">
+                {{ t('org.memberCount', { count: parentOrg.member_count }) }}
+              </div>
             </div>
             <t-icon name="chevron-right" class="parent-org-arrow" />
           </div>
@@ -368,7 +368,12 @@ function handleDelete() {
               <h3 class="section-title">{{ t('org.subOrgs') }}</h3>
               <p class="section-desc">{{ t('org.subOrgsDesc') }}</p>
             </div>
-            <t-button v-if="isAdmin" size="small" variant="outline" @click="showCreateSubOrg = true">
+            <t-button
+              v-if="isAdmin"
+              size="small"
+              variant="outline"
+              @click="showCreateSubOrg = true"
+            >
               <t-icon name="add" />
               {{ t('org.addSubOrg') }}
             </t-button>
@@ -386,7 +391,9 @@ function handleDelete() {
                   <div class="suborg-meta">
                     {{ t('org.memberCount', { count: sub.member_count }) }}
                     <span v-if="sub.project_count > 0" class="suborg-meta-sep">·</span>
-                    <span v-if="sub.project_count > 0">{{ t('org.projectCount', { count: sub.project_count }) }}</span>
+                    <span v-if="sub.project_count > 0">{{
+                      t('org.projectCount', { count: sub.project_count })
+                    }}</span>
                   </div>
                 </div>
                 <div class="suborg-actions">
@@ -396,7 +403,11 @@ function handleDelete() {
                     variant="text"
                     @click="toggleSubOrgMembers(sub.id)"
                   >
-                    {{ expandedSubOrgId === sub.id ? t('common.collapse') : t('org.subOrgMember.manage') }}
+                    {{
+                      expandedSubOrgId === sub.id
+                        ? t('common.collapse')
+                        : t('org.subOrgMember.manage')
+                    }}
                   </t-button>
                   <t-button
                     size="small"

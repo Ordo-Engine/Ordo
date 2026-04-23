@@ -1,122 +1,161 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { releaseApi } from '@/api/platform-client'
-import type { ReleaseExecution, ReleaseExecutionEvent, ReleasePolicy, ReleaseRequest } from '@/api/types'
-import { StudioPageHeader } from '@/components/ui'
-import ReleaseNav from '@/components/project/ReleaseNav.vue'
-import { useRolloutStrategyLabel } from '@/constants/release-center'
-import { useAuthStore } from '@/stores/auth'
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { releaseApi } from '@/api/platform-client';
+import type {
+  ReleaseExecution,
+  ReleaseExecutionEvent,
+  ReleasePolicy,
+  ReleaseRequest,
+} from '@/api/types';
+import { StudioPageHeader } from '@/components/ui';
+import ReleaseNav from '@/components/project/ReleaseNav.vue';
+import { useRolloutStrategyLabel } from '@/constants/release-center';
+import { useAuthStore } from '@/stores/auth';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const labelRolloutStrategy = useRolloutStrategyLabel()
-const auth = useAuthStore()
-const requests = ref<ReleaseRequest[]>([])
-const policies = ref<ReleasePolicy[]>([])
-const currentExecution = ref<ReleaseExecution | null>(null)
-const executionEvents = ref<ReleaseExecutionEvent[]>([])
-const showEventLog = ref(false)
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const labelRolloutStrategy = useRolloutStrategyLabel();
+const auth = useAuthStore();
+const requests = ref<ReleaseRequest[]>([]);
+const policies = ref<ReleasePolicy[]>([]);
+const currentExecution = ref<ReleaseExecution | null>(null);
+const executionEvents = ref<ReleaseExecutionEvent[]>([]);
+const showEventLog = ref(false);
 
-const pendingRequests = computed(() => requests.value.filter((item) => item.status === 'pending_approval').length)
-const activeExecutions = computed(() => requests.value.filter((item) => item.status === 'executing').length)
-const policyCount = computed(() => policies.value.length)
-const recentRequests = computed(() => [...requests.value].slice(0, 5))
+const pendingRequests = computed(
+  () => requests.value.filter((item) => item.status === 'pending_approval').length
+);
+const activeExecutions = computed(
+  () => requests.value.filter((item) => item.status === 'executing').length
+);
+const policyCount = computed(() => policies.value.length);
+const recentRequests = computed(() => [...requests.value].slice(0, 5));
 
 const isLiveExecution = computed(() =>
-  ['preparing', 'waiting_start', 'rolling_out', 'paused', 'verifying']
-    .includes(currentExecution.value?.status ?? ''),
-)
+  ['preparing', 'waiting_start', 'rolling_out', 'paused', 'verifying'].includes(
+    currentExecution.value?.status ?? ''
+  )
+);
 
-const failedInstances = computed(() =>
-  currentExecution.value?.instances.filter((i) => i.status === 'failed') ?? [],
-)
+const failedInstances = computed(
+  () => currentExecution.value?.instances.filter((i) => i.status === 'failed') ?? []
+);
 
 function formatDurationMs(ms: number) {
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 async function fetchExecutionEvents() {
-  if (!auth.token || !currentExecution.value) return
-  const exec = currentExecution.value
+  if (!auth.token || !currentExecution.value) return;
+  const exec = currentExecution.value;
   // Find the associated release request
-  const req = requests.value.find((r) => r.id === exec.request_id)
-  if (!req) return
+  const req = requests.value.find((r) => r.id === exec.request_id);
+  if (!req) return;
   try {
     executionEvents.value = await releaseApi.getExecutionEvents(
       auth.token,
       route.params.orgId as string,
       route.params.projectId as string,
       req.id,
-      exec.id,
-    )
-  } catch { /* silent */ }
+      exec.id
+    );
+  } catch {
+    /* silent */
+  }
 }
 
 function startPolling() {
-  if (pollTimer || !isLiveExecution.value) return
-  const interval = isLiveExecution.value ? 2000 : 10000
+  if (pollTimer || !isLiveExecution.value) return;
+  const interval = isLiveExecution.value ? 2000 : 10000;
   pollTimer = setInterval(async () => {
-    if (!auth.token) return
+    if (!auth.token) return;
     try {
       const [requestData, executionData] = await Promise.all([
-        releaseApi.listRequests(auth.token, route.params.orgId as string, route.params.projectId as string),
-        releaseApi.getCurrentExecution(auth.token, route.params.orgId as string, route.params.projectId as string),
-      ])
-      requests.value = requestData
-      currentExecution.value = executionData
+        releaseApi.listRequests(
+          auth.token,
+          route.params.orgId as string,
+          route.params.projectId as string
+        ),
+        releaseApi.getCurrentExecution(
+          auth.token,
+          route.params.orgId as string,
+          route.params.projectId as string
+        ),
+      ]);
+      requests.value = requestData;
+      currentExecution.value = executionData;
       if (!isLiveExecution.value) {
-        clearInterval(pollTimer!)
-        pollTimer = null
-        fetchExecutionEvents()
+        clearInterval(pollTimer!);
+        pollTimer = null;
+        fetchExecutionEvents();
       }
-    } catch { /* silent */ }
-  }, interval)
+    } catch {
+      /* silent */
+    }
+  }, interval);
 }
 
-onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer);
+});
 
 function requestStatusTheme(status: string) {
-  if (status === 'completed') return 'success'
-  if (status === 'pending_approval' || status === 'executing') return 'warning'
-  if (status === 'rejected' || status === 'failed') return 'danger'
-  return 'default'
+  if (status === 'completed') return 'success';
+  if (status === 'pending_approval' || status === 'executing') return 'warning';
+  if (status === 'rejected' || status === 'failed') return 'danger';
+  return 'default';
 }
 
 function executionStatusTheme(status: string) {
-  if (status === 'completed') return 'success'
-  if (status === 'failed') return 'danger'
-  if (status === 'paused') return 'default'
-  if (status === 'rollback_in_progress') return 'warning'
-  return 'warning'
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'danger';
+  if (status === 'paused') return 'default';
+  if (status === 'rollback_in_progress') return 'warning';
+  return 'warning';
 }
 
 function goToDetail(id: string) {
-  router.push({ name: 'project-release-request-detail', params: { ...route.params, releaseId: id } })
+  router.push({
+    name: 'project-release-request-detail',
+    params: { ...route.params, releaseId: id },
+  });
 }
 
 onMounted(async () => {
-  if (!auth.token) return
+  if (!auth.token) return;
   try {
     const [policyData, requestData, executionData] = await Promise.all([
-      releaseApi.listPolicies(auth.token, route.params.orgId as string, route.params.projectId as string),
-      releaseApi.listRequests(auth.token, route.params.orgId as string, route.params.projectId as string),
-      releaseApi.getCurrentExecution(auth.token, route.params.orgId as string, route.params.projectId as string),
-    ])
-    policies.value = policyData
-    requests.value = requestData
-    currentExecution.value = executionData
-    startPolling()
+      releaseApi.listPolicies(
+        auth.token,
+        route.params.orgId as string,
+        route.params.projectId as string
+      ),
+      releaseApi.listRequests(
+        auth.token,
+        route.params.orgId as string,
+        route.params.projectId as string
+      ),
+      releaseApi.getCurrentExecution(
+        auth.token,
+        route.params.orgId as string,
+        route.params.projectId as string
+      ),
+    ]);
+    policies.value = policyData;
+    requests.value = requestData;
+    currentExecution.value = executionData;
+    startPolling();
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('common.loadFailed'))
+    MessagePlugin.error(e.message || t('common.loadFailed'));
   }
-})
+});
 </script>
 
 <template>
@@ -149,16 +188,25 @@ onMounted(async () => {
           <div>
             <div class="execution-title">{{ t('releaseCenter.batchProgress') }}</div>
             <div class="execution-subtitle">
-              {{ currentExecution.current_batch }} / {{ currentExecution.total_batches }}
-              · {{ labelRolloutStrategy(currentExecution.strategy) }}
+              {{ currentExecution.current_batch }} / {{ currentExecution.total_batches }} ·
+              {{ labelRolloutStrategy(currentExecution.strategy) }}
             </div>
           </div>
           <t-tag :theme="executionStatusTheme(currentExecution.status)" variant="light">
-            {{ t(`releaseCenter.executionStatusMap.${currentExecution.status}`, t('releaseCenter.statusRollingOut')) }}
+            {{
+              t(
+                `releaseCenter.executionStatusMap.${currentExecution.status}`,
+                t('releaseCenter.statusRollingOut')
+              )
+            }}
           </t-tag>
         </div>
         <template v-if="currentExecution">
-          <t-progress :percentage="Math.round((currentExecution.current_batch / currentExecution.total_batches) * 100)" />
+          <t-progress
+            :percentage="
+              Math.round((currentExecution.current_batch / currentExecution.total_batches) * 100)
+            "
+          />
           <div class="instance-summary">
             <div class="instance-pill success">
               <strong>{{ currentExecution.summary.succeeded_instances }}</strong>
@@ -203,8 +251,19 @@ onMounted(async () => {
       <template #header>
         <div class="table-card-header">
           <span>{{ t('releaseCenter.instancePreview') }}</span>
-          <t-button variant="text" size="small" @click="showEventLog = !showEventLog; if(showEventLog) fetchExecutionEvents()">
-            {{ showEventLog ? t('releaseCenter.monitoring.hideEventLog') : t('releaseCenter.monitoring.showEventLog') }}
+          <t-button
+            variant="text"
+            size="small"
+            @click="
+              showEventLog = !showEventLog;
+              if (showEventLog) fetchExecutionEvents();
+            "
+          >
+            {{
+              showEventLog
+                ? t('releaseCenter.monitoring.hideEventLog')
+                : t('releaseCenter.monitoring.showEventLog')
+            }}
           </t-button>
         </div>
       </template>
@@ -236,7 +295,15 @@ onMounted(async () => {
       >
         <template #status="{ row }">
           <t-tag
-            :theme="row.status === 'success' ? 'success' : row.status === 'failed' ? 'danger' : row.status === 'updating' ? 'warning' : 'default'"
+            :theme="
+              row.status === 'success'
+                ? 'success'
+                : row.status === 'failed'
+                  ? 'danger'
+                  : row.status === 'updating'
+                    ? 'warning'
+                    : 'default'
+            "
             variant="light"
             size="small"
           >
@@ -245,7 +312,9 @@ onMounted(async () => {
         </template>
         <template #batch="{ row }">
           <span v-if="row.metric_summary?.batch_index">
-            {{ row.metric_summary.batch_index }}/{{ row.metric_summary.total_batches ?? currentExecution?.total_batches }}
+            {{ row.metric_summary.batch_index }}/{{
+              row.metric_summary.total_batches ?? currentExecution?.total_batches
+            }}
           </span>
           <span v-else>—</span>
         </template>
@@ -272,7 +341,9 @@ onMounted(async () => {
         <div v-for="ev in executionEvents" :key="ev.id" class="event-log__item">
           <span class="event-log__time">{{ new Date(ev.created_at).toLocaleTimeString() }}</span>
           <span class="event-log__type">{{ ev.event_type }}</span>
-          <span v-if="ev.instance_id" class="event-log__instance">{{ ev.instance_id.slice(0, 8) }}</span>
+          <span v-if="ev.instance_id" class="event-log__instance">{{
+            ev.instance_id.slice(0, 8)
+          }}</span>
         </div>
       </div>
     </t-card>
@@ -349,9 +420,15 @@ onMounted(async () => {
   gap: 3px;
 }
 
-.instance-pill.success { background: rgba(0, 168, 112, 0.08); }
-.instance-pill.warning { background: rgba(237, 108, 2, 0.08); }
-.instance-pill.danger { background: rgba(214, 48, 49, 0.08); }
+.instance-pill.success {
+  background: rgba(0, 168, 112, 0.08);
+}
+.instance-pill.warning {
+  background: rgba(237, 108, 2, 0.08);
+}
+.instance-pill.danger {
+  background: rgba(214, 48, 49, 0.08);
+}
 
 .instance-pill strong {
   font-size: 18px;

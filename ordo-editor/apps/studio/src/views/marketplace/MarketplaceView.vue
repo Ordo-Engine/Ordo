@@ -31,7 +31,7 @@
       >
         <template #prefix-icon><t-icon name="search" /></template>
       </t-input>
-      <t-select v-model="sort" style="width:160px" @change="onSearch">
+      <t-select v-model="sort" style="width: 160px" @change="onSearch">
         <t-option value="stars" :label="t('marketplace.sortStars')" />
         <t-option value="updated" :label="t('marketplace.sortUpdated')" />
       </t-select>
@@ -39,12 +39,17 @@
 
     <!-- Loading skeleton -->
     <div v-if="loading" class="marketplace-grid">
-      <t-skeleton v-for="i in 8" :key="i" class="marketplace-card-skeleton" :row-col="skeletonRow" />
+      <t-skeleton
+        v-for="i in 8"
+        :key="i"
+        class="marketplace-card-skeleton"
+        :row-col="skeletonRow"
+      />
     </div>
 
     <!-- Empty state -->
     <div v-else-if="!items.length" class="marketplace-placeholder">
-      <t-icon name="map" size="64" style="color:var(--td-text-color-placeholder)" />
+      <t-icon name="map" size="64" style="color: var(--td-text-color-placeholder)" />
       <p>{{ t('marketplace.noResults') }}</p>
     </div>
 
@@ -70,7 +75,12 @@
           <p>{{ item.description || t('marketplace.noDescription') }}</p>
         </div>
         <div class="marketplace-card__footer">
-          <t-tag v-for="topic in item.topics.slice(0, 4)" :key="topic" size="small" variant="outline">
+          <t-tag
+            v-for="topic in item.topics.slice(0, 4)"
+            :key="topic"
+            size="small"
+            variant="outline"
+          >
             {{ topic }}
           </t-tag>
           <span class="marketplace-card__updated">{{ formatDate(item.updated_at) }}</span>
@@ -92,89 +102,89 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useGithubStore } from '@/stores/github'
-import { marketplaceApi } from '@/api/platform-client'
-import { useAuthStore } from '@/stores/auth'
-import type { MarketplaceItem } from '@/api/types'
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useGithubStore } from '@/stores/github';
+import { marketplaceApi } from '@/api/platform-client';
+import { useAuthStore } from '@/stores/auth';
+import type { MarketplaceItem } from '@/api/types';
 
-const { t } = useI18n()
-const router = useRouter()
-const authStore = useAuthStore()
-const githubStore = useGithubStore()
+const { t } = useI18n();
+const router = useRouter();
+const authStore = useAuthStore();
+const githubStore = useGithubStore();
 
-const query = ref('')
-const sort = ref<'stars' | 'updated'>('stars')
-const page = ref(1)
-const perPage = 24
-const items = ref<MarketplaceItem[]>([])
-const totalCount = ref(0)
-const loading = ref(false)
-const connecting = ref(false)
+const query = ref('');
+const sort = ref<'stars' | 'updated'>('stars');
+const page = ref(1);
+const perPage = 24;
+const items = ref<MarketplaceItem[]>([]);
+const totalCount = ref(0);
+const loading = ref(false);
+const connecting = ref(false);
 
-const skeletonRow = [{ width: '100%', height: '140px' }]
+const skeletonRow = [{ width: '100%', height: '140px' }];
 
 async function fetchItems() {
-  if (!authStore.token) return
-  loading.value = true
+  if (!authStore.token) return;
+  loading.value = true;
   try {
     const resp = await marketplaceApi.search(authStore.token, {
       q: query.value || undefined,
       sort: sort.value,
       page: page.value,
       per_page: perPage,
-    })
-    items.value = resp.items
-    totalCount.value = resp.total_count
+    });
+    items.value = resp.items;
+    totalCount.value = resp.total_count;
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('marketplace.loadError'))
+    MessagePlugin.error(e.message || t('marketplace.loadError'));
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 function onSearch() {
-  page.value = 1
-  fetchItems()
+  page.value = 1;
+  fetchItems();
 }
 
 function onPageChange(p: number) {
-  page.value = p
-  fetchItems()
+  page.value = p;
+  fetchItems();
 }
 
 function openDetail(item: MarketplaceItem) {
-  const [owner, repo] = item.full_name.split('/')
-  router.push({ name: 'marketplace-detail', params: { owner, repo } })
+  const [owner, repo] = item.full_name.split('/');
+  router.push({ name: 'marketplace-detail', params: { owner, repo } });
 }
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString()
+    return new Date(iso).toLocaleDateString();
   } catch {
-    return iso
+    return iso;
   }
 }
 
 async function handleConnect() {
-  connecting.value = true
+  connecting.value = true;
   try {
-    await githubStore.connect()
-    fetchItems()
+    await githubStore.connect();
+    fetchItems();
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('marketplace.connectError'))
+    MessagePlugin.error(e.message || t('marketplace.connectError'));
   } finally {
-    connecting.value = false
+    connecting.value = false;
   }
 }
 
 onMounted(async () => {
-  await githubStore.fetchStatus()
-  fetchItems()
-})
+  await githubStore.fetchStatus();
+  fetchItems();
+});
 </script>
 
 <style scoped>
@@ -265,7 +275,9 @@ onMounted(async () => {
   border: 1px solid var(--td-component-border);
   border-radius: var(--td-radius-medium);
   cursor: pointer;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
   display: flex;
   flex-direction: column;
   gap: 10px;

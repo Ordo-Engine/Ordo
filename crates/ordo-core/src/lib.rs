@@ -50,6 +50,7 @@
 #![allow(missing_docs)]
 #![warn(clippy::all)]
 
+pub mod capability;
 pub mod context;
 pub mod error;
 pub mod expr;
@@ -62,6 +63,11 @@ pub mod trace;
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::capability::{
+        CapabilityCategory, CapabilityConfig, CapabilityDescriptor, CapabilityInvoker,
+        CapabilityProvider, CapabilityRegistry, CapabilityRequest, CapabilityResponse,
+        CircuitBreakerConfig, RetryPolicy,
+    };
     pub use crate::context::{Context, Value};
     pub use crate::error::{OrdoError, Result};
     pub use crate::expr::{

@@ -1,52 +1,55 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useRouter, useRoute } from 'vue-router'
-import { useProjectStore } from '@/stores/project'
-import { useOrgStore } from '@/stores/org'
-import { useAuthStore } from '@/stores/auth'
-import { rulesetDraftApi, rulesetHistoryApi } from '@/api/platform-client'
-import { buildCheckpointVersionEntries, extractRulesetVersion } from '@/utils/ruleset-version'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import type { RulesetHistoryEntry } from '@/api/types'
+import { ref, computed, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter, useRoute } from 'vue-router';
+import { useProjectStore } from '@/stores/project';
+import { useOrgStore } from '@/stores/org';
+import { useAuthStore } from '@/stores/auth';
+import { rulesetDraftApi, rulesetHistoryApi } from '@/api/platform-client';
+import { buildCheckpointVersionEntries, extractRulesetVersion } from '@/utils/ruleset-version';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import type { RulesetHistoryEntry } from '@/api/types';
 
-const projectStore = useProjectStore()
-const orgStore = useOrgStore()
-const auth = useAuthStore()
-const { t, locale } = useI18n()
-const router = useRouter()
-const route = useRoute()
-const orgId = computed(() => route.params.orgId as string)
+const projectStore = useProjectStore();
+const orgStore = useOrgStore();
+const auth = useAuthStore();
+const { t, locale } = useI18n();
+const router = useRouter();
+const route = useRoute();
+const orgId = computed(() => route.params.orgId as string);
 
-const canAdmin = computed(() => auth.user ? orgStore.canAdmin(auth.user.id) : false)
+const canAdmin = computed(() => (auth.user ? orgStore.canAdmin(auth.user.id) : false));
 
-const selectedRuleset = ref<string | null>(null)
+const selectedRuleset = ref<string | null>(null);
 const versionData = ref<{
-  name: string
-  current_version: string
-  current_display_version: string
+  name: string;
+  current_version: string;
+  current_display_version: string;
   versions: Array<{
-    seq: number
-    version: string
-    display_version: string
-    created_at: string
-    entry: RulesetHistoryEntry
-  }>
-} | null>(null)
-const historyEntries = ref<RulesetHistoryEntry[]>([])
-const loading = ref(false)
-const rollingBack = ref<number | null>(null)
+    seq: number;
+    version: string;
+    display_version: string;
+    created_at: string;
+    entry: RulesetHistoryEntry;
+  }>;
+} | null>(null);
+const historyEntries = ref<RulesetHistoryEntry[]>([]);
+const loading = ref(false);
+const rollingBack = ref<number | null>(null);
 
 async function loadVersions(name: string) {
-  if (!auth.token || !projectStore.currentProject) return
-  loading.value = true
+  if (!auth.token || !projectStore.currentProject) return;
+  loading.value = true;
   try {
-    const history = await rulesetHistoryApi.list(auth.token, projectStore.currentProject.id, name)
-    historyEntries.value = history.entries
-    const checkpoints = buildCheckpointVersionEntries(history.entries)
-    const meta = projectStore.draftMetas.find((entry) => entry.name === name) ?? null
-    const currentVersion = meta?.draft_version ?? extractRulesetVersion(history.entries[0]?.snapshot)
-    const currentDisplayVersion = checkpoints.find((item) => item.version === currentVersion)?.display_version ?? currentVersion
+    const history = await rulesetHistoryApi.list(auth.token, projectStore.currentProject.id, name);
+    historyEntries.value = history.entries;
+    const checkpoints = buildCheckpointVersionEntries(history.entries);
+    const meta = projectStore.draftMetas.find((entry) => entry.name === name) ?? null;
+    const currentVersion =
+      meta?.draft_version ?? extractRulesetVersion(history.entries[0]?.snapshot);
+    const currentDisplayVersion =
+      checkpoints.find((item) => item.version === currentVersion)?.display_version ??
+      currentVersion;
     versionData.value = {
       name,
       current_version: currentVersion,
@@ -58,55 +61,66 @@ async function loadVersions(name: string) {
         created_at: item.entry.created_at,
         entry: item.entry,
       })),
-    }
+    };
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('versions.loadFailed'))
-    versionData.value = null
-    historyEntries.value = []
+    MessagePlugin.error(e.message || t('versions.loadFailed'));
+    versionData.value = null;
+    historyEntries.value = [];
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 watch(selectedRuleset, (name) => {
-  if (name) loadVersions(name)
-  else versionData.value = null
-})
+  if (name) loadVersions(name);
+  else versionData.value = null;
+});
 
 // Auto-select first ruleset
 watch(
   () => projectStore.rulesets,
   (list) => {
     if (list.length > 0 && !selectedRuleset.value) {
-      selectedRuleset.value = list[0].name
+      selectedRuleset.value = list[0].name;
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 function handleRollback(seq: number) {
-  if (!selectedRuleset.value) return
-  const name = selectedRuleset.value
+  if (!selectedRuleset.value) return;
+  const name = selectedRuleset.value;
   const dlg = DialogPlugin.confirm({
     header: t('versions.rollbackDialog'),
     body: t('versions.rollbackConfirm', { name, seq }),
     confirmBtn: { content: t('versions.rollbackConfirmBtn'), theme: 'warning' },
     cancelBtn: t('versions.rollbackCancel'),
     onConfirm: async () => {
-        if (!auth.token || !projectStore.currentProject) return
-      rollingBack.value = seq
+      if (!auth.token || !projectStore.currentProject) return;
+      rollingBack.value = seq;
       try {
-        const org = orgStore.currentOrg
-        if (!org) throw new Error('No active org')
-        const target = versionData.value?.versions.find((item) => item.seq === seq)?.entry
-        if (!target) throw new Error('Version not found')
-        const currentDraft = await rulesetDraftApi.get(auth.token, org.id, projectStore.currentProject.id, name)
-        const restored = await rulesetDraftApi.save(auth.token, org.id, projectStore.currentProject.id, name, {
-          ruleset: target.snapshot,
-          expected_seq: currentDraft.draft_seq,
-        })
+        const org = orgStore.currentOrg;
+        if (!org) throw new Error('No active org');
+        const target = versionData.value?.versions.find((item) => item.seq === seq)?.entry;
+        if (!target) throw new Error('Version not found');
+        const currentDraft = await rulesetDraftApi.get(
+          auth.token,
+          org.id,
+          projectStore.currentProject.id,
+          name
+        );
+        const restored = await rulesetDraftApi.save(
+          auth.token,
+          org.id,
+          projectStore.currentProject.id,
+          name,
+          {
+            ruleset: target.snapshot,
+            expected_seq: currentDraft.draft_seq,
+          }
+        );
         if ('conflict' in restored) {
-          throw new Error(t('versions.rollbackFailed'))
+          throw new Error(t('versions.rollbackFailed'));
         }
         await rulesetHistoryApi.append(auth.token, projectStore.currentProject.id, name, [
           {
@@ -115,37 +129,44 @@ function handleRollback(seq: number) {
             source: 'restore',
             snapshot: target.snapshot,
           },
-        ])
-        dlg.hide()
-        MessagePlugin.success(t('versions.rollbackSuccess', { seq }))
-        await projectStore.fetchRulesets()
-        await loadVersions(name)
+        ]);
+        dlg.hide();
+        MessagePlugin.success(t('versions.rollbackSuccess', { seq }));
+        await projectStore.fetchRulesets();
+        await loadVersions(name);
       } catch (e: any) {
-        MessagePlugin.error(e.message || t('versions.rollbackFailed'))
+        MessagePlugin.error(e.message || t('versions.rollbackFailed'));
       } finally {
-        rollingBack.value = null
+        rollingBack.value = null;
       }
     },
-  })
+  });
 }
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleString(
     locale.value === 'zh-TW' ? 'zh-TW' : locale.value === 'zh-CN' ? 'zh-CN' : 'en-US',
     {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    },
-  )
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }
+  );
 }
-
 </script>
 
 <template>
   <div class="version-view">
     <t-breadcrumb class="asset-breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
-      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{ t('breadcrumb.projects') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{
+        t('breadcrumb.projects')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('projectNav.versions') }}</t-breadcrumb-item>
     </t-breadcrumb>
     <div class="asset-header">
@@ -169,7 +190,7 @@ function formatDate(dateStr: string) {
           :class="{ 'is-active': rs.name === selectedRuleset }"
           @click="selectedRuleset = rs.name"
         >
-          <t-icon name="file-code" size="13px" style="opacity:0.6; flex-shrink:0" />
+          <t-icon name="file-code" size="13px" style="opacity: 0.6; flex-shrink: 0" />
           <span class="ruleset-item__name">{{ rs.name }}</span>
           <span class="ruleset-item__version">v{{ rs.version }}</span>
         </div>
@@ -178,7 +199,7 @@ function formatDate(dateStr: string) {
       <!-- Right: version timeline -->
       <div class="version-timeline">
         <div v-if="!selectedRuleset" class="version-placeholder">
-          <t-icon name="history" size="36px" style="opacity:0.15" />
+          <t-icon name="history" size="36px" style="opacity: 0.15" />
           <p>{{ t('versions.placeholder') }}</p>
         </div>
 
@@ -219,7 +240,8 @@ function formatDate(dateStr: string) {
                   size="small"
                   theme="success"
                   variant="light"
-                >{{ t('versions.currentTag') }}</t-tag>
+                  >{{ t('versions.currentTag') }}</t-tag
+                >
                 <t-button
                   v-else-if="canAdmin"
                   size="small"
@@ -304,8 +326,12 @@ function formatDate(dateStr: string) {
   border-bottom: 1px solid var(--ordo-border-light);
 }
 
-.ruleset-item:hover { background: var(--ordo-hover-bg); }
-.ruleset-item.is-active { background: var(--ordo-active-bg); }
+.ruleset-item:hover {
+  background: var(--ordo-hover-bg);
+}
+.ruleset-item.is-active {
+  background: var(--ordo-active-bg);
+}
 
 .ruleset-item__name {
   flex: 1;
@@ -405,7 +431,8 @@ function formatDate(dateStr: string) {
   font-size: 13px;
 }
 
-.asset-loading, .asset-empty {
+.asset-loading,
+.asset-empty {
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -1,27 +1,27 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useRouter, useRoute } from 'vue-router'
-import { useCatalogStore } from '@/stores/catalog'
-import { useOrgStore } from '@/stores/org'
-import { useAuthStore } from '@/stores/auth'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import type { ConceptDefinition, FactDataType } from '@/api/types'
+import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter, useRoute } from 'vue-router';
+import { useCatalogStore } from '@/stores/catalog';
+import { useOrgStore } from '@/stores/org';
+import { useAuthStore } from '@/stores/auth';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import type { ConceptDefinition, FactDataType } from '@/api/types';
 
-const catalog = useCatalogStore()
-const orgStore = useOrgStore()
-const auth = useAuthStore()
-const { t } = useI18n()
-const router = useRouter()
-const route = useRoute()
-const orgId = computed(() => route.params.orgId as string)
+const catalog = useCatalogStore();
+const orgStore = useOrgStore();
+const auth = useAuthStore();
+const { t } = useI18n();
+const router = useRouter();
+const route = useRoute();
+const orgId = computed(() => route.params.orgId as string);
 
-const canEdit = computed(() => auth.user ? orgStore.canAdmin(auth.user.id) : false)
+const canEdit = computed(() => (auth.user ? orgStore.canAdmin(auth.user.id) : false));
 
 // ── Edit panel ────────────────────────────────────────────────────────────────
-const selected = ref<ConceptDefinition | null>(null)
-const saving = ref(false)
-const isNew = ref(false)
+const selected = ref<ConceptDefinition | null>(null);
+const saving = ref(false);
+const isNew = ref(false);
 
 const emptyForm = (): Omit<ConceptDefinition, 'created_at' | 'updated_at'> => ({
   name: '',
@@ -29,70 +29,70 @@ const emptyForm = (): Omit<ConceptDefinition, 'created_at' | 'updated_at'> => ({
   expression: '',
   dependencies: [],
   description: '',
-})
+});
 
-const form = ref(emptyForm())
+const form = ref(emptyForm());
 
 function openNew() {
-  isNew.value = true
-  selected.value = null
-  form.value = emptyForm()
+  isNew.value = true;
+  selected.value = null;
+  form.value = emptyForm();
 }
 
 function openEdit(concept: ConceptDefinition) {
-  isNew.value = false
-  selected.value = concept
+  isNew.value = false;
+  selected.value = concept;
   form.value = {
     name: concept.name,
     data_type: concept.data_type,
     expression: concept.expression,
     dependencies: [...concept.dependencies],
     description: concept.description ?? '',
-  }
+  };
 }
 
 // Simple cycle detection: DFS from new concept's dependencies
 function hasCycle(name: string, deps: string[]): boolean {
-  const visited = new Set<string>()
+  const visited = new Set<string>();
   function dfs(node: string): boolean {
-    if (node === name) return true
-    if (visited.has(node)) return false
-    visited.add(node)
-    const concept = catalog.concepts.find((c) => c.name === node)
-    if (!concept) return false
-    return concept.dependencies.some(dfs)
+    if (node === name) return true;
+    if (visited.has(node)) return false;
+    visited.add(node);
+    const concept = catalog.concepts.find((c) => c.name === node);
+    if (!concept) return false;
+    return concept.dependencies.some(dfs);
   }
-  return deps.some(dfs)
+  return deps.some(dfs);
 }
 
 async function handleSave() {
   if (!form.value.name.trim()) {
-    MessagePlugin.warning(t('concepts.nameRequired'))
-    return
+    MessagePlugin.warning(t('concepts.nameRequired'));
+    return;
   }
   if (!form.value.expression.trim()) {
-    MessagePlugin.warning(t('concepts.exprRequired'))
-    return
+    MessagePlugin.warning(t('concepts.exprRequired'));
+    return;
   }
   if (hasCycle(form.value.name, form.value.dependencies)) {
-    MessagePlugin.error(t('concepts.cycleError'))
-    return
+    MessagePlugin.error(t('concepts.cycleError'));
+    return;
   }
-  saving.value = true
+  saving.value = true;
   try {
     await catalog.upsertConcept({
       ...form.value,
       name: form.value.name.trim(),
       expression: form.value.expression.trim(),
       description: form.value.description?.trim() || undefined,
-    })
-    MessagePlugin.success(isNew.value ? t('concepts.createSuccess') : t('concepts.updateSuccess'))
-    isNew.value = false
-    selected.value = catalog.concepts.find((c) => c.name === form.value.name) ?? null
+    });
+    MessagePlugin.success(isNew.value ? t('concepts.createSuccess') : t('concepts.updateSuccess'));
+    isNew.value = false;
+    selected.value = catalog.concepts.find((c) => c.name === form.value.name) ?? null;
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('common.saveFailed'))
+    MessagePlugin.error(e.message || t('common.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
@@ -104,17 +104,17 @@ function handleDelete(concept: ConceptDefinition) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await catalog.deleteConcept(concept.name)
+        await catalog.deleteConcept(concept.name);
         if (selected.value?.name === concept.name) {
-          selected.value = null
+          selected.value = null;
         }
-        dlg.hide()
-        MessagePlugin.success(t('concepts.deleteSuccess'))
+        dlg.hide();
+        MessagePlugin.success(t('concepts.deleteSuccess'));
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
@@ -123,14 +123,18 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
   boolean: t('facts.typeBoolean'),
   date: t('facts.typeDate'),
   object: t('facts.typeObject'),
-}))
+}));
 </script>
 
 <template>
   <div class="concept-view">
     <t-breadcrumb class="asset-breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
-      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{ t('breadcrumb.projects') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{
+        t('breadcrumb.projects')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('projectNav.concepts') }}</t-breadcrumb-item>
     </t-breadcrumb>
     <div class="asset-header">
@@ -148,7 +152,7 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
       <div class="concept-list">
         <div v-if="catalog.loading" class="asset-loading"><t-loading size="small" /></div>
         <div v-else-if="catalog.concepts.length === 0" class="asset-empty">
-          <t-icon name="share" size="32px" style="opacity:0.3" />
+          <t-icon name="share" size="32px" style="opacity: 0.3" />
           <p>{{ t('concepts.empty') }}</p>
         </div>
         <div
@@ -165,16 +169,16 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
               {{ t('concepts.depCount', { count: c.dependencies.length }) }}
             </span>
           </div>
-          <button
-            v-if="canEdit"
-            class="concept-item__del"
-            @click.stop="handleDelete(c)"
-          ><t-icon name="close" size="12px" /></button>
+          <button v-if="canEdit" class="concept-item__del" @click.stop="handleDelete(c)">
+            <t-icon name="close" size="12px" />
+          </button>
         </div>
 
         <!-- New concept placeholder -->
         <div v-if="isNew" class="concept-item is-active">
-          <div class="concept-item__name" style="opacity:0.5">{{ t('concepts.newPlaceholder') }}</div>
+          <div class="concept-item__name" style="opacity: 0.5">
+            {{ t('concepts.newPlaceholder') }}
+          </div>
         </div>
       </div>
 
@@ -209,24 +213,35 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
             <t-select
               v-model="form.dependencies"
               multiple
-              :options="catalog.allFieldNames.map(n => ({ label: n, value: n }))"
+              :options="catalog.allFieldNames.map((n) => ({ label: n, value: n }))"
               :placeholder="t('concepts.depsPlaceholder')"
             />
           </t-form-item>
           <t-form-item :label="t('concepts.descLabel')">
-            <t-textarea v-model="form.description" :rows="2" :placeholder="t('concepts.descPlaceholder')" />
+            <t-textarea
+              v-model="form.description"
+              :rows="2"
+              :placeholder="t('concepts.descPlaceholder')"
+            />
           </t-form-item>
         </t-form>
         <div class="concept-editor__footer">
           <t-button v-if="canEdit" theme="primary" :loading="saving" @click="handleSave">
             {{ isNew ? t('concepts.createBtn') : t('concepts.saveBtn') }}
           </t-button>
-          <t-button variant="outline" @click="selected = null; isNew = false">{{ t('concepts.cancel') }}</t-button>
+          <t-button
+            variant="outline"
+            @click="
+              selected = null;
+              isNew = false;
+            "
+            >{{ t('concepts.cancel') }}</t-button
+          >
         </div>
       </div>
 
       <div v-else class="concept-placeholder">
-        <t-icon name="share" size="36px" style="opacity:0.15" />
+        <t-icon name="share" size="36px" style="opacity: 0.15" />
         <p>{{ t('concepts.placeholder') }}</p>
       </div>
     </div>
@@ -286,8 +301,12 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
   position: relative;
 }
 
-.concept-item:hover { background: var(--ordo-hover-bg); }
-.concept-item.is-active { background: var(--ordo-active-bg); }
+.concept-item:hover {
+  background: var(--ordo-hover-bg);
+}
+.concept-item.is-active {
+  background: var(--ordo-active-bg);
+}
 
 .concept-item__name {
   font-size: 13px;
@@ -323,8 +342,13 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
   justify-content: center;
 }
 
-.concept-item:hover .concept-item__del { display: flex; }
-.concept-item__del:hover { background: rgba(255,80,80,0.15); color: #e34d59; }
+.concept-item:hover .concept-item__del {
+  display: flex;
+}
+.concept-item__del:hover {
+  background: rgba(255, 80, 80, 0.15);
+  color: #e34d59;
+}
 
 .concept-editor {
   flex: 1;
@@ -351,7 +375,8 @@ const dataTypeLabels = computed<Record<FactDataType, string>>(() => ({
   font-size: 13px;
 }
 
-.asset-loading, .asset-empty {
+.asset-loading,
+.asset-empty {
   display: flex;
   flex-direction: column;
   align-items: center;

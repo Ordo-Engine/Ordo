@@ -1,5 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -227,17 +227,17 @@ const router = createRouter({
     // Catch-all
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-})
+});
 
 // Navigation guard: redirect to login if not authenticated
 router.beforeEach((to) => {
-  const auth = useAuthStore()
+  const auth = useAuthStore();
   if (!to.meta.public && !auth.isLoggedIn) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    return { name: 'login', query: { redirect: to.fullPath } };
   }
   if (to.meta.public && auth.isLoggedIn && (to.name === 'login' || to.name === 'register')) {
-    return { path: '/' }
+    return { path: '/' };
   }
-})
+});
 
-export default router
+export default router;

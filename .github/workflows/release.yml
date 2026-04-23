@@ -54,7 +54,7 @@ jobs:
             
             ### Linux (x86_64)
             ```bash
-            curl -LO https://github.com/Pama-Lee/Ordo/releases/download/${{ github.ref_name }}/ordo-x86_64-unknown-linux-gnu.tar.gz
+            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ github.ref_name }}/ordo-x86_64-unknown-linux-gnu.tar.gz
             tar -xzf ordo-x86_64-unknown-linux-gnu.tar.gz
             chmod +x ordo-server
             ./ordo-server
@@ -62,7 +62,7 @@ jobs:
             
             ### macOS (Apple Silicon)
             ```bash
-            curl -LO https://github.com/Pama-Lee/Ordo/releases/download/${{ github.ref_name }}/ordo-aarch64-apple-darwin.tar.gz
+            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ github.ref_name }}/ordo-aarch64-apple-darwin.tar.gz
             tar -xzf ordo-aarch64-apple-darwin.tar.gz
             chmod +x ordo-server
             ./ordo-server
@@ -70,7 +70,7 @@ jobs:
             
             ### macOS (Intel)
             ```bash
-            curl -LO https://github.com/Pama-Lee/Ordo/releases/download/${{ github.ref_name }}/ordo-x86_64-apple-darwin.tar.gz
+            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ github.ref_name }}/ordo-x86_64-apple-darwin.tar.gz
             tar -xzf ordo-x86_64-apple-darwin.tar.gz
             chmod +x ordo-server
             ./ordo-server
@@ -220,4 +220,3 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-

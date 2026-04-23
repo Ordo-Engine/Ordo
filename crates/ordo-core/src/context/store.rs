@@ -61,8 +61,12 @@ impl Context {
     /// - `_index`: get the current iteration index (if set)
     pub fn get(&self, path: &str) -> Option<&Value> {
         if let Some(var_name) = path.strip_prefix('$') {
-            // Variable reference
-            self.variables.get(var_name)
+            // Variable reference, with optional nested path access.
+            if let Some((name, nested)) = var_name.split_once('.') {
+                self.variables.get(name)?.get_path(nested)
+            } else {
+                self.variables.get(var_name)
+            }
         } else if let Some(item_path) = path.strip_prefix("item.") {
             // Current iteration item field
             self.current_item.as_ref()?.get_path(item_path)
@@ -176,6 +180,28 @@ mod tests {
 
         ctx.remove_variable("score");
         assert_eq!(ctx.get("$score"), None);
+    }
+
+    #[test]
+    fn test_context_nested_variable_paths() {
+        let mut ctx = Context::new(Value::Null);
+        ctx.set_variable(
+            "result",
+            Value::object({
+                let mut m = std::collections::HashMap::new();
+                m.insert(
+                    "payload".to_string(),
+                    Value::object({
+                        let mut nested = std::collections::HashMap::new();
+                        nested.insert("score".to_string(), Value::int(7));
+                        nested
+                    }),
+                );
+                m
+            }),
+        );
+
+        assert_eq!(ctx.get("$result.payload.score"), Some(&Value::int(7)));
     }
 
     #[test]

@@ -13,7 +13,7 @@
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/Pama-Lee/Ordo.git
+git clone https://github.com/Ordo-Engine/Ordo.git
 cd Ordo
 ```
 
@@ -69,7 +69,7 @@ pnpm dev
 
 在浏览器中打开 `http://localhost:3001`。
 
-或者尝试 [在线演练场](https://pama-lee.github.io/Ordo/)。
+或者尝试 [在线演练场](https://ordo-engine.github.io/Ordo/)。
 
 ## Docker
 

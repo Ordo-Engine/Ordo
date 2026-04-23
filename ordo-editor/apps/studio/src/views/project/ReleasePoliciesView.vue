@@ -1,27 +1,27 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { memberApi, releaseApi } from '@/api/platform-client'
-import type { Member, ReleasePolicy } from '@/api/types'
-import { StudioPageHeader } from '@/components/ui'
-import ReleaseNav from '@/components/project/ReleaseNav.vue'
-import { useRolloutStrategyLabel } from '@/constants/release-center'
-import { useAuthStore } from '@/stores/auth'
-import { useEnvironmentStore } from '@/stores/environment'
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { memberApi, releaseApi } from '@/api/platform-client';
+import type { Member, ReleasePolicy } from '@/api/types';
+import { StudioPageHeader } from '@/components/ui';
+import ReleaseNav from '@/components/project/ReleaseNav.vue';
+import { useRolloutStrategyLabel } from '@/constants/release-center';
+import { useAuthStore } from '@/stores/auth';
+import { useEnvironmentStore } from '@/stores/environment';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const labelRolloutStrategy = useRolloutStrategyLabel()
-const auth = useAuthStore()
-const envStore = useEnvironmentStore()
-const policies = ref<ReleasePolicy[]>([])
-const loading = ref(false)
-const creating = ref(false)
-const showCreateDialog = ref(false)
-const members = ref<Member[]>([])
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const labelRolloutStrategy = useRolloutStrategyLabel();
+const auth = useAuthStore();
+const envStore = useEnvironmentStore();
+const policies = ref<ReleasePolicy[]>([]);
+const loading = ref(false);
+const creating = ref(false);
+const showCreateDialog = ref(false);
+const members = ref<Member[]>([]);
 const form = ref({
   name: '',
   scope: 'project' as 'org' | 'project',
@@ -36,65 +36,67 @@ const form = ref({
   auto_rollback: true,
   max_failed_instances: 1,
   metric_guard: '',
-})
+});
 const environmentOptions = computed(() =>
   envStore.environments.map((env) => ({
     label: env.name,
     value: env.id,
-  })),
-)
+  }))
+);
 const memberOptions = computed(() =>
   members.value.map((member) => ({
     label: member.display_name || member.email,
     value: member.user_id,
-  })),
-)
+  }))
+);
 
 function envName(id: string) {
-  return envStore.environments.find((e) => e.id === id)?.name || id
+  return envStore.environments.find((e) => e.id === id)?.name || id;
 }
 
 function approverNames(ids: string[]) {
-  return ids.map((id) => {
-    const m = members.value.find((m) => m.user_id === id)
-    return m ? (m.display_name || m.email) : id
-  }).join(', ')
+  return ids
+    .map((id) => {
+      const m = members.value.find((m) => m.user_id === id);
+      return m ? m.display_name || m.email : id;
+    })
+    .join(', ');
 }
 
 onMounted(async () => {
-  if (!auth.token) return
-  loading.value = true
+  if (!auth.token) return;
+  loading.value = true;
   try {
     await Promise.all([
       refreshPolicies(),
       envStore.fetchEnvironments(route.params.orgId as string, route.params.projectId as string),
       loadMembers(),
-    ])
+    ]);
     if (route.query.create === '1') {
-      openCreateDialog()
-      const nextQuery = { ...route.query }
-      delete nextQuery.create
-      router.replace({ query: nextQuery })
+      openCreateDialog();
+      const nextQuery = { ...route.query };
+      delete nextQuery.create;
+      router.replace({ query: nextQuery });
     }
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('common.loadFailed'))
+    MessagePlugin.error(e.message || t('common.loadFailed'));
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 async function refreshPolicies() {
-  if (!auth.token) return
+  if (!auth.token) return;
   policies.value = await releaseApi.listPolicies(
     auth.token,
     route.params.orgId as string,
-    route.params.projectId as string,
-  )
+    route.params.projectId as string
+  );
 }
 
 async function loadMembers() {
-  if (!auth.token) return
-  members.value = await memberApi.list(auth.token, route.params.orgId as string)
+  if (!auth.token) return;
+  members.value = await memberApi.list(auth.token, route.params.orgId as string);
 }
 
 function openCreateDialog() {
@@ -112,17 +114,17 @@ function openCreateDialog() {
     auto_rollback: true,
     max_failed_instances: 1,
     metric_guard: '',
-  }
-  showCreateDialog.value = true
+  };
+  showCreateDialog.value = true;
 }
 
 async function submitPolicy() {
-  if (!auth.token) return
+  if (!auth.token) return;
   if (!form.value.name || !form.value.target_id || form.value.approver_ids.length === 0) {
-    MessagePlugin.warning(t('releaseCenter.formRequired'))
-    return
+    MessagePlugin.warning(t('releaseCenter.formRequired'));
+    return;
   }
-  creating.value = true
+  creating.value = true;
   try {
     const created = await releaseApi.createPolicy(
       auth.token,
@@ -149,30 +151,39 @@ async function submitPolicy() {
           max_failed_instances: form.value.max_failed_instances,
           metric_guard: form.value.metric_guard || undefined,
         },
-      },
-    )
-    policies.value.unshift(created)
-    showCreateDialog.value = false
-    MessagePlugin.success(t('releaseCenter.policyCreated'))
+      }
+    );
+    policies.value.unshift(created);
+    showCreateDialog.value = false;
+    MessagePlugin.success(t('releaseCenter.policyCreated'));
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('releaseCenter.policyCreateFailed'))
+    MessagePlugin.error(e.message || t('releaseCenter.policyCreateFailed'));
   } finally {
-    creating.value = false
+    creating.value = false;
   }
 }
 </script>
 
 <template>
   <div class="view-page">
-    <StudioPageHeader :title="$t('releaseCenter.policiesTitle')" :subtitle="$t('releaseCenter.policiesSubtitle')">
+    <StudioPageHeader
+      :title="$t('releaseCenter.policiesTitle')"
+      :subtitle="$t('releaseCenter.policiesSubtitle')"
+    >
       <template #actions>
-        <t-button theme="primary" @click="openCreateDialog">{{ $t('releaseCenter.createPolicy') }}</t-button>
+        <t-button theme="primary" @click="openCreateDialog">{{
+          $t('releaseCenter.createPolicy')
+        }}</t-button>
       </template>
     </StudioPageHeader>
     <ReleaseNav />
 
     <div v-if="loading" class="loading-state">
-      <t-skeleton theme="paragraph" animation="gradient" :row-col="[{ width: '36%' }, { width: '92%' }, { width: '70%' }]" />
+      <t-skeleton
+        theme="paragraph"
+        animation="gradient"
+        :row-col="[{ width: '36%' }, { width: '92%' }, { width: '70%' }]"
+      />
     </div>
 
     <div v-else-if="policies.length" class="policy-list">
@@ -200,13 +211,20 @@ async function submitPolicy() {
           </div>
           <div class="kv">
             <span>{{ $t('releaseCenter.rollbackPolicy') }}</span>
-            <strong>{{ policy.rollback_policy.auto_rollback ? $t('common.enabled') : $t('common.disabled') }}</strong>
+            <strong>{{
+              policy.rollback_policy.auto_rollback ? $t('common.enabled') : $t('common.disabled')
+            }}</strong>
           </div>
         </div>
 
         <div class="policy-foot">
-          <span v-if="policy.rollback_policy.metric_guard">{{ $t('releaseCenter.metricGuard') }}: {{ policy.rollback_policy.metric_guard }}</span>
-          <span>{{ $t('releaseCenter.updatedAt') }}: {{ new Date(policy.updated_at).toLocaleString() }}</span>
+          <span v-if="policy.rollback_policy.metric_guard"
+            >{{ $t('releaseCenter.metricGuard') }}: {{ policy.rollback_policy.metric_guard }}</span
+          >
+          <span
+            >{{ $t('releaseCenter.updatedAt') }}:
+            {{ new Date(policy.updated_at).toLocaleString() }}</span
+          >
         </div>
       </t-card>
     </div>
@@ -214,7 +232,12 @@ async function submitPolicy() {
       <t-empty :title="$t('releaseCenter.policyEmpty')" />
     </div>
 
-    <t-dialog v-model:visible="showCreateDialog" :header="$t('releaseCenter.createPolicy')" :footer="false" width="720px">
+    <t-dialog
+      v-model:visible="showCreateDialog"
+      :header="$t('releaseCenter.createPolicy')"
+      :footer="false"
+      width="720px"
+    >
       <t-form label-align="top" :colon="false" class="dialog-form">
         <div class="dialog-grid">
           <t-form-item required>
@@ -251,7 +274,9 @@ async function submitPolicy() {
               <div class="field-label">
                 <span>{{ $t('releaseCenter.minApprovals') }}</span>
                 <t-popup :content="$t('releaseCenter.minApprovalsHelp')" placement="top">
-                  <button type="button" class="field-help" aria-label="Minimum approvals help">?</button>
+                  <button type="button" class="field-help" aria-label="Minimum approvals help">
+                    ?
+                  </button>
                 </t-popup>
               </div>
             </template>
@@ -287,7 +312,9 @@ async function submitPolicy() {
               <div class="field-label">
                 <span>{{ $t('releaseCenter.batchIntervalField') }}</span>
                 <t-popup :content="$t('releaseCenter.batchIntervalHelp')" placement="top">
-                  <button type="button" class="field-help" aria-label="Batch interval help">?</button>
+                  <button type="button" class="field-help" aria-label="Batch interval help">
+                    ?
+                  </button>
                 </t-popup>
               </div>
             </template>
@@ -301,7 +328,9 @@ async function submitPolicy() {
               <div class="field-label">
                 <span>{{ $t('releaseCenter.maxFailedInstancesField') }}</span>
                 <t-popup :content="$t('releaseCenter.maxFailedInstancesHelp')" placement="top">
-                  <button type="button" class="field-help" aria-label="Max failed instances help">?</button>
+                  <button type="button" class="field-help" aria-label="Max failed instances help">
+                    ?
+                  </button>
                 </t-popup>
               </div>
             </template>
@@ -322,8 +351,12 @@ async function submitPolicy() {
       </t-form>
 
       <div class="dialog-actions">
-        <t-button variant="outline" @click="showCreateDialog = false">{{ $t('common.cancel') }}</t-button>
-        <t-button theme="primary" :loading="creating" @click="submitPolicy">{{ $t('releaseCenter.createPolicy') }}</t-button>
+        <t-button variant="outline" @click="showCreateDialog = false">{{
+          $t('common.cancel')
+        }}</t-button>
+        <t-button theme="primary" :loading="creating" @click="submitPolicy">{{
+          $t('releaseCenter.createPolicy')
+        }}</t-button>
       </div>
     </t-dialog>
   </div>

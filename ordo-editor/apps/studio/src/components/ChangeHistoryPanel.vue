@@ -1,28 +1,28 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import type { RulesetHistoryEntry } from '@/api/types'
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+import type { RulesetHistoryEntry } from '@/api/types';
 
 const props = defineProps<{
-  entries: RulesetHistoryEntry[]
-  currentIndex: number
-  collapsed: boolean
-  loading?: boolean
-  syncing?: boolean
-  canUndo: boolean
-  canRedo: boolean
-}>()
+  entries: RulesetHistoryEntry[];
+  currentIndex: number;
+  collapsed: boolean;
+  loading?: boolean;
+  syncing?: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+}>();
 
 const emit = defineEmits<{
-  toggle: []
-  undo: []
-  redo: []
-  restore: [index: number]
-}>()
+  toggle: [];
+  undo: [];
+  redo: [];
+  restore: [index: number];
+}>();
 
-const { t, locale } = useI18n()
+const { t, locale } = useI18n();
 
-const currentEntry = computed(() => props.entries[props.currentIndex] ?? null)
+const currentEntry = computed(() => props.entries[props.currentIndex] ?? null);
 
 function formatTime(value: string) {
   return new Date(value).toLocaleTimeString(
@@ -31,36 +31,36 @@ function formatTime(value: string) {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-    },
-  )
+    }
+  );
 }
 
 function sourceLabel(source: RulesetHistoryEntry['source']) {
   switch (source) {
     case 'save':
-      return t('historyPanel.sourceSave')
+      return t('historyPanel.sourceSave');
     case 'restore':
-      return t('historyPanel.sourceRestore')
+      return t('historyPanel.sourceRestore');
     case 'create':
-      return t('historyPanel.sourceCreate')
+      return t('historyPanel.sourceCreate');
     case 'sync':
-      return t('historyPanel.sourceSync')
+      return t('historyPanel.sourceSync');
     case 'edit':
     default:
-      return t('historyPanel.sourceEdit')
+      return t('historyPanel.sourceEdit');
   }
 }
 
 function sourceBadgeLabel(source: RulesetHistoryEntry['source']) {
   switch (source) {
     case 'save':
-      return t('historyPanel.badgeCheckpoint')
+      return t('historyPanel.badgeCheckpoint');
     case 'restore':
-      return t('historyPanel.badgeRestore')
+      return t('historyPanel.badgeRestore');
     case 'create':
-      return t('historyPanel.badgeCreate')
+      return t('historyPanel.badgeCreate');
     default:
-      return ''
+      return '';
   }
 }
 </script>

@@ -1,64 +1,70 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useAuthStore } from '@/stores/auth'
-import { useEnvironmentStore } from '@/stores/environment'
-import { rulesetDraftApi } from '@/api/platform-client'
-import ReleaseNav from '@/components/project/ReleaseNav.vue'
-import { StudioDialogActions, StudioPageHeader } from '@/components/ui'
-import type { RulesetDeployment } from '@/api/types'
+import { onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useAuthStore } from '@/stores/auth';
+import { useEnvironmentStore } from '@/stores/environment';
+import { rulesetDraftApi } from '@/api/platform-client';
+import ReleaseNav from '@/components/project/ReleaseNav.vue';
+import { StudioDialogActions, StudioPageHeader } from '@/components/ui';
+import type { RulesetDeployment } from '@/api/types';
 
-const route = useRoute()
-const { t } = useI18n()
-const auth = useAuthStore()
-const envStore = useEnvironmentStore()
+const route = useRoute();
+const { t } = useI18n();
+const auth = useAuthStore();
+const envStore = useEnvironmentStore();
 
-const orgId = route.params.orgId as string
-const projectId = route.params.projectId as string
+const orgId = route.params.orgId as string;
+const projectId = route.params.projectId as string;
 
-const deployments = ref<RulesetDeployment[]>([])
-const loading = ref(false)
-const redeployingId = ref<string | null>(null)
-const showRedeployDialog = ref(false)
-const selectedDeployment = ref<RulesetDeployment | null>(null)
-const redeployEnvId = ref('')
+const deployments = ref<RulesetDeployment[]>([]);
+const loading = ref(false);
+const redeployingId = ref<string | null>(null);
+const showRedeployDialog = ref(false);
+const selectedDeployment = ref<RulesetDeployment | null>(null);
+const redeployEnvId = ref('');
 
 onMounted(async () => {
-  loading.value = true
+  loading.value = true;
   try {
-    await envStore.fetchEnvironments(orgId, projectId)
-    redeployEnvId.value = envStore.environments.find((env) => env.is_default)?.id ?? ''
-    deployments.value = await rulesetDraftApi.listProjectDeployments(auth.token!, orgId, projectId, 100)
+    await envStore.fetchEnvironments(orgId, projectId);
+    redeployEnvId.value = envStore.environments.find((env) => env.is_default)?.id ?? '';
+    deployments.value = await rulesetDraftApi.listProjectDeployments(
+      auth.token!,
+      orgId,
+      projectId,
+      100
+    );
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 function statusTheme(status: string) {
-  if (status === 'success') return 'success'
-  if (status === 'failed') return 'danger'
-  return 'warning'
+  if (status === 'success') return 'success';
+  if (status === 'failed') return 'danger';
+  return 'warning';
 }
 
 function statusLabel(status: string) {
-  if (status === 'queued') return t('deployments.statusQueued')
-  if (status === 'success') return t('deployments.statusSuccess')
-  return t('deployments.statusFailed')
+  if (status === 'queued') return t('deployments.statusQueued');
+  if (status === 'success') return t('deployments.statusSuccess');
+  return t('deployments.statusFailed');
 }
 
 function openRedeploy(dep: RulesetDeployment) {
-  selectedDeployment.value = dep
-  redeployEnvId.value = envStore.environments.find((env) => env.is_default)?.id ?? dep.environment_id
-  showRedeployDialog.value = true
+  selectedDeployment.value = dep;
+  redeployEnvId.value =
+    envStore.environments.find((env) => env.is_default)?.id ?? dep.environment_id;
+  showRedeployDialog.value = true;
 }
 
 async function confirmRedeploy() {
-  if (!selectedDeployment.value || !redeployEnvId.value) return
-  const dep = selectedDeployment.value
-  redeployingId.value = dep.id
-  showRedeployDialog.value = false
+  if (!selectedDeployment.value || !redeployEnvId.value) return;
+  const dep = selectedDeployment.value;
+  redeployingId.value = dep.id;
+  showRedeployDialog.value = false;
   try {
     const newDep = await rulesetDraftApi.redeploy(
       auth.token!,
@@ -66,26 +72,29 @@ async function confirmRedeploy() {
       projectId,
       dep.ruleset_name,
       dep.id,
-      { environment_id: redeployEnvId.value },
-    )
-    deployments.value.unshift(newDep)
-    MessagePlugin.success(t('deployments.redeploySuccess'))
+      { environment_id: redeployEnvId.value }
+    );
+    deployments.value.unshift(newDep);
+    MessagePlugin.success(t('deployments.redeploySuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e.message)
+    MessagePlugin.error(e.message);
   } finally {
-    redeployingId.value = null
-    selectedDeployment.value = null
+    redeployingId.value = null;
+    selectedDeployment.value = null;
   }
 }
 
 function formatDate(dt: string) {
-  return new Date(dt).toLocaleString()
+  return new Date(dt).toLocaleString();
 }
 </script>
 
 <template>
   <div class="view-page">
-    <StudioPageHeader :title="t('releaseCenter.historyTitle')" :subtitle="t('releaseCenter.historySubtitle')" />
+    <StudioPageHeader
+      :title="t('releaseCenter.historyTitle')"
+      :subtitle="t('releaseCenter.historySubtitle')"
+    />
     <ReleaseNav />
 
     <div v-if="loading" class="list-skeleton">
@@ -129,7 +138,9 @@ function formatDate(dt: string) {
             :loading="redeployingId === dep.id"
             @click="openRedeploy(dep)"
           >
-            {{ redeployingId === dep.id ? t('deployments.redeploying') : t('deployments.redeploy') }}
+            {{
+              redeployingId === dep.id ? t('deployments.redeploying') : t('deployments.redeploy')
+            }}
           </t-button>
         </div>
       </t-card>
@@ -155,8 +166,12 @@ function formatDate(dt: string) {
         </t-form-item>
       </t-form>
       <StudioDialogActions>
-        <t-button variant="outline" @click="showRedeployDialog = false">{{ t('common.cancel') }}</t-button>
-        <t-button theme="primary" @click="confirmRedeploy">{{ t('deployments.redeploy') }}</t-button>
+        <t-button variant="outline" @click="showRedeployDialog = false">{{
+          t('common.cancel')
+        }}</t-button>
+        <t-button theme="primary" @click="confirmRedeploy">{{
+          t('deployments.redeploy')
+        }}</t-button>
       </StudioDialogActions>
     </t-dialog>
   </div>

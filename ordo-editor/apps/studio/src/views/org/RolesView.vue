@@ -1,42 +1,42 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
-import { useRbacStore } from '@/stores/rbac'
-import { StudioPageHeader } from '@/components/ui'
-import { RBAC_PERMISSION_GROUPS, permissionI18nKey } from '@/constants/rbac'
-import type { OrgRole } from '@/api/types'
+import { ref, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import { useRbacStore } from '@/stores/rbac';
+import { StudioPageHeader } from '@/components/ui';
+import { RBAC_PERMISSION_GROUPS, permissionI18nKey } from '@/constants/rbac';
+import type { OrgRole } from '@/api/types';
 
-const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
-const rbacStore = useRbacStore()
+const route = useRoute();
+const router = useRouter();
+const { t } = useI18n();
+const rbacStore = useRbacStore();
 
-const orgId = route.params.orgId as string
-const expandedRoles = ref<Set<string>>(new Set())
+const orgId = route.params.orgId as string;
+const expandedRoles = ref<Set<string>>(new Set());
 
-onMounted(() => rbacStore.fetchRoles(orgId))
+onMounted(() => rbacStore.fetchRoles(orgId));
 
 function toggleExpand(roleId: string) {
   if (expandedRoles.value.has(roleId)) {
-    expandedRoles.value.delete(roleId)
+    expandedRoles.value.delete(roleId);
   } else {
-    expandedRoles.value.add(roleId)
+    expandedRoles.value.add(roleId);
   }
 }
 
 function startCreate() {
-  router.push(`/orgs/${orgId}/roles/new`)
+  router.push(`/orgs/${orgId}/roles/new`);
 }
 
 function startEdit(role: OrgRole) {
-  if (role.is_system) return
-  router.push(`/orgs/${orgId}/roles/${role.id}/edit`)
+  if (role.is_system) return;
+  router.push(`/orgs/${orgId}/roles/${role.id}/edit`);
 }
 
 function deleteRole(role: OrgRole) {
-  if (role.is_system) return
+  if (role.is_system) return;
   const dialog = DialogPlugin.confirm({
     header: t('rbac.deleteRole'),
     body: t('rbac.confirmDelete', { name: role.name }),
@@ -44,49 +44,49 @@ function deleteRole(role: OrgRole) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await rbacStore.deleteRole(orgId, role.id)
-        MessagePlugin.success(t('rbac.deleted'))
-        dialog.hide()
+        await rbacStore.deleteRole(orgId, role.id);
+        MessagePlugin.success(t('rbac.deleted'));
+        dialog.hide();
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 function permissionLabel(perm: string) {
-  return t(`rbac.permissionLabels.${permissionI18nKey(perm)}`)
+  return t(`rbac.permissionLabels.${permissionI18nKey(perm)}`);
 }
 
 function groupLabel(key: string) {
-  return t(`rbac.permissionGroups.${key}`)
+  return t(`rbac.permissionGroups.${key}`);
 }
 
 function groupedPermissions(perms: string[]) {
-  const permSet = new Set(perms)
-  const groups: { key: string; label: string; perms: string[] }[] = []
+  const permSet = new Set(perms);
+  const groups: { key: string; label: string; perms: string[] }[] = [];
 
   for (const group of RBAC_PERMISSION_GROUPS) {
-    const matched = group.permissions.filter((p) => permSet.has(p))
+    const matched = group.permissions.filter((p) => permSet.has(p));
     if (matched.length > 0) {
-      groups.push({ key: group.key, label: groupLabel(group.key), perms: matched })
+      groups.push({ key: group.key, label: groupLabel(group.key), perms: matched });
     }
   }
 
-  const known = new Set(RBAC_PERMISSION_GROUPS.flatMap((g) => g.permissions))
-  const other = perms.filter((p) => !known.has(p))
+  const known = new Set(RBAC_PERMISSION_GROUPS.flatMap((g) => g.permissions));
+  const other = perms.filter((p) => !known.has(p));
   if (other.length > 0) {
-    groups.push({ key: '_other', label: t('common.other', 'Other'), perms: other })
+    groups.push({ key: '_other', label: t('common.other', 'Other'), perms: other });
   }
 
-  return groups
+  return groups;
 }
 
 // Summary: "组织 ×2 · 规则集 ×3 · 发布中心 ×8"
 function permissionSummary(perms: string[]) {
   return groupedPermissions(perms)
     .map((g) => `${g.label} ×${g.perms.length}`)
-    .join(' · ')
+    .join(' · ');
 }
 </script>
 
@@ -117,12 +117,7 @@ function permissionSummary(perms: string[]) {
       </div>
 
       <div v-else class="role-list">
-        <t-card
-          v-for="role in rbacStore.roles"
-          :key="role.id"
-          :bordered="false"
-          class="role-card"
-        >
+        <t-card v-for="role in rbacStore.roles" :key="role.id" :bordered="false" class="role-card">
           <!-- Header row -->
           <div class="role-header">
             <div class="role-name-row">

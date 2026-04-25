@@ -547,6 +547,13 @@ export default {
     focusTitle: 'Editing SubRule: {name}',
     focusDesc: 'This is a focused reusable graph. Save it before returning to the parent ruleset.',
     returnParent: 'Back to parent',
+    extractTitle: 'Extract SubRule',
+    extractDesc:
+      'Create a managed SubRule from {count} selected steps and replace the selection with one SubRule node.',
+    extractConfirm: 'Extract',
+    extractSuccess: 'Extracted SubRule {name}',
+    extractedDescription: 'Extracted from {count} selected steps.',
+    nameExists: 'SubRule "{name}" already exists',
   },
   versions: {
     title: 'Version History',
@@ -594,6 +601,7 @@ export default {
     actionEditRuleset: 'Edit ruleset',
     actionRestoreSnapshot: 'Restore: {action}',
     actionSaveCheckpoint: 'Save checkpoint',
+    actionExtractSubRule: 'Extract SubRule {name}',
   },
   dashboard: {
     workspaceTitle: 'Project Workspace',

@@ -28,6 +28,8 @@ import {
   createNodeFromStep,
   createEdge,
   type EdgeRenderStyle,
+  type FlowEdge,
+  type FlowNode,
   createGroupNode,
 } from './utils/converter';
 import {
@@ -61,6 +63,15 @@ export interface ExecutionTraceData {
   output?: Record<string, any>;
 }
 
+export interface ExtractSubRulePayload {
+  suggestedName: string;
+  displayName: string;
+  subRuleStepId: string;
+  selectedStepCount: number;
+  draft: RuleSet;
+  parentRuleset: RuleSet;
+}
+
 export interface Props {
   /** RuleSet data */
   modelValue: RuleSet;
@@ -90,6 +101,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
   change: [value: RuleSet];
   'open-sub-rule': [name: string];
+  'extract-sub-rule': [payload: ExtractSubRulePayload];
 }>();
 
 const FLOW_EDGE_STYLE_KEY = '_flowEdgeStyle';
@@ -210,6 +222,19 @@ const selectedGroupNode = computed(() => {
   if (!node || node.type !== 'group') return null;
   return node;
 });
+
+interface ExtractSubRuleEligibility {
+  valid: boolean;
+  reason?: string;
+  entryId?: string;
+  exitTargetId?: string;
+  selectedNodes: FlowNode[];
+  internalEdges: FlowEdge[];
+  externalIncomingEdges: FlowEdge[];
+  externalOutgoingEdges: FlowEdge[];
+}
+
+const extractSubRuleEligibility = computed(() => getExtractSubRuleEligibility());
 
 const nodeDragPreviewLabel = computed(() => {
   if (!nodeDragPreview.value) return '';
@@ -1124,6 +1149,370 @@ function createGroupFromSelection() {
   hideContextMenu();
 }
 
+function isStepFlowNode(node: any): node is FlowNode {
+  return node?.type !== 'group' && !!node?.data?.step;
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getExecutableEdges(): FlowEdge[] {
+  return edges.value.filter(
+    (edge) => edge.data?.edgeType === 'exec' || edge.data?.edgeType === 'exec-branch'
+  );
+}
+
+function getExtractSubRuleEligibility(): ExtractSubRuleEligibility {
+  const selectedIds = new Set(selectedNodeIds.value);
+  const selectedNodes = nodes.value.filter(
+    (node): node is FlowNode => selectedIds.has(node.id) && isStepFlowNode(node)
+  );
+  const empty: ExtractSubRuleEligibility = {
+    valid: false,
+    selectedNodes,
+    internalEdges: [],
+    externalIncomingEdges: [],
+    externalOutgoingEdges: [],
+  };
+
+  if (selectedIds.size === 0) {
+    return { ...empty, reason: t('flow.extractSubRuleSelectNodes') };
+  }
+
+  if (selectedNodes.length !== selectedIds.size) {
+    return { ...empty, reason: t('flow.extractSubRuleNoGroups') };
+  }
+
+  const selectedStepIds = new Set(selectedNodes.map((node) => node.id));
+  const executableEdges = getExecutableEdges();
+  const internalEdges = executableEdges.filter(
+    (edge) => selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalIncomingEdges = executableEdges.filter(
+    (edge) => !selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalOutgoingEdges = executableEdges.filter(
+    (edge) => selectedStepIds.has(edge.source) && !selectedStepIds.has(edge.target)
+  );
+
+  const incomingTargets = new Set(externalIncomingEdges.map((edge) => edge.target));
+  if (incomingTargets.size > 1) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleSingleEntry'),
+    };
+  }
+
+  const internalIncomingTargets = new Set(internalEdges.map((edge) => edge.target));
+  let entryId: string | undefined;
+  if (incomingTargets.size === 1) {
+    entryId = [...incomingTargets][0];
+  } else if (selectedStepIds.has(props.modelValue.startStepId)) {
+    entryId = props.modelValue.startStepId;
+  } else {
+    const rootNodes = selectedNodes.filter((node) => !internalIncomingTargets.has(node.id));
+    if (rootNodes.length !== 1) {
+      return {
+        ...empty,
+        internalEdges,
+        externalIncomingEdges,
+        externalOutgoingEdges,
+        reason: t('flow.extractSubRuleSingleEntry'),
+      };
+    }
+    entryId = rootNodes[0].id;
+  }
+
+  const reachable = new Set<string>();
+  const stack = [entryId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (reachable.has(current)) continue;
+    reachable.add(current);
+    for (const edge of internalEdges) {
+      if (edge.source === current && !reachable.has(edge.target)) {
+        stack.push(edge.target);
+      }
+    }
+  }
+
+  if (reachable.size !== selectedNodes.length) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleConnected'),
+    };
+  }
+
+  const exitTargets = new Set(externalOutgoingEdges.map((edge) => edge.target));
+  if (exitTargets.size > 1) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleSingleExit'),
+    };
+  }
+
+  const hasTerminal = selectedNodes.some((node) => node.data?.step?.type === 'terminal');
+  if (hasTerminal && externalOutgoingEdges.length > 0) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleNoMixedExit'),
+    };
+  }
+
+  if (!hasTerminal && externalOutgoingEdges.length === 0) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleNeedsExit'),
+    };
+  }
+
+  return {
+    valid: true,
+    entryId,
+    exitTargetId: exitTargets.size === 1 ? [...exitTargets][0] : undefined,
+    selectedNodes,
+    internalEdges,
+    externalIncomingEdges,
+    externalOutgoingEdges,
+  };
+}
+
+function sanitizeSubRuleName(name: string) {
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'sub_rule'
+  );
+}
+
+function buildExtractSubRuleName(entryNode: FlowNode) {
+  const rulesetName = sanitizeSubRuleName(props.modelValue.config.name || 'ruleset');
+  const entryName = sanitizeSubRuleName(entryNode.data?.step?.name || entryNode.id);
+  return `${rulesetName}_${entryName}`;
+}
+
+function cloneEdgeForChild(edge: FlowEdge, targetOverride?: string): FlowEdge {
+  return createEdge(edge.source, targetOverride ?? edge.target, {
+    branchId: edge.data?.branchId,
+    isDefault: edge.data?.isDefault,
+    sourceHandle: edge.sourceHandle || undefined,
+    targetHandle: 'input',
+    condition: edge.data?.condition,
+    renderStyle: edgeStyle.value,
+  });
+}
+
+function buildChildFlowNodes(
+  selectedNodes: FlowNode[],
+  entryId: string,
+  returnStep?: Step
+): FlowNode[] {
+  const minX = Math.min(...selectedNodes.map((node) => node.position.x));
+  const minY = Math.min(...selectedNodes.map((node) => node.position.y));
+  const childNodes = selectedNodes.map((node) => {
+    const step = cloneJson(node.data!.step);
+    const position = {
+      x: node.position.x - minX + 120,
+      y: node.position.y - minY + 120,
+    };
+    step.position = position;
+    return createNodeFromStep(step, position, node.id === entryId);
+  });
+
+  if (returnStep) {
+    const maxX = Math.max(...selectedNodes.map((node) => node.position.x));
+    const averageY =
+      selectedNodes.reduce((sum, node) => sum + node.position.y, 0) / selectedNodes.length;
+    const position = {
+      x: maxX - minX + 360,
+      y: averageY - minY + 120,
+    };
+    returnStep.position = position;
+    childNodes.push(createNodeFromStep(returnStep, position, false));
+  }
+
+  return childNodes;
+}
+
+function updateGroupNodesAfterExtraction(selectedStepIds: Set<string>, subRuleStepId: string) {
+  const groupNodes = nodes.value.filter((node) => node.type === 'group');
+  const containingGroups = groupNodes.filter(
+    (node) => node.data?.stepIds?.some((stepId: string) => selectedStepIds.has(stepId))
+  );
+
+  return groupNodes.map((node) => {
+    if (!node.data?.group) return node;
+
+    const originalStepIds = node.data.stepIds ?? node.data.group.stepIds ?? [];
+    const selectedInGroup = originalStepIds.filter((stepId: string) => selectedStepIds.has(stepId));
+    if (selectedInGroup.length === 0) return node;
+
+    const nextStepIds = originalStepIds.filter((stepId: string) => !selectedStepIds.has(stepId));
+    if (containingGroups.length === 1) {
+      const insertAt = originalStepIds.findIndex((stepId: string) => selectedStepIds.has(stepId));
+      nextStepIds.splice(Math.max(insertAt, 0), 0, subRuleStepId);
+    }
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        stepIds: nextStepIds,
+        group: {
+          ...node.data.group,
+          stepIds: nextStepIds,
+        },
+      },
+    };
+  });
+}
+
+function extractSubRuleFromSelection() {
+  const eligibility = extractSubRuleEligibility.value;
+  if (!eligibility.valid || !eligibility.entryId) {
+    hideContextMenu();
+    return;
+  }
+
+  const selectedStepIds = new Set(eligibility.selectedNodes.map((node) => node.id));
+  const entryNode = eligibility.selectedNodes.find((node) => node.id === eligibility.entryId);
+  if (!entryNode) {
+    hideContextMenu();
+    return;
+  }
+
+  const suggestedName = buildExtractSubRuleName(entryNode);
+  const displayName = entryNode.data?.step?.name || t('step.subRule');
+  const subRuleStepId = generateId('step');
+  const returnStep =
+    eligibility.externalOutgoingEdges.length > 0
+      ? StepFactory.terminal({
+          id: generateId('return'),
+          name: t('flow.subRuleReturn'),
+          code: 'OK',
+        })
+      : undefined;
+  const returnStepId = returnStep?.id;
+
+  const childNodes = buildChildFlowNodes(
+    eligibility.selectedNodes,
+    eligibility.entryId,
+    returnStep
+  );
+  const childEdges = [
+    ...eligibility.internalEdges.map((edge) => cloneEdgeForChild(edge)),
+    ...eligibility.externalOutgoingEdges.map((edge) => cloneEdgeForChild(edge, returnStepId)),
+  ];
+  const childRuleset = flowToRuleset(
+    childNodes,
+    childEdges,
+    {
+      ...props.modelValue.config,
+      name: suggestedName,
+      version: '0.1.0',
+      description: t('flow.extractedSubRuleDescription'),
+      metadata: {
+        ...(props.modelValue.config.metadata ?? {}),
+        extractedFrom: props.modelValue.config.name,
+        extractedAt: new Date().toISOString(),
+      },
+    },
+    eligibility.entryId,
+    undefined,
+    props.modelValue.subRules
+  );
+
+  const minX = Math.min(...eligibility.selectedNodes.map((node) => node.position.x));
+  const minY = Math.min(...eligibility.selectedNodes.map((node) => node.position.y));
+  const subRuleStep = StepFactory.subRule({
+    id: subRuleStepId,
+    name: displayName,
+    refName: suggestedName,
+    assetRef: {
+      scope: 'project',
+      name: suggestedName,
+    },
+    nextStepId: eligibility.exitTargetId ?? '',
+    position: { x: minX, y: minY },
+  });
+  const subRuleNode = createNodeFromStep(
+    subRuleStep,
+    { x: minX, y: minY },
+    selectedStepIds.has(props.modelValue.startStepId)
+  );
+
+  const parentStepNodes = [
+    ...nodes.value.filter((node) => isStepFlowNode(node) && !selectedStepIds.has(node.id)),
+    subRuleNode,
+  ];
+  const parentGroupNodes = updateGroupNodesAfterExtraction(selectedStepIds, subRuleStepId);
+  const parentEdges = [
+    ...edges.value.filter(
+      (edge) => !selectedStepIds.has(edge.source) && !selectedStepIds.has(edge.target)
+    ),
+    ...eligibility.externalIncomingEdges.map((edge) =>
+      createEdge(edge.source, subRuleStepId, {
+        branchId: edge.data?.branchId,
+        isDefault: edge.data?.isDefault,
+        sourceHandle: edge.sourceHandle || undefined,
+        targetHandle: 'input',
+        condition: edge.data?.condition,
+        renderStyle: edgeStyle.value,
+      })
+    ),
+  ];
+
+  if (eligibility.exitTargetId) {
+    parentEdges.push(
+      createEdge(subRuleStepId, eligibility.exitTargetId, {
+        sourceHandle: 'output',
+        targetHandle: 'input',
+        renderStyle: edgeStyle.value,
+      })
+    );
+  }
+
+  const parentStartStepId = selectedStepIds.has(props.modelValue.startStepId)
+    ? subRuleStepId
+    : props.modelValue.startStepId;
+  const parentRuleset = flowToRuleset(
+    parentStepNodes,
+    parentEdges,
+    buildFlowConfig(),
+    parentStartStepId,
+    parentGroupNodes,
+    props.modelValue.subRules
+  );
+
+  emit('extract-sub-rule', {
+    suggestedName,
+    displayName,
+    subRuleStepId,
+    selectedStepCount: eligibility.selectedNodes.length,
+    draft: childRuleset,
+    parentRuleset,
+  });
+  hideContextMenu();
+}
+
 // Set as start from context menu
 function setAsStartFromMenu() {
   if (selectedNodeId.value) {
@@ -1524,6 +1913,34 @@ onMounted(() => {
         @click.stop
         @mousedown.stop
       >
+        <!-- Extract sub-rule -->
+        <div
+          v-if="selectedNodeIds.length > 0"
+          class="context-menu-item"
+          :class="{ 'is-disabled': !extractSubRuleEligibility.valid }"
+          :title="extractSubRuleEligibility.reason"
+          @click="extractSubRuleFromSelection"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M6 4h12v6H6z" />
+            <path d="M6 14h12v6H6z" />
+            <path d="M12 10v4" />
+          </svg>
+          <span>{{ t('flow.extractSubRule') }}</span>
+          <span class="shortcut" v-if="extractSubRuleEligibility.valid">{{
+            extractSubRuleEligibility.selectedNodes.length
+          }}</span>
+        </div>
+
+        <div class="context-menu-divider" v-if="selectedNodeIds.length > 0"></div>
+
         <!-- Group creation (only when multiple nodes selected) -->
         <div
           v-if="selectedNodeIds.length > 1"
@@ -2006,6 +2423,16 @@ onMounted(() => {
 .context-menu-item:hover {
   background: var(--ordo-bg-item-hover);
   color: var(--ordo-text-primary);
+}
+
+.context-menu-item.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.context-menu-item.is-disabled:hover {
+  background: transparent;
+  color: var(--ordo-text-secondary);
 }
 
 .context-menu-item svg {

@@ -171,6 +171,16 @@ export interface LocaleMessages {
     newGroup: string;
     externalCall: string;
     conditionLabel: string;
+    extractSubRule: string;
+    extractSubRuleSelectNodes: string;
+    extractSubRuleNoGroups: string;
+    extractSubRuleSingleEntry: string;
+    extractSubRuleConnected: string;
+    extractSubRuleSingleExit: string;
+    extractSubRuleNoMixedExit: string;
+    extractSubRuleNeedsExit: string;
+    extractedSubRuleDescription: string;
+    subRuleReturn: string;
   };
   validation: {
     valid: string;
@@ -383,6 +393,17 @@ const en: LocaleMessages = {
     newGroup: 'New Group',
     externalCall: 'Call',
     conditionLabel: 'Condition',
+    extractSubRule: 'Extract SubRule',
+    extractSubRuleSelectNodes: 'Select one or more steps first.',
+    extractSubRuleNoGroups: 'Only step nodes can be extracted. Groups are not supported.',
+    extractSubRuleSingleEntry: 'Selection must have exactly one entry point.',
+    extractSubRuleConnected: 'Selection must be one connected executable region.',
+    extractSubRuleSingleExit: 'Selection can only continue to one outside target.',
+    extractSubRuleNoMixedExit:
+      'Selection cannot mix terminal endings with paths that continue outside the selection.',
+    extractSubRuleNeedsExit: 'Selection must end in a terminal or continue to an outside step.',
+    extractedSubRuleDescription: 'Extracted reusable SubRule decision graph.',
+    subRuleReturn: 'Return to parent',
   },
   validation: {
     valid: 'Valid',
@@ -595,6 +616,16 @@ const zhCN: LocaleMessages = {
     newGroup: '新分组',
     externalCall: '调用',
     conditionLabel: '条件',
+    extractSubRule: '提取为子规则',
+    extractSubRuleSelectNodes: '请先选择一个或多个步骤。',
+    extractSubRuleNoGroups: '只能提取步骤节点，暂不支持分组节点。',
+    extractSubRuleSingleEntry: '选区必须只有一个入口。',
+    extractSubRuleConnected: '选区必须是一个连通的可执行区域。',
+    extractSubRuleSingleExit: '选区只能继续到一个外部目标。',
+    extractSubRuleNoMixedExit: '选区不能同时包含终结路径和继续到外部的路径。',
+    extractSubRuleNeedsExit: '选区必须以终结节点结束，或继续到一个外部步骤。',
+    extractedSubRuleDescription: '从父规则提取出的可复用子规则决策图。',
+    subRuleReturn: '返回父规则',
   },
   validation: {
     valid: '有效',
@@ -807,6 +838,16 @@ const zhTW: LocaleMessages = {
     newGroup: '新群組',
     externalCall: '呼叫',
     conditionLabel: '條件',
+    extractSubRule: '提取為子規則',
+    extractSubRuleSelectNodes: '請先選擇一個或多個步驟。',
+    extractSubRuleNoGroups: '只能提取步驟節點，暫不支援群組節點。',
+    extractSubRuleSingleEntry: '選區必須只有一個入口。',
+    extractSubRuleConnected: '選區必須是一個連通的可執行區域。',
+    extractSubRuleSingleExit: '選區只能繼續到一個外部目標。',
+    extractSubRuleNoMixedExit: '選區不能同時包含終結路徑和繼續到外部的路徑。',
+    extractSubRuleNeedsExit: '選區必須以終結節點結束，或繼續到一個外部步驟。',
+    extractedSubRuleDescription: '從父規則提取出的可重用子規則決策圖。',
+    subRuleReturn: '返回父規則',
   },
   validation: {
     valid: '有效',

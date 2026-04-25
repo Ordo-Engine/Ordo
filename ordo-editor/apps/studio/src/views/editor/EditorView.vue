@@ -37,6 +37,7 @@ import {
   type RuleSet,
   type SubRuleStep,
   type SubRuleAssetOption,
+  type ExtractSubRulePayload,
   type DecisionTable,
 } from '@ordo-engine/editor-vue';
 
@@ -488,6 +489,14 @@ const saving = ref(false);
 const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
 const subRuleAssetsLoaded = ref(false);
 const subRuleParentTabs = new Map<string, string>();
+const extractingSubRule = ref(false);
+const extractSubRuleState = ref<{
+  parentTabName: string;
+  payload: ExtractSubRulePayload;
+  name: string;
+  displayName: string;
+  description: string;
+} | null>(null);
 const conflictState = ref<{
   rulesetName: string;
   localDraft: RuleSet;
@@ -718,6 +727,10 @@ function canBeTable(rs: RuleSet): boolean {
 }
 
 function handleRulesetChange(ruleset: RuleSet) {
+  applyRulesetChange(ruleset);
+}
+
+function applyRulesetChange(ruleset: RuleSet, actionOverride?: string) {
   const tab = projectStore.activeTab;
   if (!tab) return;
 
@@ -725,12 +738,136 @@ function handleRulesetChange(ruleset: RuleSet) {
     tab.name,
     ruleset
   );
-  const action = buildHistoryAction(tab.ruleset, normalizedRuleset);
+  const action = actionOverride ?? buildHistoryAction(tab.ruleset, normalizedRuleset);
   updateRulesetState(tab.name, normalizedRuleset);
   scheduleEditHistoryEntry(tab.name, normalizedRuleset, action);
 
   for (const refName of refsToCreate) {
     void ensureProjectSubRuleAsset(refName);
+  }
+}
+
+function makeUniqueProjectSubRuleName(baseName: string) {
+  const base = sanitizeAssetName(baseName);
+  const names = new Set(
+    subRuleAssets.value.filter((asset) => asset.scope === 'project').map((asset) => asset.name)
+  );
+  if (!names.has(base)) return base;
+
+  let suffix = 2;
+  while (names.has(`${base}_${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}_${suffix}`;
+}
+
+function hasAnySubRuleAsset(name: string) {
+  return subRuleAssets.value.some((asset) => asset.name === name);
+}
+
+function handleExtractSubRule(payload: ExtractSubRulePayload) {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return;
+
+  const name = makeUniqueProjectSubRuleName(payload.suggestedName);
+  extractSubRuleState.value = {
+    parentTabName: tab.name,
+    payload,
+    name,
+    displayName: payload.displayName,
+    description: t('subRules.extractedDescription', { count: payload.selectedStepCount }),
+  };
+}
+
+function retargetExtractedSubRuleStep(
+  ruleset: RuleSet,
+  subRuleStepId: string,
+  name: string,
+  displayName: string
+): RuleSet {
+  return {
+    ...ruleset,
+    steps: ruleset.steps.map((step) => {
+      if (step.id !== subRuleStepId || step.type !== 'sub_rule') return step;
+      const subRuleStep = step as SubRuleStep;
+      return {
+        ...subRuleStep,
+        name: displayName || name,
+        refName: name,
+        assetRef: {
+          scope: 'project' as const,
+          name,
+        },
+      };
+    }),
+  };
+}
+
+async function confirmExtractSubRule() {
+  const state = extractSubRuleState.value;
+  if (!state || !auth.token) return;
+
+  const name = sanitizeAssetName(state.name);
+  if (!name) {
+    MessagePlugin.warning(t('subRules.nameRequired'));
+    return;
+  }
+  if (!subRuleAssetsLoaded.value) {
+    await refreshSubRuleAssets();
+  }
+  if (hasAnySubRuleAsset(name)) {
+    MessagePlugin.warning(t('subRules.nameExists', { name }));
+    return;
+  }
+
+  extractingSubRule.value = true;
+  try {
+    const displayName = state.displayName.trim() || name;
+    const description = state.description.trim();
+    const draft: RuleSet = {
+      ...cloneRuleset(state.payload.draft),
+      config: {
+        ...state.payload.draft.config,
+        name,
+        description,
+      },
+    };
+
+    await subRuleApi.saveProject(auth.token, orgId.value, projectId.value, name, {
+      name,
+      display_name: displayName,
+      description,
+      draft,
+      input_schema: [],
+      output_schema: [],
+      expected_seq: 0,
+    });
+    await refreshSubRuleAssets();
+
+    if (projectStore.activeTabName !== state.parentTabName) {
+      switchToTab(state.parentTabName);
+    }
+
+    const parentRuleset = retargetExtractedSubRuleStep(
+      cloneRuleset(state.payload.parentRuleset),
+      state.payload.subRuleStepId,
+      name,
+      displayName
+    );
+    applyRulesetChange(parentRuleset, t('historyPanel.actionExtractSubRule', { name }));
+
+    await projectStore.openSubRule(name, 'project');
+    const tabName = `§${name}`;
+    subRuleParentTabs.set(tabName, state.parentTabName);
+    tabModes.set(tabName, 'flow');
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
+
+    MessagePlugin.success(t('subRules.extractSuccess', { name }));
+    extractSubRuleState.value = null;
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.saveFailed'));
+  } finally {
+    extractingSubRule.value = false;
   }
 }
 
@@ -1518,6 +1655,7 @@ onUnmounted(() => {
                 :trace-mode="flowTraceMode"
                 @update:model-value="handleRulesetChange"
                 @open-sub-rule="handleOpenSubRule"
+                @extract-sub-rule="handleExtractSubRule"
               />
               <!-- Decision table mode -->
               <OrdoDecisionTable
@@ -1612,6 +1750,40 @@ onUnmounted(() => {
               {{ t('editor.tableType') }}
             </t-radio-button>
           </t-radio-group>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      :visible="!!extractSubRuleState"
+      :header="t('subRules.extractTitle')"
+      :confirm-btn="{ content: t('subRules.extractConfirm'), loading: extractingSubRule }"
+      width="480px"
+      @confirm="confirmExtractSubRule"
+      @close="extractSubRuleState = null"
+    >
+      <t-form v-if="extractSubRuleState" label-align="top">
+        <p class="extract-sub-rule-dialog__desc">
+          {{
+            t('subRules.extractDesc', {
+              count: extractSubRuleState.payload.selectedStepCount,
+            })
+          }}
+        </p>
+        <t-form-item :label="t('subRules.name')" required>
+          <t-input
+            v-model="extractSubRuleState.name"
+            :placeholder="t('subRules.namePlaceholder')"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.displayName')">
+          <t-input
+            v-model="extractSubRuleState.displayName"
+            :placeholder="t('subRules.displayNamePlaceholder')"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.description')">
+          <t-textarea v-model="extractSubRuleState.description" :autosize="{ minRows: 3 }" />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -2157,6 +2329,13 @@ onUnmounted(() => {
 .sub-rule-focus-strip__back:hover {
   background: var(--ordo-hover-bg);
   color: var(--ordo-text-primary);
+}
+
+.extract-sub-rule-dialog__desc {
+  margin: 0 0 16px;
+  color: var(--ordo-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .execution-panel-wrap {

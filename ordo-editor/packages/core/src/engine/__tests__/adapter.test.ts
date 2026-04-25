@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { convertToEngineFormat, isEngineCompatible, validateEngineCompatibility } from '../adapter';
 import { convertFromEngineFormat } from '../reverse-adapter';
+import { validateRuleSet } from '../../validator';
 import {
   Expr,
   type ActionStep,
   type DecisionStep,
   type RuleSet,
+  type SubRuleStep,
   type TerminalStep,
 } from '../../model';
 
@@ -199,6 +201,68 @@ describe('Format Adapter', () => {
         },
       ]);
     });
+
+    it('converts sub-rule graphs with contract metadata', () => {
+      const editorRuleset: RuleSet = {
+        config: { name: 'sub-rule-test' },
+        startStepId: 'call',
+        steps: [
+          {
+            id: 'call',
+            name: 'Call Tiering',
+            type: 'sub_rule',
+            refName: 'tiering',
+            bindings: [{ field: 'score', expr: Expr.variable('$.score') }],
+            outputs: [{ parentVar: 'tier', childVar: 'tier' }],
+            nextStepId: 'done',
+          } as SubRuleStep,
+          {
+            id: 'done',
+            name: 'Done',
+            type: 'terminal',
+            code: 'OK',
+          } as TerminalStep,
+        ],
+        subRules: {
+          tiering: {
+            entryStep: 'set_tier',
+            inputSchema: [{ name: 'score', type: 'number', required: true }],
+            outputSchema: [{ name: 'tier', type: 'string', required: true }],
+            steps: [
+              {
+                id: 'set_tier',
+                name: 'Set Tier',
+                type: 'action',
+                assignments: [{ name: 'tier', value: Expr.string('gold') }],
+                nextStepId: 'done',
+              } as ActionStep,
+              {
+                id: 'done',
+                name: 'Done',
+                type: 'terminal',
+                code: 'OK',
+              } as TerminalStep,
+            ],
+          },
+        },
+      };
+
+      const engineRuleset = convertToEngineFormat(editorRuleset);
+
+      expect(engineRuleset.steps['call']).toMatchObject({
+        type: 'sub_rule',
+        ref_name: 'tiering',
+        bindings: [['score', { Field: 'score' }]],
+        outputs: [['tier', 'tier']],
+        next_step: 'done',
+      });
+      expect(engineRuleset.sub_rules?.tiering.input_schema).toEqual([
+        { name: 'score', type: 'number', required: true },
+      ]);
+      expect(engineRuleset.sub_rules?.tiering.output_schema).toEqual([
+        { name: 'tier', type: 'string', required: true },
+      ]);
+    });
   });
 
   describe('convertFromEngineFormat', () => {
@@ -267,6 +331,54 @@ describe('Format Adapter', () => {
           timeout: undefined,
         },
       ]);
+    });
+
+    it('reconstructs sub-rule graphs with contract metadata', () => {
+      const editorRuleset = convertFromEngineFormat({
+        config: {
+          name: 'reverse-sub-rule',
+          version: '1.0.0',
+          description: '',
+          entry_step: 'call',
+        },
+        steps: {
+          call: {
+            id: 'call',
+            name: 'Call',
+            type: 'sub_rule',
+            ref_name: 'tiering',
+            bindings: [['score', { Field: 'score' }]],
+            outputs: [['tier', 'tier']],
+            next_step: 'done',
+          },
+          done: {
+            id: 'done',
+            name: 'Done',
+            type: 'terminal',
+            result: { code: 'OK', message: '', output: [], data: null },
+          },
+        },
+        sub_rules: {
+          tiering: {
+            entry_step: 'finish',
+            input_schema: [{ name: 'score', type: 'number', required: true }],
+            output_schema: [{ name: 'tier', type: 'string', required: true }],
+            steps: {
+              finish: {
+                id: 'finish',
+                name: 'Finish',
+                type: 'terminal',
+                result: { code: 'OK', message: '', output: [], data: null },
+              },
+            },
+          },
+        },
+      });
+
+      expect(editorRuleset.subRules?.tiering.inputSchema).toEqual([
+        { name: 'score', type: 'number', required: true },
+      ]);
+      expect((editorRuleset.steps[0] as SubRuleStep).refName).toBe('tiering');
     });
   });
 
@@ -350,6 +462,95 @@ describe('Format Adapter', () => {
       const errors = validateEngineCompatibility(ruleset);
       expect(errors.length).toBeGreaterThan(0);
       expect(errors.some((e) => e.includes('non-existent'))).toBe(true);
+    });
+  });
+
+  describe('validateRuleSet sub-rules', () => {
+    it('rejects missing required bindings and output mappings', () => {
+      const ruleset: RuleSet = {
+        config: { name: 'invalid-sub-rule-contract' },
+        startStepId: 'call',
+        steps: [
+          {
+            id: 'call',
+            name: 'Call',
+            type: 'sub_rule',
+            refName: 'tiering',
+            bindings: [],
+            outputs: [],
+            nextStepId: 'done',
+          } as SubRuleStep,
+          { id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep,
+        ],
+        subRules: {
+          tiering: {
+            entryStep: 'done',
+            inputSchema: [{ name: 'score', type: 'number', required: true }],
+            outputSchema: [{ name: 'tier', type: 'string', required: true }],
+            steps: [{ id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep],
+          },
+        },
+      };
+
+      const result = validateRuleSet(ruleset);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((error) => error.code === 'MISSING_SUB_RULE_INPUT_BINDING')).toBe(
+        true
+      );
+      expect(result.errors.some((error) => error.code === 'MISSING_SUB_RULE_OUTPUT_MAPPING')).toBe(
+        true
+      );
+    });
+
+    it('rejects sub-rule call cycles', () => {
+      const ruleset: RuleSet = {
+        config: { name: 'sub-rule-cycle' },
+        startStepId: 'call',
+        steps: [
+          {
+            id: 'call',
+            name: 'Call',
+            type: 'sub_rule',
+            refName: 'a',
+            nextStepId: 'done',
+          } as SubRuleStep,
+          { id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep,
+        ],
+        subRules: {
+          a: {
+            entryStep: 'call_b',
+            steps: [
+              {
+                id: 'call_b',
+                name: 'Call B',
+                type: 'sub_rule',
+                refName: 'b',
+                nextStepId: 'done',
+              } as SubRuleStep,
+              { id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep,
+            ],
+          },
+          b: {
+            entryStep: 'call_a',
+            steps: [
+              {
+                id: 'call_a',
+                name: 'Call A',
+                type: 'sub_rule',
+                refName: 'a',
+                nextStepId: 'done',
+              } as SubRuleStep,
+              { id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep,
+            ],
+          },
+        },
+      };
+
+      const result = validateRuleSet(ruleset);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((error) => error.code === 'SUB_RULE_CYCLE')).toBe(true);
     });
   });
 });

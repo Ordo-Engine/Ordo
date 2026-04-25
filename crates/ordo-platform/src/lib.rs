@@ -29,6 +29,7 @@ pub mod ruleset_history;
 pub mod server_registry;
 pub mod store;
 pub mod sub_org_member;
+pub mod sub_rules;
 pub mod sync;
 pub mod template;
 pub mod templates_api;

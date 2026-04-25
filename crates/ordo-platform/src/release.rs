@@ -17,6 +17,7 @@ use crate::{
         PERM_RELEASE_REQUEST_CREATE, PERM_RELEASE_REQUEST_REJECT, PERM_RELEASE_REQUEST_VIEW,
         PERM_RELEASE_RESUME, PERM_RELEASE_ROLLBACK,
     },
+    ruleset_draft::inline_sub_rules_into_draft,
     sync::SyncEvent,
     AppState,
 };

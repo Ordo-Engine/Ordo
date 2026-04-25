@@ -39,6 +39,7 @@ import {
 } from './utils/layout';
 import { useI18n, LOCALE_KEY, type Lang } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
+import type { SubRuleAssetOption } from '../step/subRuleAssets';
 type NodeCreationType = 'decision' | 'action' | 'terminal' | 'sub_rule';
 
 /** Execution trace data for overlay */
@@ -65,6 +66,8 @@ export interface Props {
   modelValue: RuleSet;
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Managed project/org sub-rule assets */
+  managedSubRules?: SubRuleAssetOption[];
   /** Whether the editor is disabled */
   disabled?: boolean;
   /** Locale */
@@ -77,6 +80,7 @@ export interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
+  managedSubRules: () => [],
   disabled: false,
   executionTrace: null,
   traceMode: false,
@@ -897,13 +901,17 @@ function createStep(type: NodeCreationType, id: string): Step {
         code: 'RESULT',
       });
     case 'sub_rule':
-      const firstSubRuleName = Object.keys(props.modelValue.subRules ?? {})[0] ?? '';
+      const firstAsset =
+        props.managedSubRules.find((asset) => asset.scope === 'project') ??
+        props.managedSubRules[0];
+      const firstSubRuleName =
+        firstAsset?.name ?? Object.keys(props.modelValue.subRules ?? {})[0] ?? '';
       return StepFactory.subRule({
         id,
         name: t('step.subRule'),
         refName: firstSubRuleName,
         assetRef: {
-          scope: 'project',
+          scope: firstAsset?.scope ?? 'project',
           name: firstSubRuleName,
         },
         nextStepId: '',
@@ -1649,12 +1657,14 @@ onMounted(() => {
       :node="selectedStepNode"
       :available-steps="modelValue.steps"
       :available-sub-rules="modelValue.subRules ?? {}"
+      :managed-sub-rules="managedSubRules"
       :suggestions="suggestions"
       :disabled="disabled"
       @update="updateNode"
       @set-start="setAsStart"
       @delete="deleteSelectedNode"
       @close="selectedNodeId = null"
+      @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
     />
 
     <!-- Property Panel for Group Nodes -->

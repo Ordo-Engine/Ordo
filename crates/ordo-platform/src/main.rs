@@ -19,7 +19,7 @@ use ordo_platform::{
     connect_platform_store, contract, environment, github, i18n, init_tracing, member,
     middleware::require_auth, notification, org, project, proxy, publish_existing_tenants, release,
     ruleset_draft, ruleset_history, server_registry, start_server_registry_maintenance,
-    sub_org_member, templates_api, testing,
+    sub_org_member, sub_rules, templates_api, testing,
 };
 
 #[tokio::main]
@@ -317,6 +317,27 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:oid/releases/pending-for-me",
             get(notification::list_pending_approvals_for_me),
+        )
+        // Managed SubRule assets
+        .route(
+            "/api/v1/orgs/:oid/sub-rules",
+            get(sub_rules::list_org_sub_rules),
+        )
+        .route(
+            "/api/v1/orgs/:oid/sub-rules/:name",
+            get(sub_rules::get_org_sub_rule)
+                .put(sub_rules::save_org_sub_rule)
+                .delete(sub_rules::delete_org_sub_rule),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/sub-rules",
+            get(sub_rules::list_project_sub_rules),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/sub-rules/:name",
+            get(sub_rules::get_project_sub_rule)
+                .put(sub_rules::save_project_sub_rule)
+                .delete(sub_rules::delete_project_sub_rule),
         )
         // Draft rulesets
         .route(

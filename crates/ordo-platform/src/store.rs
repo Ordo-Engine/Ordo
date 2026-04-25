@@ -6,12 +6,13 @@ use crate::models::{
     FactDefinition, Member, NullPolicy, OrgRole, Organization, PlatformNotification, Project,
     ProjectEnvironment, ProjectRuleset, ProjectRulesetMeta, ReleaseApprovalDecision,
     ReleaseApprovalRecord, ReleaseContentDiffSummary, ReleaseExecution, ReleaseExecutionEvent,
-    ReleaseExecutionInstance, ReleaseExecutionStatus, ReleaseExecutionSummary,
-    ReleaseInstanceStatus, ReleasePolicy, ReleasePolicyScope, ReleasePolicyTargetType,
-    ReleaseRequest, ReleaseRequestSnapshot, ReleaseRequestStatus, ReleaseVersionDiff, Role,
-    RollbackPolicy, RolloutStrategy, RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource,
-    ServerNode, ServerStatus, TestCase, TestExpectation, UpdateEnvironmentRequest,
-    UpdateReleasePolicyRequest, UpdateRoleRequest, User, UserRoleAssignment,
+    ReleaseExecutionInstance, ReleaseExecutionStatus, ReleaseExecutionSummary, ReleaseHistoryActor,
+    ReleaseHistoryActorType, ReleaseHistoryScope, ReleaseInstanceStatus, ReleasePolicy,
+    ReleasePolicyScope, ReleasePolicyTargetType, ReleaseRequest, ReleaseRequestHistoryEntry,
+    ReleaseRequestSnapshot, ReleaseRequestStatus, ReleaseVersionDiff, Role, RollbackPolicy,
+    RolloutStrategy, RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource, ServerNode,
+    ServerStatus, TestCase, TestExpectation, UpdateEnvironmentRequest, UpdateReleasePolicyRequest,
+    UpdateRoleRequest, User, UserRoleAssignment,
 };
 use anyhow::Result;
 use serde_json::Value as JsonValue;

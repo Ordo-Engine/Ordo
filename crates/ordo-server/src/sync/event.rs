@@ -3,6 +3,7 @@
 //! Events are published by the writer instance after successful mutations
 //! and consumed by reader instances to update their in-memory caches.
 
+use ordo_core::prelude::CapabilityDescriptor;
 use serde::{Deserialize, Serialize};
 
 /// A sync event describing a mutation that occurred on the writer instance.
@@ -44,6 +45,8 @@ pub enum SyncEvent {
         token: String,
         version: Option<String>,
         org_id: Option<String>,
+        #[serde(default)]
+        capabilities: Vec<CapabilityDescriptor>,
     },
     /// A server instance sent a heartbeat.
     ServerHeartbeat {

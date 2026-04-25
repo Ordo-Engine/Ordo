@@ -9,6 +9,10 @@ description = "Ordo decision management platform — organization, project, auth
 name = "ordo-platform"
 path = "src/main.rs"
 
+[[bin]]
+name = "ordo-platform-worker"
+path = "src/bin/ordo-platform-worker.rs"
+
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
@@ -37,6 +41,7 @@ url = "2"
 sha2.workspace = true
 hex.workspace = true
 ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }
+ordo-protocol = { path = "../ordo-protocol" }
 
 [dev-dependencies]
 tempfile = "3"

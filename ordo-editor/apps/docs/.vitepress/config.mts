@@ -77,6 +77,7 @@ export default withMermaid(defineConfig({
                 { text: 'Rule Structure', link: '/en/guide/rule-structure' },
                 { text: 'Expression Syntax', link: '/en/guide/expression-syntax' },
                 { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
+                { text: 'Execution Model', link: '/en/guide/execution-model' },
               ]
             },
             {
@@ -171,6 +172,7 @@ export default withMermaid(defineConfig({
                 { text: '规则结构', link: '/zh/guide/rule-structure' },
                 { text: '表达式语法', link: '/zh/guide/expression-syntax' },
                 { text: '内置函数', link: '/zh/guide/builtin-functions' },
+                { text: '执行模型', link: '/zh/guide/execution-model' },
               ]
             },
             {

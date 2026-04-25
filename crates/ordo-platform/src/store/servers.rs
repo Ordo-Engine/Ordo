@@ -3,16 +3,17 @@ use super::*;
 impl PlatformStore {
     pub async fn upsert_server(&self, server: &ServerNode) -> Result<()> {
         sqlx::query(
-            "INSERT INTO servers (id, name, url, token, org_id, labels, version, status, last_seen, registered_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "INSERT INTO servers (id, name, url, token, org_id, labels, version, status, last_seen, registered_at, capabilities)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT (id) DO UPDATE SET
                name = EXCLUDED.name,
                url = EXCLUDED.url,
                token = EXCLUDED.token,
                org_id = EXCLUDED.org_id,
                version = EXCLUDED.version,
+               capabilities = EXCLUDED.capabilities,
                status = 'online',
-                last_seen = NOW()",
+               last_seen = NOW()",
         )
         .bind(&server.id)
         .bind(&server.name)
@@ -24,6 +25,7 @@ impl PlatformStore {
         .bind(server.status.to_string())
         .bind(server.last_seen)
         .bind(server.registered_at)
+        .bind(sqlx::types::Json(&server.capabilities))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -31,7 +33,7 @@ impl PlatformStore {
 
     pub async fn get_server(&self, id: &str) -> Result<Option<ServerNode>> {
         let row = sqlx::query(
-            "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at
+            "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at, capabilities
              FROM servers WHERE id = $1",
         )
         .bind(id)
@@ -42,7 +44,7 @@ impl PlatformStore {
 
     pub async fn find_server_by_token(&self, token: &str) -> Result<Option<ServerNode>> {
         let row = sqlx::query(
-            "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at
+            "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at, capabilities
              FROM servers WHERE token = $1",
         )
         .bind(token)
@@ -54,7 +56,7 @@ impl PlatformStore {
     pub async fn list_servers(&self, org_id: Option<&str>) -> Result<Vec<ServerNode>> {
         let rows = if let Some(oid) = org_id {
             sqlx::query(
-                "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at
+                "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at, capabilities
                  FROM servers WHERE org_id = $1 ORDER BY registered_at DESC",
             )
             .bind(oid)
@@ -62,7 +64,7 @@ impl PlatformStore {
             .await?
         } else {
             sqlx::query(
-                "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at
+                "SELECT id, name, url, token, org_id, labels, version, status, last_seen, registered_at, capabilities
                  FROM servers ORDER BY registered_at DESC",
             )
             .fetch_all(&self.pool)

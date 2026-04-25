@@ -347,9 +347,10 @@ function formatValue(assignment: VariableAssignment): string {
 /* Input pin positioning (in header) */
 .node-header .pin-input {
   position: absolute;
-  left: -5px;
+  left: -10px;
   top: 50%;
   transform: translateY(-50%);
+  padding: 5px;
 }
 
 /* Output pin positioning (in rows) */

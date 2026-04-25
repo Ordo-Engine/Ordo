@@ -538,6 +538,12 @@ export default {
     focusTitle: '正在编辑子规则：{name}',
     focusDesc: '这是一个可复用的聚焦图，返回父规则前请先保存。',
     returnParent: '返回父规则',
+    extractTitle: '提取为子规则',
+    extractDesc: '将选中的 {count} 个步骤创建为托管子规则，并用一个子规则节点替换当前选区。',
+    extractConfirm: '确认提取',
+    extractSuccess: '已提取子规则 {name}',
+    extractedDescription: '从 {count} 个选中步骤提取。',
+    nameExists: '子规则「{name}」已存在',
   },
   versions: {
     title: '版本历史',
@@ -584,6 +590,7 @@ export default {
     actionEditRuleset: '编辑规则集',
     actionRestoreSnapshot: '恢复：{action}',
     actionSaveCheckpoint: '保存检查点',
+    actionExtractSubRule: '提取子规则 {name}',
   },
   dashboard: {
     workspaceTitle: '项目工作台',

@@ -179,15 +179,29 @@ pub async fn create_release_request(
             "Release request version must match the draft ruleset version",
         ));
     }
-    let current_version = draft.meta.published_version.clone();
-    let baseline_snapshot = load_release_baseline_snapshot(
+    let environment_baseline = load_release_environment_baseline(
         &state,
-        &org_id,
         &project_id,
         &req.ruleset_name,
-        current_version.as_deref(),
+        &req.environment_id,
     )
     .await?;
+    let current_version = environment_baseline
+        .as_ref()
+        .map(|deployment| deployment.version.clone())
+        .or_else(|| draft.meta.published_version.clone());
+    let baseline_snapshot = if let Some(deployment) = environment_baseline.as_ref() {
+        Some(deployment.snapshot.clone())
+    } else {
+        load_release_baseline_snapshot(
+            &state,
+            &org_id,
+            &project_id,
+            &req.ruleset_name,
+            current_version.as_deref(),
+        )
+        .await?
+    };
     let target_snapshot = draft.draft.clone();
 
     let approver_users = {
@@ -241,6 +255,7 @@ pub async fn create_release_request(
         rollout_strategy: policy.rollout_strategy.clone(),
         rollback_policy: policy.rollback_policy.clone(),
         affected_instance_count: req.affected_instance_count.unwrap_or_default(),
+        target_ruleset_snapshot: Some(target_snapshot.clone()),
     };
 
     let mut create_req = req;
@@ -266,6 +281,51 @@ pub async fn create_release_request(
         .await
         .map_err(PlatformError::Internal)?;
 
+    let actor = user_history_actor(&claims, Some(&requester));
+    append_release_history(
+        &state,
+        &release_id,
+        None,
+        None,
+        ReleaseHistoryScope::Request,
+        "request_created",
+        &actor,
+        None,
+        None,
+        serde_json::json!({
+            "title": create_req.title,
+            "ruleset_name": create_req.ruleset_name,
+            "version": create_req.version,
+            "environment_id": create_req.environment_id,
+            "environment_name": environment.name,
+            "policy_id": create_req.policy_id,
+            "policy_name": policy.name,
+            "rollback_version": create_req.rollback_version,
+            "affected_instance_count": request_snapshot.affected_instance_count,
+            "version_diff": version_diff,
+            "content_diff": content_diff,
+        }),
+    )
+    .await
+    .map_err(PlatformError::Internal)?;
+
+    append_release_history(
+        &state,
+        &release_id,
+        None,
+        None,
+        ReleaseHistoryScope::Request,
+        "request_status_changed",
+        &actor,
+        None,
+        Some(ReleaseRequestStatus::PendingApproval.to_string()),
+        serde_json::json!({
+            "reason": "request_created",
+        }),
+    )
+    .await
+    .map_err(PlatformError::Internal)?;
+
     for (idx, reviewer_id) in policy
         .approver_ids
         .iter()
@@ -290,6 +350,32 @@ pub async fn create_release_request(
             )
             .await
             .map_err(PlatformError::Internal)?;
+
+        append_release_history(
+            &state,
+            &release_id,
+            None,
+            None,
+            ReleaseHistoryScope::Approval,
+            "approval_assigned",
+            &actor,
+            None,
+            Some(ReleaseApprovalDecision::Pending.to_string()),
+            serde_json::json!({
+                "stage": (idx as i32) + 1,
+                "reviewer_id": reviewer_id,
+                "reviewer_name": approver_users
+                    .iter()
+                    .find(|user| user.id == *reviewer_id)
+                    .map(|user| user.display_name.clone()),
+                "reviewer_email": approver_users
+                    .iter()
+                    .find(|user| user.id == *reviewer_id)
+                    .map(|user| user.email.clone()),
+            }),
+        )
+        .await
+        .map_err(PlatformError::Internal)?;
     }
 
     let release = state
@@ -352,6 +438,36 @@ pub async fn get_release_request(
     Ok(Json(item))
 }
 
+pub async fn list_release_request_history(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id, release_id)): Path<(String, String, String)>,
+) -> ApiResult<Json<Vec<ReleaseRequestHistoryEntry>>> {
+    require_project_permission(
+        &state,
+        &org_id,
+        &project_id,
+        &claims.sub,
+        PERM_RELEASE_REQUEST_VIEW,
+    )
+    .await?;
+
+    state
+        .store
+        .get_release_request(&org_id, &project_id, &release_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
+
+    let history = state
+        .store
+        .list_release_request_history(&release_id)
+        .await
+        .map_err(PlatformError::Internal)?;
+
+    Ok(Json(history))
+}
+
 pub(super) async fn load_release_baseline_snapshot(
     state: &AppState,
     org_id: &str,
@@ -377,4 +493,22 @@ pub(super) async fn load_release_baseline_snapshot(
     Ok(matching
         .or(latest_publish)
         .map(|entry| entry.snapshot.clone()))
+}
+
+async fn load_release_environment_baseline(
+    state: &AppState,
+    project_id: &str,
+    ruleset_name: &str,
+    environment_id: &str,
+) -> ApiResult<Option<RulesetDeployment>> {
+    let deployments = state
+        .store
+        .list_deployments(project_id, Some(ruleset_name), 100)
+        .await
+        .map_err(PlatformError::Internal)?;
+
+    Ok(deployments.into_iter().find(|deployment| {
+        deployment.environment_id == environment_id
+            && deployment.status == DeploymentStatus::Success
+    }))
 }

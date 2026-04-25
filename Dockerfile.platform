@@ -15,12 +15,13 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 
-# Build release binary (only ordo-platform; other crates build as deps)
+# Build release binaries (HTTP API + background worker; other crates build as deps)
 RUN --mount=type=cache,id=ordo-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=ordo-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=ordo-rust-target-platform,target=/app/target,sharing=locked \
     cargo build --release --package ordo-platform \
-    && cp /app/target/release/ordo-platform /tmp/ordo-platform
+    && cp /app/target/release/ordo-platform /tmp/ordo-platform \
+    && cp /app/target/release/ordo-platform-worker /tmp/ordo-platform-worker
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -34,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     && useradd -r -s /bin/false ordo
 
 COPY --from=builder /tmp/ordo-platform /app/ordo-platform
+COPY --from=builder /tmp/ordo-platform-worker /app/ordo-platform-worker
 COPY crates/ordo-platform/templates /app/templates
 
 USER ordo

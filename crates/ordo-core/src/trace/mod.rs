@@ -180,6 +180,10 @@ pub struct StepTrace {
     /// Whether this was a terminal step
     #[serde(default)]
     pub is_terminal: bool,
+
+    /// Inner step traces when this is a sub-rule invocation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_rule_frames: Option<Vec<StepTrace>>,
 }
 
 impl StepTrace {
@@ -193,6 +197,7 @@ impl StepTrace {
             variables_snapshot: None,
             next_step: None,
             is_terminal: false,
+            sub_rule_frames: None,
         }
     }
 
@@ -206,6 +211,7 @@ impl StepTrace {
             variables_snapshot: None,
             next_step: Some(next_step.to_string()),
             is_terminal: false,
+            sub_rule_frames: None,
         }
     }
 
@@ -219,6 +225,7 @@ impl StepTrace {
             variables_snapshot: None,
             next_step: None,
             is_terminal: true,
+            sub_rule_frames: None,
         }
     }
 }

@@ -113,6 +113,13 @@ async fn review_release(
         ));
     }
 
+    let reviewer = state
+        .store
+        .get_user(&claims.sub)
+        .await
+        .map_err(PlatformError::Internal)?;
+    let actor = user_history_actor(&claims, reviewer.as_ref());
+
     let approvals = state
         .store
         .list_release_approvals(&release_id)
@@ -133,11 +140,55 @@ async fn review_release(
         ReleaseRequestStatus::PendingApproval
     };
 
+    let reviewed_approval = approvals.iter().find(|item| item.reviewer_id == claims.sub);
+    append_release_history(
+        &state,
+        &release_id,
+        None,
+        None,
+        ReleaseHistoryScope::Approval,
+        "approval_reviewed",
+        &actor,
+        Some(ReleaseApprovalDecision::Pending.to_string()),
+        Some(decision.to_string()),
+        serde_json::json!({
+            "stage": reviewed_approval.map(|item| item.stage),
+            "decision": decision,
+            "comment": comment,
+        }),
+    )
+    .await
+    .map_err(PlatformError::Internal)?;
+
+    validate_release_request_transition(&release.status, &next_status)
+        .map_err(|err| PlatformError::conflict(err.to_string()))?;
+
     state
         .store
-        .set_release_request_status(&release_id, next_status)
+        .set_release_request_status(&release_id, next_status.clone())
         .await
         .map_err(PlatformError::Internal)?;
+
+    if next_status != release.status {
+        append_release_history(
+            &state,
+            &release_id,
+            None,
+            None,
+            ReleaseHistoryScope::Request,
+            "request_status_changed",
+            &actor,
+            Some(release.status.to_string()),
+            Some(next_status.to_string()),
+            serde_json::json!({
+                "reason": "approval_reviewed",
+                "decision": decision,
+                "comment": comment,
+            }),
+        )
+        .await
+        .map_err(PlatformError::Internal)?;
+    }
 
     let item = state
         .store

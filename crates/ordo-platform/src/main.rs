@@ -1,7 +1,6 @@
 //! Ordo Platform Server.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::{
     routing::{any, get, post, put},
@@ -15,86 +14,19 @@ use tower_http::{
 };
 use tracing::info;
 
-mod auth;
-mod catalog;
-mod config;
-mod contract;
-mod environment;
-mod error;
-mod github;
-mod i18n;
-mod member;
-mod middleware;
-mod models;
-mod notification;
-mod org;
-mod project;
-mod proxy;
-mod rbac;
-mod release;
-mod ruleset_draft;
-mod ruleset_history;
-mod server_registry;
-mod store;
-mod sub_org_member;
-mod sync;
-mod template;
-mod templates_api;
-mod testing;
-
-use config::PlatformConfig;
-use middleware::require_auth;
-use store::PlatformStore;
-use template::TemplateStore;
-
-fn resolve_templates_dir(configured: &std::path::Path) -> std::path::PathBuf {
-    if configured.exists() {
-        return configured.to_path_buf();
-    }
-
-    let fallbacks = [
-        std::path::PathBuf::from("./crates/ordo-platform/templates"),
-        std::path::PathBuf::from("./templates"),
-        std::path::PathBuf::from("/app/templates"),
-    ];
-
-    if let Some(path) = fallbacks.into_iter().find(|path| path.exists()) {
-        tracing::info!(
-            configured = %configured.display(),
-            resolved = %path.display(),
-            "Using fallback templates directory",
-        );
-        return path;
-    }
-
-    configured.to_path_buf()
-}
-
-/// Shared application state
-#[derive(Clone)]
-pub struct AppState {
-    pub store: Arc<PlatformStore>,
-    pub config: Arc<PlatformConfig>,
-    pub http_client: reqwest::Client,
-    pub templates: Arc<TemplateStore>,
-    pub sync_publisher: Option<Arc<sync::NatsPublisher>>,
-    pub marketplace_cache: Arc<github::MarketplaceCache>,
-}
+use ordo_platform::{
+    auth, bootstrap_platform_store, build_app_state, catalog, config::PlatformConfig,
+    connect_platform_store, contract, environment, github, i18n, init_tracing, member,
+    middleware::require_auth, notification, org, project, proxy, publish_existing_tenants, release,
+    ruleset_draft, ruleset_history, server_registry, start_server_registry_maintenance,
+    sub_org_member, templates_api, testing,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Arc::new(PlatformConfig::parse());
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                config
-                    .log_level
-                    .parse()
-                    .unwrap_or_else(|_| "info".parse().unwrap())
-            }),
-        )
-        .init();
+    init_tracing(&config)?;
 
     if let Err(e) = config.validate() {
         return Err(anyhow::anyhow!("Configuration error: {}", e));
@@ -110,131 +42,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let pool = sqlx::PgPool::connect(&config.database_url).await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
-    let store = Arc::new(PlatformStore::new(pool).await?);
+    let store = connect_platform_store(&config).await?;
+    bootstrap_platform_store(&store, false).await?;
+    start_server_registry_maintenance(store.clone());
 
-    {
-        let orgs = store.list_all_orgs().await.unwrap_or_default();
-        for org in &orgs {
-            if let Err(e) = store.seed_system_roles(&org.id).await {
-                tracing::warn!("seed_system_roles failed for org {}: {}", org.id, e);
-            }
-        }
-
-        let all_projects = store.list_all_projects().await.unwrap_or_default();
-        for project in all_projects {
-            if let Err(e) = store
-                .migrate_project_server_to_environment(&project.id, project.server_id.as_deref())
-                .await
-            {
-                tracing::warn!("migrate env failed for project {}: {}", project.id, e);
-            }
-        }
-
-        if let Err(e) = store.backfill_project_rulesets_from_history().await {
-            tracing::warn!("backfill_project_rulesets_from_history failed: {}", e);
-        }
-
-        match store.fail_stuck_queued_deployments().await {
-            Ok(n) if n > 0 => tracing::warn!(
-                count = n,
-                "Marked stuck queued deployments as failed on startup"
-            ),
-            Ok(_) => {}
-            Err(e) => tracing::warn!("fail_stuck_queued_deployments: {}", e),
-        }
-
-        match store.fail_stuck_active_executions().await {
-            Ok(n) if n > 0 => tracing::warn!(
-                count = n,
-                "Marked stuck active release executions as failed on startup"
-            ),
-            Ok(_) => {}
-            Err(e) => tracing::warn!("fail_stuck_active_executions: {}", e),
-        }
-    }
-
-    {
-        let store_bg = store.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                let now = chrono::Utc::now();
-                let degraded_threshold = now - chrono::Duration::seconds(90);
-                let offline_threshold = now - chrono::Duration::minutes(10);
-                let prune_threshold = now - chrono::Duration::minutes(30);
-
-                let _ = store_bg
-                    .mark_stale_servers_degraded(degraded_threshold)
-                    .await;
-                let _ = store_bg.mark_stale_servers_offline(offline_threshold).await;
-                let _ = store_bg.delete_stale_offline_servers(prune_threshold).await;
-            }
-        });
-    }
-
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
-
-    let templates_dir = resolve_templates_dir(&config.templates_dir);
-    let templates = Arc::new(
-        TemplateStore::load_from_dir(&templates_dir).unwrap_or_else(|e| {
-            tracing::warn!("Failed to load templates from {:?}: {:#}", templates_dir, e);
-            TemplateStore::default()
-        }),
-    );
-
-    let sync_publisher = if let Some(nats_url) = config.nats_url.as_deref() {
-        let jetstream = sync::connect(nats_url)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to connect to NATS at {}: {}", nats_url, e))?;
-        sync::ensure_stream(&jetstream, &config.nats_subject_prefix)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to ensure NATS stream: {}", e))?;
-        let registry_consumer = sync::create_control_consumer(
-            &jetstream,
-            &config.resolve_instance_id(),
-            &config.nats_subject_prefix,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create NATS registry consumer: {}", e))?;
-        sync::start_registry_subscriber(registry_consumer, store.clone());
-        Some(Arc::new(sync::NatsPublisher::new(
-            jetstream,
-            config.nats_subject_prefix.clone(),
-            config.resolve_instance_id(),
-        )))
-    } else {
-        None
-    };
-
-    let marketplace_cache = github::MarketplaceCache::new();
-
-    let state = AppState {
-        store,
-        config: config.clone(),
-        http_client,
-        templates,
-        sync_publisher,
-        marketplace_cache,
-    };
-
-    if let Some(publisher) = &state.sync_publisher {
-        if let Ok(projects) = state.store.list_all_projects().await {
-            for project in projects {
-                let _ = publisher
-                    .publish(sync::SyncEvent::TenantUpsert {
-                        tenant_id: project.id.clone(),
-                        name: project.name.clone(),
-                        enabled: true,
-                    })
-                    .await;
-            }
-        }
-    }
+    let state = build_app_state(config.clone(), store, false).await?;
+    publish_existing_tenants(&state).await;
 
     // CORS
     let cors = {
@@ -445,6 +258,10 @@ async fn main() -> anyhow::Result<()> {
             get(release::get_release_request),
         )
         .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/history",
+            get(release::list_release_request_history),
+        )
+        .route(
             "/api/v1/orgs/:oid/projects/:pid/releases/:rid/approve",
             post(release::approve_release_request),
         )
@@ -519,6 +336,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/trace",
             post(ruleset_draft::trace_draft),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/convert",
+            post(ruleset_draft::convert_draft_ruleset),
         )
         // Deployment history
         .route(

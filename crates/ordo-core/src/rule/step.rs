@@ -10,6 +10,7 @@
 use crate::context::Value;
 use crate::error::Result;
 use crate::expr::{Expr, ExprParser};
+use hashbrown::HashMap as FastMap;
 use serde::{Deserialize, Serialize};
 
 /// A step in the rule flow
@@ -67,7 +68,7 @@ impl Step {
         }
     }
 
-    /// Get all steps referenced by this step
+    /// Get all steps referenced by this step (only outer/continuation steps, not sub-rule internals)
     pub fn referenced_steps(&self) -> Vec<String> {
         match &self.kind {
             StepKind::Decision {
@@ -82,16 +83,26 @@ impl Step {
             }
             StepKind::Action { next_step, .. } => vec![next_step.clone()],
             StepKind::Terminal { .. } => vec![],
+            StepKind::SubRule { next_step, .. } => vec![next_step.clone()],
         }
     }
 
     /// Compile all expression strings in this step to expression ASTs.
     /// This pre-parses conditions for faster evaluation at runtime.
     pub fn compile(&mut self) -> Result<()> {
-        if let StepKind::Decision { branches, .. } = &mut self.kind {
-            for branch in branches {
-                branch.compile()?;
+        match &mut self.kind {
+            StepKind::Decision { branches, .. } => {
+                for branch in branches {
+                    branch.compile()?;
+                }
             }
+            StepKind::SubRule { bindings, .. } => {
+                for (_, expr) in bindings {
+                    // Expr is already compiled; nothing to do unless it wraps a string variant
+                    let _ = expr;
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -175,6 +186,29 @@ pub enum StepKind {
         /// Result to return
         result: TerminalResult,
     },
+
+    /// Sub-rule step - jumps into an inline sub-graph and returns to next_step
+    SubRule {
+        /// Name of the sub-rule defined in RuleSet::sub_rules
+        ref_name: String,
+        /// Input bindings: (child_field_name, expr_evaluated_in_parent_context)
+        #[serde(default)]
+        bindings: Vec<(String, Expr)>,
+        /// Output mappings: (parent_variable, child_variable)
+        #[serde(default)]
+        outputs: Vec<(String, String)>,
+        /// Step to continue after the sub-rule completes
+        next_step: String,
+    },
+}
+
+/// Inline sub-rule graph embedded in a RuleSet
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubRuleGraph {
+    /// Entry step ID within this sub-graph
+    pub entry_step: String,
+    /// Steps keyed by ID
+    pub steps: FastMap<String, Step>,
 }
 
 /// A branch in a decision step

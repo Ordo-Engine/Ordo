@@ -108,6 +108,9 @@ pub struct CapabilityDescriptor {
     pub name: String,
     pub description: String,
     pub config: CapabilityConfig,
+    /// Operations this capability accepts (e.g. ["GET","POST"] or ["counter","gauge"]).
+    #[serde(default)]
+    pub operations: Vec<String>,
 }
 
 impl CapabilityDescriptor {
@@ -117,6 +120,7 @@ impl CapabilityDescriptor {
             name: name.into(),
             description: String::new(),
             config: CapabilityConfig::new(category),
+            operations: Vec::new(),
         }
     }
 
@@ -129,6 +133,12 @@ impl CapabilityDescriptor {
     #[inline]
     pub fn with_config(mut self, config: CapabilityConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    #[inline]
+    pub fn with_operations(mut self, ops: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.operations = ops.into_iter().map(Into::into).collect();
         self
     }
 }
@@ -227,5 +237,9 @@ pub trait CapabilityInvoker: Send + Sync {
     fn describe(&self, capability: &str) -> Option<CapabilityDescriptor> {
         let _ = capability;
         None
+    }
+
+    fn list_capabilities(&self) -> Vec<CapabilityDescriptor> {
+        vec![]
     }
 }

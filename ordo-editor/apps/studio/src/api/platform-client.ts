@@ -3,6 +3,7 @@
  * Handles auth, organizations, projects, and members.
  */
 
+import type { RuleSet } from '@ordo-engine/editor-core';
 import { i18n } from '@/i18n';
 import type {
   AppendRulesetHistoryEntry,
@@ -36,6 +37,7 @@ import type {
   ReleaseExecutionEvent,
   ReleasePolicy,
   ReleaseRequest,
+  ReleaseRequestHistoryEntry,
   ReleaseTargetPreview,
   ReviewReleaseRequest,
   Role,
@@ -615,6 +617,23 @@ export const rulesetDraftApi = {
     });
   },
 
+  convert(
+    token: string,
+    orgId: string,
+    projectId: string,
+    name: string,
+    ruleset: RuleSet
+  ): Promise<Record<string, unknown>> {
+    return request(
+      `/orgs/${orgId}/projects/${projectId}/rulesets/${encodeURIComponent(name)}/convert`,
+      {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ ruleset }),
+      }
+    );
+  },
+
   /** Returns the saved draft on success, or a DraftConflictResponse (status 409) on conflict. */
   async save(
     token: string,
@@ -865,6 +884,17 @@ export const releaseApi = {
     return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}`, { token });
   },
 
+  getRequestHistory(
+    token: string,
+    orgId: string,
+    projectId: string,
+    releaseId: string
+  ): Promise<ReleaseRequestHistoryEntry[]> {
+    return request(`/orgs/${orgId}/projects/${projectId}/releases/${releaseId}/history`, {
+      token,
+    });
+  },
+
   executeRequest(
     token: string,
     orgId: string,
@@ -985,7 +1015,7 @@ export const engineApi = {
     projectId: string,
     rulesetName: string,
     input: Record<string, unknown>,
-    ruleset: Record<string, unknown>
+    ruleset: RuleSet
   ): Promise<{
     code: string;
     message: string;

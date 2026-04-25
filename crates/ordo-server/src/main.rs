@@ -649,6 +649,10 @@ async fn main() -> anyhow::Result<()> {
             let log_url = platform_url.clone();
             let log_name = http_server_name.clone();
 
+            let http_capabilities_json =
+                serde_json::to_value(http_capability_invoker.list_capabilities())
+                    .unwrap_or(serde_json::json!([]));
+
             tokio::spawn(async move {
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(5))
@@ -663,6 +667,7 @@ async fn main() -> anyhow::Result<()> {
                     "url": http_server_url,
                     "token": http_token,
                     "version": http_version,
+                    "capabilities": http_capabilities_json,
                 });
                 let hb_payload = serde_json::json!({ "server_id": http_server_id });
 
@@ -723,6 +728,7 @@ async fn main() -> anyhow::Result<()> {
             let nats_server_name = server_name.clone();
             let nats_server_url = server_url.clone();
             let nats_version = version.clone();
+            let nats_capabilities = capability_invoker.list_capabilities();
             let log_name2 = nats_server_name.clone();
             let log_url2 = nats_server_url.clone();
 
@@ -735,6 +741,7 @@ async fn main() -> anyhow::Result<()> {
                     token: String::new(),
                     version: Some(nats_version.clone()),
                     org_id: None,
+                    capabilities: nats_capabilities,
                 };
 
                 let mut interval = tokio::time::interval(Duration::from_secs(30));

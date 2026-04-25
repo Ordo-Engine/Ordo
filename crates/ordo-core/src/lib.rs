@@ -78,9 +78,10 @@ pub mod prelude {
     pub use crate::rule::{
         Action, ActionKind, BatchExecutionResult, Branch, CompiledAction, CompiledBranch,
         CompiledCondition, CompiledMetadata, CompiledOutput, CompiledRuleExecutor, CompiledRuleSet,
-        CompiledStep, Condition, ExecutionOptions, ExecutionResult, LoggingMetricSink, MetricSink,
-        MetricType, NoOpMetricSink, RuleExecutor, RuleSet, RuleSetCompiler, RuleSetConfig,
-        RuleSetResolver, SingleExecutionResult, Step, StepKind, TerminalResult,
+        CompiledStep, Condition, ExecutionOptions, ExecutionResult, FieldMissingBehavior, LogLevel,
+        LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink, RuleExecutor, RuleSet,
+        RuleSetCompiler, RuleSetConfig, RuleSetResolver, SingleExecutionResult, Step, StepKind,
+        SubRuleGraph, TerminalResult,
     };
     #[cfg(feature = "signature")]
     pub use crate::signature::signer::RuleSigner;

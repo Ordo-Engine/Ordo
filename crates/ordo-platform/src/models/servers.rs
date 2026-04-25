@@ -47,6 +47,7 @@ pub struct ServerNode {
     pub status: ServerStatus,
     pub last_seen: Option<DateTime<Utc>>,
     pub registered_at: DateTime<Utc>,
+    pub capabilities: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +61,7 @@ pub struct ServerInfo {
     pub status: ServerStatus,
     pub last_seen: Option<DateTime<Utc>>,
     pub registered_at: DateTime<Utc>,
+    pub capabilities: JsonValue,
 }
 
 impl From<ServerNode> for ServerInfo {
@@ -74,6 +76,7 @@ impl From<ServerNode> for ServerInfo {
             status: s.status,
             last_seen: s.last_seen,
             registered_at: s.registered_at,
+            capabilities: s.capabilities,
         }
     }
 }

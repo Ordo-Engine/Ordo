@@ -33,6 +33,7 @@ mkdir -p \
 
 : > "$LOG_DIR/ordo-server.log"
 : > "$LOG_DIR/ordo-platform.log"
+: > "$LOG_DIR/ordo-platform-worker.log"
 : > "$LOG_DIR/ordo-studio.log"
 
 export DATA_DIR
@@ -148,6 +149,18 @@ start_platform_watch() {
   PLATFORM_PID=$!
 }
 
+start_platform_worker_watch() {
+  cd "$WORKSPACE"
+  (
+    cargo watch \
+      -w crates \
+      -w Cargo.toml \
+      -w Cargo.lock \
+      -x "run -p ordo-platform --bin ordo-platform-worker -- --database-url ${ORDO_DATABASE_URL} --engine-url ${ORDO_ENGINE_URL} --jwt-secret ${ORDO_JWT_SECRET} --templates-dir ${ORDO_PLATFORM_TEMPLATES_DIR}"
+  ) 2>&1 | tee "$LOG_DIR/ordo-platform-worker.log" &
+  PLATFORM_WORKER_PID=$!
+}
+
 start_studio() {
   cd "$WORKSPACE/ordo-editor/apps/studio"
   # Pre-warm Vite dep cache so the first proxied request doesn't hit Traefik's timeout.
@@ -166,7 +179,7 @@ start_studio() {
 }
 
 shutdown() {
-  for pid in ${SERVER_PID:-} ${PLATFORM_PID:-} ${STUDIO_PID:-}; do
+  for pid in ${SERVER_PID:-} ${PLATFORM_PID:-} ${PLATFORM_WORKER_PID:-} ${STUDIO_PID:-}; do
     if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
@@ -191,6 +204,8 @@ wait_for_tcp "$DATABASE_HOST" "$DATABASE_PORT" "postgres"
 start_platform_watch
 PIDS+=("$PLATFORM_PID")
 wait_for_http "http://127.0.0.1:${PLATFORM_PORT}/health" "ordo-platform"
+start_platform_worker_watch
+PIDS+=("$PLATFORM_WORKER_PID")
 start_studio
 PIDS+=("$STUDIO_PID")
 
@@ -198,6 +213,7 @@ echo "==> Devcontainer services started"
 echo "    studio log:   $LOG_DIR/ordo-studio.log"
 echo "    server log:   $LOG_DIR/ordo-server.log"
 echo "    platform log: $LOG_DIR/ordo-platform.log"
+echo "    worker log:   $LOG_DIR/ordo-platform-worker.log"
 
 wait -n "${PIDS[@]}"
 exit 1

@@ -15,6 +15,7 @@ import type {
   DecisionStep,
   ActionStep,
   TerminalStep,
+  SubRuleStep,
   Branch as EditorBranch,
 } from '../model';
 
@@ -34,6 +35,12 @@ interface EngineRuleSet {
     metadata: Record<string, string>;
   };
   steps: Record<string, EngineStep>;
+  sub_rules?: Record<string, EngineSubRuleGraph>;
+}
+
+interface EngineSubRuleGraph {
+  entry_step: string;
+  steps: Record<string, EngineStep>;
 }
 
 /**
@@ -43,7 +50,7 @@ interface EngineStep {
   id: string;
   name: string;
   // Flattened StepKind fields - one of these will be present based on "type"
-  type: 'decision' | 'action' | 'terminal';
+  type: 'decision' | 'action' | 'terminal' | 'sub_rule';
   // Decision fields
   branches?: EngineBranch[];
   default_next?: string | null;
@@ -52,6 +59,10 @@ interface EngineStep {
   next_step?: string;
   // Terminal fields
   result?: EngineTerminalResult;
+  // SubRule fields
+  ref_name?: string;
+  bindings?: Array<[string, any]>; // Vec<(String, Expr)>
+  outputs?: Array<[string, string]>; // Vec<(String, String)>
 }
 
 interface EngineBranch {
@@ -95,6 +106,18 @@ export function convertToEngineFormat(editorRuleset: RuleSet): EngineRuleSet {
     stepsMap[step.id] = convertStep(step);
   }
 
+  // Build sub_rules map
+  const subRulesMap: Record<string, EngineSubRuleGraph> = {};
+  if (editorRuleset.subRules) {
+    for (const [name, graph] of Object.entries(editorRuleset.subRules)) {
+      const graphSteps: Record<string, EngineStep> = {};
+      for (const step of graph.steps) {
+        graphSteps[step.id] = convertStep(step);
+      }
+      subRulesMap[name] = { entry_step: graph.entryStep, steps: graphSteps };
+    }
+  }
+
   // Build config
   const config = {
     name: editorRuleset.config.name || 'unnamed',
@@ -111,6 +134,7 @@ export function convertToEngineFormat(editorRuleset: RuleSet): EngineRuleSet {
   return {
     config,
     steps: stepsMap,
+    ...(Object.keys(subRulesMap).length > 0 && { sub_rules: subRulesMap }),
   };
 }
 
@@ -125,6 +149,8 @@ function convertStep(step: Step): EngineStep {
       return convertActionStep(step as ActionStep);
     case 'terminal':
       return convertTerminalStep(step as TerminalStep);
+    case 'sub_rule':
+      return convertSubRuleStep(step as SubRuleStep);
     default:
       throw new Error(`Unknown step type: ${(step as any).type}`);
   }
@@ -455,6 +481,29 @@ function convertTerminalStep(step: TerminalStep): EngineStep {
 }
 
 /**
+ * Convert sub-rule step to engine format
+ */
+function convertSubRuleStep(step: SubRuleStep): EngineStep {
+  const bindings: Array<[string, any]> = (step.bindings || []).map((b) => [
+    b.field,
+    convertToEngineExpr(b.expr),
+  ]);
+  const outputs: Array<[string, string]> = (step.outputs || []).map((o) => [
+    o.parentVar,
+    o.childVar,
+  ]);
+  return {
+    id: step.id,
+    name: step.name,
+    type: 'sub_rule',
+    ref_name: step.refName,
+    bindings,
+    outputs,
+    next_step: step.nextStepId,
+  };
+}
+
+/**
  * Convert editor value to engine Expr format
  * The engine expects Expr which is a Rust enum serialized as:
  * - { "Literal": <value> }  -- NOT { "Literal": { "value": ... } }
@@ -741,6 +790,21 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
       case 'terminal':
         // Terminal steps don't reference other steps
         break;
+
+      case 'sub_rule': {
+        const subRuleStep = step as SubRuleStep;
+        if (subRuleStep.nextStepId && !stepIds.has(subRuleStep.nextStepId)) {
+          errors.push(
+            `Step '${step.id}' nextStepId references non-existent step '${subRuleStep.nextStepId}'`
+          );
+        }
+        if (ruleset.subRules && !ruleset.subRules[subRuleStep.refName]) {
+          errors.push(
+            `Step '${step.id}' references non-existent sub-rule '${subRuleStep.refName}'`
+          );
+        }
+        break;
+      }
 
       default:
         errors.push(`Step '${(step as Step).id}' has unknown type: ${(step as any).type}`);

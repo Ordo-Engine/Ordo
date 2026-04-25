@@ -85,6 +85,16 @@ export interface Project {
 
 export type ServerStatus = 'online' | 'offline' | 'degraded';
 
+export interface CapabilityInfo {
+  name: string;
+  description: string;
+  operations: string[];
+  config: {
+    category: 'network' | 'compute' | 'action';
+    timeout_ms: number | null;
+  };
+}
+
 export interface ServerInfo {
   id: string;
   name: string;
@@ -95,6 +105,7 @@ export interface ServerInfo {
   status: ServerStatus;
   last_seen: string | null;
   registered_at: string;
+  capabilities: CapabilityInfo[];
 }
 
 export interface BindServerRequest {
@@ -495,6 +506,7 @@ export type ReleaseRequestStatus =
   | 'executing'
   | 'completed'
   | 'failed'
+  | 'rollback_failed'
   | 'rolled_back';
 
 export type ReleaseApprovalDecision = 'pending' | 'approved' | 'rejected';
@@ -607,6 +619,9 @@ export interface ReleaseRequest {
   version_diff: ReleaseVersionDiff;
   content_diff: ReleaseContentDiffSummary;
   request_snapshot: ReleaseRequestSnapshot;
+  execution_attempts: number;
+  max_execution_attempts: number;
+  is_closed: boolean;
 }
 
 export interface ReleaseTargetServerPreview {
@@ -654,11 +669,14 @@ export type ReleaseExecutionStatus =
   | 'paused'
   | 'verifying'
   | 'rollback_in_progress'
+  | 'rollback_failed'
   | 'completed'
   | 'failed';
 
 export type ReleaseInstanceStatus =
   | 'pending'
+  | 'waiting_batch'
+  | 'scheduled'
   | 'dispatching'
   | 'updating'
   | 'verifying'
@@ -671,9 +689,11 @@ export interface ReleaseExecutionInstance {
   id: string;
   instance_name: string;
   zone?: string;
+  batch_index: number;
   current_version: string;
   target_version: string;
   status: ReleaseInstanceStatus;
+  scheduled_at?: string;
   updated_at?: string;
   message?: string;
   metric_summary?: {
@@ -692,6 +712,33 @@ export interface ReleaseExecutionEvent {
   instance_id?: string;
   event_type: string;
   payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export type ReleaseHistoryScope =
+  | 'request'
+  | 'approval'
+  | 'execution'
+  | 'batch'
+  | 'instance'
+  | 'rollback';
+
+export type ReleaseHistoryActorType = 'user' | 'system' | 'server';
+
+export interface ReleaseRequestHistoryEntry {
+  id: string;
+  release_request_id: string;
+  release_execution_id?: string | null;
+  instance_id?: string | null;
+  scope: ReleaseHistoryScope;
+  action: string;
+  actor_type: ReleaseHistoryActorType;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_email?: string | null;
+  from_status?: string | null;
+  to_status?: string | null;
+  detail: Record<string, unknown>;
   created_at: string;
 }
 
@@ -724,6 +771,7 @@ export interface ReleaseExecution {
   started_at: string;
   current_batch: number;
   total_batches: number;
+  next_batch_at?: string;
   strategy: RolloutStrategy;
   summary: {
     total_instances: number;

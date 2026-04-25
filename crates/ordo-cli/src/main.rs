@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 mod eval;
 mod exec;
+mod runtime;
 mod test_runner;
 
 #[derive(Parser)]

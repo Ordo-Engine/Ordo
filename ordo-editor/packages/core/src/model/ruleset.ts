@@ -273,6 +273,14 @@ export interface RuleSetConfig {
 }
 
 /** RuleSet - the main rule definition */
+/** Inline sub-rule graph embedded in a RuleSet */
+export interface SubRuleGraph {
+  /** Entry step ID within this sub-graph */
+  entryStep: string;
+  /** All steps in the sub-graph */
+  steps: Step[];
+}
+
 export interface RuleSet {
   /** Configuration */
   config: RuleSetConfig;
@@ -280,6 +288,8 @@ export interface RuleSet {
   startStepId: string;
   /** All steps in the ruleset */
   steps: Step[];
+  /** Named inline sub-rule graphs referenced by SubRuleStep.refName */
+  subRules?: Record<string, SubRuleGraph>;
   /** Step groups for visual organization */
   groups?: StepGroup[];
   /** Metadata */

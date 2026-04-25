@@ -2,10 +2,9 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
-import { convertToEngineFormat } from '@ordo-engine/editor-core';
 import { engineApi, rulesetDraftApi, testApi } from '@/api/platform-client';
 import { useAuthStore } from '@/stores/auth';
-import { isEngineRuleset, normalizeRuleset } from '@/utils/ruleset';
+import { normalizeRuleset } from '@/utils/ruleset';
 import type { ProjectRulesetMeta, TestCase } from '@/api/types';
 
 const props = defineProps<{
@@ -198,18 +197,15 @@ async function runTrace() {
   rightTab.value = 'result';
 
   try {
-    // Fetch draft and convert from editor format to engine format using the adapter.
+    // Fetch draft (stored in studio format) and send to trace endpoint.
+    // The backend (ordo-protocol) handles format conversion to the engine.
     const draft = await rulesetDraftApi.get(
       auth.token,
       props.orgId,
       props.projectId,
       selectedRuleset.value
     );
-    const engineRuleset = isEngineRuleset(draft.draft)
-      ? (draft.draft as unknown as Record<string, unknown>)
-      : (convertToEngineFormat(
-          normalizeRuleset(draft.draft, selectedRuleset.value)
-        ) as unknown as Record<string, unknown>);
+    const studioRuleset = normalizeRuleset(draft.draft, selectedRuleset.value);
 
     result.value = await engineApi.executeWithTrace(
       auth.token,
@@ -217,7 +213,7 @@ async function runTrace() {
       props.projectId,
       selectedRuleset.value,
       parsed,
-      engineRuleset
+      studioRuleset
     );
     addHistory({
       rulesetName: selectedRuleset.value,

@@ -2,9 +2,11 @@ use anyhow::{Context, Result};
 use clap::Args;
 use ordo_core::prelude::*;
 
+use crate::runtime::{execute_loaded_rule, load_rule};
+
 #[derive(Args)]
 pub struct ExecArgs {
-    /// Rule file (JSON or YAML)
+    /// Rule file (JSON, YAML, or .ordo)
     #[arg(long, value_name = "FILE")]
     rule: String,
 
@@ -26,7 +28,7 @@ pub struct ExecArgs {
 }
 
 pub fn run(args: ExecArgs) -> Result<()> {
-    let ruleset = load_ruleset(&args.rule)?;
+    let rule = load_rule(&args.rule)?;
     let mut input = load_input(args.input.as_deref(), args.input_file.as_deref())?;
 
     // Load external data files and inject as $data
@@ -34,16 +36,7 @@ pub fn run(args: ExecArgs) -> Result<()> {
         inject_external_data(&mut input, &args.data_files)?;
     }
 
-    let executor = RuleExecutor::new();
-    let options = if args.trace {
-        Some(ExecutionOptions::default().trace(true))
-    } else {
-        None
-    };
-
-    let result = executor
-        .execute_with_options(&ruleset, input, options.as_ref())
-        .map_err(|e| anyhow::anyhow!("Execution error: {}", e))?;
+    let result = execute_loaded_rule(&rule, input, args.trace)?;
 
     // Output result
     let output = serde_json::json!({
@@ -67,18 +60,6 @@ pub fn run(args: ExecArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn load_ruleset(path: &str) -> Result<RuleSet> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read rule: {}", path))?;
-    if path.ends_with(".yaml") || path.ends_with(".yml") {
-        RuleSet::from_yaml_compiled(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse YAML rule: {}", e))
-    } else {
-        RuleSet::from_json_compiled(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse JSON rule: {}", e))
-    }
 }
 
 fn load_input(inline: Option<&str>, file: Option<&str>) -> Result<Value> {

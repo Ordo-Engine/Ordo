@@ -5,6 +5,7 @@ use ordo_core::{
     rule::{ExecutionOptions, RuleExecutor, RuleSet},
     trace::ExecutionTrace,
 };
+use ordo_protocol::StudioRuleSet;
 
 use crate::{
     error::{ApiResult, PlatformError},
@@ -88,13 +89,19 @@ pub async fn save_draft(
         .map_err(DraftSaveResponse::Err)?;
 
     let id = Uuid::new_v4().to_string();
+    let ruleset_value = serde_json::to_value(&req.ruleset).map_err(|e| {
+        DraftSaveResponse::Err(PlatformError::internal(format!(
+            "Serialization error: {}",
+            e
+        )))
+    })?;
     match state
         .store
         .save_draft_ruleset(
             &id,
             &project_id,
             &ruleset_name,
-            &req.ruleset,
+            &ruleset_value,
             req.expected_seq,
             &claims.sub,
         )
@@ -144,9 +151,14 @@ pub async fn delete_draft(
 
 #[derive(serde::Deserialize)]
 pub struct TraceRequest {
-    /// Engine-format ruleset (pre-converted by frontend adapter from editor format).
-    pub ruleset: serde_json::Value,
+    /// Studio-format ruleset (converted to engine format by ordo-protocol on the backend).
+    pub ruleset: StudioRuleSet,
     pub input: serde_json::Value,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ConvertRulesetRequest {
+    pub ruleset: StudioRuleSet,
 }
 
 #[derive(serde::Serialize)]
@@ -186,11 +198,16 @@ pub async fn trace_draft(
     require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_RULESET_VIEW)
         .await?;
 
-    // Use the engine-format ruleset provided by the frontend (already converted from editor format).
-    let ruleset_json = serde_json::to_string(&req.ruleset)
-        .map_err(|e| PlatformError::internal(format!("Failed to serialize ruleset: {}", e)))?;
+    // Convert studio-format ruleset to engine format, then compile.
+    let mut ruleset: RuleSet =
+        req.ruleset
+            .try_into()
+            .map_err(|e: ordo_protocol::ConvertError| {
+                PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
+            })?;
 
-    let ruleset = RuleSet::from_json_compiled(&ruleset_json)
+    ruleset
+        .compile()
         .map_err(|e| PlatformError::bad_request(format!("Failed to compile ruleset: {}", e)))?;
 
     // Convert input to ordo-core Value
@@ -231,6 +248,31 @@ pub async fn trace_draft(
         duration_us: result.duration_us,
         trace,
     }))
+}
+
+/// POST /api/v1/orgs/:oid/projects/:pid/rulesets/:name/convert
+///
+/// Converts a studio-format ruleset to engine format without executing it.
+pub async fn convert_draft_ruleset(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((org_id, project_id, _ruleset_name)): Path<(String, String, String)>,
+    Json(req): Json<ConvertRulesetRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    require_project_permission(&state, &org_id, &project_id, &claims.sub, PERM_RULESET_VIEW)
+        .await?;
+
+    let engine: RuleSet = req
+        .ruleset
+        .try_into()
+        .map_err(|e: ordo_protocol::ConvertError| {
+            PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
+        })?;
+
+    let engine_json = serde_json::to_value(&engine)
+        .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)))?;
+
+    Ok(Json(engine_json))
 }
 
 // ── Publish ───────────────────────────────────────────────────────────────────
@@ -297,13 +339,17 @@ pub async fn publish_draft(
         .await
         .map_err(PlatformError::Internal)?;
 
+    // Convert studio-format draft to engine format for NATS publish.
+    // ordo-server expects engine format (steps as HashMap, expression strings).
+    let engine_json = studio_draft_to_engine_json(&draft.draft)?;
+
     // Publish via NATS
     let publish_result = publish_via_nats(
         &state,
         &env,
         &project_id,
         &ruleset_name,
-        &draft.draft,
+        &engine_json,
         &version,
     )
     .await;
@@ -475,12 +521,14 @@ pub async fn redeploy(
         .await
         .map_err(PlatformError::Internal)?;
 
+    let snapshot_engine_json = studio_draft_to_engine_json(&original.snapshot)?;
+
     let result = publish_via_nats(
         &state,
         &env,
         &project_id,
         &ruleset_name,
-        &original.snapshot,
+        &snapshot_engine_json,
         &original.version,
     )
     .await;
@@ -508,6 +556,20 @@ pub async fn redeploy(
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+/// Convert a stored studio-format draft JSON to engine-format JSON for NATS publish.
+fn studio_draft_to_engine_json(draft: &serde_json::Value) -> ApiResult<serde_json::Value> {
+    let studio: StudioRuleSet = serde_json::from_value(draft.clone()).map_err(|e| {
+        PlatformError::bad_request(format!("Draft is not valid studio format: {}", e))
+    })?;
+    let engine: RuleSet = studio
+        .try_into()
+        .map_err(|e: ordo_protocol::ConvertError| {
+            PlatformError::bad_request(format!("Draft conversion failed: {}", e))
+        })?;
+    serde_json::to_value(&engine)
+        .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)))
+}
 
 async fn publish_via_nats(
     state: &AppState,

@@ -57,6 +57,10 @@ impl CapabilityInvoker for ServerCapabilityRegistry {
     fn describe(&self, capability: &str) -> Option<CapabilityDescriptor> {
         self.inner.describe(capability)
     }
+
+    fn list_capabilities(&self) -> Vec<CapabilityDescriptor> {
+        self.inner.list_capabilities()
+    }
 }
 
 pub fn build_server_capability_invoker(
@@ -188,6 +192,7 @@ impl CapabilityProvider for PrometheusMetricCapability {
         CapabilityDescriptor::new("metrics.prometheus", CapabilityCategory::Action)
             .with_description("Bridge capability calls into the Prometheus rule metric sink")
             .with_config(CapabilityConfig::new(CapabilityCategory::Action))
+            .with_operations(["counter", "gauge"])
     }
 
     fn invoke(&self, request: &CapabilityRequest) -> Result<CapabilityResponse> {
@@ -222,6 +227,7 @@ impl CapabilityProvider for AuditCapability {
         CapabilityDescriptor::new("audit.logger", CapabilityCategory::Action)
             .with_description("Bridge capability calls into the structured audit logger")
             .with_config(CapabilityConfig::new(CapabilityCategory::Action))
+            .with_operations(["emit", "rule_executed"])
     }
 
     fn invoke(&self, request: &CapabilityRequest) -> Result<CapabilityResponse> {
@@ -270,6 +276,7 @@ impl CapabilityProvider for HttpCapability {
         CapabilityDescriptor::new("network.http", CapabilityCategory::Network)
             .with_description("Issue outbound HTTP requests through a capability provider")
             .with_config(CapabilityConfig::new(CapabilityCategory::Network).timeout(10_000))
+            .with_operations(["GET", "POST", "PUT", "DELETE", "PATCH"])
     }
 
     fn invoke(&self, request: &CapabilityRequest) -> Result<CapabilityResponse> {

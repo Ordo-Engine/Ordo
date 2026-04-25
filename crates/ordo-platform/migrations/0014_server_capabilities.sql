@@ -1,0 +1,2 @@
+ALTER TABLE servers
+    ADD COLUMN IF NOT EXISTS capabilities JSONB NOT NULL DEFAULT '[]';

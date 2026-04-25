@@ -43,6 +43,8 @@ pub enum SyncEvent {
         token: String,
         version: Option<String>,
         org_id: Option<String>,
+        #[serde(default)]
+        capabilities: Vec<serde_json::Value>,
     },
     ServerHeartbeat {
         #[serde(default)]
@@ -282,6 +284,7 @@ pub fn start_registry_subscriber(
                         token,
                         version,
                         org_id,
+                        capabilities,
                     } => match crate::models::derive_server_id(&url) {
                         Ok(derived_server_id) => {
                             let effective_server_id = if server_id.is_empty() {
@@ -323,6 +326,7 @@ pub fn start_registry_subscriber(
                                                     _ => {}
                                                 }
                                             }
+                                            let caps_json = serde_json::Value::Array(capabilities);
                                             let server = crate::models::ServerNode {
                                                 id: effective_server_id,
                                                 name,
@@ -338,6 +342,7 @@ pub fn start_registry_subscriber(
                                                 registered_at: existing_opt
                                                     .map(|s| s.registered_at)
                                                     .unwrap_or_else(chrono::Utc::now),
+                                                capabilities: caps_json,
                                             };
                                             store.upsert_server(&server).await
                                         }
@@ -366,32 +371,93 @@ pub fn start_registry_subscriber(
                         .await
                     {
                         Ok(Some(instance)) => {
-                            let update_result = store
-                                .update_release_execution_instance(
-                                    &instance.id,
-                                    crate::models::ReleaseInstanceStatus::Success,
-                                    message
-                                        .as_deref()
-                                        .or(Some("Server applied release payload")),
-                                    Some("release_ack"),
-                                )
-                                .await;
-                            if let Err(e) = update_result {
-                                Err(e)
-                            } else {
-                                let _ = store
-                                    .create_release_execution_event(
-                                        &uuid::Uuid::new_v4().to_string(),
-                                        &execution_id,
-                                        Some(&instance.id),
-                                        "release_ack",
-                                        serde_json::json!({
-                                            "server_id": server_id,
-                                            "message": message,
-                                        }),
-                                    )
-                                    .await;
-                                Ok(())
+                            match store.get_release_execution(&execution_id).await {
+                                Ok(Some(execution)) => {
+                                    let ack_status = if execution.status
+                                        == crate::models::ReleaseExecutionStatus::RollbackInProgress
+                                    {
+                                        crate::models::ReleaseInstanceStatus::RolledBack
+                                    } else {
+                                        crate::models::ReleaseInstanceStatus::Success
+                                    };
+                                    let history_action = if ack_status
+                                        == crate::models::ReleaseInstanceStatus::RolledBack
+                                    {
+                                        "instance_rolled_back"
+                                    } else {
+                                        "instance_acknowledged"
+                                    };
+                                    let event_type = if ack_status
+                                        == crate::models::ReleaseInstanceStatus::RolledBack
+                                    {
+                                        "rollback_ack"
+                                    } else {
+                                        "release_ack"
+                                    };
+                                    if let Err(err) =
+                                        crate::release::validate_release_instance_transition(
+                                            &instance.status,
+                                            &ack_status,
+                                        )
+                                    {
+                                        Err(err)
+                                    } else {
+                                        let update_result = store
+                                            .update_release_execution_instance(
+                                                &instance.id,
+                                                ack_status.clone(),
+                                                message
+                                                    .as_deref()
+                                                    .or(Some("Server applied release payload")),
+                                                Some(event_type),
+                                            )
+                                            .await;
+                                        if let Err(e) = update_result {
+                                            Err(e)
+                                        } else {
+                                            let actor = crate::release::server_history_actor(
+                                                &server_id,
+                                                Some(&instance.instance_name),
+                                            );
+                                            let from_status = instance.status.to_string();
+                                            let to_status = ack_status.to_string();
+                                            let _ = store
+                                                .create_release_request_history(
+                                                    &uuid::Uuid::new_v4().to_string(),
+                                                    &execution.request_id,
+                                                    Some(&execution_id),
+                                                    Some(&instance.id),
+                                                    crate::models::ReleaseHistoryScope::Instance,
+                                                    history_action,
+                                                    &actor,
+                                                    Some(from_status.as_str()),
+                                                    Some(to_status.as_str()),
+                                                    serde_json::json!({
+                                                        "instance_name": instance.instance_name,
+                                                        "target_instance_id": instance.instance_id,
+                                                        "server_id": server_id,
+                                                        "message": message,
+                                                    }),
+                                                )
+                                                .await;
+                                            let _ = store
+                                                .create_release_execution_event(
+                                                    &uuid::Uuid::new_v4().to_string(),
+                                                    &execution_id,
+                                                    Some(&instance.id),
+                                                    event_type,
+                                                    serde_json::json!({
+                                                        "server_id": server_id,
+                                                        "message": message,
+                                                    }),
+                                                )
+                                                .await;
+                                            Ok(())
+                                        }
+                                    }
+                                }
+                                Ok(None) => Err(anyhow::anyhow!("release execution not found")),
+                                Err(e) => Err(e),
                             }
                         }
                         Ok(None) => Err(anyhow::anyhow!(
@@ -410,30 +476,72 @@ pub fn start_registry_subscriber(
                         .await
                     {
                         Ok(Some(instance)) => {
-                            let update_result = store
-                                .update_release_execution_instance(
-                                    &instance.id,
-                                    crate::models::ReleaseInstanceStatus::Failed,
-                                    Some(&error),
-                                    Some("release_failed"),
-                                )
-                                .await;
-                            if let Err(e) = update_result {
-                                Err(e)
-                            } else {
-                                let _ = store
-                                    .create_release_execution_event(
-                                        &uuid::Uuid::new_v4().to_string(),
-                                        &execution_id,
-                                        Some(&instance.id),
-                                        "release_failed",
-                                        serde_json::json!({
-                                            "server_id": server_id,
-                                            "error": error,
-                                        }),
-                                    )
-                                    .await;
-                                Ok(())
+                            match store.get_release_execution(&execution_id).await {
+                                Ok(Some(execution)) => {
+                                    if let Err(err) =
+                                        crate::release::validate_release_instance_transition(
+                                            &instance.status,
+                                            &crate::models::ReleaseInstanceStatus::Failed,
+                                        )
+                                    {
+                                        Err(err)
+                                    } else {
+                                        let update_result = store
+                                            .update_release_execution_instance(
+                                                &instance.id,
+                                                crate::models::ReleaseInstanceStatus::Failed,
+                                                Some(&error),
+                                                Some("release_failed"),
+                                            )
+                                            .await;
+                                        if let Err(e) = update_result {
+                                            Err(e)
+                                        } else {
+                                            let actor = crate::release::server_history_actor(
+                                                &server_id,
+                                                Some(&instance.instance_name),
+                                            );
+                                            let from_status = instance.status.to_string();
+                                            let to_status =
+                                                crate::models::ReleaseInstanceStatus::Failed
+                                                    .to_string();
+                                            let _ = store
+                                                .create_release_request_history(
+                                                    &uuid::Uuid::new_v4().to_string(),
+                                                    &execution.request_id,
+                                                    Some(&execution_id),
+                                                    Some(&instance.id),
+                                                    crate::models::ReleaseHistoryScope::Instance,
+                                                    "instance_failed",
+                                                    &actor,
+                                                    Some(from_status.as_str()),
+                                                    Some(to_status.as_str()),
+                                                    serde_json::json!({
+                                                        "instance_name": instance.instance_name,
+                                                        "target_instance_id": instance.instance_id,
+                                                        "server_id": server_id,
+                                                        "error": error,
+                                                    }),
+                                                )
+                                                .await;
+                                            let _ = store
+                                                .create_release_execution_event(
+                                                    &uuid::Uuid::new_v4().to_string(),
+                                                    &execution_id,
+                                                    Some(&instance.id),
+                                                    "release_failed",
+                                                    serde_json::json!({
+                                                        "server_id": server_id,
+                                                        "error": error,
+                                                    }),
+                                                )
+                                                .await;
+                                            Ok(())
+                                        }
+                                    }
+                                }
+                                Ok(None) => Err(anyhow::anyhow!("release execution not found")),
+                                Err(e) => Err(e),
                             }
                         }
                         Ok(None) => Err(anyhow::anyhow!(

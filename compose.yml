@@ -117,6 +117,31 @@ services:
       retries: 5
       start_period: 15s
 
+  ordo-platform-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.platform
+    restart: unless-stopped
+    entrypoint: ["/app/ordo-platform-worker"]
+    environment:
+      ORDO_DATABASE_URL: "postgresql://ordo:${ORDO_DB_PASSWORD:-ordo_dev_pass}@postgres:5432/ordo_platform"
+      ORDO_ENGINE_URL: "http://ordo-server:8080"
+      ORDO_NATS_URL: "nats://nats:4222"
+      ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
+      ORDO_PLATFORM_TEMPLATES_DIR: "/app/templates"
+      ORDO_JWT_SECRET: "${ORDO_JWT_SECRET:-dev-secret-change-me-in-production-32c}"
+      ORDO_JWT_EXPIRY_HOURS: "24"
+      ORDO_LOG_LEVEL: info
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      ordo-server:
+        condition: service_healthy
+      ordo-platform:
+        condition: service_healthy
+
   # ── Studio frontend (hot-reload dev server) ───────────────────────────────
   ordo-studio:
     image: node:22-alpine

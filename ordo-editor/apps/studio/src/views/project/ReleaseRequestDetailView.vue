@@ -2,9 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { releaseApi } from '@/api/platform-client';
-import type { ReleaseExecution, ReleaseRequest } from '@/api/types';
+import type { ReleaseExecution, ReleaseRequest, ReleaseRequestHistoryEntry } from '@/api/types';
 import { StudioPageHeader } from '@/components/ui';
 import ReleaseNav from '@/components/project/ReleaseNav.vue';
 import { useRolloutStrategyLabel } from '@/constants/release-center';
@@ -24,7 +24,9 @@ const executeLoading = ref(false);
 const controlLoading = ref<'pause' | 'resume' | 'rollback' | null>(null);
 const request = ref<ReleaseRequest | null>(null);
 const execution = ref<ReleaseExecution | null>(null);
+const history = ref<ReleaseRequestHistoryEntry[]>([]);
 const elapsedSeconds = ref(0);
+const clockNow = ref(Date.now());
 const activeTab = ref('overview');
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -50,7 +52,9 @@ const canReview = computed(
 );
 
 const isLiveExecution = computed(() =>
-  ['preparing', 'waiting_start', 'rolling_out', 'paused'].includes(execution.value?.status ?? '')
+  ['preparing', 'waiting_start', 'rolling_out', 'paused', 'rollback_in_progress'].includes(
+    execution.value?.status ?? ''
+  )
 );
 
 const displayExecutionStatus = computed(() => {
@@ -75,30 +79,57 @@ const requestDisplayStatus = computed(() => {
 });
 
 const hasExecution = computed(() => execution.value !== null);
+const historyEntries = computed(() => [...history.value].reverse());
 const canPauseExecution = computed(
   () =>
     !!execution.value &&
     ['preparing', 'waiting_start', 'rolling_out', 'verifying'].includes(execution.value.status)
 );
 const canResumeExecution = computed(() => execution.value?.status === 'paused');
+const executionAttemptsLabel = computed(() =>
+  request.value
+    ? `${request.value.execution_attempts}/${request.value.max_execution_attempts}`
+    : '—'
+);
+const canStartExecution = computed(
+  () =>
+    canExecute.value &&
+    !!request.value &&
+    !request.value.is_closed &&
+    request.value.status === 'approved' &&
+    !isLiveExecution.value
+);
 const canRollbackExecution = computed(
   () =>
+    !!request.value &&
+    !request.value.is_closed &&
     !!execution.value &&
-    ['completed', 'failed', 'paused'].includes(
+    ['completed', 'failed', 'rollback_failed', 'paused'].includes(
       displayExecutionStatus.value ?? execution.value.status
     )
 );
 const canRetryExecution = computed(
-  () => canExecute.value && requestDisplayStatus.value === 'failed' && !isLiveExecution.value
+  () =>
+    canExecute.value &&
+    !!request.value &&
+    !request.value.is_closed &&
+    request.value.status === 'failed' &&
+    request.value.execution_attempts < request.value.max_execution_attempts &&
+    !isLiveExecution.value
 );
-const showExecuteAction = computed(
-  () => canExecute.value && (requestDisplayStatus.value === 'approved' || canRetryExecution.value)
+const showExecuteAction = computed(() => canStartExecution.value || canRetryExecution.value);
+const retryLimitReached = computed(
+  () =>
+    !!request.value &&
+    request.value.status === 'failed' &&
+    request.value.execution_attempts >= request.value.max_execution_attempts
 );
 
 const executionTabDot = computed(() => {
   if (!displayExecutionStatus.value) return null;
   if (displayExecutionStatus.value === 'completed') return 'success';
-  if (['failed', 'rollback_in_progress'].includes(displayExecutionStatus.value)) return 'danger';
+  if (['failed', 'rollback_failed', 'rollback_in_progress'].includes(displayExecutionStatus.value))
+    return 'danger';
   if (isLiveExecution.value) return 'live';
   return null;
 });
@@ -133,14 +164,14 @@ const hasDiffChanges = computed(() => {
 function statusTheme(status: string) {
   if (['approved', 'completed'].includes(status)) return 'success';
   if (['pending_approval', 'executing'].includes(status)) return 'warning';
-  if (['rejected', 'failed'].includes(status)) return 'danger';
+  if (['rejected', 'failed', 'rollback_failed'].includes(status)) return 'danger';
   return 'default';
 }
 
 function instanceTheme(status: string) {
   if (status === 'success') return 'success';
   if (['failed', 'rolled_back'].includes(status)) return 'danger';
-  if (['updating', 'dispatching', 'verifying'].includes(status)) return 'warning';
+  if (['scheduled', 'updating', 'dispatching', 'verifying'].includes(status)) return 'warning';
   return 'default';
 }
 
@@ -155,6 +186,19 @@ function formatElapsed(s: number) {
   return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
 }
 
+const nextBatchCountdownSeconds = computed(() => {
+  if (!execution.value?.next_batch_at) return null;
+  const diffMs = new Date(execution.value.next_batch_at).getTime() - clockNow.value;
+  if (!isLiveExecution.value || diffMs <= 0) return null;
+  return Math.ceil(diffMs / 1000);
+});
+const showNextBatchWindow = computed(
+  () =>
+    !!execution.value?.next_batch_at &&
+    isLiveExecution.value &&
+    new Date(execution.value.next_batch_at).getTime() > clockNow.value
+);
+
 function formatDatetime(iso: string | undefined | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString(undefined, {
@@ -166,10 +210,100 @@ function formatDatetime(iso: string | undefined | null) {
   });
 }
 
+function historyScopeTheme(scope: string) {
+  if (scope === 'rollback') return 'danger';
+  if (scope === 'execution' || scope === 'batch') return 'warning';
+  if (scope === 'approval') return 'success';
+  return 'default';
+}
+
+function formatHistoryActor(entry: ReleaseRequestHistoryEntry) {
+  return entry.actor_name || entry.actor_email || entry.actor_id || t('releaseCenter.systemActor');
+}
+
+function formatHistoryStatus(entry: ReleaseRequestHistoryEntry) {
+  if (!entry.from_status && !entry.to_status) return null;
+  return `${entry.from_status || '—'} → ${entry.to_status || '—'}`;
+}
+
+function formatHistoryAction(action: string) {
+  const key = `releaseCenter.historyActionMap.${action}`;
+  const translated = t(key);
+  return translated === key ? action : translated;
+}
+
+function formatHistoryValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function getHistoryDetailPairs(entry: ReleaseRequestHistoryEntry) {
+  const detail = entry.detail || {};
+  const pairs: Array<{ label: string; value: string }> = [];
+  const push = (label: string, value: unknown) => {
+    if (value === null || value === undefined || value === '') return;
+    pairs.push({ label, value: formatHistoryValue(value) });
+  };
+
+  push(t('releaseCenter.historyField.reason'), detail.reason);
+  push(t('releaseCenter.historyField.ruleset'), detail.ruleset_name);
+  push(t('releaseCenter.historyField.version'), detail.version);
+  push(
+    t('releaseCenter.historyField.environment'),
+    detail.environment_name ?? detail.environment_id
+  );
+  push(t('releaseCenter.historyField.policy'), detail.policy_name ?? detail.policy_id);
+  push(t('releaseCenter.historyField.batch'), detail.batch_index);
+  push(t('releaseCenter.historyField.totalBatches'), detail.total_batches);
+  push(t('releaseCenter.historyField.instance'), detail.instance_name);
+  push(t('releaseCenter.historyField.targetInstance'), detail.target_instance_id);
+  push(t('releaseCenter.historyField.rollbackVersion'), detail.rollback_version);
+  push(t('releaseCenter.historyField.message'), detail.message);
+  push(t('releaseCenter.historyField.error'), detail.error);
+  push(t('releaseCenter.historyField.nextBatchAt'), detail.next_batch_at);
+  push(
+    t('releaseCenter.historyField.waitSeconds'),
+    detail.wait_seconds ?? detail.remaining_wait_seconds
+  );
+
+  return pairs;
+}
+
+function getHistoryHeadline(entry: ReleaseRequestHistoryEntry) {
+  const detail = entry.detail || {};
+  if (detail.instance_name) {
+    return `${formatHistoryAction(entry.action)} · ${formatHistoryValue(detail.instance_name)}`;
+  }
+  if (detail.batch_index) {
+    return `${formatHistoryAction(entry.action)} · Batch ${formatHistoryValue(detail.batch_index)}`;
+  }
+  if (detail.version) {
+    return `${formatHistoryAction(entry.action)} · v${formatHistoryValue(detail.version)}`;
+  }
+  return formatHistoryAction(entry.action);
+}
+
+function prettyHistoryDetail(detail: Record<string, unknown>) {
+  return JSON.stringify(detail, null, 2);
+}
+
+async function loadHistory() {
+  if (!auth.token) return;
+  history.value = await releaseApi.getRequestHistory(
+    auth.token,
+    route.params.orgId as string,
+    route.params.projectId as string,
+    route.params.releaseId as string
+  );
+}
+
 function startClock() {
   if (!execution.value?.started_at) return;
   const t0 = new Date(execution.value.started_at).getTime();
   clockTimer = setInterval(() => {
+    clockNow.value = Date.now();
     elapsedSeconds.value = Math.floor((Date.now() - t0) / 1000);
   }, 1000);
 }
@@ -186,13 +320,22 @@ function startPolling() {
   pollTimer = setInterval(async () => {
     if (!auth.token || !request.value) return;
     try {
-      const ex = await releaseApi.getRequestExecution(
-        auth.token,
-        route.params.orgId as string,
-        route.params.projectId as string,
-        request.value.id
-      );
+      const [ex, latestHistory] = await Promise.all([
+        releaseApi.getRequestExecution(
+          auth.token,
+          route.params.orgId as string,
+          route.params.projectId as string,
+          request.value.id
+        ),
+        releaseApi.getRequestHistory(
+          auth.token,
+          route.params.orgId as string,
+          route.params.projectId as string,
+          request.value.id
+        ),
+      ]);
       execution.value = ex;
+      history.value = latestHistory;
       if (ex && !isLiveExecution.value) {
         stopPolling();
         stopClock();
@@ -228,19 +371,30 @@ onMounted(async () => {
       rbacStore.fetchRoles(route.params.orgId as string),
       rbacStore.fetchMyRoles(route.params.orgId as string),
     ]);
-    request.value = await releaseApi.getRequest(
-      auth.token,
-      route.params.orgId as string,
-      route.params.projectId as string,
-      route.params.releaseId as string
-    );
-    const ex = await releaseApi.getRequestExecution(
-      auth.token,
-      route.params.orgId as string,
-      route.params.projectId as string,
-      route.params.releaseId as string
-    );
+    const [loadedRequest, ex, loadedHistory] = await Promise.all([
+      releaseApi.getRequest(
+        auth.token,
+        route.params.orgId as string,
+        route.params.projectId as string,
+        route.params.releaseId as string
+      ),
+      releaseApi.getRequestExecution(
+        auth.token,
+        route.params.orgId as string,
+        route.params.projectId as string,
+        route.params.releaseId as string
+      ),
+      releaseApi.getRequestHistory(
+        auth.token,
+        route.params.orgId as string,
+        route.params.projectId as string,
+        route.params.releaseId as string
+      ),
+    ]);
+    request.value = loadedRequest;
     execution.value = ex;
+    history.value = loadedHistory;
+    clockNow.value = Date.now();
     if (ex?.started_at)
       elapsedSeconds.value = Math.floor((Date.now() - new Date(ex.started_at).getTime()) / 1000);
     if (ex) {
@@ -286,6 +440,7 @@ async function submitReview() {
             request.value.id,
             { comment: reviewDialog.value.comment || undefined }
           );
+    await loadHistory();
     reviewDialog.value.visible = false;
     MessagePlugin.success(
       reviewDialog.value.mode === 'approve'
@@ -319,6 +474,7 @@ async function executeRelease() {
       route.params.projectId as string,
       request.value.id
     );
+    await loadHistory();
     startClock();
     startPolling();
     MessagePlugin.success(
@@ -332,6 +488,30 @@ async function executeRelease() {
 }
 
 async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
+  if (!auth.token || !request.value) return;
+
+  if (action === 'rollback') {
+    const release = request.value;
+    const dlg = DialogPlugin.confirm({
+      header: t('releaseCenter.rollbackDialog'),
+      body: t('releaseCenter.rollbackConfirm', {
+        title: release.title,
+        version: release.rollback_version || release.version_diff.rollback_version || '—',
+      }),
+      confirmBtn: { content: t('releaseCenter.rollbackConfirmBtn'), theme: 'danger' },
+      cancelBtn: t('common.cancel'),
+      onConfirm: async () => {
+        dlg.hide();
+        await doControlExecution('rollback');
+      },
+    });
+    return;
+  }
+
+  await doControlExecution(action);
+}
+
+async function doControlExecution(action: 'pause' | 'resume' | 'rollback') {
   if (!auth.token || !request.value) return;
   controlLoading.value = action;
   try {
@@ -363,6 +543,7 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
       route.params.projectId as string,
       request.value.id
     );
+    await loadHistory();
     if (action === 'pause') {
       stopClock();
       stopPolling();
@@ -467,6 +648,9 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
           <t-tag :theme="statusTheme(requestDisplayStatus || request.status)" variant="light">
             {{ t(`releaseCenter.statusMap.${requestDisplayStatus || request.status}`) }}
           </t-tag>
+          <t-tag v-if="request.is_closed" theme="default" variant="light">
+            {{ t('releaseCenter.requestClosed') }}
+          </t-tag>
           <div class="strip-divider" />
           <div class="strip-item">
             <span>{{ t('releaseCenter.currentVersion') }}</span>
@@ -496,6 +680,10 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
           <div class="strip-item">
             <span>{{ t('releaseCenter.createdAt') }}</span>
             <strong>{{ formatDatetime(request.created_at) }}</strong>
+          </div>
+          <div class="strip-item">
+            <span>{{ t('releaseCenter.executionAttempts') }}</span>
+            <strong>{{ executionAttemptsLabel }}</strong>
           </div>
         </div>
       </t-card>
@@ -544,7 +732,31 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                   <span>{{ t('releaseCenter.createdAt') }}</span>
                   <strong>{{ formatDatetime(request.created_at) }}</strong>
                 </div>
+                <div class="kv">
+                  <span>{{ t('releaseCenter.executionAttempts') }}</span>
+                  <strong>{{ executionAttemptsLabel }}</strong>
+                </div>
+                <div class="kv">
+                  <span>{{ t('releaseCenter.requestLifecycle') }}</span>
+                  <strong>{{
+                    request.is_closed
+                      ? t('releaseCenter.requestLifecycleClosed')
+                      : t('releaseCenter.requestLifecycleOpen')
+                  }}</strong>
+                </div>
               </div>
+              <t-alert
+                v-if="request.is_closed || retryLimitReached"
+                theme="warning"
+                variant="light"
+                :message="
+                  request.is_closed
+                    ? t('releaseCenter.requestClosedHint')
+                    : t('releaseCenter.retryLimitReachedHint', {
+                        count: request.max_execution_attempts,
+                      })
+                "
+              />
             </t-card>
 
             <!-- Change summary + release note -->
@@ -1041,6 +1253,13 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                 ✓ {{ t('releaseCenter.executionCompleted') }}
               </t-card>
               <t-card
+                v-else-if="displayExecutionStatus === 'rollback_failed'"
+                :bordered="false"
+                class="banner-card banner-card--danger"
+              >
+                ✗ {{ t('releaseCenter.executionRollbackFailed') }}
+              </t-card>
+              <t-card
                 v-else-if="displayExecutionStatus === 'failed'"
                 :bordered="false"
                 class="banner-card banner-card--danger"
@@ -1100,6 +1319,14 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                     <span>{{ t('releaseCenter.startedAt') }}</span>
                     <strong>{{ formatDatetime(execution.started_at) }}</strong>
                   </div>
+                  <div v-if="showNextBatchWindow" class="exec-stat">
+                    <span>{{ t('releaseCenter.nextBatchAt') }}</span>
+                    <strong>{{ formatDatetime(execution.next_batch_at) }}</strong>
+                  </div>
+                  <div v-if="nextBatchCountdownSeconds !== null" class="exec-stat">
+                    <span>{{ t('releaseCenter.countdown') }}</span>
+                    <strong>{{ formatElapsed(nextBatchCountdownSeconds) }}</strong>
+                  </div>
                 </div>
                 <t-progress
                   v-if="execution.total_batches > 0"
@@ -1109,7 +1336,8 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                   :status="
                     displayExecutionStatus === 'completed'
                       ? 'success'
-                      : displayExecutionStatus === 'failed'
+                      : displayExecutionStatus === 'failed' ||
+                          displayExecutionStatus === 'rollback_failed'
                         ? 'error'
                         : 'active'
                   "
@@ -1123,8 +1351,10 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                     <tr>
                       <th>{{ t('releaseCenter.instanceName') }}</th>
                       <th>{{ t('releaseCenter.zone') }}</th>
+                      <th>{{ t('releaseCenter.batchIndex') }}</th>
                       <th>{{ t('releaseCenter.currentVersion') }}</th>
                       <th>{{ t('releaseCenter.targetVersion') }}</th>
+                      <th>{{ t('releaseCenter.scheduledAt') }}</th>
                       <th>{{ t('releaseCenter.status') }}</th>
                       <th>{{ t('releaseCenter.message') }}</th>
                     </tr>
@@ -1133,8 +1363,10 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
                     <tr v-for="inst in execution.instances" :key="inst.id">
                       <td class="td-name">{{ inst.instance_name }}</td>
                       <td class="td-secondary">{{ inst.zone || '—' }}</td>
+                      <td class="td-mono">{{ inst.batch_index }}</td>
                       <td class="td-mono">{{ inst.current_version || '—' }}</td>
                       <td class="td-mono">{{ inst.target_version }}</td>
+                      <td class="td-secondary">{{ formatDatetime(inst.scheduled_at) }}</td>
                       <td>
                         <t-tag :theme="instanceTheme(inst.status)" variant="light" size="small">
                           {{ t(`releaseCenter.instanceStatusMap.${inst.status}`) }}
@@ -1147,6 +1379,46 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
               </t-card>
             </template>
             <t-empty v-else :title="t('releaseCenter.executionEmpty')" />
+          </div>
+        </t-tab-panel>
+
+        <t-tab-panel value="history" :label="t('releaseCenter.tabHistory')">
+          <div class="panel">
+            <t-card :bordered="false">
+              <div class="card-section-title">{{ t('releaseCenter.operationHistory') }}</div>
+              <div v-if="historyEntries.length" class="history-list">
+                <div v-for="item in historyEntries" :key="item.id" class="history-item">
+                  <div class="history-item__head">
+                    <div class="history-item__meta">
+                      <span class="history-item__time">{{ formatDatetime(item.created_at) }}</span>
+                      <t-tag size="small" variant="light" :theme="historyScopeTheme(item.scope)">
+                        {{ item.scope }}
+                      </t-tag>
+                      <code class="history-item__action">{{ getHistoryHeadline(item) }}</code>
+                    </div>
+                    <div class="history-item__actor">{{ formatHistoryActor(item) }}</div>
+                  </div>
+                  <div v-if="formatHistoryStatus(item)" class="history-item__status">
+                    {{ t('releaseCenter.statusFlow') }}: {{ formatHistoryStatus(item) }}
+                  </div>
+                  <div v-if="getHistoryDetailPairs(item).length" class="history-item__grid">
+                    <div
+                      v-for="pair in getHistoryDetailPairs(item)"
+                      :key="`${item.id}-${pair.label}`"
+                      class="history-item__cell"
+                    >
+                      <span class="history-item__label">{{ pair.label }}</span>
+                      <strong class="history-item__value">{{ pair.value }}</strong>
+                    </div>
+                  </div>
+                  <details class="history-item__raw">
+                    <summary>{{ t('releaseCenter.rawDetail') }}</summary>
+                    <pre class="history-item__detail">{{ prettyHistoryDetail(item.detail) }}</pre>
+                  </details>
+                </div>
+              </div>
+              <t-empty v-else :title="t('releaseCenter.historyEmpty')" />
+            </t-card>
           </div>
         </t-tab-panel>
       </t-tabs>
@@ -1200,6 +1472,97 @@ async function controlExecution(action: 'pause' | 'resume' | 'rollback') {
   padding: 24px 32px 32px;
   height: 100%;
   overflow-y: auto;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-item {
+  border: 1px solid var(--ordo-border-color, rgba(15, 23, 42, 0.08));
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.history-item__head,
+.history-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.history-item__head {
+  justify-content: space-between;
+}
+
+.history-item__time,
+.history-item__actor,
+.history-item__status {
+  color: var(--ordo-text-secondary);
+  font-size: 12px;
+}
+
+.history-item__action {
+  font-size: 12px;
+  background: rgba(15, 23, 42, 0.06);
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.history-item__status {
+  margin-top: 8px;
+}
+
+.history-item__grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.history-item__cell {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.history-item__label {
+  color: var(--ordo-text-secondary);
+  font-size: 11px;
+}
+
+.history-item__value {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.history-item__raw {
+  margin-top: 10px;
+}
+
+.history-item__raw summary {
+  cursor: pointer;
+  color: var(--ordo-text-secondary);
+  font-size: 12px;
+}
+
+.history-item__detail {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--ordo-text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .skeleton-list {

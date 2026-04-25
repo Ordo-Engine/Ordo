@@ -239,6 +239,7 @@ impl PlatformStore {
                     env.name AS environment_name, rr.policy_id, rr.status, rr.title,
                     rr.change_summary, rr.release_note, rr.affected_instance_count,
                     rp.rollout_strategy,
+                    (SELECT COUNT(*)::int FROM release_executions re WHERE re.release_request_id = rr.id) AS execution_attempts,
                     rr.rollback_version, rr.created_by, COALESCE(rr.created_by_name, u.display_name) AS created_by_name,
                     rr.created_by_email, rr.version_diff, rr.content_diff, rr.request_snapshot,
                     rr.created_at, rr.updated_at
@@ -274,6 +275,7 @@ impl PlatformStore {
                     env.name AS environment_name, rr.policy_id, rr.status, rr.title,
                     rr.change_summary, rr.release_note, rr.affected_instance_count,
                     rp.rollout_strategy,
+                    (SELECT COUNT(*)::int FROM release_executions re WHERE re.release_request_id = rr.id) AS execution_attempts,
                     rr.rollback_version, rr.created_by, COALESCE(rr.created_by_name, u.display_name) AS created_by_name,
                     rr.created_by_email, rr.version_diff, rr.content_diff, rr.request_snapshot,
                     rr.created_at, rr.updated_at
@@ -286,6 +288,37 @@ impl PlatformStore {
         .bind(release_id)
         .bind(org_id)
         .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut item = row_to_release_request(&row)?;
+        item.approvals = self.list_release_approvals(&item.id).await?;
+        Ok(Some(item))
+    }
+
+    pub async fn get_release_request_by_id(
+        &self,
+        release_id: &str,
+    ) -> Result<Option<ReleaseRequest>> {
+        let row = sqlx::query(
+            "SELECT rr.id, rr.org_id, rr.project_id, rr.ruleset_name, rr.version, rr.environment_id,
+                    env.name AS environment_name, rr.policy_id, rr.status, rr.title,
+                    rr.change_summary, rr.release_note, rr.affected_instance_count,
+                    rp.rollout_strategy,
+                    (SELECT COUNT(*)::int FROM release_executions re WHERE re.release_request_id = rr.id) AS execution_attempts,
+                    rr.rollback_version, rr.created_by, COALESCE(rr.created_by_name, u.display_name) AS created_by_name,
+                    rr.created_by_email, rr.version_diff, rr.content_diff, rr.request_snapshot,
+                    rr.created_at, rr.updated_at
+             FROM release_requests rr
+             LEFT JOIN project_environments env ON env.id = rr.environment_id
+             LEFT JOIN release_policies rp ON rp.id = rr.policy_id
+             LEFT JOIN users u ON u.id = rr.created_by
+             WHERE rr.id = $1",
+        )
+        .bind(release_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -390,8 +423,8 @@ impl PlatformStore {
     ) -> Result<ReleaseExecution> {
         sqlx::query(
             "INSERT INTO release_executions
-             (id, release_request_id, status, current_batch, total_batches, strategy_snapshot, started_at, triggered_by)
-             VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)",
+             (id, release_request_id, status, current_batch, total_batches, next_batch_at, strategy_snapshot, started_at, triggered_by)
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, NOW(), $7)",
         )
         .bind(id)
         .bind(release_request_id)
@@ -419,7 +452,7 @@ impl PlatformStore {
              SET status = $1,
                  current_batch = COALESCE($2, current_batch),
                  finished_at = CASE
-                   WHEN $1 IN ('completed', 'failed') THEN NOW()
+                   WHEN $1 IN ('completed', 'failed', 'rollback_failed') THEN NOW()
                    WHEN $1 IN ('preparing', 'waiting_start', 'rolling_out', 'paused', 'verifying', 'rollback_in_progress') THEN NULL
                    ELSE finished_at
                  END
@@ -427,6 +460,23 @@ impl PlatformStore {
         )
         .bind(status.to_string())
         .bind(current_batch)
+        .bind(execution_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_release_execution_next_batch_at(
+        &self,
+        execution_id: &str,
+        next_batch_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_executions
+             SET next_batch_at = $1
+             WHERE id = $2",
+        )
+        .bind(next_batch_at)
         .bind(execution_id)
         .execute(&self.pool)
         .await?;
@@ -456,24 +506,64 @@ impl PlatformStore {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_release_request_history(
+        &self,
+        id: &str,
+        release_request_id: &str,
+        release_execution_id: Option<&str>,
+        instance_id: Option<&str>,
+        scope: ReleaseHistoryScope,
+        action: &str,
+        actor: &ReleaseHistoryActor,
+        from_status: Option<&str>,
+        to_status: Option<&str>,
+        detail: serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO release_request_history
+             (id, release_request_id, release_execution_id, instance_id, scope, action,
+              actor_type, actor_id, actor_name, actor_email, from_status, to_status, detail, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())",
+        )
+        .bind(id)
+        .bind(release_request_id)
+        .bind(release_execution_id)
+        .bind(instance_id)
+        .bind(scope.to_string())
+        .bind(action)
+        .bind(actor.actor_type.to_string())
+        .bind(&actor.actor_id)
+        .bind(&actor.actor_name)
+        .bind(&actor.actor_email)
+        .bind(from_status)
+        .bind(to_status)
+        .bind(detail)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn create_release_execution_instance(
         &self,
         instance: &ReleaseExecutionInstance,
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO release_execution_instances
-             (id, release_execution_id, instance_id, instance_name, zone, current_version, target_version,
-              status, message, metric_summary, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::jsonb, '{}'::jsonb), $11)",
+             (id, release_execution_id, instance_id, instance_name, zone, batch_index, current_version, target_version,
+              status, scheduled_at, message, metric_summary, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '{}'::jsonb), $13)",
         )
         .bind(&instance.id)
         .bind(&instance.release_execution_id)
         .bind(&instance.instance_id)
         .bind(&instance.instance_name)
         .bind(&instance.zone)
+        .bind(instance.batch_index)
         .bind(&instance.current_version)
         .bind(&instance.target_version)
         .bind(instance.status.to_string())
+        .bind(instance.scheduled_at)
         .bind(&instance.message)
         .bind(instance.metric_summary.as_ref())
         .bind(instance.updated_at)
@@ -489,18 +579,104 @@ impl PlatformStore {
         message: Option<&str>,
         metric_summary: Option<&str>,
     ) -> Result<()> {
+        let promote_current_version = matches!(
+            status,
+            ReleaseInstanceStatus::Success | ReleaseInstanceStatus::RolledBack
+        );
         sqlx::query(
             "UPDATE release_execution_instances
              SET status = $1,
                  message = $2,
-                 metric_summary = COALESCE($3::jsonb, metric_summary),
+                 scheduled_at = NULL,
+                 current_version = CASE WHEN $3 THEN target_version ELSE current_version END,
+                 metric_summary = COALESCE($4::jsonb, metric_summary),
+                 updated_at = NOW()
+             WHERE id = $5",
+        )
+        .bind(status.to_string())
+        .bind(message)
+        .bind(promote_current_version)
+        .bind(metric_summary.map(|value| serde_json::json!({ "event": value })))
+        .bind(instance_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_release_execution_instance_plan(
+        &self,
+        instance_id: &str,
+        target_version: &str,
+        status: ReleaseInstanceStatus,
+        scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+        message: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_execution_instances
+             SET target_version = $1,
+                 status = $2,
+                 scheduled_at = $3,
+                 message = $4,
+                 updated_at = NOW()
+             WHERE id = $5",
+        )
+        .bind(target_version)
+        .bind(status.to_string())
+        .bind(scheduled_at)
+        .bind(message)
+        .bind(instance_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_release_execution_instance_schedule(
+        &self,
+        instance_id: &str,
+        status: ReleaseInstanceStatus,
+        scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+        message: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_execution_instances
+             SET status = $1,
+                 scheduled_at = $2,
+                 message = COALESCE($3, message),
                  updated_at = NOW()
              WHERE id = $4",
         )
         .bind(status.to_string())
+        .bind(scheduled_at)
         .bind(message)
-        .bind(metric_summary.map(|value| serde_json::json!({ "event": value })))
         .bind(instance_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_release_execution_batch_schedule(
+        &self,
+        execution_id: &str,
+        batch_index: i32,
+        status: ReleaseInstanceStatus,
+        scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+        message: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE release_execution_instances
+             SET status = $1,
+                 scheduled_at = $2,
+                 message = $3,
+                 updated_at = NOW()
+             WHERE release_execution_id = $4
+               AND batch_index = $5
+               AND status NOT IN ('success', 'failed', 'rolled_back', 'skipped')",
+        )
+        .bind(status.to_string())
+        .bind(scheduled_at)
+        .bind(message)
+        .bind(execution_id)
+        .bind(batch_index)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -512,8 +688,8 @@ impl PlatformStore {
         target_instance_id: &str,
     ) -> Result<Option<ReleaseExecutionInstance>> {
         let row = sqlx::query(
-            "SELECT id, release_execution_id, instance_id, instance_name, zone, current_version,
-                    target_version, status, message, metric_summary, updated_at
+            "SELECT id, release_execution_id, instance_id, instance_name, zone, batch_index, current_version,
+                    target_version, status, scheduled_at, message, metric_summary, updated_at
              FROM release_execution_instances
              WHERE release_execution_id = $1 AND instance_id = $2
              LIMIT 1",
@@ -526,16 +702,34 @@ impl PlatformStore {
             .transpose()
     }
 
+    pub async fn get_release_execution_instance(
+        &self,
+        instance_id: &str,
+    ) -> Result<Option<ReleaseExecutionInstance>> {
+        let row = sqlx::query(
+            "SELECT id, release_execution_id, instance_id, instance_name, zone, batch_index, current_version,
+                    target_version, status, scheduled_at, message, metric_summary, updated_at
+             FROM release_execution_instances
+             WHERE id = $1
+             LIMIT 1",
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| row_to_release_execution_instance(&r))
+            .transpose()
+    }
+
     pub async fn list_release_execution_instances(
         &self,
         execution_id: &str,
     ) -> Result<Vec<ReleaseExecutionInstance>> {
         let rows = sqlx::query(
-            "SELECT id, release_execution_id, instance_id, instance_name, zone, current_version,
-                    target_version, status, message, metric_summary, updated_at
+            "SELECT id, release_execution_id, instance_id, instance_name, zone, batch_index, current_version,
+                    target_version, status, scheduled_at, message, metric_summary, updated_at
              FROM release_execution_instances
              WHERE release_execution_id = $1
-             ORDER BY updated_at DESC, instance_name",
+             ORDER BY batch_index ASC, instance_name ASC, updated_at DESC",
         )
         .bind(execution_id)
         .fetch_all(&self.pool)
@@ -548,7 +742,7 @@ impl PlatformStore {
         execution_id: &str,
     ) -> Result<Option<ReleaseExecution>> {
         let row = sqlx::query(
-            "SELECT id, release_request_id, status, current_batch, total_batches, strategy_snapshot, started_at
+            "SELECT id, release_request_id, status, current_batch, total_batches, next_batch_at, strategy_snapshot, started_at
              FROM release_executions
              WHERE id = $1",
         )
@@ -569,7 +763,7 @@ impl PlatformStore {
         request_id: &str,
     ) -> Result<Option<ReleaseExecution>> {
         let row = sqlx::query(
-            "SELECT id, release_request_id, status, current_batch, total_batches, strategy_snapshot, started_at
+            "SELECT id, release_request_id, status, current_batch, total_batches, next_batch_at, strategy_snapshot, started_at
              FROM release_executions
              WHERE release_request_id = $1
              ORDER BY started_at DESC
@@ -587,20 +781,85 @@ impl PlatformStore {
         Ok(Some(item))
     }
 
-    /// On startup, mark any release execution stuck in an active non-terminal state as 'failed'.
+    pub async fn list_worker_claimable_release_executions(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ReleaseExecution>> {
+        let rows = sqlx::query(
+            "SELECT id, release_request_id, status, current_batch, total_batches, next_batch_at, strategy_snapshot, started_at
+             FROM release_executions
+             WHERE status IN ('preparing', 'waiting_start', 'rolling_out', 'rollback_in_progress')
+             ORDER BY started_at ASC
+             LIMIT $1",
+        )
+        .bind(limit.max(1))
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut item = row_to_release_execution(&row)?;
+            item.instances = self.list_release_execution_instances(&item.id).await?;
+            item.summary = summarize_release_execution_instances(&item.instances);
+            items.push(item);
+        }
+        Ok(items)
+    }
+
+    pub async fn try_lock_release_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<Option<sqlx::pool::PoolConnection<sqlx::Postgres>>> {
+        let mut conn = self.pool.acquire().await?;
+        let lock_key = format!("ordo-platform:release-execution:{execution_id}");
+        let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext($1), 0)")
+            .bind(lock_key)
+            .fetch_one(&mut *conn)
+            .await?;
+
+        if locked {
+            Ok(Some(conn))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn count_release_executions_by_request(&self, request_id: &str) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint
+             FROM release_executions
+             WHERE release_request_id = $1",
+        )
+        .bind(request_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// On startup, mark any release execution stuck in an active non-terminal state as terminal.
     /// These are executions where the platform spawned a background task that was killed mid-run.
-    /// Also updates the parent release_request to 'failed'.
+    /// Rollback flows become `rollback_failed`; rollout flows become `failed`.
     pub async fn fail_stuck_active_executions(&self) -> Result<u64> {
         let result = sqlx::query(
             "WITH stuck AS (
                 UPDATE release_executions
-                SET status = 'failed',
+                SET status = CASE
+                        WHEN status = 'rollback_in_progress' THEN 'rollback_failed'
+                        ELSE 'failed'
+                    END,
                     finished_at = NOW()
                 WHERE status IN ('preparing', 'waiting_start', 'rolling_out', 'verifying', 'rollback_in_progress')
-                RETURNING release_request_id
+                RETURNING release_request_id, status
             )
             UPDATE release_requests
-            SET status = 'failed'
+            SET status = CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM stuck
+                        WHERE stuck.release_request_id = release_requests.id
+                          AND stuck.status = 'rollback_failed'
+                    ) THEN 'rollback_failed'
+                    ELSE 'failed'
+                END
             WHERE id IN (SELECT release_request_id FROM stuck)
               AND status = 'executing'",
         )
@@ -616,7 +875,7 @@ impl PlatformStore {
     ) -> Result<Option<ReleaseExecution>> {
         let row = sqlx::query(
             "SELECT re.id, re.release_request_id, re.status, re.current_batch, re.total_batches,
-                    re.strategy_snapshot, re.started_at
+                    re.next_batch_at, re.strategy_snapshot, re.started_at
              FROM release_executions re
              INNER JOIN release_requests rr ON rr.id = re.release_request_id
              WHERE rr.org_id = $1 AND rr.project_id = $2
@@ -669,5 +928,23 @@ impl PlatformStore {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_release_execution_event).collect()
+    }
+
+    pub async fn list_release_request_history(
+        &self,
+        release_request_id: &str,
+    ) -> Result<Vec<ReleaseRequestHistoryEntry>> {
+        let rows = sqlx::query(
+            "SELECT id, release_request_id, release_execution_id, instance_id, scope, action,
+                    actor_type, actor_id, actor_name, actor_email, from_status, to_status,
+                    detail, created_at
+             FROM release_request_history
+             WHERE release_request_id = $1
+             ORDER BY created_at ASC, id ASC",
+        )
+        .bind(release_request_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(row_to_release_request_history).collect()
     }
 }

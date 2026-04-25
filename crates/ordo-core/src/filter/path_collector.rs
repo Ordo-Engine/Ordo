@@ -187,6 +187,21 @@ fn collect_recursive(
                 }
             }
         }
+
+        StepKind::SubRule { next_step, .. } => {
+            // Treat sub-rule as opaque — continue from next_step without tracking internals
+            collect_recursive(
+                ruleset,
+                evaluator,
+                next_step,
+                conditions,
+                target_results,
+                max_paths,
+                depth + 1,
+                paths,
+                truncated,
+            )?;
+        }
     }
 
     Ok(())

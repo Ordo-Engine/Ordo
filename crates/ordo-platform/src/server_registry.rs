@@ -40,6 +40,8 @@ pub struct RegisterRequest {
     pub version: Option<String>,
     /// Optional org to associate this server with
     pub org_id: Option<String>,
+    #[serde(default)]
+    pub capabilities: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -107,6 +109,7 @@ pub async fn register_server(
         status: ServerStatus::Online,
         last_seen: Some(Utc::now()),
         registered_at: existing.map(|s| s.registered_at).unwrap_or_else(Utc::now),
+        capabilities: req.capabilities,
     };
 
     state

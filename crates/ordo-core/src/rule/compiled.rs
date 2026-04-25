@@ -26,7 +26,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 const MAGIC: &[u8; 4] = b"ORDO";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const FLAG_HAS_SIGNATURE: u16 = 0b0001;
 
 /// Maximum allowed size for collections during deserialization (prevent DoS attacks)
@@ -668,6 +668,13 @@ pub enum CompiledAction {
         value: u32,
         tags: Vec<(u32, u32)>,
     },
+    ExternalCall {
+        service: u32,
+        method: u32,
+        params: Vec<(u32, u32)>,
+        result_variable: Option<u32>,
+        timeout_ms: u64,
+    },
 }
 
 impl CompiledAction {
@@ -693,6 +700,24 @@ impl CompiledAction {
                     write_u32(out, *v);
                 }
             }
+            CompiledAction::ExternalCall {
+                service,
+                method,
+                params,
+                result_variable,
+                timeout_ms,
+            } => {
+                write_u8(out, 3);
+                write_u32(out, *service);
+                write_u32(out, *method);
+                write_u32(out, params.len() as u32);
+                for (name, expr) in params {
+                    write_u32(out, *name);
+                    write_u32(out, *expr);
+                }
+                write_option_u32(out, *result_variable);
+                write_u64(out, *timeout_ms);
+            }
         }
     }
 
@@ -715,6 +740,24 @@ impl CompiledAction {
                     tags.push((read_u32(cursor)?, read_u32(cursor)?));
                 }
                 Ok(CompiledAction::Metric { name, value, tags })
+            }
+            3 => {
+                let service = read_u32(cursor)?;
+                let method = read_u32(cursor)?;
+                let count = read_u32(cursor)? as usize;
+                let mut params = Vec::with_capacity(count);
+                for _ in 0..count {
+                    params.push((read_u32(cursor)?, read_u32(cursor)?));
+                }
+                let result_variable = read_option_u32(cursor)?;
+                let timeout_ms = read_u64(cursor)?;
+                Ok(CompiledAction::ExternalCall {
+                    service,
+                    method,
+                    params,
+                    result_variable,
+                    timeout_ms,
+                })
             }
             _ => Err(OrdoError::parse_error("Unknown compiled action tag")),
         }
@@ -1004,6 +1047,11 @@ fn crc32_hash(data: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::{
+        CapabilityCategory, CapabilityDescriptor, CapabilityProvider, CapabilityRegistry,
+        CapabilityRequest, CapabilityResponse,
+    };
+    use crate::error::OrdoError;
     use crate::expr::Expr;
     use crate::rule::{
         Action, ActionKind, CompiledRuleExecutor, Condition, RuleSet, RuleSetCompiler, Step,
@@ -1015,6 +1063,55 @@ mod tests {
     use crate::signature::signer::RuleSigner;
     #[cfg(feature = "signature")]
     use crate::signature::verifier::RuleVerifier;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct EchoCapability;
+
+    impl CapabilityProvider for EchoCapability {
+        fn descriptor(&self) -> CapabilityDescriptor {
+            CapabilityDescriptor::new("network.http", CapabilityCategory::Network)
+        }
+
+        fn invoke(&self, request: &CapabilityRequest) -> Result<CapabilityResponse> {
+            let payload = match &request.payload {
+                Value::Object(payload) => payload,
+                other => {
+                    return Err(OrdoError::capability_invocation(
+                        "network.http",
+                        format!("expected object payload, got {other:?}"),
+                    ));
+                }
+            };
+
+            let url = payload
+                .get("url")
+                .cloned()
+                .ok_or_else(|| OrdoError::capability_invocation("network.http", "missing url"))?;
+            let amount = payload.get("amount").cloned().ok_or_else(|| {
+                OrdoError::capability_invocation("network.http", "missing amount")
+            })?;
+
+            Ok(CapabilityResponse::new(Value::object({
+                let mut response = HashMap::new();
+                response.insert("status".to_string(), Value::int(200));
+                response.insert("method".to_string(), Value::string(&request.operation));
+                response.insert("url".to_string(), url);
+                response.insert("echoed_amount".to_string(), amount);
+                response
+            }))
+            .with_metadata("provider", "echo"))
+        }
+    }
+
+    fn unique_temp_ordo_path(prefix: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nonce}.ordo"))
+    }
 
     fn build_ruleset() -> RuleSet {
         let mut ruleset = RuleSet::new("compiled_test", "start");
@@ -1317,6 +1414,69 @@ mod tests {
 
         println!("All file roundtrip tests passed!");
         println!("File saved at: {:?}", file_path);
+    }
+
+    #[test]
+    fn test_compiled_external_call_ordo_file_roundtrip() {
+        let mut ruleset = RuleSet::new("compiled_external_file", "invoke");
+        ruleset.add_step(Step::action(
+            "invoke",
+            "Invoke HTTP Capability",
+            vec![Action {
+                kind: ActionKind::ExternalCall {
+                    service: "network.http".to_string(),
+                    method: "POST".to_string(),
+                    params: vec![
+                        (
+                            "url".to_string(),
+                            Expr::literal("https://example.test/file-roundtrip"),
+                        ),
+                        ("amount".to_string(), Expr::field("amount")),
+                    ],
+                    result_variable: Some("http_result".to_string()),
+                    timeout_ms: 250,
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK")
+                .with_output("status", Expr::field("$http_result.payload.status"))
+                .with_output("method", Expr::field("$http_result.payload.method"))
+                .with_output("amount", Expr::field("$http_result.payload.echoed_amount"))
+                .with_output("provider", Expr::field("$http_result.metadata.provider")),
+        ));
+
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let file_path = unique_temp_ordo_path("compiled-external-call");
+        compiled.save_to_file(&file_path).unwrap();
+
+        let loaded = CompiledRuleSet::load_from_file(&file_path).unwrap();
+        let registry = Arc::new(CapabilityRegistry::new());
+        registry.register(Arc::new(EchoCapability));
+
+        let mut executor = CompiledRuleExecutor::new();
+        executor.set_capability_invoker(registry);
+
+        let input = serde_json::from_str(r#"{"amount": 42}"#).unwrap();
+        let result = executor.execute(&loaded, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(result.output.get_path("status"), Some(&Value::int(200)));
+        assert_eq!(
+            result.output.get_path("method"),
+            Some(&Value::string("POST"))
+        );
+        assert_eq!(result.output.get_path("amount"), Some(&Value::int(42)));
+        assert_eq!(
+            result.output.get_path("provider"),
+            Some(&Value::string("echo"))
+        );
+
+        std::fs::remove_file(&file_path).unwrap();
     }
 
     #[test]

@@ -36,9 +36,14 @@ const policyCount = computed(() => policies.value.length);
 const recentRequests = computed(() => [...requests.value].slice(0, 5));
 
 const isLiveExecution = computed(() =>
-  ['preparing', 'waiting_start', 'rolling_out', 'paused', 'verifying'].includes(
-    currentExecution.value?.status ?? ''
-  )
+  [
+    'preparing',
+    'waiting_start',
+    'rolling_out',
+    'paused',
+    'verifying',
+    'rollback_in_progress',
+  ].includes(currentExecution.value?.status ?? '')
 );
 
 const failedInstances = computed(
@@ -109,13 +114,13 @@ onUnmounted(() => {
 function requestStatusTheme(status: string) {
   if (status === 'completed') return 'success';
   if (status === 'pending_approval' || status === 'executing') return 'warning';
-  if (status === 'rejected' || status === 'failed') return 'danger';
+  if (status === 'rejected' || status === 'failed' || status === 'rollback_failed') return 'danger';
   return 'default';
 }
 
 function executionStatusTheme(status: string) {
   if (status === 'completed') return 'success';
-  if (status === 'failed') return 'danger';
+  if (status === 'failed' || status === 'rollback_failed') return 'danger';
   if (status === 'paused') return 'default';
   if (status === 'rollback_in_progress') return 'warning';
   return 'warning';

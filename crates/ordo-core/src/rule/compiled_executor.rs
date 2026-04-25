@@ -9,6 +9,7 @@ use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, IString, Value};
 use crate::error::{OrdoError, Result};
 use crate::expr::BytecodeVM;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // Use web_time for WASM, std::time for native
@@ -216,11 +217,7 @@ impl CompiledRuleExecutor {
                 }
             }
             CompiledAction::Metric { name, value, tags } => {
-                let expr = ruleset
-                    .expressions
-                    .get(*value as usize)
-                    .ok_or_else(|| OrdoError::parse_error("Expression index out of range"))?;
-                let val = self.vm.execute(expr, ctx)?;
+                let val = self.evaluate_expr(ruleset, *value, ctx)?;
                 let metric_value = match &val {
                     Value::Int(i) => *i as f64,
                     Value::Float(f) => *f,
@@ -248,8 +245,62 @@ impl CompiledRuleExecutor {
                     .collect::<Result<Vec<(String, String)>>>()?;
                 self.record_metric(name, metric_value, &tags)?;
             }
+            CompiledAction::ExternalCall {
+                service,
+                method,
+                params,
+                result_variable,
+                timeout_ms,
+            } => {
+                let capability_invoker = self.capability_invoker.as_ref().ok_or_else(|| {
+                    OrdoError::eval_error_static("ExternalCall requires a capability invoker")
+                })?;
+
+                let service_name = ruleset.get_string(*service)?;
+                let operation = ruleset.get_string(*method)?;
+                let mut payload = HashMap::with_capacity(params.len());
+                for (name, expr) in params {
+                    payload.insert(
+                        ruleset.get_string(*name)?.to_string(),
+                        self.evaluate_expr(ruleset, *expr, ctx)?,
+                    );
+                }
+
+                let mut request = CapabilityRequest::new(
+                    service_name.to_string(),
+                    operation.to_string(),
+                    Value::object(payload),
+                );
+                if *timeout_ms > 0 {
+                    request = request.with_timeout(*timeout_ms);
+                }
+
+                let response = capability_invoker.invoke(&request)?;
+                if let Some(result_variable) = result_variable {
+                    let response_obj = build_capability_response_value(
+                        service_name,
+                        operation,
+                        response.payload,
+                        response.metadata,
+                    );
+                    ctx.set_variable(ruleset.get_string(*result_variable)?, response_obj);
+                }
+            }
         }
         Ok(())
+    }
+
+    fn evaluate_expr(
+        &self,
+        ruleset: &CompiledRuleSet,
+        expr_idx: u32,
+        ctx: &Context,
+    ) -> Result<Value> {
+        let expr = ruleset
+            .expressions
+            .get(expr_idx as usize)
+            .ok_or_else(|| OrdoError::parse_error("Expression index out of range"))?;
+        self.vm.execute(expr, ctx)
     }
 
     fn record_metric(&self, name: &str, value: f64, tags: &[(String, String)]) -> Result<()> {
@@ -312,12 +363,35 @@ impl CompiledRuleExecutor {
     }
 }
 
+fn build_capability_response_value(
+    service: &str,
+    operation: &str,
+    payload: Value,
+    metadata: HashMap<String, String>,
+) -> Value {
+    let metadata = Value::object(
+        metadata
+            .into_iter()
+            .map(|(key, value)| (key, Value::string(value)))
+            .collect(),
+    );
+
+    Value::object({
+        let mut response = HashMap::with_capacity(4);
+        response.insert("capability".to_string(), Value::string(service));
+        response.insert("operation".to_string(), Value::string(operation));
+        response.insert("payload".to_string(), payload);
+        response.insert("metadata".to_string(), metadata);
+        response
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::capability::{
         CapabilityCategory, CapabilityDescriptor, CapabilityProvider, CapabilityRegistry,
-        CapabilityResponse,
+        CapabilityRequest, CapabilityResponse,
     };
     use crate::expr::Expr;
     use crate::rule::metrics::MetricSink;
@@ -348,6 +422,48 @@ mod tests {
         fn invoke(&self, _request: &CapabilityRequest) -> Result<CapabilityResponse> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(CapabilityResponse::empty())
+        }
+    }
+
+    struct EchoCapability;
+
+    impl CapabilityProvider for EchoCapability {
+        fn descriptor(&self) -> CapabilityDescriptor {
+            CapabilityDescriptor::new("network.http", CapabilityCategory::Network)
+        }
+
+        fn invoke(&self, request: &CapabilityRequest) -> Result<CapabilityResponse> {
+            let payload = match &request.payload {
+                Value::Object(payload) => payload,
+                other => {
+                    return Err(OrdoError::capability_invocation(
+                        "network.http",
+                        format!("expected object payload, got {other:?}"),
+                    ));
+                }
+            };
+
+            let url = payload
+                .get("url")
+                .cloned()
+                .ok_or_else(|| OrdoError::capability_invocation("network.http", "missing url"))?;
+            let amount = payload.get("amount").cloned().ok_or_else(|| {
+                OrdoError::capability_invocation("network.http", "missing amount")
+            })?;
+            let json_body = payload.get("json_body").cloned();
+
+            Ok(CapabilityResponse::new(Value::object({
+                let mut response = HashMap::new();
+                response.insert("status".to_string(), Value::int(200));
+                response.insert("method".to_string(), Value::string(&request.operation));
+                response.insert("url".to_string(), url);
+                response.insert("echoed_amount".to_string(), amount);
+                if let Some(json_body) = json_body {
+                    response.insert("json_body".to_string(), json_body);
+                }
+                response
+            }))
+            .with_metadata("provider", "echo"))
         }
     }
 
@@ -388,5 +504,167 @@ mod tests {
         assert_eq!(result.code, "OK");
         assert_eq!(capability_ref.calls.load(Ordering::SeqCst), 1);
         assert_eq!(sink.gauge_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn compiled_executor_supports_external_call_capabilities() {
+        let mut ruleset = RuleSet::new("compiled_external_call_test", "invoke");
+        ruleset.add_step(Step::action(
+            "invoke",
+            "Invoke Capability",
+            vec![Action {
+                kind: ActionKind::ExternalCall {
+                    service: "network.http".to_string(),
+                    method: "POST".to_string(),
+                    params: vec![
+                        (
+                            "url".to_string(),
+                            Expr::literal("https://example.test/score"),
+                        ),
+                        ("amount".to_string(), Expr::field("amount")),
+                    ],
+                    result_variable: Some("http_result".to_string()),
+                    timeout_ms: 250,
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK")
+                .with_output("status", Expr::field("$http_result.payload.status"))
+                .with_output("method", Expr::field("$http_result.payload.method"))
+                .with_output("amount", Expr::field("$http_result.payload.echoed_amount"))
+                .with_output("provider", Expr::field("$http_result.metadata.provider")),
+        ));
+
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let registry = Arc::new(CapabilityRegistry::new());
+        registry.register(Arc::new(EchoCapability));
+
+        let mut executor = CompiledRuleExecutor::new();
+        executor.set_capability_invoker(registry);
+
+        let input = serde_json::from_str(r#"{"amount": 42}"#).unwrap();
+        let result = executor.execute(&compiled, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(result.output.get_path("status"), Some(&Value::int(200)));
+        assert_eq!(
+            result.output.get_path("method"),
+            Some(&Value::string("POST"))
+        );
+        assert_eq!(result.output.get_path("amount"), Some(&Value::int(42)));
+        assert_eq!(
+            result.output.get_path("provider"),
+            Some(&Value::string("echo"))
+        );
+    }
+
+    #[test]
+    fn compiled_ruleset_external_call_survives_serialize_roundtrip() {
+        let mut ruleset = RuleSet::new("compiled_external_roundtrip", "invoke");
+        ruleset.add_step(Step::action(
+            "invoke",
+            "Invoke Capability",
+            vec![Action {
+                kind: ActionKind::ExternalCall {
+                    service: "network.http".to_string(),
+                    method: "POST".to_string(),
+                    params: vec![
+                        (
+                            "url".to_string(),
+                            Expr::literal("https://example.test/roundtrip"),
+                        ),
+                        ("amount".to_string(), Expr::field("amount")),
+                    ],
+                    result_variable: Some("http_result".to_string()),
+                    timeout_ms: 100,
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK")
+                .with_output("amount", Expr::field("$http_result.payload.echoed_amount")),
+        ));
+
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let bytes = compiled.serialize();
+        let decoded = CompiledRuleSet::deserialize(&bytes).unwrap();
+        let registry = Arc::new(CapabilityRegistry::new());
+        registry.register(Arc::new(EchoCapability));
+
+        let mut executor = CompiledRuleExecutor::new();
+        executor.set_capability_invoker(registry);
+
+        let input = serde_json::from_str(r#"{"amount": 17}"#).unwrap();
+        let result = executor.execute(&decoded, input).unwrap();
+        assert_eq!(result.output.get_path("amount"), Some(&Value::int(17)));
+    }
+
+    #[test]
+    fn compiled_executor_preserves_object_payloads_for_external_calls() {
+        let mut ruleset = RuleSet::new("compiled_external_payload_test", "invoke");
+        ruleset.add_step(Step::action(
+            "invoke",
+            "Invoke Capability",
+            vec![Action {
+                kind: ActionKind::ExternalCall {
+                    service: "network.http".to_string(),
+                    method: "POST".to_string(),
+                    params: vec![
+                        (
+                            "url".to_string(),
+                            Expr::literal("https://example.test/object-payload"),
+                        ),
+                        (
+                            "json_body".to_string(),
+                            Expr::Object(vec![
+                                ("hello".to_string(), Expr::literal("world")),
+                                ("amount".to_string(), Expr::field("amount")),
+                            ]),
+                        ),
+                        ("amount".to_string(), Expr::field("amount")),
+                    ],
+                    result_variable: Some("http_result".to_string()),
+                    timeout_ms: 250,
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK")
+                .with_output("hello", Expr::field("$http_result.payload.json_body.hello"))
+                .with_output(
+                    "amount",
+                    Expr::field("$http_result.payload.json_body.amount"),
+                ),
+        ));
+
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let registry = Arc::new(CapabilityRegistry::new());
+        registry.register(Arc::new(EchoCapability));
+
+        let mut executor = CompiledRuleExecutor::new();
+        executor.set_capability_invoker(registry);
+
+        let input = serde_json::from_str(r#"{"amount": 42}"#).unwrap();
+        let result = executor.execute(&compiled, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(
+            result.output.get_path("hello"),
+            Some(&Value::string("world"))
+        );
+        assert_eq!(result.output.get_path("amount"), Some(&Value::int(42)));
     }
 }

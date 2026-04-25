@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { convertToEngineFormat } from '@ordo-engine/editor-core';
+import type { RuleSet } from '@ordo-engine/editor-core';
 import { rulesetDraftApi, testApi } from '@/api/platform-client';
-import { isEngineRuleset, normalizeRuleset } from '@/utils/ruleset';
+import { normalizeRuleset } from '@/utils/ruleset';
 import { useAuthStore } from './auth';
 import type { ProjectTestRunResult, TestCase, TestCaseInput, TestRunResult } from '@/api/types';
 
@@ -19,18 +19,18 @@ export const useTestStore = defineStore('test', () => {
   const projectRunResult = ref<ProjectTestRunResult | null>(null);
   const projectRunning = ref(false);
 
-  async function buildEngineRuleset(
+  async function buildPlatformRuleset(
     orgId: string,
     projectId: string,
     rulesetName: string
   ): Promise<Record<string, unknown>> {
     if (!auth.token) throw new Error('Not authenticated');
+    // Platform owns studio -> engine conversion. Fetch the draft in studio
+    // format, normalize it on the client, then ask platform to convert it
+    // before invoking the test execution endpoints.
     const draft = await rulesetDraftApi.get(auth.token, orgId, projectId, rulesetName);
-    if (isEngineRuleset(draft.draft)) {
-      return draft.draft as unknown as Record<string, unknown>;
-    }
-    const normalized = normalizeRuleset(draft.draft, rulesetName);
-    return convertToEngineFormat(normalized) as unknown as Record<string, unknown>;
+    const studioRuleset: RuleSet = normalizeRuleset(draft.draft, rulesetName);
+    return rulesetDraftApi.convert(auth.token, orgId, projectId, rulesetName, studioRuleset);
   }
 
   // ── Ruleset-level operations ──────────────────────────────────────────────
@@ -94,7 +94,7 @@ export const useTestStore = defineStore('test', () => {
     if (!auth.token) return;
     running.value = true;
     try {
-      const ruleset = await buildEngineRuleset(orgId, projectId, rulesetName);
+      const ruleset = await buildPlatformRuleset(orgId, projectId, rulesetName);
       const results = await testApi.runAll(auth.token, projectId, rulesetName, {
         ruleset,
         include_trace: true,
@@ -116,7 +116,7 @@ export const useTestStore = defineStore('test', () => {
     if (!auth.token) return;
     runningOne.value = new Set([...runningOne.value, testId]);
     try {
-      const ruleset = await buildEngineRuleset(orgId, projectId, rulesetName);
+      const ruleset = await buildPlatformRuleset(orgId, projectId, rulesetName);
       const result = await testApi.runOne(auth.token, projectId, rulesetName, testId, {
         ruleset,
         include_trace: true,
@@ -151,7 +151,7 @@ export const useTestStore = defineStore('test', () => {
     try {
       const rulesetEntries = await Promise.all(
         rulesetNames.map(async (rulesetName) => {
-          const ruleset = await buildEngineRuleset(orgId, projectId, rulesetName);
+          const ruleset = await buildPlatformRuleset(orgId, projectId, rulesetName);
           return [rulesetName, ruleset] as const;
         })
       );

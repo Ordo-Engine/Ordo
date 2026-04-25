@@ -2275,7 +2275,9 @@ dependencies = [
  "anyhow",
  "clap",
  "colored",
+ "hashbrown 0.14.5",
  "ordo-core",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2349,6 +2351,7 @@ dependencies = [
  "hostname",
  "jsonwebtoken",
  "ordo-core",
+ "ordo-protocol",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "serde",
@@ -2374,6 +2377,17 @@ dependencies = [
  "prost",
  "tonic 0.10.2",
  "tonic-build",
+]
+
+[[package]]
+name = "ordo-protocol"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "ordo-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3016,7 +3030,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",

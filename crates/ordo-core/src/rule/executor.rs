@@ -4,7 +4,7 @@
 
 use super::metrics::{MetricSink, NoOpMetricSink};
 use super::model::{FieldMissingBehavior, RuleSet};
-use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, TerminalResult};
+use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, SubRuleGraph, TerminalResult};
 use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
@@ -279,7 +279,56 @@ impl RuleExecutor {
 
             // Execute step — branch on tracing to avoid Instant syscalls in the hot path.
             // When tracing is off (default), zero Instant calls per step.
-            let (step_result, step_duration) = if tracing {
+            let (step_result, step_duration, sub_frames) = if let StepKind::SubRule {
+                ref_name,
+                bindings,
+                outputs,
+                next_step,
+            } = &step.kind
+            {
+                // SubRule: execute inline sub-graph, then map outputs back to parent context
+                if remaining_call_depth == 0 {
+                    return Err(OrdoError::eval_error(format!(
+                        "SubRule max nesting depth ({}) exceeded calling '{}'",
+                        self.max_call_depth, ref_name
+                    )));
+                }
+                let graph = ruleset.sub_rules.get(ref_name.as_str()).ok_or_else(|| {
+                    OrdoError::eval_error(format!("Sub-rule '{}' not found", ref_name))
+                })?;
+                let mut child_data = hashbrown::HashMap::new();
+                for (field, expr) in bindings {
+                    child_data.insert(
+                        std::sync::Arc::from(field.as_str()),
+                        self.evaluator.eval(expr, &ctx)?,
+                    );
+                }
+                let child_input = Value::object_optimized(child_data);
+                let step_start = if tracing { Some(Instant::now()) } else { None };
+                let (child_ctx, sub_trace) = self.execute_sub_graph(
+                    graph,
+                    child_input,
+                    &ruleset.config.field_missing,
+                    tracing,
+                    remaining_call_depth - 1,
+                )?;
+                let dur = step_start
+                    .map(|t| t.elapsed().as_micros() as u64)
+                    .unwrap_or(0);
+                for (parent_var, child_var) in outputs {
+                    if let Some(val) = child_ctx.variables().get(child_var.as_str()) {
+                        ctx.set_variable(parent_var.clone(), val.clone());
+                    }
+                }
+                let frames = if tracing { Some(sub_trace) } else { None };
+                (
+                    StepResult::Continue {
+                        next_step: next_step.as_str(),
+                    },
+                    dur,
+                    frames,
+                )
+            } else if tracing {
                 let step_start = Instant::now();
                 let result = self.execute_step(
                     step,
@@ -287,7 +336,7 @@ impl RuleExecutor {
                     &ruleset.config.field_missing,
                     remaining_call_depth,
                 )?;
-                (result, step_start.elapsed().as_micros() as u64)
+                (result, step_start.elapsed().as_micros() as u64, None)
             } else {
                 let result = self.execute_step(
                     step,
@@ -295,12 +344,12 @@ impl RuleExecutor {
                     &ruleset.config.field_missing,
                     remaining_call_depth,
                 )?;
-                (result, 0)
+                (result, 0, None)
             };
 
             // Record trace (only when enabled — zero overhead otherwise)
             if let Some(ref mut trace) = trace {
-                let step_trace = match &step_result {
+                let mut step_trace = match &step_result {
                     StepResult::Continue { next_step } => {
                         let mut st =
                             StepTrace::continued(&step.id, &step.name, step_duration, next_step);
@@ -323,6 +372,9 @@ impl RuleExecutor {
                         st
                     }
                 };
+                if let Some(frames) = sub_frames {
+                    step_trace.sub_rule_frames = Some(frames);
+                }
                 trace.add_step(step_trace);
             }
 
@@ -472,6 +524,77 @@ impl RuleExecutor {
             }
 
             StepKind::Terminal { result } => Ok(StepResult::Terminal { result }),
+
+            // Handled at the execute_internal loop level before reaching execute_step
+            StepKind::SubRule { .. } => {
+                unreachable!("SubRule steps are dispatched in execute_internal")
+            }
+        }
+    }
+
+    /// Execute a sub-rule graph and return the resulting context and optional trace frames.
+    fn execute_sub_graph(
+        &self,
+        graph: &SubRuleGraph,
+        input: Value,
+        field_missing: &FieldMissingBehavior,
+        tracing: bool,
+        remaining_call_depth: usize,
+    ) -> Result<(Context, Vec<StepTrace>)> {
+        let mut ctx = Context::new(input);
+        let mut frames: Vec<StepTrace> = Vec::new();
+        let mut current = graph.entry_step.clone();
+        let mut depth: usize = 0;
+
+        loop {
+            if depth >= 1000 {
+                return Err(OrdoError::MaxDepthExceeded { max_depth: 1000 });
+            }
+
+            let step =
+                graph
+                    .steps
+                    .get(current.as_str())
+                    .ok_or_else(|| OrdoError::StepNotFound {
+                        step_id: current.clone(),
+                    })?;
+
+            let (result, dur) = if tracing {
+                let t = Instant::now();
+                let r = self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?;
+                (r, t.elapsed().as_micros() as u64)
+            } else {
+                (
+                    self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?,
+                    0,
+                )
+            };
+
+            if tracing {
+                let mut st = match &result {
+                    StepResult::Continue { next_step } => {
+                        StepTrace::continued(&step.id, &step.name, dur, next_step)
+                    }
+                    StepResult::Terminal { .. } => StepTrace::terminal(&step.id, &step.name, dur),
+                };
+                if self.trace_config.capture_input {
+                    st.input_snapshot = Some(ctx.data().clone());
+                }
+                if self.trace_config.capture_variables {
+                    st.variables_snapshot = Some(ctx.variables().clone());
+                }
+                frames.push(st);
+            }
+
+            match result {
+                StepResult::Continue { next_step } => {
+                    current = next_step.to_string();
+                    depth += 1;
+                }
+                StepResult::Terminal { .. } => {
+                    return Ok((ctx, frames));
+                }
+            }
         }
     }
 
@@ -1263,5 +1386,147 @@ mod tests {
         let input = serde_json::from_str(r#"{}"#).unwrap();
         let result = executor.execute(&main, input);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sub_rule_basic() {
+        use crate::rule::step::{Action, ActionKind, SubRuleGraph};
+
+        // Sub-rule: checks score and sets a "tier" variable
+        let mut sub_steps = hashbrown::HashMap::new();
+        sub_steps.insert(
+            "check_score".to_string(),
+            Step::decision("check_score", "Check Score")
+                .branch(Condition::from_string("score >= 90"), "tier_gold")
+                .default("tier_silver")
+                .build(),
+        );
+        sub_steps.insert(
+            "tier_gold".to_string(),
+            Step::action(
+                "tier_gold",
+                "Gold",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal(Value::string("gold")),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        sub_steps.insert(
+            "tier_silver".to_string(),
+            Step::action(
+                "tier_silver",
+                "Silver",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal(Value::string("silver")),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        sub_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let graph = SubRuleGraph {
+            entry_step: "check_score".to_string(),
+            steps: sub_steps,
+        };
+
+        let mut ruleset = RuleSet::new("main", "start");
+        ruleset.add_sub_rule("classify", graph);
+
+        // Main: SubRule step → terminal
+        ruleset.add_step(Step {
+            id: "start".to_string(),
+            name: "Start".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "classify".to_string(),
+                bindings: vec![("score".to_string(), Expr::field("score"))],
+                outputs: vec![("result_tier".to_string(), "tier".to_string())],
+                next_step: "end".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal(
+            "end",
+            "End",
+            TerminalResult::new("DONE").with_output("tier", Expr::field("$result_tier")),
+        ));
+
+        let executor = RuleExecutor::new();
+
+        // Test with score >= 90 → gold
+        let input: Value = serde_json::from_str(r#"{"score": 95}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+        assert_eq!(result.code, "DONE");
+        assert_eq!(result.output.get_path("tier"), Some(&Value::string("gold")));
+
+        // Test with score < 90 → silver
+        let input: Value = serde_json::from_str(r#"{"score": 70}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+        assert_eq!(result.code, "DONE");
+        assert_eq!(
+            result.output.get_path("tier"),
+            Some(&Value::string("silver"))
+        );
+    }
+
+    #[test]
+    fn test_sub_rule_validation_cycle() {
+        use crate::rule::step::SubRuleGraph;
+
+        // Create a sub-rule that calls itself — should be detected as a cycle
+        let mut sub_steps = hashbrown::HashMap::new();
+        sub_steps.insert(
+            "a".to_string(),
+            Step {
+                id: "a".to_string(),
+                name: "A".to_string(),
+                kind: StepKind::SubRule {
+                    ref_name: "loop_sub".to_string(),
+                    bindings: vec![],
+                    outputs: vec![],
+                    next_step: "term".to_string(),
+                },
+            },
+        );
+        sub_steps.insert(
+            "term".to_string(),
+            Step::terminal("term", "Term", TerminalResult::new("OK")),
+        );
+
+        let graph = SubRuleGraph {
+            entry_step: "a".to_string(),
+            steps: sub_steps,
+        };
+
+        let mut ruleset = RuleSet::new("main", "start");
+        ruleset.add_sub_rule("loop_sub", graph);
+        ruleset.add_step(Step {
+            id: "start".to_string(),
+            name: "Start".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "loop_sub".to_string(),
+                bindings: vec![],
+                outputs: vec![],
+                next_step: "end".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal("end", "End", TerminalResult::new("OK")));
+
+        let errors = ruleset.validate().unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.contains("Cycle")),
+            "Expected cycle error, got: {:?}",
+            errors
+        );
     }
 }

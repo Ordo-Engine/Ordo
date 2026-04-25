@@ -25,7 +25,7 @@ variable "datacenter" {
 
 variable "image" {
   type    = string
-  default = "ordo-devcontainer:uid1001-watch8"
+  default = "ordo-devcontainer:local"
 }
 
 variable "node_name" {

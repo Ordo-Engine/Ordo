@@ -60,8 +60,10 @@ pub enum Opcode {
     Call = 50, // r[A] = func(r[B..B+C])
 
     // Special
-    Exists = 60, // r[A] = ctx.has(fields[B])
-    Return = 70, // return r[A]
+    Exists = 60,    // r[A] = ctx.has(fields[B])
+    ArrayPush = 61, // r[A].push(r[B])
+    ObjectSet = 62, // r[A][fields[C]] = r[B]
+    Return = 70,    // return r[A]
 
     // ========== SUPERINSTRUCTIONS ==========
     // These combine common patterns into single instructions
@@ -406,6 +408,8 @@ fn opcode_from_u8(opcode: u8) -> Result<Opcode> {
         42 => Ok(Opcode::Jump),
         50 => Ok(Opcode::Call),
         60 => Ok(Opcode::Exists),
+        61 => Ok(Opcode::ArrayPush),
+        62 => Ok(Opcode::ObjectSet),
         70 => Ok(Opcode::Return),
         100 => Ok(Opcode::FieldGtConst),
         101 => Ok(Opcode::FieldLtConst),
@@ -812,6 +816,25 @@ impl BytecodeVM {
                     regs[inst.a as usize] = Value::bool(ctx.get(field).is_some());
                 }
 
+                Opcode::ArrayPush => {
+                    let value = regs[inst.b as usize].clone();
+                    match &mut regs[inst.a as usize] {
+                        Value::Array(values) => values.push(value),
+                        other => return Err(OrdoError::type_error("array", other.type_name())),
+                    }
+                }
+
+                Opcode::ObjectSet => {
+                    let key = unsafe { fields.get_unchecked(inst.c as usize) };
+                    let value = regs[inst.b as usize].clone();
+                    match &mut regs[inst.a as usize] {
+                        Value::Object(map) => {
+                            map.insert(std::sync::Arc::from(key.as_str()), value);
+                        }
+                        other => return Err(OrdoError::type_error("object", other.type_name())),
+                    }
+                }
+
                 Opcode::Return => {
                     return Ok(regs[inst.a as usize].clone());
                 }
@@ -1125,6 +1148,23 @@ impl BytecodeVM {
                     let field = unsafe { fields.get_unchecked(inst.b as usize) };
                     regs[inst.a as usize] = Value::bool(ctx.get(field).is_some());
                 }
+                Opcode::ArrayPush => {
+                    let value = regs[inst.b as usize].clone();
+                    match &mut regs[inst.a as usize] {
+                        Value::Array(values) => values.push(value),
+                        other => return Err(OrdoError::type_error("array", other.type_name())),
+                    }
+                }
+                Opcode::ObjectSet => {
+                    let key = unsafe { fields.get_unchecked(inst.c as usize) };
+                    let value = regs[inst.b as usize].clone();
+                    match &mut regs[inst.a as usize] {
+                        Value::Object(map) => {
+                            map.insert(std::sync::Arc::from(key.as_str()), value);
+                        }
+                        other => return Err(OrdoError::type_error("object", other.type_name())),
+                    }
+                }
                 Opcode::Return => {
                     let inst_duration = inst_start.elapsed().as_nanos() as u64;
 
@@ -1205,6 +1245,11 @@ impl BytecodeVM {
             Opcode::Exists => {
                 let field = compiled.fields.get(inst.b as usize);
                 format!("EXISTS r{} = exists({:?})", inst.a, field)
+            }
+            Opcode::ArrayPush => format!("ARRAY_PUSH r{} << r{}", inst.a, inst.b),
+            Opcode::ObjectSet => {
+                let field = compiled.fields.get(inst.c as usize);
+                format!("OBJECT_SET r{}[{field:?}] = r{}", inst.a, inst.b)
             }
             Opcode::Return => format!("RETURN r{}", inst.a),
             Opcode::FieldGtConst => {

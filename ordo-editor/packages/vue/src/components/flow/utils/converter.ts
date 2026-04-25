@@ -19,7 +19,7 @@ import {
 import { EDGE_COLORS } from '../types';
 
 /** Node types for Vue Flow */
-export type FlowNodeType = 'decision' | 'action' | 'terminal' | 'group';
+export type FlowNodeType = 'decision' | 'action' | 'terminal' | 'sub_rule' | 'group';
 
 /** Edge types */
 export type FlowEdgeType = 'exec' | 'exec-branch' | 'data';

@@ -31,6 +31,7 @@ use ordo_core::{
     rule::{ExecutionOptions, RuleExecutor, RuleSet},
     trace::ExecutionTrace,
 };
+use ordo_protocol::StudioRuleSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -343,14 +344,14 @@ pub async fn run_project_tests(
             req.include_trace,
         )
         .await
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|err| {
             tests
                 .iter()
                 .map(|t| TestRunResult {
                     test_id: t.id.clone(),
                     test_name: t.name.clone(),
                     passed: false,
-                    failures: vec!["engine error".to_string()],
+                    failures: vec![err.to_string()],
                     duration_us: 0,
                     actual_code: None,
                     actual_message: None,
@@ -555,7 +556,7 @@ async fn resolve_execution_ruleset(
     provided_ruleset: Option<&JsonValue>,
 ) -> ApiResult<JsonValue> {
     if let Some(ruleset) = provided_ruleset {
-        return Ok(ruleset.clone());
+        return normalize_execution_ruleset_json(ruleset);
     }
 
     let draft = state
@@ -565,13 +566,7 @@ async fn resolve_execution_ruleset(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Ruleset draft not found"))?;
 
-    if looks_like_engine_ruleset(&draft.draft) {
-        return Ok(draft.draft);
-    }
-
-    Err(PlatformError::bad_request(
-        "Engine-format ruleset payload is required for local test execution",
-    ))
+    normalize_execution_ruleset_json(&draft.draft)
 }
 
 fn looks_like_engine_ruleset(ruleset: &JsonValue) -> bool {
@@ -581,6 +576,37 @@ fn looks_like_engine_ruleset(ruleset: &JsonValue) -> bool {
         .and_then(|value| value.as_str())
         .is_some()
         && ruleset.get("steps").is_some_and(JsonValue::is_object)
+}
+
+fn looks_like_studio_ruleset(ruleset: &JsonValue) -> bool {
+    ruleset
+        .get("startStepId")
+        .and_then(JsonValue::as_str)
+        .is_some()
+        && ruleset.get("steps").is_some_and(JsonValue::is_array)
+}
+
+fn normalize_execution_ruleset_json(ruleset: &JsonValue) -> ApiResult<JsonValue> {
+    if looks_like_engine_ruleset(ruleset) {
+        return Ok(ruleset.clone());
+    }
+
+    if looks_like_studio_ruleset(ruleset) {
+        let studio: StudioRuleSet = serde_json::from_value(ruleset.clone()).map_err(|e| {
+            PlatformError::bad_request(format!("Invalid studio ruleset payload: {}", e))
+        })?;
+        let engine: RuleSet = studio
+            .try_into()
+            .map_err(|e: ordo_protocol::ConvertError| {
+                PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
+            })?;
+        return serde_json::to_value(&engine)
+            .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)));
+    }
+
+    Err(PlatformError::bad_request(
+        "Ruleset payload must be either studio format or engine format",
+    ))
 }
 
 fn compile_ruleset(ruleset: &JsonValue) -> anyhow::Result<RuleSet> {

@@ -26,6 +26,7 @@ pub(super) fn row_to_project(r: &sqlx::postgres::PgRow) -> Project {
 pub(super) fn row_to_server(r: &sqlx::postgres::PgRow) -> ServerNode {
     use std::str::FromStr;
     let labels: sqlx::types::Json<serde_json::Value> = r.get("labels");
+    let capabilities: sqlx::types::Json<serde_json::Value> = r.get("capabilities");
     let status_str: String = r.get("status");
     ServerNode {
         id: r.get("id"),
@@ -38,6 +39,7 @@ pub(super) fn row_to_server(r: &sqlx::postgres::PgRow) -> ServerNode {
         status: ServerStatus::from_str(&status_str).unwrap_or(ServerStatus::Offline),
         last_seen: r.get("last_seen"),
         registered_at: r.get("registered_at"),
+        capabilities: capabilities.0,
     }
 }
 
@@ -126,6 +128,7 @@ pub(super) fn row_to_release_policy(r: &sqlx::postgres::PgRow) -> Result<Release
 pub(super) fn row_to_release_request(r: &sqlx::postgres::PgRow) -> Result<ReleaseRequest> {
     use std::str::FromStr;
     let status: String = r.get("status");
+    let parsed_status = ReleaseRequestStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?;
     let rollout_strategy: Option<sqlx::types::Json<RolloutStrategy>> =
         r.try_get("rollout_strategy").ok();
     let version_diff: Option<sqlx::types::Json<ReleaseVersionDiff>> =
@@ -143,7 +146,7 @@ pub(super) fn row_to_release_request(r: &sqlx::postgres::PgRow) -> Result<Releas
         environment_id: r.get("environment_id"),
         environment_name: r.try_get("environment_name").ok(),
         policy_id: r.get("policy_id"),
-        status: ReleaseRequestStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?,
+        status: parsed_status.clone(),
         title: r.get("title"),
         change_summary: r.get("change_summary"),
         release_note: r.get("release_note"),
@@ -158,6 +161,12 @@ pub(super) fn row_to_release_request(r: &sqlx::postgres::PgRow) -> Result<Releas
         version_diff: version_diff.map(|v| v.0).unwrap_or_default(),
         content_diff: content_diff.map(|v| v.0).unwrap_or_default(),
         request_snapshot: request_snapshot.map(|v| v.0).unwrap_or_default(),
+        execution_attempts: r.try_get("execution_attempts").unwrap_or(0),
+        max_execution_attempts: crate::release::MAX_RELEASE_EXECUTION_ATTEMPTS as i32,
+        is_closed: matches!(
+            parsed_status,
+            ReleaseRequestStatus::RolledBack | ReleaseRequestStatus::Cancelled
+        ),
         approvals: Vec::new(),
     })
 }
@@ -190,6 +199,7 @@ pub(super) fn row_to_release_execution(r: &sqlx::postgres::PgRow) -> Result<Rele
         started_at: r.get("started_at"),
         current_batch: r.get("current_batch"),
         total_batches: r.get("total_batches"),
+        next_batch_at: r.try_get("next_batch_at").ok(),
         strategy: strategy.0,
         summary: ReleaseExecutionSummary::default(),
         instances: Vec::new(),
@@ -208,9 +218,11 @@ pub(super) fn row_to_release_execution_instance(
         instance_id: r.get("instance_id"),
         instance_name: r.get("instance_name"),
         zone: r.try_get("zone").ok(),
+        batch_index: r.get("batch_index"),
         current_version: r.get("current_version"),
         target_version: r.get("target_version"),
         status: ReleaseInstanceStatus::from_str(&status).map_err(|e| anyhow::anyhow!(e))?,
+        scheduled_at: r.try_get("scheduled_at").ok(),
         updated_at: r.get("updated_at"),
         message: r.try_get("message").ok(),
         metric_summary: metric_summary.map(|v| v.0),
@@ -232,7 +244,18 @@ pub(super) fn summarize_release_execution_instances(
         .iter()
         .filter(|item| item.status == ReleaseInstanceStatus::Failed)
         .count() as i32;
-    let pending_instances = total_instances - succeeded_instances - failed_instances;
+    let pending_instances = instances
+        .iter()
+        .filter(|item| {
+            !matches!(
+                item.status,
+                ReleaseInstanceStatus::Success
+                    | ReleaseInstanceStatus::RolledBack
+                    | ReleaseInstanceStatus::Failed
+                    | ReleaseInstanceStatus::Skipped
+            )
+        })
+        .count() as i32;
 
     ReleaseExecutionSummary {
         total_instances,
@@ -252,6 +275,34 @@ pub(super) fn row_to_release_execution_event(
         instance_id: r.try_get("instance_id").ok(),
         event_type: r.get("event_type"),
         payload: payload.0,
+        created_at: r.get("created_at"),
+    })
+}
+
+pub(super) fn row_to_release_request_history(
+    r: &sqlx::postgres::PgRow,
+) -> Result<ReleaseRequestHistoryEntry> {
+    use std::str::FromStr;
+
+    let scope: String = r.get("scope");
+    let actor_type: String = r.get("actor_type");
+    let detail: sqlx::types::Json<serde_json::Value> = r.get("detail");
+
+    Ok(ReleaseRequestHistoryEntry {
+        id: r.get("id"),
+        release_request_id: r.get("release_request_id"),
+        release_execution_id: r.try_get("release_execution_id").ok(),
+        instance_id: r.try_get("instance_id").ok(),
+        scope: ReleaseHistoryScope::from_str(&scope).map_err(|e| anyhow::anyhow!(e))?,
+        action: r.get("action"),
+        actor_type: ReleaseHistoryActorType::from_str(&actor_type)
+            .map_err(|e| anyhow::anyhow!(e))?,
+        actor_id: r.try_get("actor_id").ok(),
+        actor_name: r.try_get("actor_name").ok(),
+        actor_email: r.try_get("actor_email").ok(),
+        from_status: r.try_get("from_status").ok(),
+        to_status: r.try_get("to_status").ok(),
+        detail: detail.0,
         created_at: r.get("created_at"),
     })
 }

@@ -18,6 +18,8 @@ mod rbac;
 mod release;
 #[path = "models/servers.rs"]
 mod servers;
+#[path = "models/sub_rules.rs"]
+mod sub_rules;
 
 pub use auth::*;
 pub use catalog::*;
@@ -28,3 +30,4 @@ pub use notifications::*;
 pub use rbac::*;
 pub use release::*;
 pub use servers::*;
+pub use sub_rules::*;

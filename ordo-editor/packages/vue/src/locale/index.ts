@@ -86,6 +86,7 @@ export interface LocaleMessages {
     decision: string;
     action: string;
     terminal: string;
+    subRule: string;
     start: string;
     setAsStart: string;
     branches: string;
@@ -101,6 +102,25 @@ export interface LocaleMessages {
     typeDecision: string;
     typeAction: string;
     typeTerminal: string;
+    typeSubRule: string;
+    refName: string;
+    managedAsset: string;
+    customSubRuleName: string;
+    assetScope: string;
+    assetVersion: string;
+    scopeProject: string;
+    scopeOrg: string;
+    latestPublished: string;
+    bindings: string;
+    addBinding: string;
+    outputs: string;
+    addOutput: string;
+    childField: string;
+    parentVariable: string;
+    childVariable: string;
+    noBindings: string;
+    noSubRuleOutputs: string;
+    openSubRuleEditor: string;
     branch: string;
     default: string;
     next: string;
@@ -278,6 +298,7 @@ const en: LocaleMessages = {
     decision: 'Decision',
     action: 'Action',
     terminal: 'Terminal',
+    subRule: 'Sub-rule',
     start: 'START',
     setAsStart: 'Set Start',
     branches: 'Branches',
@@ -293,6 +314,25 @@ const en: LocaleMessages = {
     typeDecision: 'Decision',
     typeAction: 'Action',
     typeTerminal: 'Terminal',
+    typeSubRule: 'Sub-rule',
+    refName: 'Reference',
+    managedAsset: 'Managed Asset',
+    customSubRuleName: 'Custom / Quick Create',
+    assetScope: 'Asset Scope',
+    assetVersion: 'Asset Version',
+    scopeProject: 'Project',
+    scopeOrg: 'Organization',
+    latestPublished: 'Latest published',
+    bindings: 'Input Bindings',
+    addBinding: 'Add Binding',
+    outputs: 'Output Mappings',
+    addOutput: 'Add Output',
+    childField: 'Child Field',
+    parentVariable: 'Parent Variable',
+    childVariable: 'Child Variable',
+    noBindings: 'No input bindings.',
+    noSubRuleOutputs: 'No output mappings.',
+    openSubRuleEditor: 'Open Sub-Rule in Editor',
     branch: 'Branch',
     default: 'Default',
     next: 'Next',
@@ -470,6 +510,7 @@ const zhCN: LocaleMessages = {
     decision: '决策节点',
     action: '动作节点',
     terminal: '结束节点',
+    subRule: '子规则节点',
     start: '起始',
     setAsStart: '设为起始',
     branches: '分支条件',
@@ -485,6 +526,25 @@ const zhCN: LocaleMessages = {
     typeDecision: '决策',
     typeAction: '动作',
     typeTerminal: '终结',
+    typeSubRule: '子规则',
+    refName: '引用子规则',
+    managedAsset: '托管资产',
+    customSubRuleName: '自定义 / 快速创建',
+    assetScope: '资产范围',
+    assetVersion: '资产版本',
+    scopeProject: '项目级',
+    scopeOrg: '组织级',
+    latestPublished: '最新已发布版本',
+    bindings: '输入绑定',
+    addBinding: '添加绑定',
+    outputs: '输出映射',
+    addOutput: '添加输出',
+    childField: '子规则字段',
+    parentVariable: '父级变量',
+    childVariable: '子规则变量',
+    noBindings: '暂无输入绑定。',
+    noSubRuleOutputs: '暂无输出映射。',
+    openSubRuleEditor: '在编辑器中打开子规则',
     branch: '分支',
     default: '默认',
     next: '下一步',
@@ -662,6 +722,7 @@ const zhTW: LocaleMessages = {
     decision: '決策節點',
     action: '動作節點',
     terminal: '結束節點',
+    subRule: '子規則節點',
     start: '起始',
     setAsStart: '設為起始',
     branches: '分支條件',
@@ -677,6 +738,25 @@ const zhTW: LocaleMessages = {
     typeDecision: '決策',
     typeAction: '動作',
     typeTerminal: '終結',
+    typeSubRule: '子規則',
+    refName: '引用子規則',
+    managedAsset: '託管資產',
+    customSubRuleName: '自訂 / 快速建立',
+    assetScope: '資產範圍',
+    assetVersion: '資產版本',
+    scopeProject: '專案級',
+    scopeOrg: '組織級',
+    latestPublished: '最新已發佈版本',
+    bindings: '輸入綁定',
+    addBinding: '新增綁定',
+    outputs: '輸出映射',
+    addOutput: '新增輸出',
+    childField: '子規則欄位',
+    parentVariable: '父級變數',
+    childVariable: '子規則變數',
+    noBindings: '尚無輸入綁定。',
+    noSubRuleOutputs: '尚無輸出映射。',
+    openSubRuleEditor: '在編輯器中開啟子規則',
     branch: '分支',
     default: '預設',
     next: '下一步',

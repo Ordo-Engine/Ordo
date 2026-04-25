@@ -467,6 +467,41 @@ export interface DraftConflictResponse {
   server_seq: number;
 }
 
+// ── Managed SubRule Assets ───────────────────────────────────────────────────
+
+export type SubRuleScope = 'org' | 'project';
+
+export interface SubRuleAssetMeta {
+  id: string;
+  org_id: string;
+  project_id: string | null;
+  scope: SubRuleScope;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  draft_seq: number;
+  draft_updated_at: string;
+  draft_updated_by: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface SubRuleAsset extends SubRuleAssetMeta {
+  draft: RuleSet;
+  input_schema: unknown[];
+  output_schema: unknown[];
+}
+
+export interface SaveSubRuleAssetRequest {
+  name: string;
+  display_name?: string | null;
+  description?: string | null;
+  draft: RuleSet;
+  input_schema?: unknown[];
+  output_schema?: unknown[];
+  expected_seq?: number;
+}
+
 // ── Deployments ───────────────────────────────────────────────────────────────
 
 export type DeploymentStatus = 'queued' | 'success' | 'failed';

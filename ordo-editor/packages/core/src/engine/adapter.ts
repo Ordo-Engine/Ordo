@@ -41,6 +41,8 @@ interface EngineRuleSet {
 interface EngineSubRuleGraph {
   entry_step: string;
   steps: Record<string, EngineStep>;
+  input_schema?: any;
+  output_schema?: any;
 }
 
 /**
@@ -114,7 +116,12 @@ export function convertToEngineFormat(editorRuleset: RuleSet): EngineRuleSet {
       for (const step of graph.steps) {
         graphSteps[step.id] = convertStep(step);
       }
-      subRulesMap[name] = { entry_step: graph.entryStep, steps: graphSteps };
+      subRulesMap[name] = {
+        entry_step: graph.entryStep,
+        steps: graphSteps,
+        ...(graph.inputSchema && { input_schema: graph.inputSchema }),
+        ...(graph.outputSchema && { output_schema: graph.outputSchema }),
+      };
     }
   }
 

@@ -91,6 +91,9 @@ function calculateNodeHeight(node: FlowNode): number {
       // Output fields plus return indicator
       contentRows = (step.output?.length || 0) + 1;
       break;
+    case 'sub_rule':
+      contentRows = Math.max((step.bindings?.length || 0) + (step.outputs?.length || 0), 2);
+      break;
     default:
       contentRows = 2;
   }
@@ -115,6 +118,8 @@ function calculateNodeWidth(node: FlowNode): number {
       return 240; // Action nodes need more space for assignments
     case 'terminal':
       return 220; // Terminal nodes for output display
+    case 'sub_rule':
+      return 240;
     default:
       return 220;
   }

@@ -10,7 +10,7 @@ import { useEnvironmentStore } from '@/stores/environment';
 import { useRbacStore } from '@/stores/rbac';
 import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue';
 import TestCasePanel from './TestCasePanel.vue';
-import { rulesetHistoryApi } from '@/api/platform-client';
+import { rulesetHistoryApi, subRuleApi } from '@/api/platform-client';
 import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue';
 import { normalizeRuleset } from '@/utils/ruleset';
 import { getCurrentVersionDisplay, stripVersionSuffix } from '@/utils/ruleset-version';
@@ -19,6 +19,7 @@ import type {
   DraftConflictResponse,
   RulesetHistoryEntry,
   RulesetHistorySource,
+  SubRuleAssetMeta,
 } from '@/api/types';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import {
@@ -34,6 +35,8 @@ import {
   generateId,
   Step,
   type RuleSet,
+  type SubRuleStep,
+  type SubRuleAssetOption,
   type DecisionTable,
 } from '@ordo-engine/editor-vue';
 
@@ -50,6 +53,7 @@ const { t } = useI18n();
 const LOCAL_HISTORY_LIMIT = 120;
 const HISTORY_SYNC_DELAY_MS = 700;
 const EDIT_HISTORY_COMMIT_DELAY_MS = 450;
+const pendingSubRuleAssets = new Set<string>();
 
 const orgId = computed(() => route.params.orgId as string);
 const projectId = computed(() => route.params.projectId as string);
@@ -481,6 +485,9 @@ const creating = ref(false);
 const newName = ref('');
 const newType = ref<'flow' | 'table'>('flow');
 const saving = ref(false);
+const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
+const subRuleAssetsLoaded = ref(false);
+const subRuleParentTabs = new Map<string, string>();
 const conflictState = ref<{
   rulesetName: string;
   localDraft: RuleSet;
@@ -529,6 +536,27 @@ const requiresVersionBump = computed(
   () => !!activePublishedVersion.value && activePublishedVersion.value === activeDraftVersion.value
 );
 
+const subRuleAssetOptions = computed<SubRuleAssetOption[]>(() =>
+  subRuleAssets.value.map((asset) => ({
+    name: asset.name,
+    scope: asset.scope,
+    displayName: asset.display_name,
+    description: asset.description,
+  }))
+);
+
+const activeSubRuleName = computed(() => {
+  const tab = projectStore.activeTab;
+  if (tab?.kind !== 'sub_rule') return null;
+  return tab.name.startsWith('§') ? tab.name.slice(1) : tab.name;
+});
+
+const activeSubRuleParentName = computed(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind !== 'sub_rule') return null;
+  return subRuleParentTabs.get(tab.name) ?? null;
+});
+
 // ── Table support ──────────────────────────────────────────────────────────────
 const decisionTables = ref<Record<string, DecisionTable>>({});
 
@@ -574,19 +602,34 @@ onMounted(async () => {
   await rbacStore.fetchRoles(orgId.value);
   await rbacStore.fetchMyRoles(orgId.value);
   await environmentStore.fetchEnvironments(orgId.value, projectId.value);
+  await refreshSubRuleAssets();
 
-  // Open ruleset from URL param
+  // Open ruleset or sub-rule from URL param
   if (rulesetNameParam.value) {
-    await openRuleset(rulesetNameParam.value);
+    await openTabFromParam(rulesetNameParam.value);
   } else if (projectStore.rulesets.length > 0 && projectStore.openTabs.length === 0) {
     await openRuleset(projectStore.rulesets[0].name);
   }
 });
 
+async function openTabFromParam(name: string) {
+  if (name.startsWith('§')) {
+    const refName = name.slice(1);
+    try {
+      await projectStore.openSubRule(refName, 'project');
+      tabModes.set(name, 'flow');
+    } catch {
+      await openRuleset(projectStore.rulesets[0]?.name ?? '');
+    }
+  } else {
+    await openRuleset(name);
+  }
+}
+
 watch(
   () => rulesetNameParam.value,
   async (name) => {
-    if (name) await openRuleset(name);
+    if (name) await openTabFromParam(name);
   }
 );
 
@@ -678,9 +721,178 @@ function handleRulesetChange(ruleset: RuleSet) {
   const tab = projectStore.activeTab;
   if (!tab) return;
 
-  const action = buildHistoryAction(tab.ruleset, ruleset);
-  updateRulesetState(tab.name, ruleset);
-  scheduleEditHistoryEntry(tab.name, ruleset, action);
+  const { ruleset: normalizedRuleset, refsToCreate } = normalizeSubRuleReferences(
+    tab.name,
+    ruleset
+  );
+  const action = buildHistoryAction(tab.ruleset, normalizedRuleset);
+  updateRulesetState(tab.name, normalizedRuleset);
+  scheduleEditHistoryEntry(tab.name, normalizedRuleset, action);
+
+  for (const refName of refsToCreate) {
+    void ensureProjectSubRuleAsset(refName);
+  }
+}
+
+function normalizeSubRuleReferences(parentRulesetName: string, ruleset: RuleSet) {
+  let changed = false;
+  const refsToCreate: string[] = [];
+
+  const steps = ruleset.steps.map((step) => {
+    if (step.type !== 'sub_rule') return step;
+
+    const subRuleStep = step as SubRuleStep;
+    const generatedName =
+      subRuleStep.refName.trim() || `${sanitizeAssetName(parentRulesetName)}_${subRuleStep.id}`;
+    const assetRef: NonNullable<SubRuleStep['assetRef']> = {
+      ...(subRuleStep.assetRef ?? { scope: 'project' as const }),
+      scope: subRuleStep.assetRef?.scope ?? ('project' as const),
+      name: subRuleStep.assetRef?.name?.trim() || generatedName,
+    };
+
+    const needsPatch =
+      !subRuleStep.refName.trim() ||
+      !subRuleStep.assetRef ||
+      !subRuleStep.assetRef.name?.trim() ||
+      subRuleStep.assetRef.name !== assetRef.name;
+
+    if (needsPatch) {
+      changed = true;
+      refsToCreate.push(generatedName);
+      return {
+        ...subRuleStep,
+        refName: generatedName,
+        assetRef,
+      };
+    }
+
+    return subRuleStep;
+  });
+
+  return {
+    ruleset: changed ? { ...ruleset, steps } : ruleset,
+    refsToCreate,
+  };
+}
+
+function sanitizeAssetName(name: string) {
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'sub_rule'
+  );
+}
+
+function createDefaultSubRuleDraft(name: string): RuleSet {
+  const terminal = Step.terminal({
+    id: 'return_result',
+    name: t('subRules.defaultTerminalName'),
+    code: 'OK',
+    message: {
+      type: 'literal',
+      value: '',
+      valueType: 'string',
+    },
+    output: [],
+    position: { x: 160, y: 120 },
+  });
+
+  return {
+    config: {
+      name,
+      version: '0.1.0',
+      description: t('subRules.defaultDescription'),
+      enableTrace: true,
+    },
+    startStepId: terminal.id,
+    steps: [terminal],
+    groups: [],
+    metadata: {
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function refreshSubRuleAssets() {
+  if (!auth.token || !orgId.value || !projectId.value) return;
+  try {
+    subRuleAssets.value = await subRuleApi.listProject(
+      auth.token,
+      orgId.value,
+      projectId.value,
+      true
+    );
+    subRuleAssetsLoaded.value = true;
+  } catch (e: any) {
+    subRuleAssetsLoaded.value = false;
+    MessagePlugin.warning(e.message || t('subRules.loadFailed'));
+  }
+}
+
+function hasProjectSubRuleAsset(name: string) {
+  return subRuleAssets.value.some((asset) => asset.scope === 'project' && asset.name === name);
+}
+
+async function ensureProjectSubRuleAsset(name: string) {
+  if (!auth.token || !orgId.value || !projectId.value) return;
+  const key = `${projectId.value}:${name}`;
+  if (pendingSubRuleAssets.has(key)) return;
+
+  if (!subRuleAssetsLoaded.value) {
+    await refreshSubRuleAssets();
+  }
+  if (hasProjectSubRuleAsset(name)) return;
+
+  pendingSubRuleAssets.add(key);
+  try {
+    await subRuleApi.saveProject(auth.token, orgId.value, projectId.value, name, {
+      name,
+      display_name: name,
+      description: t('subRules.defaultDescription'),
+      draft: createDefaultSubRuleDraft(name),
+      input_schema: [],
+      output_schema: [],
+      expected_seq: 0,
+    });
+    await refreshSubRuleAssets();
+  } catch (e: any) {
+    MessagePlugin.warning(e.message || t('subRules.saveFailed'));
+  } finally {
+    pendingSubRuleAssets.delete(key);
+  }
+}
+
+async function handleOpenSubRule(refName: string) {
+  if (!refName) return;
+  const parentTabName = projectStore.activeTab?.name ?? null;
+  const scope =
+    (projectStore.activeTab?.ruleset.steps as any[])?.find(
+      (s: any) => s.type === 'sub_rule' && s.refName === refName
+    )?.assetRef?.scope ?? 'project';
+  if (scope === 'project') {
+    await ensureProjectSubRuleAsset(refName);
+  }
+  try {
+    await projectStore.openSubRule(refName, scope);
+    const tabName = `§${refName}`;
+    if (parentTabName && parentTabName !== tabName) {
+      subRuleParentTabs.set(tabName, parentTabName);
+    }
+    tabModes.set(tabName, 'flow');
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.loadFailed'));
+  }
+}
+
+function returnToSubRuleParent() {
+  const parentName = activeSubRuleParentName.value;
+  if (!parentName) return;
+  switchToTab(parentName);
+  router.replace(`${projectBase.value}/editor/${encodeURIComponent(parentName)}`);
 }
 
 function handleVersionChange(event: Event) {
@@ -743,6 +955,9 @@ async function handleSave(name: string) {
     if (tab) {
       savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset));
       projectStore.setTabRuleset(name, cloneRuleset(tab.ruleset), false);
+      if (tab.kind === 'sub_rule') {
+        await refreshSubRuleAssets();
+      }
       pushHistoryEntry(name, tab.ruleset, t('historyPanel.actionSaveCheckpoint'), 'save');
       await flushHistoryQueue(name);
     }
@@ -788,6 +1003,7 @@ async function resolveConflictUseLocal() {
 
 function openReleaseCenter() {
   if (!projectStore.activeTab) return;
+  if (projectStore.activeTab.kind === 'sub_rule') return;
   router.push({
     name: 'project-release-request-create',
     params: {
@@ -1124,8 +1340,22 @@ onUnmounted(() => {
           :class="{ 'is-active': tab.name === projectStore.activeTabName }"
           @click="switchToTab(tab.name)"
         >
-          <t-icon name="file-code" size="13px" class="tab-icon" />
-          <span class="tab-name">{{ tab.name }}</span>
+          <t-icon
+            :name="tab.kind === 'sub_rule' ? 'git-branch' : 'file-code'"
+            size="13px"
+            class="tab-icon"
+          />
+          <span class="tab-name">{{
+            tab.name.startsWith('§') ? tab.name.slice(1) : tab.name
+          }}</span>
+          <t-tag
+            v-if="tab.kind === 'sub_rule'"
+            size="small"
+            variant="light"
+            theme="warning"
+            class="tab-kind-badge"
+            >sub</t-tag
+          >
           <span v-if="tab.dirty" class="tab-dot" :title="t('editor.unsaved')" />
           <button
             class="tab-close"
@@ -1214,6 +1444,7 @@ onUnmounted(() => {
           <button
             v-if="canPublish"
             class="toolbar-btn toolbar-btn--publish"
+            :disabled="projectStore.activeTab.kind === 'sub_rule'"
             :title="t('releaseCenter.createRequest')"
             @click="openReleaseCenter"
           >
@@ -1248,24 +1479,45 @@ onUnmounted(() => {
         >
           <template v-if="projectStore.activeTab">
             <div class="editor-view-shell">
+              <div v-if="activeSubRuleName" class="sub-rule-focus-strip">
+                <div class="sub-rule-focus-strip__main">
+                  <t-icon name="git-branch" size="15px" />
+                  <span class="sub-rule-focus-strip__title">
+                    {{ t('subRules.focusTitle', { name: activeSubRuleName }) }}
+                  </span>
+                  <span class="sub-rule-focus-strip__desc">{{ t('subRules.focusDesc') }}</span>
+                </div>
+                <button
+                  v-if="activeSubRuleParentName"
+                  class="sub-rule-focus-strip__back"
+                  @click="returnToSubRuleParent"
+                >
+                  <t-icon name="rollback" size="14px" />
+                  {{ t('subRules.returnParent') }}
+                </button>
+              </div>
               <!-- Form mode -->
               <OrdoFormEditor
                 v-if="editorMode === 'form'"
                 :model-value="projectStore.activeTab.ruleset"
                 :disabled="!canEdit"
+                :managed-sub-rules="subRuleAssetOptions"
                 :input-schema="
                   catalogStore.schemaFields.length ? catalogStore.schemaFields : undefined
                 "
                 @update:model-value="handleRulesetChange"
+                @open-sub-rule="handleOpenSubRule"
               />
               <!-- Flow mode -->
               <OrdoFlowEditor
                 v-else-if="editorMode === 'flow'"
                 :model-value="projectStore.activeTab.ruleset"
                 :disabled="!canEdit"
+                :managed-sub-rules="subRuleAssetOptions"
                 :execution-trace="executionTrace"
                 :trace-mode="flowTraceMode"
                 @update:model-value="handleRulesetChange"
+                @open-sub-rule="handleOpenSubRule"
               />
               <!-- Decision table mode -->
               <OrdoDecisionTable
@@ -1813,6 +2065,16 @@ onUnmounted(() => {
   color: var(--ordo-text-primary);
 }
 
+.toolbar-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.toolbar-btn:disabled:hover {
+  background: transparent;
+  color: var(--ordo-text-secondary);
+}
+
 .toolbar-btn.is-active {
   color: var(--ordo-accent);
 }
@@ -1839,7 +2101,62 @@ onUnmounted(() => {
 .editor-view-shell {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.editor-view-shell > :not(.sub-rule-focus-strip) {
+  flex: 1;
+  min-height: 0;
+}
+
+.sub-rule-focus-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ordo-border-color);
+  background: linear-gradient(90deg, rgba(91, 112, 138, 0.16), rgba(91, 112, 138, 0.04)),
+    var(--ordo-bg-panel);
+}
+
+.sub-rule-focus-strip__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sub-rule-focus-strip__title {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sub-rule-focus-strip__desc {
+  color: var(--ordo-text-tertiary);
+  font-size: 12px;
+}
+
+.sub-rule-focus-strip__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 999px;
+  background: var(--ordo-bg-item);
+  color: var(--ordo-text-secondary);
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sub-rule-focus-strip__back:hover {
+  background: var(--ordo-hover-bg);
+  color: var(--ordo-text-primary);
 }
 
 .execution-panel-wrap {

@@ -339,9 +339,10 @@ pub async fn publish_draft(
         .await
         .map_err(PlatformError::Internal)?;
 
-    // Convert studio-format draft to engine format for NATS publish.
-    // ordo-server expects engine format (steps as HashMap, expression strings).
-    let engine_json = studio_draft_to_engine_json(&draft.draft)?;
+    // Inline referenced sub-rule assets, then convert studio → engine format.
+    let inlined =
+        inline_sub_rules_into_draft(&state, &org_id, &project_id, draft.draft.clone()).await?;
+    let engine_json = studio_draft_to_engine_json(&inlined)?;
 
     // Publish via NATS
     let publish_result = publish_via_nats(
@@ -521,6 +522,7 @@ pub async fn redeploy(
         .await
         .map_err(PlatformError::Internal)?;
 
+    // Redeploy uses the stored snapshot (already contains inlined sub-rules).
     let snapshot_engine_json = studio_draft_to_engine_json(&original.snapshot)?;
 
     let result = publish_via_nats(
@@ -556,6 +558,108 @@ pub async fn redeploy(
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+/// Scan a studio-format ruleset draft, fetch all referenced sub-rule assets from
+/// the platform store, and inline them as `subRules` entries.  The result is a
+/// self-contained studio JSON that `studio_draft_to_engine_json` can convert
+/// without any missing sub-rule references.
+///
+/// Sub-sub-rules are resolved iteratively up to MAX_SUBRULE_INLINE_DEPTH levels.
+pub(crate) async fn inline_sub_rules_into_draft(
+    state: &AppState,
+    org_id: &str,
+    project_id: &str,
+    draft: serde_json::Value,
+) -> ApiResult<serde_json::Value> {
+    use crate::models::SubRuleScope;
+    use ordo_protocol::types::{
+        ruleset::StudioSubRuleGraph,
+        step::{StudioStep, StudioStepKind},
+    };
+
+    const MAX_DEPTH: usize = 8;
+    const MAX_REFS: usize = 64;
+
+    let mut ruleset: StudioRuleSet = serde_json::from_value(draft).map_err(|e| {
+        PlatformError::bad_request(format!("Draft is not valid studio format: {}", e))
+    })?;
+
+    // Collect sub-rule refNames from a step list.
+    fn collect_refs(steps: &[StudioStep]) -> Vec<String> {
+        steps
+            .iter()
+            .filter_map(|s| {
+                if let StudioStepKind::SubRule { ref_name, .. } = &s.kind {
+                    Some(ref_name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    let mut queue: Vec<(String, usize)> = collect_refs(&ruleset.steps)
+        .into_iter()
+        .map(|n| (n, 0))
+        .collect();
+    let mut visited = std::collections::HashSet::new();
+
+    while let Some((ref_name, depth)) = queue.pop() {
+        if depth >= MAX_DEPTH
+            || visited.contains(&ref_name)
+            || ruleset.sub_rules.contains_key(&ref_name)
+        {
+            continue;
+        }
+        if visited.len() >= MAX_REFS {
+            return Err(PlatformError::bad_request(
+                "Too many sub-rule references (max 64)",
+            ));
+        }
+        visited.insert(ref_name.clone());
+
+        // Try project scope first, then org scope.
+        let asset = state
+            .store
+            .get_sub_rule_asset(org_id, SubRuleScope::Project, Some(project_id), &ref_name)
+            .await
+            .map_err(PlatformError::Internal)?;
+
+        let asset = match asset {
+            Some(a) => a,
+            None => state
+                .store
+                .get_sub_rule_asset(org_id, SubRuleScope::Org, None, &ref_name)
+                .await
+                .map_err(PlatformError::Internal)?
+                .ok_or_else(|| {
+                    PlatformError::bad_request(format!("Sub-rule '{}' not found", ref_name))
+                })?,
+        };
+
+        let sub: StudioRuleSet = serde_json::from_value(asset.draft).map_err(|e| {
+            PlatformError::bad_request(format!("Sub-rule '{}' has invalid draft: {}", ref_name, e))
+        })?;
+
+        // Enqueue nested references.
+        for nested in collect_refs(&sub.steps) {
+            queue.push((nested, depth + 1));
+        }
+
+        ruleset.sub_rules.insert(
+            ref_name,
+            StudioSubRuleGraph {
+                entry_step: sub.start_step_id,
+                steps: sub.steps,
+                input_schema: None,
+                output_schema: None,
+            },
+        );
+    }
+
+    serde_json::to_value(&ruleset)
+        .map_err(|e| PlatformError::internal(format!("Serialization failed: {}", e)))
+}
 
 /// Convert a stored studio-format draft JSON to engine-format JSON for NATS publish.
 fn studio_draft_to_engine_json(draft: &serde_json::Value) -> ApiResult<serde_json::Value> {

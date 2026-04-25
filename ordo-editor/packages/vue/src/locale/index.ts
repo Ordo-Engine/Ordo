@@ -179,6 +179,7 @@ export interface LocaleMessages {
     extractSubRuleSingleExit: string;
     extractSubRuleNoMixedExit: string;
     extractSubRuleNeedsExit: string;
+    extractSubRuleReadOnly: string;
     extractedSubRuleDescription: string;
     subRuleReturn: string;
   };
@@ -402,6 +403,7 @@ const en: LocaleMessages = {
     extractSubRuleNoMixedExit:
       'Selection cannot mix terminal endings with paths that continue outside the selection.',
     extractSubRuleNeedsExit: 'Selection must end in a terminal or continue to an outside step.',
+    extractSubRuleReadOnly: 'The editor is read-only.',
     extractedSubRuleDescription: 'Extracted reusable SubRule decision graph.',
     subRuleReturn: 'Return to parent',
   },
@@ -624,6 +626,7 @@ const zhCN: LocaleMessages = {
     extractSubRuleSingleExit: '选区只能继续到一个外部目标。',
     extractSubRuleNoMixedExit: '选区不能同时包含终结路径和继续到外部的路径。',
     extractSubRuleNeedsExit: '选区必须以终结节点结束，或继续到一个外部步骤。',
+    extractSubRuleReadOnly: '编辑器当前为只读状态。',
     extractedSubRuleDescription: '从父规则提取出的可复用子规则决策图。',
     subRuleReturn: '返回父规则',
   },
@@ -846,6 +849,7 @@ const zhTW: LocaleMessages = {
     extractSubRuleSingleExit: '選區只能繼續到一個外部目標。',
     extractSubRuleNoMixedExit: '選區不能同時包含終結路徑和繼續到外部的路徑。',
     extractSubRuleNeedsExit: '選區必須以終結節點結束，或繼續到一個外部步驟。',
+    extractSubRuleReadOnly: '編輯器目前為唯讀狀態。',
     extractedSubRuleDescription: '從父規則提取出的可重用子規則決策圖。',
     subRuleReturn: '返回父規則',
   },

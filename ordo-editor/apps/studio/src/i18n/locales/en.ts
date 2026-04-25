@@ -554,6 +554,16 @@ export default {
     extractSuccess: 'Extracted SubRule {name}',
     extractedDescription: 'Extracted from {count} selected steps.',
     nameExists: 'SubRule "{name}" already exists',
+    suggestionsTitle: 'SubRule opportunities',
+    suggestionsDesc:
+      'Reusable regions detected in this graph. Extract one to simplify the parent flow.',
+    suggestionGroupTitle: 'Group: {name}',
+    suggestionGroupDesc: 'This grouped region already looks like a reusable decision capability.',
+    suggestionDecisionTitle: 'Branch cluster: {name}',
+    suggestionDecisionDesc: '{count} connected steps branch from the same decision.',
+    suggestionChainTitle: 'Flow segment: {name}',
+    suggestionChainDesc: '{count} steps form a single-entry/single-exit execution segment.',
+    suggestionSteps: '{count} steps',
   },
   versions: {
     title: 'Version History',

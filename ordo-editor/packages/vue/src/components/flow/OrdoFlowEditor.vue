@@ -72,6 +72,11 @@ export interface ExtractSubRulePayload {
   parentRuleset: RuleSet;
 }
 
+export interface ExtractSubRuleRequest {
+  id: number;
+  stepIds: string[];
+}
+
 export interface Props {
   /** RuleSet data */
   modelValue: RuleSet;
@@ -87,6 +92,8 @@ export interface Props {
   executionTrace?: ExecutionTraceData | null;
   /** Lock the canvas into execution path mode without selection/edit interactions */
   traceMode?: boolean;
+  /** Programmatic extraction request from a host shell */
+  extractSubRuleRequest?: ExtractSubRuleRequest | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -95,6 +102,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   executionTrace: null,
   traceMode: false,
+  extractSubRuleRequest: null,
 });
 
 const emit = defineEmits<{
@@ -102,6 +110,7 @@ const emit = defineEmits<{
   change: [value: RuleSet];
   'open-sub-rule': [name: string];
   'extract-sub-rule': [payload: ExtractSubRulePayload];
+  'extract-sub-rule-invalid': [reason: string];
 }>();
 
 const FLOW_EDGE_STYLE_KEY = '_flowEdgeStyle';
@@ -360,6 +369,15 @@ watch(
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => props.extractSubRuleRequest?.id,
+  () => {
+    if (props.extractSubRuleRequest) {
+      void applyExtractSubRuleRequest(props.extractSubRuleRequest);
+    }
+  }
 );
 
 async function scheduleTraceApply(trace: ExecutionTraceData) {
@@ -1309,6 +1327,38 @@ function buildExtractSubRuleName(entryNode: FlowNode) {
   return `${rulesetName}_${entryName}`;
 }
 
+async function applyExtractSubRuleRequest(request: ExtractSubRuleRequest) {
+  if (isCanvasReadOnly.value) {
+    emit('extract-sub-rule-invalid', t('flow.extractSubRuleReadOnly'));
+    return;
+  }
+
+  await nextTick();
+
+  const requestedIds = request.stepIds.filter((id) =>
+    nodes.value.some((node) => node.id === id && isStepFlowNode(node))
+  );
+  if (requestedIds.length === 0) {
+    emit('extract-sub-rule-invalid', t('flow.extractSubRuleSelectNodes'));
+    return;
+  }
+
+  const requestedIdSet = new Set(requestedIds);
+  selectedNodeIds.value = requestedIds;
+  selectedNodeId.value = requestedIds[0] ?? null;
+  selectedEdgeId.value = null;
+  highlightedNodeIds.value = requestedIdSet;
+  highlightedEdgeIds.value = new Set(
+    getExecutableEdges()
+      .filter((edge) => requestedIdSet.has(edge.source) && requestedIdSet.has(edge.target))
+      .map((edge) => edge.id)
+  );
+  applyHighlightStyles();
+
+  await nextTick();
+  extractSubRuleFromSelection({ reportInvalid: true });
+}
+
 function cloneEdgeForChild(edge: FlowEdge, targetOverride?: string): FlowEdge {
   return createEdge(edge.source, targetOverride ?? edge.target, {
     branchId: edge.data?.branchId,
@@ -1385,9 +1435,12 @@ function updateGroupNodesAfterExtraction(selectedStepIds: Set<string>, subRuleSt
   });
 }
 
-function extractSubRuleFromSelection() {
+function extractSubRuleFromSelection(options?: { reportInvalid?: boolean }) {
   const eligibility = extractSubRuleEligibility.value;
   if (!eligibility.valid || !eligibility.entryId) {
+    if (options?.reportInvalid && eligibility.reason) {
+      emit('extract-sub-rule-invalid', eligibility.reason);
+    }
     hideContextMenu();
     return;
   }
@@ -1919,7 +1972,7 @@ onMounted(() => {
           class="context-menu-item"
           :class="{ 'is-disabled': !extractSubRuleEligibility.valid }"
           :title="extractSubRuleEligibility.reason"
-          @click="extractSubRuleFromSelection"
+          @click="extractSubRuleFromSelection()"
         >
           <svg
             width="14"

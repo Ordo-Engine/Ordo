@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -38,6 +38,7 @@ import {
   type SubRuleStep,
   type SubRuleAssetOption,
   type ExtractSubRulePayload,
+  type ExtractSubRuleRequest,
   type DecisionTable,
 } from '@ordo-engine/editor-vue';
 
@@ -489,6 +490,7 @@ const saving = ref(false);
 const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
 const subRuleAssetsLoaded = ref(false);
 const subRuleParentTabs = new Map<string, string>();
+const extractSubRuleRequest = ref<ExtractSubRuleRequest | null>(null);
 const extractingSubRule = ref(false);
 const extractSubRuleState = ref<{
   parentTabName: string;
@@ -497,6 +499,7 @@ const extractSubRuleState = ref<{
   displayName: string;
   description: string;
 } | null>(null);
+let extractSubRuleRequestSeq = 0;
 const conflictState = ref<{
   rulesetName: string;
   localDraft: RuleSet;
@@ -565,6 +568,289 @@ const activeSubRuleParentName = computed(() => {
   if (!tab || tab.kind !== 'sub_rule') return null;
   return subRuleParentTabs.get(tab.name) ?? null;
 });
+
+type RulesetStep = RuleSet['steps'][number];
+
+interface RulesetGraphEdge {
+  source: string;
+  target: string;
+}
+
+interface SubRuleSuggestion {
+  id: string;
+  kind: 'group' | 'decision' | 'chain';
+  title: string;
+  description: string;
+  stepIds: string[];
+  entryStepId: string;
+  entryName: string;
+  stepCount: number;
+  score: number;
+}
+
+interface SubRuleCandidateValidation {
+  entryId: string;
+  exitTargetId?: string;
+}
+
+const activeSubRuleSuggestions = computed<SubRuleSuggestion[]>(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule' || tab.ruleset.steps.length < 3) return [];
+  return analyzeSubRuleSuggestions(tab.ruleset).slice(0, 3);
+});
+
+function getStepOutgoingIds(step: RulesetStep): string[] {
+  switch (step.type) {
+    case 'decision':
+      return [...step.branches.map((branch) => branch.nextStepId), step.defaultNextStepId].filter(
+        Boolean
+      );
+    case 'action':
+    case 'sub_rule':
+      return step.nextStepId ? [step.nextStepId] : [];
+    case 'terminal':
+    default:
+      return [];
+  }
+}
+
+function buildRulesetGraph(ruleset: RuleSet) {
+  const stepMap = new Map(ruleset.steps.map((step) => [step.id, step]));
+  const edges: RulesetGraphEdge[] = [];
+  const incoming = new Map<string, RulesetGraphEdge[]>();
+  const outgoing = new Map<string, RulesetGraphEdge[]>();
+
+  for (const step of ruleset.steps) {
+    incoming.set(step.id, []);
+    outgoing.set(step.id, []);
+  }
+
+  for (const step of ruleset.steps) {
+    for (const target of getStepOutgoingIds(step)) {
+      if (!stepMap.has(target)) continue;
+      const edge = { source: step.id, target };
+      edges.push(edge);
+      outgoing.get(step.id)?.push(edge);
+      incoming.get(target)?.push(edge);
+    }
+  }
+
+  return { stepMap, edges, incoming, outgoing };
+}
+
+function validateSubRuleCandidate(
+  ruleset: RuleSet,
+  stepIds: string[]
+): SubRuleCandidateValidation | null {
+  const selectedStepIds = new Set(stepIds);
+  if (selectedStepIds.size < 2) return null;
+
+  const graph = buildRulesetGraph(ruleset);
+  const selectedSteps = ruleset.steps.filter((step) => selectedStepIds.has(step.id));
+  if (selectedSteps.length !== selectedStepIds.size) return null;
+
+  const internalEdges = graph.edges.filter(
+    (edge) => selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalIncomingEdges = graph.edges.filter(
+    (edge) => !selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalOutgoingEdges = graph.edges.filter(
+    (edge) => selectedStepIds.has(edge.source) && !selectedStepIds.has(edge.target)
+  );
+
+  const incomingTargets = new Set(externalIncomingEdges.map((edge) => edge.target));
+  if (incomingTargets.size > 1) return null;
+
+  const internalIncomingTargets = new Set(internalEdges.map((edge) => edge.target));
+  let entryId: string | undefined;
+  if (incomingTargets.size === 1) {
+    entryId = [...incomingTargets][0];
+  } else if (selectedStepIds.has(ruleset.startStepId)) {
+    entryId = ruleset.startStepId;
+  } else {
+    const rootSteps = selectedSteps.filter((step) => !internalIncomingTargets.has(step.id));
+    if (rootSteps.length !== 1) return null;
+    entryId = rootSteps[0].id;
+  }
+
+  const reachable = new Set<string>();
+  const stack = [entryId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (reachable.has(current)) continue;
+    reachable.add(current);
+    for (const edge of internalEdges) {
+      if (edge.source === current && !reachable.has(edge.target)) {
+        stack.push(edge.target);
+      }
+    }
+  }
+  if (reachable.size !== selectedSteps.length) return null;
+
+  const exitTargets = new Set(externalOutgoingEdges.map((edge) => edge.target));
+  if (exitTargets.size > 1) return null;
+
+  const hasTerminal = selectedSteps.some((step) => step.type === 'terminal');
+  if (hasTerminal && externalOutgoingEdges.length > 0) return null;
+  if (!hasTerminal && externalOutgoingEdges.length === 0) return null;
+
+  return {
+    entryId,
+    exitTargetId: exitTargets.size === 1 ? [...exitTargets][0] : undefined,
+  };
+}
+
+function collectDownstreamRegion(ruleset: RuleSet, startStepId: string, limit = 10): string[] {
+  const graph = buildRulesetGraph(ruleset);
+  const selected = new Set<string>([startStepId]);
+  const queue = [...(graph.outgoing.get(startStepId) ?? []).map((edge) => edge.target)];
+
+  while (queue.length > 0 && selected.size < limit) {
+    const current = queue.shift()!;
+    if (selected.has(current) || !graph.stepMap.has(current)) continue;
+
+    const hasOutsideIncoming = (graph.incoming.get(current) ?? []).some(
+      (edge) => !selected.has(edge.source)
+    );
+    if (hasOutsideIncoming) continue;
+
+    selected.add(current);
+    const step = graph.stepMap.get(current);
+    if (!step || step.type === 'terminal') continue;
+
+    for (const edge of graph.outgoing.get(current) ?? []) {
+      if (!selected.has(edge.target)) queue.push(edge.target);
+    }
+  }
+
+  return ruleset.steps.map((step) => step.id).filter((id) => selected.has(id));
+}
+
+function collectLinearRegion(ruleset: RuleSet, startStepId: string, limit = 8): string[] {
+  const graph = buildRulesetGraph(ruleset);
+  const selected = new Set<string>([startStepId]);
+  let current = startStepId;
+
+  while (selected.size < limit) {
+    const outgoingEdges = graph.outgoing.get(current) ?? [];
+    if (outgoingEdges.length !== 1) break;
+
+    const next = outgoingEdges[0].target;
+    if (selected.has(next) || !graph.stepMap.has(next)) break;
+
+    const incomingEdges = graph.incoming.get(next) ?? [];
+    if (incomingEdges.length !== 1) break;
+
+    selected.add(next);
+    const nextStep = graph.stepMap.get(next);
+    if (!nextStep || nextStep.type === 'terminal') break;
+    current = next;
+  }
+
+  return ruleset.steps.map((step) => step.id).filter((id) => selected.has(id));
+}
+
+function analyzeSubRuleSuggestions(ruleset: RuleSet): SubRuleSuggestion[] {
+  const graph = buildRulesetGraph(ruleset);
+  const suggestions: SubRuleSuggestion[] = [];
+  const seen = new Set<string>();
+
+  function pushSuggestion(
+    kind: SubRuleSuggestion['kind'],
+    title: string,
+    description: string,
+    stepIds: string[],
+    score: number
+  ) {
+    const candidateIds = ruleset.steps
+      .map((step) => step.id)
+      .filter((id) => stepIds.includes(id) && graph.stepMap.has(id));
+    const validation = validateSubRuleCandidate(ruleset, candidateIds);
+    if (!validation) return;
+
+    const key = candidateIds.slice().sort().join('|');
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const entryStep = graph.stepMap.get(validation.entryId);
+    suggestions.push({
+      id: `${kind}:${key}`,
+      kind,
+      title,
+      description,
+      stepIds: candidateIds,
+      entryStepId: validation.entryId,
+      entryName: entryStep?.name ?? validation.entryId,
+      stepCount: candidateIds.length,
+      score: score + candidateIds.length,
+    });
+  }
+
+  for (const group of ruleset.groups ?? []) {
+    if (group.stepIds.length < 2) continue;
+    pushSuggestion(
+      'group',
+      t('subRules.suggestionGroupTitle', { name: group.name }),
+      group.description || t('subRules.suggestionGroupDesc'),
+      group.stepIds,
+      90
+    );
+  }
+
+  for (const step of ruleset.steps) {
+    if (step.type === 'decision' && step.branches.length >= 2) {
+      const region = collectDownstreamRegion(ruleset, step.id);
+      if (region.length >= 3) {
+        pushSuggestion(
+          'decision',
+          t('subRules.suggestionDecisionTitle', { name: step.name }),
+          t('subRules.suggestionDecisionDesc', { count: region.length }),
+          region,
+          75
+        );
+      }
+    }
+  }
+
+  for (const step of ruleset.steps) {
+    if (step.type === 'terminal') continue;
+
+    const incomingEdges = graph.incoming.get(step.id) ?? [];
+    if (incomingEdges.length === 1) {
+      const previousOutgoing = graph.outgoing.get(incomingEdges[0].source) ?? [];
+      if (previousOutgoing.length === 1) continue;
+    }
+
+    const region = collectLinearRegion(ruleset, step.id);
+    if (region.length >= 3) {
+      pushSuggestion(
+        'chain',
+        t('subRules.suggestionChainTitle', { name: step.name }),
+        t('subRules.suggestionChainDesc', { count: region.length }),
+        region,
+        55
+      );
+    }
+  }
+
+  return suggestions.sort((a, b) => b.score - a.score);
+}
+
+async function requestSuggestedSubRuleExtraction(suggestion: SubRuleSuggestion) {
+  if (!canEdit.value || activeSubRuleName.value) return;
+
+  setEditorMode('flow');
+  await nextTick();
+  extractSubRuleRequest.value = {
+    id: ++extractSubRuleRequestSeq,
+    stepIds: suggestion.stepIds,
+  };
+}
+
+function handleExtractSubRuleInvalid(reason: string) {
+  MessagePlugin.warning(reason);
+}
 
 // ── Table support ──────────────────────────────────────────────────────────────
 const decisionTables = ref<Record<string, DecisionTable>>({});
@@ -730,13 +1016,29 @@ function handleRulesetChange(ruleset: RuleSet) {
   applyRulesetChange(ruleset);
 }
 
+function stripDecisionTableMetadata(ruleset: RuleSet): RuleSet {
+  if (!ruleset.config.metadata?._table) return ruleset;
+
+  const metadata = { ...ruleset.config.metadata };
+  delete metadata._table;
+  return {
+    ...ruleset,
+    config: {
+      ...ruleset.config,
+      metadata,
+    },
+  };
+}
+
 function applyRulesetChange(ruleset: RuleSet, actionOverride?: string) {
   const tab = projectStore.activeTab;
   if (!tab) return;
 
+  const incomingRuleset =
+    editorMode.value === 'flow' ? stripDecisionTableMetadata(ruleset) : ruleset;
   const { ruleset: normalizedRuleset, refsToCreate } = normalizeSubRuleReferences(
     tab.name,
-    ruleset
+    incomingRuleset
   );
   const action = actionOverride ?? buildHistoryAction(tab.ruleset, normalizedRuleset);
   updateRulesetState(tab.name, normalizedRuleset);
@@ -1616,6 +1918,35 @@ onUnmounted(() => {
         >
           <template v-if="projectStore.activeTab">
             <div class="editor-view-shell">
+              <div v-if="canEdit && activeSubRuleSuggestions.length > 0" class="sub-rule-advisor">
+                <div class="sub-rule-advisor__intro">
+                  <div class="sub-rule-advisor__icon">
+                    <t-icon name="git-branch" size="16px" />
+                  </div>
+                  <div>
+                    <div class="sub-rule-advisor__title">{{ t('subRules.suggestionsTitle') }}</div>
+                    <div class="sub-rule-advisor__desc">{{ t('subRules.suggestionsDesc') }}</div>
+                  </div>
+                </div>
+                <div class="sub-rule-advisor__cards">
+                  <button
+                    v-for="suggestion in activeSubRuleSuggestions"
+                    :key="suggestion.id"
+                    type="button"
+                    class="sub-rule-advisor__card"
+                    @click="requestSuggestedSubRuleExtraction(suggestion)"
+                  >
+                    <span class="sub-rule-advisor__card-title">{{ suggestion.title }}</span>
+                    <span class="sub-rule-advisor__card-desc">{{ suggestion.description }}</span>
+                    <span class="sub-rule-advisor__meta">
+                      <span>{{
+                        t('subRules.suggestionSteps', { count: suggestion.stepCount })
+                      }}</span>
+                      <span>{{ suggestion.entryName }}</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
               <div v-if="activeSubRuleName" class="sub-rule-focus-strip">
                 <div class="sub-rule-focus-strip__main">
                   <t-icon name="git-branch" size="15px" />
@@ -1653,9 +1984,11 @@ onUnmounted(() => {
                 :managed-sub-rules="subRuleAssetOptions"
                 :execution-trace="executionTrace"
                 :trace-mode="flowTraceMode"
+                :extract-sub-rule-request="extractSubRuleRequest"
                 @update:model-value="handleRulesetChange"
                 @open-sub-rule="handleOpenSubRule"
                 @extract-sub-rule="handleExtractSubRule"
+                @extract-sub-rule-invalid="handleExtractSubRuleInvalid"
               />
               <!-- Decision table mode -->
               <OrdoDecisionTable
@@ -2278,9 +2611,118 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.editor-view-shell > :not(.sub-rule-focus-strip) {
+.editor-view-shell > :not(.sub-rule-focus-strip):not(.sub-rule-advisor) {
   flex: 1;
   min-height: 0;
+}
+
+.sub-rule-advisor {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(93, 126, 99, 0.22);
+  background: radial-gradient(circle at 18px 0, rgba(74, 138, 89, 0.18), transparent 32%),
+    linear-gradient(90deg, rgba(37, 62, 45, 0.44), rgba(31, 37, 43, 0.1)), var(--ordo-bg-panel);
+}
+
+.sub-rule-advisor__intro {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sub-rule-advisor__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9bd39f;
+  background: rgba(72, 126, 84, 0.2);
+  border: 1px solid rgba(126, 191, 132, 0.24);
+}
+
+.sub-rule-advisor__title {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.sub-rule-advisor__desc {
+  margin-top: 3px;
+  color: var(--ordo-text-tertiary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.sub-rule-advisor__cards {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sub-rule-advisor__card {
+  min-width: 0;
+  border: 1px solid rgba(126, 191, 132, 0.18);
+  border-radius: 12px;
+  background: rgba(18, 27, 23, 0.44);
+  color: var(--ordo-text-primary);
+  cursor: pointer;
+  text-align: left;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    transform 0.12s ease;
+}
+
+.sub-rule-advisor__card:hover {
+  border-color: rgba(149, 216, 154, 0.48);
+  background: rgba(35, 58, 42, 0.62);
+  transform: translateY(-1px);
+}
+
+.sub-rule-advisor__card-title,
+.sub-rule-advisor__card-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-rule-advisor__card-title {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sub-rule-advisor__card-desc {
+  color: var(--ordo-text-tertiary);
+  font-size: 11px;
+}
+
+.sub-rule-advisor__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9bd39f;
+  font-size: 11px;
+}
+
+.sub-rule-advisor__meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sub-rule-focus-strip {

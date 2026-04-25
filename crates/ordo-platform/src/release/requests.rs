@@ -202,7 +202,9 @@ pub async fn create_release_request(
         )
         .await?
     };
-    let target_snapshot = draft.draft.clone();
+    // Inline sub-rule assets before storing the snapshot so the snapshot is self-contained.
+    let target_snapshot =
+        inline_sub_rules_into_draft(&state, &org_id, &project_id, draft.draft.clone()).await?;
 
     let approver_users = {
         let mut items = Vec::new();

@@ -8,6 +8,7 @@ import type {
   RuleSet,
   Step,
   DecisionStep,
+  SubRuleStep,
   RuleSetConfig,
   StepGroup,
 } from '@ordo-engine/editor-core';
@@ -177,6 +178,26 @@ export function rulesetToFlow(ruleset: RuleSet, renderStyle: EdgeRenderStyle = '
         break;
       }
 
+      case 'sub_rule': {
+        const subRuleStep = step as SubRuleStep;
+        if (subRuleStep.nextStepId) {
+          const edgeStyle = getEdgeStyle('exec');
+          edges.push({
+            id: `${step.id}-next`,
+            source: step.id,
+            target: subRuleStep.nextStepId,
+            sourceHandle: 'output',
+            targetHandle: 'input',
+            style: edgeStyle,
+            data: {
+              edgeType: 'exec',
+              renderStyle,
+            },
+          });
+        }
+        break;
+      }
+
       case 'terminal':
         // Terminal nodes have no outgoing edges
         break;
@@ -229,7 +250,8 @@ export function flowToRuleset(
   edges: FlowEdge[],
   config: RuleSetConfig,
   startStepId: string,
-  groupNodes?: FlowGroupNode[]
+  groupNodes?: FlowGroupNode[],
+  subRules?: RuleSet['subRules']
 ): RuleSet {
   const steps: Step[] = [];
   const groups: StepGroup[] = [];
@@ -302,10 +324,15 @@ export function flowToRuleset(
       }
 
       case 'action': {
-        const outgoingEdge = edges.find((e) => e.source === node.id);
-        if (outgoingEdge) {
-          step.nextStepId = outgoingEdge.target;
-        }
+        const outgoingEdge = findLinearExecutionEdge(edges, node.id);
+        step.nextStepId = outgoingEdge?.target ?? '';
+        break;
+      }
+
+      case 'sub_rule': {
+        const subRuleStep = step as SubRuleStep;
+        const outgoingEdge = findLinearExecutionEdge(edges, node.id);
+        subRuleStep.nextStepId = outgoingEdge?.target ?? '';
         break;
       }
 
@@ -321,11 +348,23 @@ export function flowToRuleset(
     config,
     startStepId,
     steps,
+    ...(subRules && { subRules }),
     groups: groups.length > 0 ? groups : undefined,
     metadata: {
       updatedAt: new Date().toISOString(),
     },
   };
+}
+
+function findLinearExecutionEdge(edges: FlowEdge[], sourceId: string): FlowEdge | undefined {
+  return edges.find(
+    (edge) =>
+      edge.source === sourceId &&
+      edge.sourceHandle === 'output' &&
+      edge.data?.edgeType === 'exec' &&
+      !edge.data?.branchId &&
+      !edge.data?.isDefault
+  );
 }
 
 /**

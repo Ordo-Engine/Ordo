@@ -129,11 +129,19 @@ export interface SubRuleOutput {
   childVar: string;
 }
 
-/** Sub-rule step - executes an inline sub-graph and returns control to the parent */
+/** Managed SubRule asset reference. Sub-rules are snapshotted inline when the parent is published. */
+export interface SubRuleAssetRef {
+  scope: 'project' | 'org';
+  name: string;
+}
+
+/** Sub-rule step - executes a managed SubRule asset and returns control to the parent */
 export interface SubRuleStep extends BaseStep {
   type: 'sub_rule';
-  /** Name of the sub-rule graph defined in the ruleset */
+  /** Legacy/engine-compatible reference name. Prefer assetRef for Studio assets. */
   refName: string;
+  /** Managed SubRule asset reference used by Studio and platform resolution. */
+  assetRef?: SubRuleAssetRef;
   /** Input bindings: expressions from the parent context injected into the child context */
   bindings?: SubRuleBinding[];
   /** Output mappings: variables from the child context written back to the parent context */
@@ -255,6 +263,7 @@ export const Step = {
     name: string;
     description?: string;
     refName: string;
+    assetRef?: SubRuleAssetRef;
     bindings?: SubRuleBinding[];
     outputs?: SubRuleOutput[];
     nextStepId: string;
@@ -266,6 +275,7 @@ export const Step = {
       description: options.description,
       type: 'sub_rule',
       refName: options.refName,
+      assetRef: options.assetRef,
       bindings: options.bindings,
       outputs: options.outputs,
       nextStepId: options.nextStepId,

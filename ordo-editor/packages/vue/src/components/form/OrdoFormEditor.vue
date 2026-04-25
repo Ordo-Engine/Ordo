@@ -9,6 +9,7 @@ import { validateRuleSet, type ValidationResult } from '@ordo-engine/editor-core
 import OrdoStepList from './OrdoStepList.vue';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
 import { useI18n, type Lang, LOCALE_KEY } from '../../locale';
+import type { SubRuleAssetOption } from '../step/subRuleAssets';
 
 export interface Props {
   /** RuleSet data */
@@ -17,6 +18,8 @@ export interface Props {
   disabled?: boolean;
   /** Whether to auto-validate on change */
   autoValidate?: boolean;
+  /** Managed project/org sub-rule assets */
+  managedSubRules?: SubRuleAssetOption[];
   /** Show validation panel */
   showValidation?: boolean;
   /** Locale */
@@ -26,6 +29,7 @@ export interface Props {
 const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   autoValidate: true,
+  managedSubRules: () => [],
   showValidation: true,
 });
 
@@ -33,6 +37,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
   change: [value: RuleSet];
   validate: [result: ValidationResult];
+  'open-sub-rule': [name: string];
 }>();
 
 // Inherit locale from parent provider unless the caller explicitly overrides it.
@@ -136,9 +141,11 @@ defineExpose({ validate });
       <OrdoStepList
         :model-value="modelValue"
         :suggestions="suggestions"
+        :managed-sub-rules="managedSubRules"
         :disabled="disabled"
         @update:model-value="handleRulesetUpdate"
         @change="handleRulesetChange"
+        @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
       />
     </div>
 

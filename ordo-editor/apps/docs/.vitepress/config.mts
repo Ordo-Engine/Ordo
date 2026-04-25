@@ -51,7 +51,8 @@ export default withMermaid(defineConfig({
       link: '/en/',
       themeConfig: {
         nav: [
-          { text: 'Guide', link: '/en/guide/getting-started' },
+          { text: 'Platform', link: '/en/platform/overview' },
+          { text: 'Engine', link: '/en/guide/what-is-ordo' },
           { text: 'API', link: '/en/api/http-api' },
           { text: 'Reference', link: '/en/reference/cli' },
           { text: 'Roadmap', link: '/en/roadmap' },
@@ -62,6 +63,39 @@ export default withMermaid(defineConfig({
           },
         ],
         sidebar: {
+          '/en/platform/': [
+            {
+              text: 'Platform',
+              items: [
+                { text: 'Overview', link: '/en/platform/overview' },
+                { text: 'Organizations & Projects', link: '/en/platform/organizations' },
+                { text: 'Studio Editor', link: '/en/platform/studio' },
+              ]
+            },
+            {
+              text: 'Modeling',
+              items: [
+                { text: 'Fact Catalog', link: '/en/platform/catalog' },
+                { text: 'Decision Contracts', link: '/en/platform/contracts' },
+                { text: 'Sub-Rule Assets', link: '/en/platform/sub-rules' },
+              ]
+            },
+            {
+              text: 'Delivery',
+              items: [
+                { text: 'Rule Drafts', link: '/en/platform/drafts' },
+                { text: 'Release Pipeline', link: '/en/platform/releases' },
+                { text: 'Test Management', link: '/en/platform/testing' },
+              ]
+            },
+            {
+              text: 'Operations',
+              items: [
+                { text: 'Server Registry', link: '/en/platform/server-registry' },
+                { text: 'GitHub Integration', link: '/en/platform/github' },
+              ]
+            }
+          ],
           '/en/guide/': [
             {
               text: 'Introduction',
@@ -146,7 +180,8 @@ export default withMermaid(defineConfig({
       description: "高性能规则引擎与可视化编辑器",
       themeConfig: {
         nav: [
-          { text: '指南', link: '/zh/guide/getting-started' },
+          { text: '平台', link: '/zh/platform/overview' },
+          { text: '引擎', link: '/zh/guide/what-is-ordo' },
           { text: 'API', link: '/zh/api/http-api' },
           { text: '参考', link: '/zh/reference/cli' },
           { text: '路线图', link: '/zh/roadmap' },
@@ -157,6 +192,39 @@ export default withMermaid(defineConfig({
           },
         ],
         sidebar: {
+          '/zh/platform/': [
+            {
+              text: '平台',
+              items: [
+                { text: '概览', link: '/zh/platform/overview' },
+                { text: '组织与项目', link: '/zh/platform/organizations' },
+                { text: 'Studio 编辑器', link: '/zh/platform/studio' },
+              ]
+            },
+            {
+              text: '建模',
+              items: [
+                { text: '事实目录', link: '/zh/platform/catalog' },
+                { text: '决策契约', link: '/zh/platform/contracts' },
+                { text: '子规则资产', link: '/zh/platform/sub-rules' },
+              ]
+            },
+            {
+              text: '交付',
+              items: [
+                { text: '规则草稿', link: '/zh/platform/drafts' },
+                { text: '发布流程', link: '/zh/platform/releases' },
+                { text: '测试管理', link: '/zh/platform/testing' },
+              ]
+            },
+            {
+              text: '运维',
+              items: [
+                { text: '服务器注册', link: '/zh/platform/server-registry' },
+                { text: 'GitHub 集成', link: '/zh/platform/github' },
+              ]
+            }
+          ],
           '/zh/guide/': [
             {
               text: '介绍',

@@ -53,4 +53,8 @@ pub struct StudioConfig {
 pub struct StudioSubRuleGraph {
     pub entry_step: String,
     pub steps: Vec<StudioStep>,
+    #[serde(default)]
+    pub input_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
 }

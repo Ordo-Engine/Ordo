@@ -144,7 +144,7 @@ start_platform_watch() {
       -w crates \
       -w Cargo.toml \
       -w Cargo.lock \
-      -x "run -p ordo-platform -- --addr 0.0.0.0:${PLATFORM_PORT} --database-url ${ORDO_DATABASE_URL} --engine-url ${ORDO_ENGINE_URL} --jwt-secret ${ORDO_JWT_SECRET} --templates-dir ${ORDO_PLATFORM_TEMPLATES_DIR}"
+      -x "run -p ordo-platform --bin ordo-platform -- --addr 0.0.0.0:${PLATFORM_PORT} --database-url ${ORDO_DATABASE_URL} --engine-url ${ORDO_ENGINE_URL} --jwt-secret ${ORDO_JWT_SECRET} --templates-dir ${ORDO_PLATFORM_TEMPLATES_DIR}"
   ) 2>&1 | tee "$LOG_DIR/ordo-platform.log" &
   PLATFORM_PID=$!
 }

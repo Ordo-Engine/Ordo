@@ -7,3 +7,5 @@ export { default as OrdoStepEditor } from './OrdoStepEditor.vue';
 export { default as OrdoDecisionEditor } from './OrdoDecisionEditor.vue';
 export { default as OrdoActionEditor } from './OrdoActionEditor.vue';
 export { default as OrdoTerminalEditor } from './OrdoTerminalEditor.vue';
+export { default as OrdoSubRuleEditor } from './OrdoSubRuleEditor.vue';
+export type { SubRuleAssetOption, SubRuleAssetScope } from './subRuleAssets';

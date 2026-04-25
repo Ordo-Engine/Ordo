@@ -245,7 +245,10 @@ fn optional_tags(
 mod tests {
     use super::*;
     use ordo_core::expr::Expr;
-    use ordo_core::rule::{Action, ActionKind, RuleSetCompiler, Step, TerminalResult};
+    use ordo_core::rule::{
+        Action, ActionKind, Condition, RuleSetCompiler, Step, StepKind, SubRuleGraph,
+        TerminalResult,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_temp_ordo_path(prefix: &str) -> std::path::PathBuf {
@@ -301,6 +304,90 @@ mod tests {
             result.output.get_path("capability"),
             Some(&Value::string("audit.logger"))
         );
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn compiled_ordo_sub_rule_executes_through_cli_runtime() {
+        let mut sub_steps = hashbrown::HashMap::new();
+        sub_steps.insert(
+            "classify".to_string(),
+            Step::decision("classify", "Classify")
+                .branch(Condition::from_string("score >= 90"), "gold")
+                .default("silver")
+                .build(),
+        );
+        sub_steps.insert(
+            "gold".to_string(),
+            Step::action(
+                "gold",
+                "Gold",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("gold"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        sub_steps.insert(
+            "silver".to_string(),
+            Step::action(
+                "silver",
+                "Silver",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("silver"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        sub_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let mut ruleset = RuleSet::new("cli_compiled_sub_rule", "start");
+        ruleset.add_sub_rule(
+            "tiering",
+            SubRuleGraph {
+                entry_step: "classify".to_string(),
+                steps: sub_steps,
+            },
+        );
+        ruleset.add_step(Step {
+            id: "start".to_string(),
+            name: "Start".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "tiering".to_string(),
+                bindings: vec![("score".to_string(), Expr::field("score"))],
+                outputs: vec![("tier".to_string(), "tier".to_string())],
+                next_step: "done".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK").with_output("tier", Expr::field("$tier")),
+        ));
+
+        ruleset.validate().unwrap();
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let path = unique_temp_ordo_path("ordo-cli-sub-rule-runtime");
+        compiled.save_to_file(&path).unwrap();
+
+        let loaded = load_rule(path.to_str().unwrap()).unwrap();
+        let input: Value = serde_json::from_str(r#"{"score":95}"#).unwrap();
+        let result = execute_loaded_rule(&loaded, input, false).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(result.output.get_path("tier"), Some(&Value::string("gold")));
 
         std::fs::remove_file(path).unwrap();
     }

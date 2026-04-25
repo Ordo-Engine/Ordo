@@ -1,7 +1,8 @@
 //! Executor for compiled rulesets
 
 use super::compiled::{
-    CompiledAction, CompiledCondition, CompiledRuleSet, CompiledStep, FIELD_MISSING_LENIENT,
+    CompiledAction, CompiledCondition, CompiledRuleSet, CompiledStep, CompiledSubRuleBinding,
+    CompiledSubRuleGraph, CompiledSubRuleOutput, FIELD_MISSING_LENIENT,
 };
 use super::metrics::{MetricSink, NoOpMetricSink};
 use super::{ExecutionResult, TerminalResult};
@@ -39,6 +40,7 @@ pub struct CompiledRuleExecutor {
     vm: BytecodeVM,
     metric_sink: Arc<dyn MetricSink>,
     capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    max_call_depth: usize,
 }
 
 impl Default for CompiledRuleExecutor {
@@ -53,6 +55,7 @@ impl CompiledRuleExecutor {
             vm: BytecodeVM::new(),
             metric_sink: Arc::new(NoOpMetricSink),
             capability_invoker: None,
+            max_call_depth: 10,
         }
     }
 
@@ -61,6 +64,7 @@ impl CompiledRuleExecutor {
             vm: BytecodeVM::new(),
             metric_sink,
             capability_invoker: None,
+            max_call_depth: 10,
         }
     }
 
@@ -77,6 +81,7 @@ impl CompiledRuleExecutor {
         let mut ctx = Context::new(input);
         let mut current_step = ruleset.entry_step;
         let mut depth = 0usize;
+        let remaining_call_depth = self.max_call_depth;
 
         loop {
             // Amortized timeout: skip the first 16 steps, then check every 16 steps.
@@ -139,6 +144,24 @@ impl CompiledRuleExecutor {
                     current_step = *next_step;
                     depth += 1;
                 }
+                CompiledStep::SubRule {
+                    ref_name,
+                    bindings,
+                    outputs,
+                    next_step,
+                    ..
+                } => {
+                    let child_ctx = self.execute_sub_rule(
+                        ruleset,
+                        *ref_name,
+                        bindings,
+                        &ctx,
+                        remaining_call_depth,
+                    )?;
+                    self.copy_sub_rule_outputs(ruleset, outputs, &child_ctx, &mut ctx)?;
+                    current_step = *next_step;
+                    depth += 1;
+                }
                 CompiledStep::Terminal {
                     code,
                     message,
@@ -163,6 +186,138 @@ impl CompiledRuleExecutor {
                 }
             }
         }
+    }
+
+    fn execute_sub_graph(
+        &self,
+        ruleset: &CompiledRuleSet,
+        graph: &CompiledSubRuleGraph,
+        input: Value,
+        remaining_call_depth: usize,
+    ) -> Result<Context> {
+        let mut ctx = Context::new(input);
+        let mut current_step = graph.entry_step;
+        let mut depth = 0usize;
+
+        loop {
+            if depth >= ruleset.metadata.max_depth as usize {
+                return Err(OrdoError::MaxDepthExceeded {
+                    max_depth: ruleset.metadata.max_depth as usize,
+                });
+            }
+
+            let step = graph.get_step(current_step)?;
+            match step {
+                CompiledStep::Decision {
+                    branches,
+                    default_next,
+                    ..
+                } => {
+                    let mut matched = false;
+                    for branch in branches {
+                        if self.evaluate_condition(ruleset, &branch.condition, &ctx)? {
+                            for action in &branch.actions {
+                                self.execute_action(ruleset, action, &mut ctx)?;
+                            }
+                            current_step = branch.next_step;
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if matched {
+                        depth += 1;
+                        continue;
+                    }
+                    if let Some(next) = default_next {
+                        current_step = *next;
+                        depth += 1;
+                        continue;
+                    }
+                    return Err(OrdoError::eval_error(
+                        "No matching branch and no default branch",
+                    ));
+                }
+                CompiledStep::Action {
+                    actions, next_step, ..
+                } => {
+                    for action in actions {
+                        self.execute_action(ruleset, action, &mut ctx)?;
+                    }
+                    current_step = *next_step;
+                    depth += 1;
+                }
+                CompiledStep::SubRule {
+                    ref_name,
+                    bindings,
+                    outputs,
+                    next_step,
+                    ..
+                } => {
+                    let child_ctx = self.execute_sub_rule(
+                        ruleset,
+                        *ref_name,
+                        bindings,
+                        &ctx,
+                        remaining_call_depth,
+                    )?;
+                    self.copy_sub_rule_outputs(ruleset, outputs, &child_ctx, &mut ctx)?;
+                    current_step = *next_step;
+                    depth += 1;
+                }
+                CompiledStep::Terminal { .. } => return Ok(ctx),
+            }
+        }
+    }
+
+    fn execute_sub_rule(
+        &self,
+        ruleset: &CompiledRuleSet,
+        ref_name: u32,
+        bindings: &[CompiledSubRuleBinding],
+        parent_ctx: &Context,
+        remaining_call_depth: usize,
+    ) -> Result<Context> {
+        if remaining_call_depth == 0 {
+            let name = ruleset.get_string(ref_name).unwrap_or("<unknown>");
+            return Err(OrdoError::eval_error(format!(
+                "SubRule max nesting depth ({}) exceeded calling '{}'",
+                self.max_call_depth, name
+            )));
+        }
+
+        let graph = ruleset.get_sub_rule(ref_name)?;
+        let mut child_data = std::collections::HashMap::with_capacity(bindings.len());
+        for binding in bindings {
+            let name = ruleset.get_string(binding.name)?;
+            child_data.insert(
+                name.to_string(),
+                self.evaluate_expr(ruleset, binding.expr, parent_ctx)?,
+            );
+        }
+
+        self.execute_sub_graph(
+            ruleset,
+            graph,
+            Value::object(child_data),
+            remaining_call_depth - 1,
+        )
+    }
+
+    fn copy_sub_rule_outputs(
+        &self,
+        ruleset: &CompiledRuleSet,
+        outputs: &[CompiledSubRuleOutput],
+        child_ctx: &Context,
+        parent_ctx: &mut Context,
+    ) -> Result<()> {
+        for output in outputs {
+            let child_variable = ruleset.get_string(output.child_variable)?;
+            if let Some(value) = child_ctx.variables().get(child_variable) {
+                let parent_variable = ruleset.get_string(output.parent_variable)?;
+                parent_ctx.set_variable(parent_variable, value.clone());
+            }
+        }
+        Ok(())
     }
 
     fn evaluate_condition(
@@ -395,7 +550,9 @@ mod tests {
     };
     use crate::expr::Expr;
     use crate::rule::metrics::MetricSink;
-    use crate::rule::{Action, ActionKind, RuleSet, RuleSetCompiler, Step, TerminalResult};
+    use crate::rule::{
+        Action, ActionKind, RuleSet, RuleSetCompiler, Step, StepKind, SubRuleGraph, TerminalResult,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TestMetricSink {
@@ -606,6 +763,132 @@ mod tests {
         let input = serde_json::from_str(r#"{"amount": 17}"#).unwrap();
         let result = executor.execute(&decoded, input).unwrap();
         assert_eq!(result.output.get_path("amount"), Some(&Value::int(17)));
+    }
+
+    #[test]
+    fn compiled_ruleset_sub_rule_survives_serialize_roundtrip() {
+        let mut normalize_steps = hashbrown::HashMap::new();
+        normalize_steps.insert(
+            "set_score".to_string(),
+            Step::action(
+                "set_score",
+                "Set Score",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "normalized".to_string(),
+                        value: Expr::field("raw_score"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        normalize_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let mut classify_steps = hashbrown::HashMap::new();
+        classify_steps.insert(
+            "normalize".to_string(),
+            Step {
+                id: "normalize".to_string(),
+                name: "Normalize".to_string(),
+                kind: StepKind::SubRule {
+                    ref_name: "normalize_score".to_string(),
+                    bindings: vec![("raw_score".to_string(), Expr::field("score"))],
+                    outputs: vec![("score_for_tier".to_string(), "normalized".to_string())],
+                    next_step: "check".to_string(),
+                },
+            },
+        );
+        classify_steps.insert(
+            "check".to_string(),
+            Step::decision("check", "Check")
+                .branch(
+                    crate::rule::Condition::from_string("$score_for_tier >= 90"),
+                    "gold",
+                )
+                .default("silver")
+                .build(),
+        );
+        classify_steps.insert(
+            "gold".to_string(),
+            Step::action(
+                "gold",
+                "Gold",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("gold"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        classify_steps.insert(
+            "silver".to_string(),
+            Step::action(
+                "silver",
+                "Silver",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("silver"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        classify_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let mut ruleset = RuleSet::new("compiled_sub_rule_roundtrip", "classify");
+        ruleset.add_sub_rule(
+            "normalize_score",
+            SubRuleGraph {
+                entry_step: "set_score".to_string(),
+                steps: normalize_steps,
+            },
+        );
+        ruleset.add_sub_rule(
+            "classify_score",
+            SubRuleGraph {
+                entry_step: "normalize".to_string(),
+                steps: classify_steps,
+            },
+        );
+        ruleset.add_step(Step {
+            id: "classify".to_string(),
+            name: "Classify".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "classify_score".to_string(),
+                bindings: vec![("score".to_string(), Expr::field("score"))],
+                outputs: vec![("tier".to_string(), "tier".to_string())],
+                next_step: "done".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK").with_output("tier", Expr::field("$tier")),
+        ));
+
+        ruleset.validate().unwrap();
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let bytes = compiled.serialize();
+        let decoded = CompiledRuleSet::deserialize(&bytes).unwrap();
+        let executor = CompiledRuleExecutor::new();
+
+        let input = serde_json::from_str(r#"{"score": 95}"#).unwrap();
+        let result = executor.execute(&decoded, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(result.output.get_path("tier"), Some(&Value::string("gold")));
     }
 
     #[test]

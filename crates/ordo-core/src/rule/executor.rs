@@ -306,6 +306,7 @@ impl RuleExecutor {
                 let child_input = Value::object_optimized(child_data);
                 let step_start = if tracing { Some(Instant::now()) } else { None };
                 let (child_ctx, sub_trace) = self.execute_sub_graph(
+                    &ruleset.sub_rules,
                     graph,
                     child_input,
                     &ruleset.config.field_missing,
@@ -535,6 +536,7 @@ impl RuleExecutor {
     /// Execute a sub-rule graph and return the resulting context and optional trace frames.
     fn execute_sub_graph(
         &self,
+        sub_rules: &hashbrown::HashMap<String, SubRuleGraph>,
         graph: &SubRuleGraph,
         input: Value,
         field_missing: &FieldMissingBehavior,
@@ -559,14 +561,62 @@ impl RuleExecutor {
                         step_id: current.clone(),
                     })?;
 
-            let (result, dur) = if tracing {
+            let (result, dur, sub_frames) = if let StepKind::SubRule {
+                ref_name,
+                bindings,
+                outputs,
+                next_step,
+            } = &step.kind
+            {
+                if remaining_call_depth == 0 {
+                    return Err(OrdoError::eval_error(format!(
+                        "SubRule max nesting depth ({}) exceeded calling '{}'",
+                        self.max_call_depth, ref_name
+                    )));
+                }
+                let graph = sub_rules.get(ref_name.as_str()).ok_or_else(|| {
+                    OrdoError::eval_error(format!("Sub-rule '{}' not found", ref_name))
+                })?;
+                let mut child_data = hashbrown::HashMap::new();
+                for (field, expr) in bindings {
+                    child_data.insert(
+                        std::sync::Arc::from(field.as_str()),
+                        self.evaluator.eval(expr, &ctx)?,
+                    );
+                }
+                let step_start = if tracing { Some(Instant::now()) } else { None };
+                let (child_ctx, child_frames) = self.execute_sub_graph(
+                    sub_rules,
+                    graph,
+                    Value::object_optimized(child_data),
+                    field_missing,
+                    tracing,
+                    remaining_call_depth - 1,
+                )?;
+                let dur = step_start
+                    .map(|t| t.elapsed().as_micros() as u64)
+                    .unwrap_or(0);
+                for (parent_var, child_var) in outputs {
+                    if let Some(val) = child_ctx.variables().get(child_var.as_str()) {
+                        ctx.set_variable(parent_var.clone(), val.clone());
+                    }
+                }
+                (
+                    StepResult::Continue {
+                        next_step: next_step.as_str(),
+                    },
+                    dur,
+                    if tracing { Some(child_frames) } else { None },
+                )
+            } else if tracing {
                 let t = Instant::now();
                 let r = self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?;
-                (r, t.elapsed().as_micros() as u64)
+                (r, t.elapsed().as_micros() as u64, None)
             } else {
                 (
                     self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?,
                     0,
+                    None,
                 )
             };
 
@@ -582,6 +632,9 @@ impl RuleExecutor {
                 }
                 if self.trace_config.capture_variables {
                     st.variables_snapshot = Some(ctx.variables().clone());
+                }
+                if let Some(frames) = sub_frames {
+                    st.sub_rule_frames = Some(frames);
                 }
                 frames.push(st);
             }
@@ -1477,6 +1530,132 @@ mod tests {
             result.output.get_path("tier"),
             Some(&Value::string("silver"))
         );
+    }
+
+    #[test]
+    fn test_nested_sub_rule_executes_and_traces_frames() {
+        use crate::rule::step::{Action, ActionKind, SubRuleGraph};
+        use crate::trace::TraceConfig;
+
+        let mut normalize_steps = hashbrown::HashMap::new();
+        normalize_steps.insert(
+            "set_score".to_string(),
+            Step::action(
+                "set_score",
+                "Set Score",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "normalized".to_string(),
+                        value: Expr::field("raw_score"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        normalize_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let mut classify_steps = hashbrown::HashMap::new();
+        classify_steps.insert(
+            "normalize".to_string(),
+            Step {
+                id: "normalize".to_string(),
+                name: "Normalize".to_string(),
+                kind: StepKind::SubRule {
+                    ref_name: "normalize_score".to_string(),
+                    bindings: vec![("raw_score".to_string(), Expr::field("score"))],
+                    outputs: vec![("score_for_tier".to_string(), "normalized".to_string())],
+                    next_step: "check".to_string(),
+                },
+            },
+        );
+        classify_steps.insert(
+            "check".to_string(),
+            Step::decision("check", "Check")
+                .branch(Condition::from_string("$score_for_tier >= 90"), "gold")
+                .default("silver")
+                .build(),
+        );
+        classify_steps.insert(
+            "gold".to_string(),
+            Step::action(
+                "gold",
+                "Gold",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("gold"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        classify_steps.insert(
+            "silver".to_string(),
+            Step::action(
+                "silver",
+                "Silver",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("silver"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        classify_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let mut ruleset = RuleSet::new("main", "classify");
+        ruleset.config.enable_trace = true;
+        ruleset.add_sub_rule(
+            "normalize_score",
+            SubRuleGraph {
+                entry_step: "set_score".to_string(),
+                steps: normalize_steps,
+            },
+        );
+        ruleset.add_sub_rule(
+            "classify_score",
+            SubRuleGraph {
+                entry_step: "normalize".to_string(),
+                steps: classify_steps,
+            },
+        );
+        ruleset.add_step(Step {
+            id: "classify".to_string(),
+            name: "Classify".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "classify_score".to_string(),
+                bindings: vec![("score".to_string(), Expr::field("score"))],
+                outputs: vec![("tier".to_string(), "tier".to_string())],
+                next_step: "end".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal(
+            "end",
+            "End",
+            TerminalResult::new("DONE").with_output("tier", Expr::field("$tier")),
+        ));
+
+        ruleset.validate().unwrap();
+        let executor = RuleExecutor::with_trace(TraceConfig::minimal());
+        let input: Value = serde_json::from_str(r#"{"score": 95}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+
+        assert_eq!(result.output.get_path("tier"), Some(&Value::string("gold")));
+        let trace = result.trace.unwrap();
+        let top_frames = trace.steps[0].sub_rule_frames.as_ref().unwrap();
+        assert_eq!(top_frames[0].step_id, "normalize");
+        assert!(top_frames[0].sub_rule_frames.is_some());
     }
 
     #[test]

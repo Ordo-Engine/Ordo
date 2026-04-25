@@ -7,7 +7,16 @@
  * This is the inverse of convertToEngineFormat() in adapter.ts.
  */
 
-import type { RuleSet, Step, DecisionStep, ActionStep, TerminalStep, Branch } from '../model';
+import type {
+  RuleSet,
+  Step,
+  DecisionStep,
+  ActionStep,
+  TerminalStep,
+  SubRuleStep,
+  SubRuleGraph,
+  Branch,
+} from '../model';
 import { Expr } from '../model';
 
 /**
@@ -26,12 +35,18 @@ interface EngineRuleSet {
     metadata?: Record<string, string>;
   };
   steps: Record<string, EngineStep>;
+  sub_rules?: Record<string, EngineSubRuleGraph>;
+}
+
+interface EngineSubRuleGraph {
+  entry_step: string;
+  steps: Record<string, EngineStep>;
 }
 
 interface EngineStep {
   id: string;
   name: string;
-  type: 'decision' | 'action' | 'terminal';
+  type: 'decision' | 'action' | 'terminal' | 'sub_rule';
   // Decision
   branches?: EngineBranch[];
   default_next?: string | null;
@@ -40,6 +55,10 @@ interface EngineStep {
   next_step?: string;
   // Terminal
   result?: EngineTerminalResult;
+  // SubRule
+  ref_name?: string;
+  bindings?: Array<[string, any]>;
+  outputs?: Array<[string, string]>;
 }
 
 interface EngineBranch {
@@ -75,6 +94,16 @@ interface EngineTerminalResult {
 export function convertFromEngineFormat(engine: EngineRuleSet): RuleSet {
   const steps: Step[] = Object.values(engine.steps).map(convertEngineStep);
 
+  const subRules: Record<string, SubRuleGraph> = {};
+  if (engine.sub_rules) {
+    for (const [name, graph] of Object.entries(engine.sub_rules)) {
+      subRules[name] = {
+        entryStep: graph.entry_step,
+        steps: Object.values(graph.steps).map(convertEngineStep),
+      };
+    }
+  }
+
   return {
     config: {
       name: engine.config.name,
@@ -86,6 +115,7 @@ export function convertFromEngineFormat(engine: EngineRuleSet): RuleSet {
     },
     startStepId: engine.config.entry_step,
     steps,
+    ...(Object.keys(subRules).length > 0 && { subRules }),
   };
 }
 
@@ -97,6 +127,8 @@ function convertEngineStep(step: EngineStep): Step {
       return convertEngineActionStep(step);
     case 'terminal':
       return convertEngineTerminalStep(step);
+    case 'sub_rule':
+      return convertEngineSubRuleStep(step);
     default:
       // Unknown type — treat as terminal with error
       return {
@@ -292,6 +324,21 @@ function convertEngineTerminalStep(step: EngineStep): TerminalStep {
     code: result?.code ?? 'UNKNOWN',
     message: result?.message ? Expr.string(result.message) : undefined,
     output,
+  };
+}
+
+function convertEngineSubRuleStep(step: EngineStep): SubRuleStep {
+  return {
+    id: step.id,
+    name: step.name,
+    type: 'sub_rule',
+    refName: step.ref_name ?? '',
+    bindings: (step.bindings ?? []).map(([field, expr]) => ({
+      field,
+      expr: convertFromEngineExpr(expr),
+    })),
+    outputs: (step.outputs ?? []).map(([parentVar, childVar]) => ({ parentVar, childVar })),
+    nextStepId: step.next_step ?? '',
   };
 }
 

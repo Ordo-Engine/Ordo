@@ -7,6 +7,7 @@ members = [
     "crates/ordo-proto",
     "crates/ordo-server",
     "crates/ordo-platform",
+    "crates/ordo-protocol",
     "crates/ordo-wasm",
     "examples/capability-demo",
 ]

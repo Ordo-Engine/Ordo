@@ -4,9 +4,11 @@ use colored::Colorize;
 use ordo_core::prelude::*;
 use serde::Deserialize;
 
+use crate::runtime::{execute_loaded_rule, load_rule};
+
 #[derive(Args)]
 pub struct TestArgs {
-    /// Rule file (JSON or YAML)
+    /// Rule file (JSON, YAML, or .ordo)
     #[arg(long, value_name = "FILE")]
     rule: String,
 
@@ -38,17 +40,15 @@ struct TestExpectation {
 }
 
 pub fn run(args: TestArgs) -> Result<()> {
-    let ruleset = load_ruleset(&args.rule)?;
+    let rule = load_rule(&args.rule)?;
     let suite = load_tests(&args.tests)?;
-
-    let executor = RuleExecutor::new();
     let mut passed = 0;
     let mut failed = 0;
     let total = suite.tests.len();
 
     for test in &suite.tests {
         let start = std::time::Instant::now();
-        let result = executor.execute(&ruleset, test.input.clone());
+        let result = execute_loaded_rule(&rule, test.input.clone(), false);
         let elapsed = start.elapsed();
 
         match result {
@@ -130,18 +130,6 @@ pub fn run(args: TestArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn load_ruleset(path: &str) -> Result<RuleSet> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read rule: {}", path))?;
-    if path.ends_with(".yaml") || path.ends_with(".yml") {
-        RuleSet::from_yaml_compiled(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse YAML rule: {}", e))
-    } else {
-        RuleSet::from_json_compiled(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse JSON rule: {}", e))
-    }
 }
 
 fn load_tests(path: &str) -> Result<TestSuite> {

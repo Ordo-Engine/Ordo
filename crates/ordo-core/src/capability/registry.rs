@@ -176,6 +176,10 @@ impl CapabilityInvoker for CapabilityRegistry {
         self.lookup(capability)
             .map(|entry| entry.descriptor.clone())
     }
+
+    fn list_capabilities(&self) -> Vec<CapabilityDescriptor> {
+        self.list()
+    }
 }
 
 #[cfg(test)]

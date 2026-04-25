@@ -37,8 +37,10 @@ pub use executor::{
     BatchExecutionResult, ExecutionOptions, ExecutionResult, RuleExecutor, SingleExecutionResult,
 };
 pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
-pub use model::{RuleSet, RuleSetConfig};
-pub use step::{Action, ActionKind, Branch, Condition, Step, StepKind, TerminalResult};
+pub use model::{FieldMissingBehavior, RuleSet, RuleSetConfig};
+pub use step::{
+    Action, ActionKind, Branch, Condition, LogLevel, Step, StepKind, SubRuleGraph, TerminalResult,
+};
 
 use std::sync::Arc;
 

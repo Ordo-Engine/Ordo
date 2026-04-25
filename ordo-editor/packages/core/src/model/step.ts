@@ -7,7 +7,7 @@ import { Condition } from './condition';
 import { Expr } from './expr';
 
 /** Step types */
-export type StepType = 'decision' | 'action' | 'terminal';
+export type StepType = 'decision' | 'action' | 'terminal' | 'sub_rule';
 
 /** Base step interface */
 export interface BaseStep {
@@ -113,8 +113,37 @@ export interface TerminalStep extends BaseStep {
   output?: OutputField[];
 }
 
+/** Input binding for a sub-rule: inject a parent-context expression into a named input field */
+export interface SubRuleBinding {
+  /** Field name in the child context */
+  field: string;
+  /** Expression evaluated in the parent context */
+  expr: Expr;
+}
+
+/** Output mapping for a sub-rule: copy a child variable back to a parent variable */
+export interface SubRuleOutput {
+  /** Variable name in the parent context (without $ prefix) */
+  parentVar: string;
+  /** Variable name in the child context (without $ prefix) */
+  childVar: string;
+}
+
+/** Sub-rule step - executes an inline sub-graph and returns control to the parent */
+export interface SubRuleStep extends BaseStep {
+  type: 'sub_rule';
+  /** Name of the sub-rule graph defined in the ruleset */
+  refName: string;
+  /** Input bindings: expressions from the parent context injected into the child context */
+  bindings?: SubRuleBinding[];
+  /** Output mappings: variables from the child context written back to the parent context */
+  outputs?: SubRuleOutput[];
+  /** Next step ID after the sub-rule completes */
+  nextStepId: string;
+}
+
 /** Step union type */
-export type StepUnion = DecisionStep | ActionStep | TerminalStep;
+export type StepUnion = DecisionStep | ActionStep | TerminalStep | SubRuleStep;
 
 // ============================================================================
 // Step builder helpers
@@ -220,6 +249,30 @@ export const Step = {
     };
   },
 
+  /** Create a sub-rule step */
+  subRule(options: {
+    id?: string;
+    name: string;
+    description?: string;
+    refName: string;
+    bindings?: SubRuleBinding[];
+    outputs?: SubRuleOutput[];
+    nextStepId: string;
+    position?: { x: number; y: number };
+  }): SubRuleStep {
+    return {
+      id: options.id || generateStepId(),
+      name: options.name,
+      description: options.description,
+      type: 'sub_rule',
+      refName: options.refName,
+      bindings: options.bindings,
+      outputs: options.outputs,
+      nextStepId: options.nextStepId,
+      position: options.position,
+    };
+  },
+
   /** Create a variable assignment */
   assign(name: string, value: Expr): VariableAssignment {
     return { name, value };
@@ -246,6 +299,11 @@ export function isTerminalStep(step: Step): step is TerminalStep {
   return step.type === 'terminal';
 }
 
+/** Check if a step is a sub-rule step */
+export function isSubRuleStep(step: Step): step is SubRuleStep {
+  return step.type === 'sub_rule';
+}
+
 /** Get the next step IDs from a step */
 export function getNextStepIds(step: Step): string[] {
   switch (step.type) {
@@ -259,5 +317,8 @@ export function getNextStepIds(step: Step): string[] {
 
     case 'terminal':
       return [];
+
+    case 'sub_rule':
+      return [step.nextStepId];
   }
 }

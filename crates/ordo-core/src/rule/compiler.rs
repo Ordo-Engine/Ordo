@@ -110,6 +110,21 @@ impl RuleSetCompiler {
                         data: compiled.data,
                     });
                 }
+                StepKind::SubRule { next_step, .. } => {
+                    // SubRule steps are not compiled into the binary format.
+                    // They require the interpreted executor to run the embedded sub-graph.
+                    let next_step_hash = *step_hashes.get(next_step.as_str()).ok_or_else(|| {
+                        OrdoError::StepNotFound {
+                            step_id: next_step.clone(),
+                        }
+                    })?;
+                    // Represent as an action step with no actions (transparent pass-through)
+                    steps.push(CompiledStep::Action {
+                        id_hash,
+                        actions: vec![],
+                        next_step: next_step_hash,
+                    });
+                }
             }
         }
 
@@ -195,10 +210,27 @@ fn compile_actions(
                     "CallRuleSet is not supported in compiled rules",
                 ));
             }
-            ActionKind::ExternalCall { .. } => {
-                return Err(OrdoError::parse_error(
-                    "ExternalCall is not supported in compiled rules",
-                ));
+            ActionKind::ExternalCall {
+                service,
+                method,
+                params,
+                result_variable,
+                timeout_ms,
+            } => {
+                let service_idx = string_pool.intern(service);
+                let method_idx = string_pool.intern(method);
+                let mut compiled_params = Vec::with_capacity(params.len());
+                for (name, expr) in params {
+                    compiled_params
+                        .push((string_pool.intern(name), compile_expr(expr, expressions)));
+                }
+                compiled.push(CompiledAction::ExternalCall {
+                    service: service_idx,
+                    method: method_idx,
+                    params: compiled_params,
+                    result_variable: result_variable.as_ref().map(|v| string_pool.intern(v)),
+                    timeout_ms: *timeout_ms,
+                });
             }
         }
     }

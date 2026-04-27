@@ -1272,6 +1272,30 @@ function retargetExtractedSubRuleStep(
   };
 }
 
+function inlineExtractedSubRule(
+  parentRuleset: RuleSet,
+  name: string,
+  draft: RuleSet,
+  previousName?: string
+): RuleSet {
+  const subRules = { ...(parentRuleset.subRules ?? {}) };
+  if (previousName && previousName !== name) {
+    delete subRules[previousName];
+  }
+
+  subRules[name] = {
+    entryStep: draft.startStepId,
+    steps: cloneRuleset(draft).steps,
+    inputSchema: draft.config.inputSchema ?? [],
+    outputSchema: draft.config.outputSchema ?? [],
+  };
+
+  return {
+    ...parentRuleset,
+    subRules,
+  };
+}
+
 async function confirmExtractSubRule() {
   const state = extractSubRuleState.value;
   if (!state || !auth.token) return;
@@ -1317,11 +1341,16 @@ async function confirmExtractSubRule() {
       switchToTab(state.parentTabName);
     }
 
-    const parentRuleset = retargetExtractedSubRuleStep(
-      cloneRuleset(state.payload.parentRuleset),
-      state.payload.subRuleStepId,
+    const parentRuleset = inlineExtractedSubRule(
+      retargetExtractedSubRuleStep(
+        cloneRuleset(state.payload.parentRuleset),
+        state.payload.subRuleStepId,
+        name,
+        displayName
+      ),
       name,
-      displayName
+      draft,
+      state.payload.suggestedName
     );
     applyRulesetChange(parentRuleset, t('historyPanel.actionExtractSubRule', { name }));
 

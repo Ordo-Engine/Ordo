@@ -192,6 +192,24 @@ pub struct TestExecutionTraceStep {
     pub input_snapshot: Option<JsonValue>,
     #[serde(default)]
     pub variables_snapshot: Option<JsonValue>,
+    #[serde(default)]
+    pub sub_rule_ref: Option<String>,
+    #[serde(default)]
+    pub sub_rule_input: Option<JsonValue>,
+    #[serde(default)]
+    pub sub_rule_outputs: Vec<TestSubRuleOutputTrace>,
+    #[serde(default)]
+    pub sub_rule_frames: Vec<TestExecutionTraceStep>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSubRuleOutputTrace {
+    pub parent_var: String,
+    pub child_var: String,
+    #[serde(default)]
+    pub value: Option<JsonValue>,
+    #[serde(default)]
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

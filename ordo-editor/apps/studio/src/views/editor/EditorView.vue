@@ -38,7 +38,6 @@ import {
   type SubRuleStep,
   type SubRuleAssetOption,
   type ExtractSubRulePayload,
-  type ExtractSubRuleRequest,
   type DecisionTable,
 } from '@ordo-engine/editor-vue';
 
@@ -504,7 +503,6 @@ const saving = ref(false);
 const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
 const subRuleAssetsLoaded = ref(false);
 const subRuleParentTabs = new Map<string, string>();
-const extractSubRuleRequest = ref<ExtractSubRuleRequest | null>(null);
 const extractingSubRule = ref(false);
 const extractSubRuleState = ref<{
   parentTabName: string;
@@ -513,7 +511,6 @@ const extractSubRuleState = ref<{
   displayName: string;
   description: string;
 } | null>(null);
-let extractSubRuleRequestSeq = 0;
 const conflictState = ref<{
   rulesetName: string;
   localDraft: RuleSet;
@@ -855,18 +852,165 @@ function analyzeSubRuleSuggestions(ruleset: RuleSet): SubRuleSuggestion[] {
   return suggestions.sort((a, b) => b.score - a.score);
 }
 
-async function requestSuggestedSubRuleExtraction(suggestion: SubRuleSuggestion) {
+function cloneStep(step: RulesetStep): RulesetStep {
+  return JSON.parse(JSON.stringify(step));
+}
+
+function retargetStepNext(step: RulesetStep, fromIds: Set<string>, targetId: string): RulesetStep {
+  const cloned = cloneStep(step);
+
+  switch (cloned.type) {
+    case 'decision':
+      return {
+        ...cloned,
+        branches: cloned.branches.map((branch) => ({
+          ...branch,
+          nextStepId: fromIds.has(branch.nextStepId) ? targetId : branch.nextStepId,
+        })),
+        defaultNextStepId: fromIds.has(cloned.defaultNextStepId)
+          ? targetId
+          : cloned.defaultNextStepId,
+      } as RulesetStep;
+    case 'action':
+    case 'sub_rule':
+      return {
+        ...cloned,
+        nextStepId:
+          cloned.nextStepId && fromIds.has(cloned.nextStepId) ? targetId : cloned.nextStepId,
+      } as RulesetStep;
+    default:
+      return cloned;
+  }
+}
+
+function createSuggestedSubRuleExtractionPayload(
+  ruleset: RuleSet,
+  suggestion: SubRuleSuggestion
+): ExtractSubRulePayload | null {
+  const validation = validateSubRuleCandidate(ruleset, suggestion.stepIds);
+  if (!validation) return null;
+
+  const selectedIds = new Set(suggestion.stepIds);
+  const selectedSteps = ruleset.steps.filter((step) => selectedIds.has(step.id));
+  if (selectedSteps.length !== selectedIds.size) return null;
+
+  const entryStep = selectedSteps.find((step) => step.id === validation.entryId);
+  if (!entryStep) return null;
+
+  const suggestedName = sanitizeAssetName(
+    `${ruleset.config.name}_${entryStep.name || entryStep.id}`
+  );
+  const displayName = entryStep.name || t('step.subRule');
+  const subRuleStepId = generateId('step');
+  const exitTargetId = validation.exitTargetId;
+  const returnStepId = exitTargetId ? generateId('return') : undefined;
+  const outsideTargets = exitTargetId && returnStepId ? new Set([exitTargetId]) : new Set<string>();
+
+  const childSteps = selectedSteps.map((step) =>
+    returnStepId ? retargetStepNext(step, outsideTargets, returnStepId) : cloneStep(step)
+  );
+
+  if (returnStepId) {
+    childSteps.push(
+      Step.terminal({
+        id: returnStepId,
+        name: t('subRules.returnParent'),
+        code: 'OK',
+        position: {
+          x: Math.max(...selectedSteps.map((step) => step.position?.x ?? 0)) + 240,
+          y:
+            selectedSteps.reduce((sum, step) => sum + (step.position?.y ?? 0), 0) /
+            Math.max(selectedSteps.length, 1),
+        },
+      })
+    );
+  }
+
+  const draft: RuleSet = {
+    config: {
+      ...ruleset.config,
+      name: suggestedName,
+      version: '0.1.0',
+      description: t('subRules.extractedDescription', { count: selectedSteps.length }),
+      metadata: {
+        ...(ruleset.config.metadata ?? {}),
+        extractedFrom: ruleset.config.name,
+        extractedAt: new Date().toISOString(),
+      },
+    },
+    startStepId: validation.entryId,
+    steps: childSteps,
+    ...(ruleset.subRules ? { subRules: cloneRuleset(ruleset).subRules } : {}),
+    groups: ruleset.groups
+      ?.map((group) => ({
+        ...group,
+        stepIds: group.stepIds.filter((stepId) => selectedIds.has(stepId)),
+      }))
+      .filter((group) => group.stepIds.length > 0),
+  };
+
+  const minX = Math.min(...selectedSteps.map((step) => step.position?.x ?? 0));
+  const minY = Math.min(...selectedSteps.map((step) => step.position?.y ?? 0));
+  const subRuleStep = Step.subRule({
+    id: subRuleStepId,
+    name: displayName,
+    refName: suggestedName,
+    assetRef: {
+      scope: 'project',
+      name: suggestedName,
+    },
+    nextStepId: exitTargetId ?? '',
+    position: { x: minX, y: minY },
+  });
+
+  const firstSelectedIndex = ruleset.steps.findIndex((step) => selectedIds.has(step.id));
+  const parentSteps = ruleset.steps
+    .filter((step) => !selectedIds.has(step.id))
+    .map((step) => retargetStepNext(step, selectedIds, subRuleStepId));
+  parentSteps.splice(Math.max(firstSelectedIndex, 0), 0, subRuleStep);
+
+  const parentRuleset: RuleSet = {
+    ...cloneRuleset(ruleset),
+    startStepId: selectedIds.has(ruleset.startStepId) ? subRuleStepId : ruleset.startStepId,
+    steps: parentSteps,
+    groups: ruleset.groups?.map((group) => {
+      const nextStepIds = group.stepIds.filter((stepId) => !selectedIds.has(stepId));
+      if (group.stepIds.some((stepId) => selectedIds.has(stepId))) {
+        nextStepIds.push(subRuleStepId);
+      }
+      return {
+        ...group,
+        stepIds: Array.from(new Set(nextStepIds)),
+      };
+    }),
+  };
+
+  return {
+    suggestedName,
+    displayName,
+    subRuleStepId,
+    selectedStepCount: selectedSteps.length,
+    draft,
+    parentRuleset,
+  };
+}
+
+function requestSuggestedSubRuleExtraction(suggestion: SubRuleSuggestion) {
   if (!canEdit.value || activeSubRuleName.value) return;
 
   pendingSubRuleSuggestionId.value = suggestion.id;
+  const tab = projectStore.activeTab;
+  if (!tab) return;
+
+  const payload = createSuggestedSubRuleExtractionPayload(tab.ruleset, suggestion);
+  if (!payload) {
+    pendingSubRuleSuggestionId.value = null;
+    MessagePlugin.warning(t('subRules.suggestionsDesc'));
+    return;
+  }
+
   setEditorMode('flow');
-  await nextTick();
-  extractSubRuleRequest.value = null;
-  await nextTick();
-  extractSubRuleRequest.value = {
-    id: ++extractSubRuleRequestSeq,
-    stepIds: [...suggestion.stepIds],
-  };
+  handleExtractSubRule(payload);
 }
 
 function handleExtractSubRuleInvalid(reason: string) {
@@ -2033,7 +2177,6 @@ onUnmounted(() => {
                 :managed-sub-rules="subRuleAssetOptions"
                 :execution-trace="executionTrace"
                 :trace-mode="flowTraceMode"
-                :extract-sub-rule-request="extractSubRuleRequest"
                 @update:model-value="handleRulesetChange"
                 @open-sub-rule="handleOpenSubRule"
                 @extract-sub-rule="handleExtractSubRule"

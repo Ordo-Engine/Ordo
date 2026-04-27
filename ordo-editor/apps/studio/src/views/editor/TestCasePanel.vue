@@ -8,7 +8,13 @@ import { useCatalogStore } from '@/stores/catalog';
 import { useAuthStore } from '@/stores/auth';
 import { testApi } from '@/api/platform-client';
 import TraceStepTree from './TraceStepTree.vue';
-import type { TestCase, TestCaseInput, TestExecutionTraceStep, TestRunResult } from '@/api/types';
+import type {
+  TestCase,
+  TestCaseInput,
+  TestExecutionTraceStep,
+  TestFailureDetail,
+  TestRunResult,
+} from '@/api/types';
 import type { RuleSet } from '@ordo-engine/editor-core';
 
 const props = defineProps<{
@@ -415,18 +421,26 @@ function openSubRuleTrace(result: TestRunResult, step: TestExecutionTraceStep) {
   });
 }
 
-function failureKind(message: string) {
+function failureDetailFor(result: TestRunResult, index: number): TestFailureDetail | null {
+  return result.failure_details?.[index] ?? null;
+}
+
+function failureKind(message: string, detail?: TestFailureDetail | null) {
+  if (detail?.kind) {
+    return detail.kind === 'sub_rule' ? 'subRule' : detail.kind;
+  }
   const lower = message.toLowerCase();
   if (lower.includes('sub-rule') && lower.includes('not found')) return 'reference';
   if (lower.includes('contract') || lower.includes('schema')) return 'contract';
   if (lower.includes('field not found') || lower.includes('evaluation error')) return 'binding';
   if (lower.includes('output') || lower.includes('write')) return 'output';
+  if (lower.includes('invalid test input')) return 'execution';
   if (lower.includes('execution failed')) return 'subRule';
   return 'assertion';
 }
 
-function failureKindLabel(message: string) {
-  return t(`test.trace.failureKinds.${failureKind(message)}`);
+function failureKindLabel(message: string, detail?: TestFailureDetail | null) {
+  return t(`test.trace.failureKinds.${failureKind(message, detail)}`);
 }
 </script>
 
@@ -597,7 +611,9 @@ function failureKindLabel(message: string) {
               <div v-if="probeResult.failures.length" class="failures">
                 <div v-for="(f, i) in probeResult.failures" :key="i" class="failure-line">
                   <t-icon name="close-circle" size="11px" class="failure-icon" />
-                  <span class="failure-kind">{{ failureKindLabel(f) }}</span>
+                  <span class="failure-kind">{{
+                    failureKindLabel(f, failureDetailFor(probeResult, i))
+                  }}</span>
                   <span>{{ f }}</span>
                 </div>
               </div>
@@ -754,7 +770,9 @@ function failureKindLabel(message: string) {
                         class="failure-line"
                       >
                         <t-icon name="close-circle" size="11px" class="failure-icon" />
-                        <span class="failure-kind">{{ failureKindLabel(f) }}</span>
+                        <span class="failure-kind">{{
+                          failureKindLabel(f, failureDetailFor(resultFor(tc.id)!, i))
+                        }}</span>
                         <span>{{ f }}</span>
                       </div>
                     </div>

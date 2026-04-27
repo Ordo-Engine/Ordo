@@ -921,6 +921,7 @@ export default {
         subRule: 'Execution',
         output: 'Output',
         assertion: 'Assertion',
+        execution: 'Runtime',
       },
     },
     subRuleProbe: {

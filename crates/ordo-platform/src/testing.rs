@@ -16,7 +16,8 @@ use crate::{
     error::{ApiResult, PlatformError},
     models::{
         Claims, ProjectTestRunResult, Role, RulesetTestSummary, TestCase, TestExecutionTrace,
-        TestExecutionTraceStep, TestExpectation, TestRunResult, TestSubRuleOutputTrace,
+        TestExecutionTraceStep, TestExpectation, TestFailureDetail, TestFailureKind, TestRunResult,
+        TestSubRuleOutputTrace,
     },
     AppState,
 };
@@ -402,13 +403,15 @@ pub async fn run_project_tests(
         )
         .await
         .unwrap_or_else(|err| {
+            let message = err.to_string();
             tests
                 .iter()
                 .map(|t| TestRunResult {
                     test_id: t.id.clone(),
                     test_name: t.name.clone(),
                     passed: false,
-                    failures: vec![err.to_string()],
+                    failures: vec![message.clone()],
+                    failure_details: vec![failure_detail(&message, None)],
                     duration_us: 0,
                     actual_code: None,
                     actual_message: None,
@@ -542,11 +545,13 @@ async fn execute_tests(
         let input: CoreValue = match serde_json::from_value(tc.input.clone()) {
             Ok(input) => input,
             Err(e) => {
+                let message = format!("Invalid test input: {}", e);
                 results.push(TestRunResult {
                     test_id: tc.id.clone(),
                     test_name: tc.name.clone(),
                     passed: false,
-                    failures: vec![format!("Invalid test input: {}", e)],
+                    failures: vec![message.clone()],
+                    failure_details: vec![failure_detail(&message, None)],
                     duration_us: start.elapsed().as_micros() as u64,
                     actual_code: None,
                     actual_message: None,
@@ -567,18 +572,26 @@ async fn execute_tests(
                 let actual_message = Some(result.message.clone());
                 let actual_output = serde_json::to_value(&result.output).ok();
                 let trace = result.trace.as_ref().map(map_trace);
-                let failures = compare_expectation(
-                    &tc.expect,
-                    actual_code.as_deref(),
-                    actual_message.as_deref(),
-                    actual_output.as_ref(),
+                let failure_details = attach_trace_target(
+                    compare_expectation(
+                        &tc.expect,
+                        actual_code.as_deref(),
+                        actual_message.as_deref(),
+                        actual_output.as_ref(),
+                    ),
+                    trace.as_ref(),
                 );
+                let failures = failure_details
+                    .iter()
+                    .map(|detail| detail.message.clone())
+                    .collect();
 
                 TestRunResult {
                     test_id: tc.id.clone(),
                     test_name: tc.name.clone(),
-                    passed: failures.is_empty(),
+                    passed: failure_details.is_empty(),
                     failures,
+                    failure_details,
                     duration_us: elapsed_us.max(result.duration_us),
                     actual_code,
                     actual_message,
@@ -586,17 +599,21 @@ async fn execute_tests(
                     trace,
                 }
             }
-            Err(e) => TestRunResult {
-                test_id: tc.id.clone(),
-                test_name: tc.name.clone(),
-                passed: false,
-                failures: vec![format!("Execution failed: {}", e)],
-                duration_us: elapsed_us,
-                actual_code: None,
-                actual_message: None,
-                actual_output: None,
-                trace: None,
-            },
+            Err(e) => {
+                let message = format!("Execution failed: {}", e);
+                TestRunResult {
+                    test_id: tc.id.clone(),
+                    test_name: tc.name.clone(),
+                    passed: false,
+                    failures: vec![message.clone()],
+                    failure_details: vec![failure_detail(&message, None)],
+                    duration_us: elapsed_us,
+                    actual_code: None,
+                    actual_message: None,
+                    actual_output: None,
+                    trace: None,
+                }
+            }
         };
 
         results.push(run_result);
@@ -675,35 +692,92 @@ fn compile_ruleset(ruleset: &JsonValue) -> anyhow::Result<RuleSet> {
     RuleSet::from_json_compiled(&ruleset_json).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
+fn failure_detail(message: &str, step_id: Option<String>) -> TestFailureDetail {
+    TestFailureDetail {
+        message: message.to_string(),
+        kind: classify_failure(message),
+        step_id,
+        sub_rule_ref: extract_sub_rule_ref(message),
+    }
+}
+
+fn classify_failure(message: &str) -> TestFailureKind {
+    let lower = message.to_lowercase();
+    if lower.contains("sub-rule") && lower.contains("not found") {
+        TestFailureKind::Reference
+    } else if lower.contains("contract") || lower.contains("schema") {
+        TestFailureKind::Contract
+    } else if lower.contains("field not found") || lower.contains("evaluation error") {
+        TestFailureKind::Binding
+    } else if lower.contains("output") || lower.contains("write") {
+        TestFailureKind::Output
+    } else if lower.contains("subrule") || lower.contains("sub-rule") {
+        TestFailureKind::SubRule
+    } else if lower.contains("execution failed") || lower.contains("invalid test input") {
+        TestFailureKind::Execution
+    } else {
+        TestFailureKind::Assertion
+    }
+}
+
+fn extract_sub_rule_ref(message: &str) -> Option<String> {
+    let marker = "Sub-rule '";
+    let start = message.find(marker)? + marker.len();
+    let rest = &message[start..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_string())
+}
+
+fn attach_trace_target(
+    mut failures: Vec<TestFailureDetail>,
+    trace: Option<&TestExecutionTrace>,
+) -> Vec<TestFailureDetail> {
+    let terminal_step = trace
+        .and_then(|t| t.steps.last())
+        .map(|step| step.id.clone());
+    for failure in &mut failures {
+        if failure.step_id.is_none() {
+            failure.step_id = terminal_step.clone();
+        }
+    }
+    failures
+}
+
 fn compare_expectation(
     expect: &TestExpectation,
     actual_code: Option<&str>,
     actual_message: Option<&str>,
     actual_output: Option<&JsonValue>,
-) -> Vec<String> {
+) -> Vec<TestFailureDetail> {
     let mut failures = Vec::new();
 
     if let Some(expected_code) = &expect.code {
         match actual_code {
             Some(actual) if actual == expected_code => {}
-            Some(actual) => failures.push(format!(
-                "code: expected \"{}\", got \"{}\"",
-                expected_code, actual
+            Some(actual) => failures.push(failure_detail(
+                &format!("code: expected \"{}\", got \"{}\"", expected_code, actual),
+                None,
             )),
-            None => failures.push(format!("code: expected \"{}\", got none", expected_code)),
+            None => failures.push(failure_detail(
+                &format!("code: expected \"{}\", got none", expected_code),
+                None,
+            )),
         }
     }
 
     if let Some(expected_message) = &expect.message {
         match actual_message {
             Some(actual) if actual == expected_message => {}
-            Some(actual) => failures.push(format!(
-                "message: expected \"{}\", got \"{}\"",
-                expected_message, actual
+            Some(actual) => failures.push(failure_detail(
+                &format!(
+                    "message: expected \"{}\", got \"{}\"",
+                    expected_message, actual
+                ),
+                None,
             )),
-            None => failures.push(format!(
-                "message: expected \"{}\", got none",
-                expected_message
+            None => failures.push(failure_detail(
+                &format!("message: expected \"{}\", got none", expected_message),
+                None,
             )),
         }
     }
@@ -717,30 +791,42 @@ fn compare_expectation(
                 for (key, expected_val) in expected_fields {
                     match actual_fields.get(key) {
                         Some(actual) if actual == expected_val => {}
-                        Some(actual) => failures.push(format!(
-                            "output.{}: expected {}, got {}",
-                            key,
-                            json_string(expected_val),
-                            json_string(actual)
+                        Some(actual) => failures.push(failure_detail(
+                            &format!(
+                                "output.{}: expected {}, got {}",
+                                key,
+                                json_string(expected_val),
+                                json_string(actual)
+                            ),
+                            None,
                         )),
-                        None => failures.push(format!(
-                            "output.{}: expected {}, got missing",
-                            key,
-                            json_string(expected_val)
+                        None => failures.push(failure_detail(
+                            &format!(
+                                "output.{}: expected {}, got missing",
+                                key,
+                                json_string(expected_val)
+                            ),
+                            None,
                         )),
                     }
                 }
             }
             _ => match actual_output {
                 Some(actual) if actual == expected_output => {}
-                Some(actual) => failures.push(format!(
-                    "output: expected {}, got {}",
-                    json_string(expected_output),
-                    json_string(actual)
+                Some(actual) => failures.push(failure_detail(
+                    &format!(
+                        "output: expected {}, got {}",
+                        json_string(expected_output),
+                        json_string(actual)
+                    ),
+                    None,
                 )),
-                None => failures.push(format!(
-                    "output: expected {}, got none",
-                    json_string(expected_output)
+                None => failures.push(failure_detail(
+                    &format!(
+                        "output: expected {}, got none",
+                        json_string(expected_output)
+                    ),
+                    None,
                 )),
             },
         }

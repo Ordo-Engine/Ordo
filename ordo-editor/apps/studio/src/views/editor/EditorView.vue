@@ -35,8 +35,11 @@ import {
   generateId,
   Step,
   type RuleSet,
+  type SubRuleBinding,
   type SubRuleGraph,
+  type SubRuleOutput,
   type SubRuleStep,
+  type TerminalStep,
   type SubRuleAssetOption,
   type ExtractSubRulePayload,
   type DecisionTable,
@@ -628,6 +631,293 @@ const primarySubRuleSuggestion = computed(() => activeSubRuleSuggestions.value[0
 const secondarySubRuleSuggestions = computed(() => activeSubRuleSuggestions.value.slice(1));
 const pendingSubRuleSuggestionId = ref<string | null>(null);
 
+interface TerminalReturnBridge {
+  childSteps: RuleSet['steps'];
+  parentSteps: RuleSet['steps'];
+  nextStepId: string;
+  bindings: SubRuleBinding[];
+  outputs: SubRuleOutput[];
+}
+
+function literalExpr(value: string | number | boolean | null): any {
+  const valueType =
+    value === null
+      ? 'null'
+      : typeof value === 'number'
+        ? 'number'
+        : typeof value === 'boolean'
+          ? 'boolean'
+          : 'string';
+  return { type: 'literal', value, valueType };
+}
+
+function variableExpr(path: string): any {
+  return { type: 'variable', path };
+}
+
+function cloneExpression<T>(expr: T): T {
+  return JSON.parse(JSON.stringify(expr));
+}
+
+function safeRuntimeName(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[^a-zA-Z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'value'
+  );
+}
+
+function collectExprDataFields(expr: any, fields: Set<string>) {
+  if (!expr || typeof expr !== 'object') return;
+
+  if (expr.type === 'variable' || expr.type === 'field') {
+    const rawPath = String(expr.path ?? expr.name ?? '').trim();
+    if (!rawPath || rawPath.startsWith('$')) {
+      if (rawPath.startsWith('$.')) fields.add(rawPath.slice(2));
+      return;
+    }
+    fields.add(rawPath.startsWith('data.') ? rawPath.slice(5) : rawPath);
+    return;
+  }
+
+  if (expr.type === 'binary') {
+    collectExprDataFields(expr.left, fields);
+    collectExprDataFields(expr.right, fields);
+    return;
+  }
+
+  if (expr.type === 'unary') {
+    collectExprDataFields(expr.operand, fields);
+    return;
+  }
+
+  if (expr.type === 'function') {
+    for (const arg of expr.args ?? []) collectExprDataFields(arg, fields);
+    return;
+  }
+
+  if (expr.type === 'conditional') {
+    collectExprDataFields(expr.condition, fields);
+    collectExprDataFields(expr.thenExpr, fields);
+    collectExprDataFields(expr.elseExpr, fields);
+    return;
+  }
+
+  if (expr.type === 'array') {
+    for (const item of expr.elements ?? []) collectExprDataFields(item, fields);
+    return;
+  }
+
+  if (expr.type === 'object') {
+    for (const value of Object.values(expr.properties ?? {})) {
+      collectExprDataFields(value, fields);
+    }
+  }
+}
+
+function collectConditionDataFields(condition: any, fields: Set<string>) {
+  if (!condition || typeof condition !== 'object') return;
+
+  if (condition.type === 'simple') {
+    collectExprDataFields(condition.left, fields);
+    collectExprDataFields(condition.right, fields);
+    return;
+  }
+
+  if (condition.type === 'logical' || condition.type === 'compound') {
+    for (const child of condition.conditions ?? []) collectConditionDataFields(child, fields);
+    return;
+  }
+
+  if (condition.type === 'not') {
+    collectConditionDataFields(condition.condition, fields);
+    return;
+  }
+
+  collectExprDataFields(condition, fields);
+}
+
+function collectStepDataFields(step: RulesetStep, fields: Set<string>) {
+  if (step.type === 'decision') {
+    for (const branch of step.branches) collectConditionDataFields(branch.condition, fields);
+    return;
+  }
+
+  if (step.type === 'action') {
+    for (const assignment of step.assignments ?? []) {
+      collectExprDataFields(assignment.value, fields);
+    }
+    for (const call of step.externalCalls ?? []) {
+      for (const value of Object.values(call.params ?? {})) collectExprDataFields(value, fields);
+      if (call.fallbackValue) collectExprDataFields(call.fallbackValue, fields);
+    }
+    if (step.logging?.message) collectExprDataFields(step.logging.message, fields);
+    return;
+  }
+
+  if (step.type === 'terminal') {
+    if (step.message) collectExprDataFields(step.message, fields);
+    for (const output of step.output ?? []) collectExprDataFields(output.value, fields);
+    return;
+  }
+
+  if (step.type === 'sub_rule') {
+    for (const binding of step.bindings ?? []) collectExprDataFields(binding.expr, fields);
+  }
+}
+
+function inferSubRuleInputBindings(steps: RuleSet['steps']): SubRuleBinding[] {
+  const fields = new Set<string>();
+  for (const step of steps) collectStepDataFields(step, fields);
+
+  return [...fields]
+    .filter((field) => field && !field.startsWith('$') && !field.startsWith('item.'))
+    .sort()
+    .map((field) => ({ field, expr: variableExpr(field) }));
+}
+
+function mergeSubRuleBindings(
+  existing: SubRuleBinding[] | undefined,
+  inferred: SubRuleBinding[]
+): SubRuleBinding[] | undefined {
+  const byField = new Map<string, SubRuleBinding>();
+  for (const binding of existing ?? []) byField.set(binding.field, binding);
+  for (const binding of inferred) {
+    if (!byField.has(binding.field)) byField.set(binding.field, binding);
+  }
+  return byField.size > 0 ? [...byField.values()] : undefined;
+}
+
+function mergeSubRuleOutputs(
+  existing: SubRuleOutput[] | undefined,
+  generated: SubRuleOutput[]
+): SubRuleOutput[] | undefined {
+  const byKey = new Map<string, SubRuleOutput>();
+  for (const output of existing ?? []) byKey.set(`${output.parentVar}:${output.childVar}`, output);
+  for (const output of generated) byKey.set(`${output.parentVar}:${output.childVar}`, output);
+  return byKey.size > 0 ? [...byKey.values()] : undefined;
+}
+
+function createTerminalReturnBridge(
+  subRuleStepId: string,
+  sourceSteps: RuleSet['steps'],
+  position: { x: number; y: number }
+): TerminalReturnBridge | null {
+  const terminals = sourceSteps.filter((step): step is TerminalStep => step.type === 'terminal');
+  if (terminals.length === 0) return null;
+
+  const prefix = `__ordo_sub_${safeRuntimeName(subRuleStepId)}`;
+  const terminalIdVar = `${prefix}_terminal_id`;
+  const messageVar = `${prefix}_message`;
+  const returnStepId = `${subRuleStepId}__return_to_parent`;
+  const outputs: SubRuleOutput[] = [
+    { parentVar: terminalIdVar, childVar: terminalIdVar },
+    { parentVar: messageVar, childVar: messageVar },
+  ];
+  const outputVarByTerminal = new Map<string, string[]>();
+
+  const childSteps = sourceSteps.map((step) => {
+    if (step.type !== 'terminal') return cloneStep(step);
+
+    const terminal = step as TerminalStep;
+    const outputVars: string[] = [];
+    const assignments = [
+      Step.assign(terminalIdVar, literalExpr(terminal.id)),
+      Step.assign(
+        messageVar,
+        terminal.message ? cloneExpression(terminal.message) : literalExpr('')
+      ),
+    ];
+
+    for (const [index, output] of (terminal.output ?? []).entries()) {
+      const outputVar = `${prefix}_${safeRuntimeName(terminal.id)}_${safeRuntimeName(
+        output.name
+      )}_${index}`;
+      outputVars.push(outputVar);
+      outputs.push({ parentVar: outputVar, childVar: outputVar });
+      assignments.push(Step.assign(outputVar, output.value));
+    }
+    outputVarByTerminal.set(terminal.id, outputVars);
+
+    return Step.action({
+      id: terminal.id,
+      name: terminal.name,
+      description: terminal.description,
+      assignments,
+      nextStepId: returnStepId,
+      position: terminal.position,
+    });
+  });
+
+  childSteps.push(
+    Step.terminal({
+      id: returnStepId,
+      name: t('subRules.returnParent'),
+      code: 'OK',
+      position: { x: position.x + 260, y: position.y },
+    })
+  );
+
+  const parentTerminals = terminals.map((terminal, index) => {
+    const outputVars = outputVarByTerminal.get(terminal.id) ?? [];
+    return Step.terminal({
+      id: `${subRuleStepId}__terminal_${safeRuntimeName(terminal.id)}`,
+      name: terminal.name,
+      description: terminal.description,
+      code: terminal.code,
+      message: terminal.message ? cloneExpression(terminal.message) : undefined,
+      output: (terminal.output ?? []).map((output, outputIndex) => ({
+        name: output.name,
+        value: variableExpr(`$${outputVars[outputIndex]}`),
+      })),
+      position: {
+        x: position.x + 260,
+        y: position.y + index * 120,
+      },
+    });
+  });
+
+  if (parentTerminals.length === 1) {
+    return {
+      childSteps,
+      parentSteps: parentTerminals,
+      nextStepId: parentTerminals[0].id,
+      bindings: inferSubRuleInputBindings(sourceSteps),
+      outputs,
+    };
+  }
+
+  const dispatcherId = `${subRuleStepId}__return_dispatch`;
+  const dispatcher = Step.decision({
+    id: dispatcherId,
+    name: t('subRules.returnDispatcher'),
+    branches: terminals.slice(1).map((terminal, index) =>
+      Step.branch({
+        id: `${dispatcherId}_b_${index}`,
+        label: terminal.code,
+        condition: {
+          type: 'simple',
+          left: variableExpr(`$${terminalIdVar}`),
+          operator: 'eq',
+          right: literalExpr(terminal.id),
+        },
+        nextStepId: `${subRuleStepId}__terminal_${safeRuntimeName(terminal.id)}`,
+      })
+    ),
+    defaultNextStepId: parentTerminals[0].id,
+    position: { x: position.x + 220, y: position.y },
+  });
+
+  return {
+    childSteps,
+    parentSteps: [dispatcher, ...parentTerminals],
+    nextStepId: dispatcherId,
+    bindings: inferSubRuleInputBindings(sourceSteps),
+    outputs,
+  };
+}
+
 function subRuleDraftCacheKey(scope: SubRuleExecutionRef['scope'], name: string) {
   return `${scope}:${name}`;
 }
@@ -724,11 +1014,58 @@ function buildExecutableRuleset(ruleset: RuleSet, depth = 0, stack = new Set<str
   const subRules: Record<string, SubRuleGraph> = { ...(executable.subRules ?? {}) };
 
   mergeExecutableSubRulesFromSteps(executable.steps, subRules, depth, stack);
+  repairTerminalReturningSubRuleSteps(executable, subRules);
 
   return {
     ...executable,
     ...(Object.keys(subRules).length > 0 ? { subRules } : {}),
   };
+}
+
+function repairTerminalReturningSubRuleSteps(
+  ruleset: RuleSet,
+  subRules: Record<string, SubRuleGraph>
+) {
+  const stepIds = new Set(ruleset.steps.map((step) => step.id));
+  const appendedSteps: RuleSet['steps'] = [];
+
+  ruleset.steps = ruleset.steps.map((step) => {
+    if (step.type !== 'sub_rule') return step;
+
+    const subRuleStep = step as SubRuleStep;
+    if (subRuleStep.nextStepId && stepIds.has(subRuleStep.nextStepId)) return subRuleStep;
+
+    const graph = subRules[subRuleStep.refName];
+    if (!graph?.steps.some((childStep) => childStep.type === 'terminal')) return subRuleStep;
+
+    const bridge = createTerminalReturnBridge(subRuleStep.id, graph.steps, {
+      x: subRuleStep.position?.x ?? 0,
+      y: subRuleStep.position?.y ?? 0,
+    });
+    if (!bridge) return subRuleStep;
+
+    const bridgedRefName = `${subRuleStep.refName}__${safeRuntimeName(
+      subRuleStep.id
+    )}_terminal_return`;
+    subRules[bridgedRefName] = {
+      ...graph,
+      steps: bridge.childSteps,
+    };
+    appendedSteps.push(...bridge.parentSteps);
+    for (const parentStep of bridge.parentSteps) stepIds.add(parentStep.id);
+
+    return {
+      ...subRuleStep,
+      refName: bridgedRefName,
+      nextStepId: bridge.nextStepId,
+      bindings: mergeSubRuleBindings(subRuleStep.bindings, bridge.bindings),
+      outputs: mergeSubRuleOutputs(subRuleStep.outputs, bridge.outputs),
+    };
+  });
+
+  if (appendedSteps.length > 0) {
+    ruleset.steps.push(...appendedSteps);
+  }
 }
 
 function collectMissingExecutionSubRules(
@@ -1138,10 +1475,18 @@ function createSuggestedSubRuleExtractionPayload(
   const exitTargetId = validation.exitTargetId;
   const returnStepId = exitTargetId ? generateId('return') : undefined;
   const outsideTargets = exitTargetId && returnStepId ? new Set([exitTargetId]) : new Set<string>();
+  const minX = Math.min(...selectedSteps.map((step) => step.position?.x ?? 0));
+  const minY = Math.min(...selectedSteps.map((step) => step.position?.y ?? 0));
 
-  const childSteps = selectedSteps.map((step) =>
+  let childSteps = selectedSteps.map((step) =>
     returnStepId ? retargetStepNext(step, outsideTargets, returnStepId) : cloneStep(step)
   );
+  const terminalReturnBridge = !exitTargetId
+    ? createTerminalReturnBridge(subRuleStepId, childSteps, { x: minX, y: minY })
+    : null;
+  if (terminalReturnBridge) {
+    childSteps = terminalReturnBridge.childSteps;
+  }
 
   if (returnStepId) {
     childSteps.push(
@@ -1182,8 +1527,6 @@ function createSuggestedSubRuleExtractionPayload(
       .filter((group) => group.stepIds.length > 0),
   };
 
-  const minX = Math.min(...selectedSteps.map((step) => step.position?.x ?? 0));
-  const minY = Math.min(...selectedSteps.map((step) => step.position?.y ?? 0));
   const subRuleStep = Step.subRule({
     id: subRuleStepId,
     name: displayName,
@@ -1192,7 +1535,9 @@ function createSuggestedSubRuleExtractionPayload(
       scope: 'project',
       name: suggestedName,
     },
-    nextStepId: exitTargetId ?? '',
+    bindings: mergeSubRuleBindings(undefined, inferSubRuleInputBindings(selectedSteps)),
+    outputs: terminalReturnBridge?.outputs,
+    nextStepId: exitTargetId ?? terminalReturnBridge?.nextStepId ?? '',
     position: { x: minX, y: minY },
   });
 
@@ -1201,6 +1546,9 @@ function createSuggestedSubRuleExtractionPayload(
     .filter((step) => !selectedIds.has(step.id))
     .map((step) => retargetStepNext(step, selectedIds, subRuleStepId));
   parentSteps.splice(Math.max(firstSelectedIndex, 0), 0, subRuleStep);
+  if (terminalReturnBridge) {
+    parentSteps.splice(Math.max(firstSelectedIndex, 0) + 1, 0, ...terminalReturnBridge.parentSteps);
+  }
 
   const parentRuleset: RuleSet = {
     ...cloneRuleset(ruleset),

@@ -263,6 +263,48 @@ describe('Format Adapter', () => {
         { name: 'tier', type: 'string', required: true },
       ]);
     });
+
+    it('preserves runtime variable references while normalizing input fields', () => {
+      const editorRuleset: RuleSet = {
+        config: { name: 'variable-reference-test' },
+        startStepId: 'set_result',
+        steps: [
+          {
+            id: 'set_result',
+            name: 'Set Result',
+            type: 'action',
+            assignments: [
+              { name: 'message', value: Expr.variable('$.input_message') },
+              { name: 'status', value: Expr.string('OK') },
+            ],
+            nextStepId: 'done',
+          } as ActionStep,
+          {
+            id: 'done',
+            name: 'Done',
+            type: 'terminal',
+            code: 'OK',
+            message: Expr.string('Done'),
+            output: [{ name: 'status', value: Expr.variable('$status') }],
+          } as TerminalStep,
+        ],
+      };
+
+      const engineRuleset = convertToEngineFormat(editorRuleset);
+
+      expect(engineRuleset.steps['set_result']).toMatchObject({
+        actions: [
+          { action: 'set_variable', name: 'message', value: { Field: 'input_message' } },
+          { action: 'set_variable', name: 'status', value: { Literal: 'OK' } },
+        ],
+      });
+      expect(engineRuleset.steps['done']).toMatchObject({
+        result: {
+          message: 'Done',
+          output: [['status', { Field: '$status' }]],
+        },
+      });
+    });
   });
 
   describe('convertFromEngineFormat', () => {

@@ -613,6 +613,10 @@ const activeSubRuleSuggestions = computed<SubRuleSuggestion[]>(() => {
   return analyzeSubRuleSuggestions(tab.ruleset).slice(0, 3);
 });
 
+const primarySubRuleSuggestion = computed(() => activeSubRuleSuggestions.value[0] ?? null);
+const secondarySubRuleSuggestions = computed(() => activeSubRuleSuggestions.value.slice(1));
+const pendingSubRuleSuggestionId = ref<string | null>(null);
+
 function getStepOutgoingIds(step: RulesetStep): string[] {
   switch (step.type) {
     case 'decision':
@@ -854,15 +858,19 @@ function analyzeSubRuleSuggestions(ruleset: RuleSet): SubRuleSuggestion[] {
 async function requestSuggestedSubRuleExtraction(suggestion: SubRuleSuggestion) {
   if (!canEdit.value || activeSubRuleName.value) return;
 
+  pendingSubRuleSuggestionId.value = suggestion.id;
   setEditorMode('flow');
+  await nextTick();
+  extractSubRuleRequest.value = null;
   await nextTick();
   extractSubRuleRequest.value = {
     id: ++extractSubRuleRequestSeq,
-    stepIds: suggestion.stepIds,
+    stepIds: [...suggestion.stepIds],
   };
 }
 
 function handleExtractSubRuleInvalid(reason: string) {
+  pendingSubRuleSuggestionId.value = null;
   MessagePlugin.warning(reason);
 }
 
@@ -1085,6 +1093,7 @@ function handleExtractSubRule(payload: ExtractSubRulePayload) {
   const tab = projectStore.activeTab;
   if (!tab || tab.kind === 'sub_rule') return;
 
+  pendingSubRuleSuggestionId.value = null;
   const name = makeUniqueProjectSubRuleName(payload.suggestedName);
   extractSubRuleState.value = {
     parentTabName: tab.name,
@@ -1932,32 +1941,58 @@ onUnmounted(() => {
         >
           <template v-if="projectStore.activeTab">
             <div class="editor-view-shell">
-              <div v-if="canEdit && activeSubRuleSuggestions.length > 0" class="sub-rule-advisor">
-                <div class="sub-rule-advisor__intro">
-                  <div class="sub-rule-advisor__icon">
-                    <t-icon name="git-branch" size="16px" />
-                  </div>
-                  <div>
-                    <div class="sub-rule-advisor__title">{{ t('subRules.suggestionsTitle') }}</div>
-                    <div class="sub-rule-advisor__desc">{{ t('subRules.suggestionsDesc') }}</div>
-                  </div>
-                </div>
-                <div class="sub-rule-advisor__cards">
+              <div
+                v-if="canEdit && primarySubRuleSuggestion"
+                class="sub-rule-advisor"
+                role="region"
+                :aria-label="t('subRules.suggestionsTitle')"
+              >
+                <button
+                  type="button"
+                  class="sub-rule-advisor__primary"
+                  :class="{
+                    'is-pending': pendingSubRuleSuggestionId === primarySubRuleSuggestion.id,
+                  }"
+                  @click="requestSuggestedSubRuleExtraction(primarySubRuleSuggestion)"
+                >
+                  <span class="sub-rule-advisor__mark">
+                    <t-icon name="git-branch" size="15px" />
+                  </span>
+                  <span class="sub-rule-advisor__copy">
+                    <span class="sub-rule-advisor__eyebrow">
+                      {{ t('subRules.suggestionsTitle') }}
+                    </span>
+                    <span class="sub-rule-advisor__title">
+                      {{ primarySubRuleSuggestion.title }}
+                    </span>
+                    <span class="sub-rule-advisor__meta">
+                      {{
+                        t('subRules.suggestionSteps', {
+                          count: primarySubRuleSuggestion.stepCount,
+                        })
+                      }}
+                      · {{ primarySubRuleSuggestion.entryName }}
+                    </span>
+                  </span>
+                  <span class="sub-rule-advisor__cta">
+                    <t-icon name="chevron-right" size="13px" />
+                    {{ t('subRules.suggestionCta') }}
+                  </span>
+                </button>
+                <div v-if="secondarySubRuleSuggestions.length" class="sub-rule-advisor__alternates">
                   <button
-                    v-for="suggestion in activeSubRuleSuggestions"
+                    v-for="suggestion in secondarySubRuleSuggestions"
                     :key="suggestion.id"
                     type="button"
-                    class="sub-rule-advisor__card"
+                    class="sub-rule-advisor__chip"
+                    :class="{ 'is-pending': pendingSubRuleSuggestionId === suggestion.id }"
+                    :title="suggestion.description"
                     @click="requestSuggestedSubRuleExtraction(suggestion)"
                   >
-                    <span class="sub-rule-advisor__card-title">{{ suggestion.title }}</span>
-                    <span class="sub-rule-advisor__card-desc">{{ suggestion.description }}</span>
-                    <span class="sub-rule-advisor__meta">
-                      <span>{{
-                        t('subRules.suggestionSteps', { count: suggestion.stepCount })
-                      }}</span>
-                      <span>{{ suggestion.entryName }}</span>
-                    </span>
+                    <span>{{ suggestion.title }}</span>
+                    <small>{{
+                      t('subRules.suggestionSteps', { count: suggestion.stepCount })
+                    }}</small>
                   </button>
                 </div>
               </div>
@@ -2637,110 +2672,164 @@ onUnmounted(() => {
 .sub-rule-advisor {
   flex: none;
   display: flex;
-  align-items: stretch;
-  gap: 12px;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(93, 126, 99, 0.22);
-  background: radial-gradient(circle at 18px 0, rgba(74, 138, 89, 0.18), transparent 32%),
-    linear-gradient(90deg, rgba(37, 62, 45, 0.44), rgba(31, 37, 43, 0.1)), var(--ordo-bg-panel);
-}
-
-.sub-rule-advisor__intro {
-  width: 280px;
-  display: flex;
   align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.sub-rule-advisor__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #9bd39f;
-  background: rgba(72, 126, 84, 0.2);
-  border: 1px solid rgba(126, 191, 132, 0.24);
-}
-
-.sub-rule-advisor__title {
-  color: var(--ordo-text-primary);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
-
-.sub-rule-advisor__desc {
-  margin-top: 3px;
-  color: var(--ordo-text-tertiary);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.sub-rule-advisor__cards {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--ordo-border-light);
+  background: linear-gradient(90deg, rgba(0, 102, 184, 0.06), rgba(0, 102, 184, 0) 42%),
+    var(--ordo-bg-panel);
 }
 
-.sub-rule-advisor__card {
-  min-width: 0;
-  border: 1px solid rgba(126, 191, 132, 0.18);
-  border-radius: 12px;
-  background: rgba(18, 27, 23, 0.44);
+.sub-rule-advisor__primary,
+.sub-rule-advisor__chip {
+  border: 1px solid var(--ordo-border-color);
+  background: var(--ordo-bg-item);
   color: var(--ordo-text-primary);
   cursor: pointer;
-  text-align: left;
-  padding: 9px 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
   transition:
     border-color 0.12s ease,
     background 0.12s ease,
-    transform 0.12s ease;
+    box-shadow 0.12s ease;
 }
 
-.sub-rule-advisor__card:hover {
-  border-color: rgba(149, 216, 154, 0.48);
-  background: rgba(35, 58, 42, 0.62);
-  transform: translateY(-1px);
+.sub-rule-advisor__primary:hover,
+.sub-rule-advisor__chip:hover {
+  border-color: rgba(0, 102, 184, 0.42);
+  background: var(--ordo-bg-selected);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
-.sub-rule-advisor__card-title,
-.sub-rule-advisor__card-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.sub-rule-advisor__primary.is-pending,
+.sub-rule-advisor__chip.is-pending {
+  border-color: var(--ordo-accent);
+  background: var(--ordo-accent-bg);
+}
+
+.sub-rule-advisor__primary {
+  min-width: 0;
+  max-width: 660px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 10px;
+  text-align: left;
+}
+
+.sub-rule-advisor__mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--ordo-accent);
+  background: var(--ordo-accent-bg);
+}
+
+.sub-rule-advisor__copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+}
+
+.sub-rule-advisor__eyebrow {
+  color: var(--ordo-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
-.sub-rule-advisor__card-title {
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.sub-rule-advisor__card-desc {
-  color: var(--ordo-text-tertiary);
-  font-size: 11px;
-}
-
-.sub-rule-advisor__meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #9bd39f;
-  font-size: 11px;
-}
-
-.sub-rule-advisor__meta span {
+.sub-rule-advisor__title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sub-rule-advisor__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ordo-text-tertiary);
+  font-size: 11px;
+}
+
+.sub-rule-advisor__cta {
+  height: 24px;
+  border-radius: 7px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  background: var(--ordo-accent);
+  color: var(--ordo-text-inverse);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sub-rule-advisor__alternates {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sub-rule-advisor__chip {
+  max-width: 190px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--ordo-text-secondary);
+}
+
+.sub-rule-advisor__chip span,
+.sub-rule-advisor__chip small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-rule-advisor__chip span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sub-rule-advisor__chip small {
+  color: var(--ordo-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (max-width: 1100px) {
+  .sub-rule-advisor__alternates {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .sub-rule-advisor__copy {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+
+  .sub-rule-advisor__meta {
+    display: none;
+  }
 }
 
 .sub-rule-focus-strip {

@@ -923,6 +923,14 @@ export default {
         assertion: 'Assertion',
       },
     },
+    subRuleProbe: {
+      title: 'SubRule probe',
+      desc: 'Run the focused SubRule draft directly with a contract-shaped input. This does not create a persisted test case.',
+      seed: 'Seed input',
+      run: 'Run SubRule',
+      emptyResult: 'Run the probe to inspect output and step trace.',
+      runFinished: 'SubRule probe completed with failures',
+    },
     project: {
       title: 'Project Tests',
       runAll: 'Run All Project Tests',

@@ -2038,6 +2038,8 @@ onUnmounted(() => {
           v-if="showTests"
           :project-id="projectId"
           :ruleset-name="projectStore.activeTab?.name ?? ''"
+          :ruleset="projectStore.activeTab?.ruleset ?? null"
+          :sub-rule-mode="projectStore.activeTab?.kind === 'sub_rule'"
           :visible="showTests"
           :height="testsHeight"
           @update:visible="showTests = $event"

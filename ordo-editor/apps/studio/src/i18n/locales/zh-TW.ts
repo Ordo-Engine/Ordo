@@ -906,6 +906,14 @@ export default {
         assertion: '斷言',
       },
     },
+    subRuleProbe: {
+      title: '子規則試跑',
+      desc: '直接執行目前子規則草稿，輸入可從契約欄位產生；不會建立持久化測試案例。',
+      seed: '產生輸入',
+      run: '執行子規則',
+      emptyResult: '執行後可查看輸出和步驟追蹤。',
+      runFinished: '子規則試跑完成，但存在失敗項',
+    },
     project: {
       title: '專案測試',
       runAll: '執行全部專案測試',

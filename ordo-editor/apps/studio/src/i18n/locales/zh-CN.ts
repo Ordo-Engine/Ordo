@@ -552,6 +552,7 @@ export default {
     suggestionDecisionDesc: '{count} 个连接步骤来自同一个决策分支。',
     suggestionChainTitle: '流程片段：{name}',
     suggestionChainDesc: '{count} 个步骤构成单入口、单出口执行片段。',
+    suggestionCta: '选中并提取',
     suggestionSteps: '{count} 个步骤',
   },
   versions: {

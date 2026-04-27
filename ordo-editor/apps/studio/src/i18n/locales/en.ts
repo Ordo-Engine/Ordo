@@ -563,6 +563,7 @@ export default {
     suggestionDecisionDesc: '{count} connected steps branch from the same decision.',
     suggestionChainTitle: 'Flow segment: {name}',
     suggestionChainDesc: '{count} steps form a single-entry/single-exit execution segment.',
+    suggestionCta: 'Select & extract',
     suggestionSteps: '{count} steps',
   },
   versions: {

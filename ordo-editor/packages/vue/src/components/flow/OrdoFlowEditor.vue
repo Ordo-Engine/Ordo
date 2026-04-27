@@ -377,7 +377,8 @@ watch(
     if (props.extractSubRuleRequest) {
       void applyExtractSubRuleRequest(props.extractSubRuleRequest);
     }
-  }
+  },
+  { immediate: true }
 );
 
 async function scheduleTraceApply(trace: ExecutionTraceData) {

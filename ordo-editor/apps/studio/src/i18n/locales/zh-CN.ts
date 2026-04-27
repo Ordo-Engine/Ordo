@@ -906,6 +906,14 @@ export default {
         assertion: '断言',
       },
     },
+    subRuleProbe: {
+      title: '子规则试跑',
+      desc: '直接运行当前子规则草稿，输入可从契约字段生成；不会创建持久化测试用例。',
+      seed: '生成输入',
+      run: '运行子规则',
+      emptyResult: '运行后可查看输出和步骤追踪。',
+      runFinished: '子规则试跑完成，但存在失败项',
+    },
     project: {
       title: '项目测试',
       runAll: '运行全部项目测试',

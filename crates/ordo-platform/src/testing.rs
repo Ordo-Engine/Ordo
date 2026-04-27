@@ -80,6 +80,30 @@ fn default_include_trace() -> bool {
     true
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AdHocTestRunRequest {
+    pub ruleset: JsonValue,
+    #[serde(default = "default_ad_hoc_test_name")]
+    pub name: String,
+    pub input: JsonValue,
+    #[serde(default = "default_expectation")]
+    pub expect: TestExpectation,
+    #[serde(default = "default_include_trace")]
+    pub include_trace: bool,
+}
+
+fn default_ad_hoc_test_name() -> String {
+    "Ad-hoc test".to_string()
+}
+
+fn default_expectation() -> TestExpectation {
+    TestExpectation {
+        code: None,
+        message: None,
+        output: None,
+    }
+}
+
 // ── ordo-cli compatible export format ────────────────────────────────────────
 
 /// Matches the TestCase format expected by ordo-cli's test_runner.rs.
@@ -299,6 +323,39 @@ pub async fn run_one_test(
         &ruleset_name,
         std::slice::from_ref(tc),
         req.ruleset.as_ref(),
+        req.include_trace,
+    )
+    .await?;
+    Ok(Json(results.remove(0)))
+}
+
+/// POST /api/v1/projects/:pid/tests/run-ad-hoc
+pub async fn run_ad_hoc_test(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(project_id): Path<String>,
+    Json(req): Json<AdHocTestRunRequest>,
+) -> ApiResult<Json<TestRunResult>> {
+    let (_org_id, _role) = resolve_project(&state, &project_id, &claims.sub, None).await?;
+    let now = Utc::now();
+    let tc = TestCase {
+        id: Uuid::new_v4().to_string(),
+        name: req.name,
+        description: None,
+        input: req.input,
+        expect: req.expect,
+        tags: vec!["ad-hoc".to_string()],
+        created_at: now,
+        updated_at: now,
+        created_by: claims.sub,
+    };
+
+    let mut results = execute_tests(
+        &state,
+        &project_id,
+        "__ad_hoc__",
+        std::slice::from_ref(&tc),
+        Some(&req.ruleset),
         req.include_trace,
     )
     .await?;

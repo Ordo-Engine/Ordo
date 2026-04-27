@@ -345,6 +345,14 @@ export interface ProjectTestRunRequest {
   include_trace?: boolean;
 }
 
+export interface AdHocTestRunRequest {
+  ruleset: RuleSet;
+  name?: string;
+  input: Record<string, unknown>;
+  expect?: TestExpectation;
+  include_trace?: boolean;
+}
+
 export interface RulesetTestSummary {
   ruleset_name: string;
   total: number;

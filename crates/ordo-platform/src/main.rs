@@ -182,6 +182,10 @@ async fn main() -> anyhow::Result<()> {
             post(testing::run_one_test),
         )
         .route(
+            "/api/v1/projects/:pid/tests/run-ad-hoc",
+            post(testing::run_ad_hoc_test),
+        )
+        .route(
             "/api/v1/projects/:pid/tests/run",
             get(testing::run_project_tests).post(testing::run_project_tests),
         )

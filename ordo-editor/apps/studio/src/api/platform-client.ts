@@ -32,6 +32,7 @@ import type {
   ProjectRulesetMeta,
   ProjectTestRunResult,
   PublishRequest,
+  AdHocTestRunRequest,
   RedeployRequest,
   ReleaseExecution,
   ReleaseExecutionEvent,
@@ -438,6 +439,14 @@ export const testApi = {
     req: ProjectTestRunRequest = {}
   ): Promise<ProjectTestRunResult> {
     return request(`/projects/${projectId}/tests/run`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    });
+  },
+
+  runAdHoc(token: string, projectId: string, req: AdHocTestRunRequest): Promise<TestRunResult> {
+    return request(`/projects/${projectId}/tests/run-ad-hoc`, {
       method: 'POST',
       token,
       body: JSON.stringify(req),

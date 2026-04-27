@@ -554,6 +554,7 @@ export default {
     suggestionChainDesc: '{count} 個步驟構成單入口、單出口執行片段。',
     suggestionCta: '選中並提取',
     suggestionSteps: '{count} 個步驟',
+    executionHydrating: '正在裝配子規則執行快照...',
   },
   versions: {
     title: '版本歷史',

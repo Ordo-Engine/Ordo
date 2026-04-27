@@ -565,6 +565,7 @@ export default {
     suggestionChainDesc: '{count} steps form a single-entry/single-exit execution segment.',
     suggestionCta: 'Select & extract',
     suggestionSteps: '{count} steps',
+    executionHydrating: 'Preparing executable SubRule snapshot...',
   },
   versions: {
     title: 'Version History',

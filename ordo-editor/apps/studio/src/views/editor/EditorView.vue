@@ -35,6 +35,7 @@ import {
   generateId,
   Step,
   type RuleSet,
+  type SubRuleGraph,
   type SubRuleStep,
   type SubRuleAssetOption,
   type ExtractSubRulePayload,
@@ -450,7 +451,10 @@ function toggleTests() {
 
 function toggleExecution() {
   showExecution.value = !showExecution.value;
-  if (showExecution.value) showTests.value = false;
+  if (showExecution.value) {
+    showTests.value = false;
+    void hydrateActiveExecutionSubRules();
+  }
 }
 
 // ── Execution trace overlay (for "show in flow") ─────────────────────────────
@@ -502,6 +506,10 @@ const newType = ref<'flow' | 'table'>('flow');
 const saving = ref(false);
 const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
 const subRuleAssetsLoaded = ref(false);
+const subRuleDraftCache = ref<Record<string, RuleSet>>({});
+const subRuleHydrationLoading = ref(false);
+const subRuleHydrationError = ref<string | null>(null);
+const subRuleHydrationSeq = ref(0);
 const subRuleParentTabs = new Map<string, string>();
 const extractingSubRule = ref(false);
 const extractSubRuleState = ref<{
@@ -604,6 +612,12 @@ interface SubRuleCandidateValidation {
   exitTargetId?: string;
 }
 
+interface SubRuleExecutionRef {
+  refName: string;
+  assetName: string;
+  scope: 'project' | 'org';
+}
+
 const activeSubRuleSuggestions = computed<SubRuleSuggestion[]>(() => {
   const tab = projectStore.activeTab;
   if (!tab || tab.kind === 'sub_rule' || tab.ruleset.steps.length < 3) return [];
@@ -613,6 +627,225 @@ const activeSubRuleSuggestions = computed<SubRuleSuggestion[]>(() => {
 const primarySubRuleSuggestion = computed(() => activeSubRuleSuggestions.value[0] ?? null);
 const secondarySubRuleSuggestions = computed(() => activeSubRuleSuggestions.value.slice(1));
 const pendingSubRuleSuggestionId = ref<string | null>(null);
+
+function subRuleDraftCacheKey(scope: SubRuleExecutionRef['scope'], name: string) {
+  return `${scope}:${name}`;
+}
+
+function collectStepSubRuleRefs(steps: RuleSet['steps']): SubRuleExecutionRef[] {
+  const refs = new Map<string, SubRuleExecutionRef>();
+
+  for (const step of steps) {
+    if (step.type !== 'sub_rule') continue;
+    const subRuleStep = step as SubRuleStep;
+    const refName = subRuleStep.refName?.trim();
+    if (!refName) continue;
+
+    const assetName = subRuleStep.assetRef?.name?.trim() || refName;
+    const scope = subRuleStep.assetRef?.scope ?? 'project';
+    const key = `${scope}:${assetName}:${refName}`;
+    refs.set(key, { refName, assetName, scope });
+  }
+
+  return [...refs.values()];
+}
+
+function getOpenSubRuleDraft(ref: SubRuleExecutionRef): RuleSet | null {
+  const byAssetName = projectStore.openTabs.find((tab) => tab.name === `§${ref.assetName}`);
+  if (byAssetName?.kind === 'sub_rule') return byAssetName.ruleset;
+
+  const byRefName = projectStore.openTabs.find((tab) => tab.name === `§${ref.refName}`);
+  return byRefName?.kind === 'sub_rule' ? byRefName.ruleset : null;
+}
+
+function getSubRuleDraftForExecution(ref: SubRuleExecutionRef): RuleSet | null {
+  const openDraft = getOpenSubRuleDraft(ref);
+  if (openDraft) return openDraft;
+
+  if (ref.scope === 'org') {
+    return (
+      subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.assetName)] ??
+      subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.refName)] ??
+      null
+    );
+  }
+
+  return (
+    subRuleDraftCache.value[subRuleDraftCacheKey('project', ref.assetName)] ??
+    subRuleDraftCache.value[subRuleDraftCacheKey('project', ref.refName)] ??
+    subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.assetName)] ??
+    subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.refName)] ??
+    null
+  );
+}
+
+function subRuleGraphFromRuleset(ruleset: RuleSet, fallback?: SubRuleGraph): SubRuleGraph {
+  return {
+    entryStep: ruleset.startStepId,
+    steps: cloneRuleset(ruleset).steps,
+    inputSchema: ruleset.config.inputSchema ?? fallback?.inputSchema ?? [],
+    outputSchema: ruleset.config.outputSchema ?? fallback?.outputSchema ?? [],
+  };
+}
+
+function mergeExecutableSubRulesFromSteps(
+  steps: RuleSet['steps'],
+  subRules: Record<string, SubRuleGraph>,
+  depth: number,
+  stack: Set<string>
+) {
+  if (depth >= 8) return;
+
+  for (const ref of collectStepSubRuleRefs(steps)) {
+    const stackKey = `${ref.scope}:${ref.assetName}:${ref.refName}`;
+    if (stack.has(stackKey)) continue;
+
+    const draft = getSubRuleDraftForExecution(ref);
+    const existingGraph = subRules[ref.refName];
+    if (draft) {
+      stack.add(stackKey);
+      const executableChild = buildExecutableRuleset(draft, depth + 1, stack);
+      Object.assign(subRules, executableChild.subRules ?? {});
+      subRules[ref.refName] = subRuleGraphFromRuleset(executableChild, existingGraph);
+      stack.delete(stackKey);
+      continue;
+    }
+
+    if (existingGraph) {
+      stack.add(stackKey);
+      mergeExecutableSubRulesFromSteps(existingGraph.steps, subRules, depth + 1, stack);
+      stack.delete(stackKey);
+    }
+  }
+}
+
+function buildExecutableRuleset(ruleset: RuleSet, depth = 0, stack = new Set<string>()): RuleSet {
+  const executable = cloneRuleset(ruleset);
+  const subRules: Record<string, SubRuleGraph> = { ...(executable.subRules ?? {}) };
+
+  mergeExecutableSubRulesFromSteps(executable.steps, subRules, depth, stack);
+
+  return {
+    ...executable,
+    ...(Object.keys(subRules).length > 0 ? { subRules } : {}),
+  };
+}
+
+function collectMissingExecutionSubRules(
+  ruleset: RuleSet,
+  missing = new Map<string, SubRuleExecutionRef>(),
+  visited = new Set<string>(),
+  depth = 0
+) {
+  if (depth >= 8) return missing;
+
+  const inlineSubRules = ruleset.subRules ?? {};
+  for (const ref of collectStepSubRuleRefs(ruleset.steps)) {
+    const key = `${ref.scope}:${ref.assetName}:${ref.refName}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+
+    const draft = getSubRuleDraftForExecution(ref);
+    const inlineGraph = inlineSubRules[ref.refName];
+
+    if (draft) {
+      collectMissingExecutionSubRules(draft, missing, visited, depth + 1);
+      continue;
+    }
+
+    if (inlineGraph) {
+      collectMissingExecutionSubRules(
+        {
+          config: ruleset.config,
+          startStepId: inlineGraph.entryStep,
+          steps: inlineGraph.steps,
+          subRules: inlineSubRules,
+        },
+        missing,
+        visited,
+        depth + 1
+      );
+      continue;
+    }
+
+    missing.set(key, ref);
+  }
+
+  return missing;
+}
+
+const activeExecutableRuleset = computed(() => {
+  const tab = projectStore.activeTab;
+  if (!tab) return null;
+  return buildExecutableRuleset(tab.ruleset);
+});
+
+async function fetchSubRuleDraftForExecution(ref: SubRuleExecutionRef) {
+  if (!auth.token || !orgId.value || !projectId.value) return;
+  if (getSubRuleDraftForExecution(ref)) return;
+
+  let asset;
+  if (ref.scope === 'org') {
+    asset = await subRuleApi.getOrg(auth.token, orgId.value, ref.assetName);
+  } else {
+    try {
+      asset = await subRuleApi.getProject(auth.token, orgId.value, projectId.value, ref.assetName);
+    } catch (error: any) {
+      if (error?.status !== 404) throw error;
+      asset = await subRuleApi.getOrg(auth.token, orgId.value, ref.assetName);
+    }
+  }
+
+  const draft = normalizeRuleset(asset.draft, asset.name);
+  subRuleDraftCache.value = {
+    ...subRuleDraftCache.value,
+    [subRuleDraftCacheKey(asset.scope, asset.name)]: draft,
+    [subRuleDraftCacheKey(ref.scope, ref.assetName)]: draft,
+  };
+}
+
+async function hydrateActiveExecutionSubRules() {
+  const tab = projectStore.activeTab;
+  if (!tab || !auth.token) return;
+
+  const seq = ++subRuleHydrationSeq.value;
+  subRuleHydrationLoading.value = true;
+  subRuleHydrationError.value = null;
+
+  try {
+    for (let depth = 0; depth < 8; depth += 1) {
+      const missing = [...collectMissingExecutionSubRules(tab.ruleset).values()];
+      if (missing.length === 0) break;
+
+      await Promise.all(missing.map((ref) => fetchSubRuleDraftForExecution(ref)));
+      if (seq !== subRuleHydrationSeq.value) return;
+    }
+
+    const unresolved = [...collectMissingExecutionSubRules(tab.ruleset).values()];
+    if (unresolved.length > 0) {
+      subRuleHydrationError.value = `Missing SubRules: ${unresolved
+        .map((ref) => ref.refName)
+        .join(', ')}`;
+    }
+  } catch (error: any) {
+    subRuleHydrationError.value = error?.message ?? t('subRules.loadFailed');
+  } finally {
+    if (seq === subRuleHydrationSeq.value) {
+      subRuleHydrationLoading.value = false;
+    }
+  }
+}
+
+watch(
+  () => [
+    showExecution.value,
+    projectStore.activeTabName,
+    projectStore.activeTab ? serializeRuleset(projectStore.activeTab.ruleset) : '',
+  ],
+  ([visible]) => {
+    if (visible) void hydrateActiveExecutionSubRules();
+  }
+);
 
 function getStepOutgoingIds(step: RulesetStep): string[] {
   switch (step.type) {
@@ -2230,7 +2463,8 @@ onUnmounted(() => {
           :style="{ height: executionHeight + 'px' }"
         >
           <OrdoExecutionPanel
-            :ruleset="projectStore.activeTab.ruleset"
+            v-if="!subRuleHydrationLoading && !subRuleHydrationError"
+            :ruleset="activeExecutableRuleset ?? projectStore.activeTab.ruleset"
             :visible="showExecution"
             :height="executionHeight"
             @update:visible="showExecution = $event"
@@ -2238,6 +2472,11 @@ onUnmounted(() => {
             @show-in-flow="handleShowInFlow"
             @clear-flow-trace="handleClearFlowTrace"
           />
+          <div v-else class="execution-panel-loading">
+            <t-loading v-if="subRuleHydrationLoading" size="small" />
+            <t-icon v-else name="error-circle" size="18px" />
+            <span>{{ subRuleHydrationError || t('subRules.executionHydrating') }}</span>
+          </div>
         </div>
 
         <!-- Test case panel -->
@@ -2245,7 +2484,7 @@ onUnmounted(() => {
           v-if="showTests"
           :project-id="projectId"
           :ruleset-name="projectStore.activeTab?.name ?? ''"
-          :ruleset="projectStore.activeTab?.ruleset ?? null"
+          :ruleset="activeExecutableRuleset ?? projectStore.activeTab?.ruleset ?? null"
           :sub-rule-mode="projectStore.activeTab?.kind === 'sub_rule'"
           :visible="showTests"
           :height="testsHeight"
@@ -3063,6 +3302,17 @@ onUnmounted(() => {
   flex-shrink: 0;
   border-top: 1px solid var(--ordo-border-color);
   overflow: hidden;
+}
+
+.execution-panel-loading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--ordo-bg-canvas);
+  color: var(--ordo-text-secondary);
+  font-size: 13px;
 }
 
 .history-panel-wrap {

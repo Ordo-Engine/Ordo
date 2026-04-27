@@ -297,11 +297,28 @@ export interface TestRunResult {
   test_name: string;
   passed: boolean;
   failures: string[];
+  failure_details?: TestFailureDetail[];
   duration_us: number;
   actual_code?: string;
   actual_message?: string;
   actual_output?: Record<string, unknown>;
   trace?: TestExecutionTrace;
+}
+
+export type TestFailureKind =
+  | 'reference'
+  | 'contract'
+  | 'binding'
+  | 'sub_rule'
+  | 'output'
+  | 'assertion'
+  | 'execution';
+
+export interface TestFailureDetail {
+  message: string;
+  kind: TestFailureKind;
+  step_id?: string | null;
+  sub_rule_ref?: string | null;
 }
 
 export interface TestExecutionTraceStep {

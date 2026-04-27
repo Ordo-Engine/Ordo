@@ -904,6 +904,7 @@ export default {
         subRule: '执行',
         output: '输出',
         assertion: '断言',
+        execution: '运行时',
       },
     },
     subRuleProbe: {

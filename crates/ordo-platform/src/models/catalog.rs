@@ -156,6 +156,8 @@ pub struct TestRunResult {
     pub passed: bool,
     #[serde(default)]
     pub failures: Vec<String>,
+    #[serde(default)]
+    pub failure_details: Vec<TestFailureDetail>,
     pub duration_us: u64,
     #[serde(default)]
     pub actual_code: Option<String>,
@@ -165,6 +167,28 @@ pub struct TestRunResult {
     pub actual_output: Option<JsonValue>,
     #[serde(default)]
     pub trace: Option<TestExecutionTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestFailureDetail {
+    pub message: String,
+    pub kind: TestFailureKind,
+    #[serde(default)]
+    pub step_id: Option<String>,
+    #[serde(default)]
+    pub sub_rule_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestFailureKind {
+    Reference,
+    Contract,
+    Binding,
+    SubRule,
+    Output,
+    Assertion,
+    Execution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

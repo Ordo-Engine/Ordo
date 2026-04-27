@@ -472,6 +472,20 @@ function handleShowInFlow(trace: typeof executionTrace.value) {
   setEditorMode('flow');
 }
 
+async function handleOpenSubRuleTrace(payload: {
+  refName: string;
+  trace: NonNullable<typeof executionTrace.value>;
+}) {
+  await handleOpenSubRule(payload.refName);
+  executionTrace.value = {
+    ...payload.trace,
+    steps: [...payload.trace.steps],
+    path: [...payload.trace.path],
+  };
+  flowTraceMode.value = true;
+  setEditorMode('flow');
+}
+
 function handleClearFlowTrace() {
   executionTrace.value = null;
   flowTraceMode.value = false;
@@ -2028,6 +2042,8 @@ onUnmounted(() => {
           :height="testsHeight"
           @update:visible="showTests = $event"
           @update:height="testsHeight = $event"
+          @show-in-flow="handleShowInFlow"
+          @open-sub-rule-trace="handleOpenSubRuleTrace"
         />
       </div>
 

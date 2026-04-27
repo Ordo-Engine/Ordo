@@ -6,7 +6,8 @@ import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import { useTestStore } from '@/stores/test';
 import { useCatalogStore } from '@/stores/catalog';
 import { useAuthStore } from '@/stores/auth';
-import type { TestCase, TestCaseInput, TestRunResult } from '@/api/types';
+import TraceStepTree from './TraceStepTree.vue';
+import type { TestCase, TestCaseInput, TestExecutionTraceStep, TestRunResult } from '@/api/types';
 
 const props = defineProps<{
   projectId: string;
@@ -18,6 +19,29 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void;
   (e: 'update:height', v: number): void;
+  (
+    e: 'show-in-flow',
+    trace: {
+      path: string[];
+      steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+      resultCode: string;
+      resultMessage: string;
+      output?: Record<string, any>;
+    }
+  ): void;
+  (
+    e: 'open-sub-rule-trace',
+    payload: {
+      refName: string;
+      trace: {
+        path: string[];
+        steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+        resultCode: string;
+        resultMessage: string;
+        output?: Record<string, any>;
+      };
+    }
+  ): void;
 }>();
 
 const { t } = useI18n();
@@ -261,6 +285,51 @@ function fmtJson(v: unknown): string {
 function durationMs(us: number): string {
   return (us / 1000).toFixed(1) + 'ms';
 }
+
+function buildFlowTrace(
+  result: TestRunResult,
+  steps: TestExecutionTraceStep[] = result.trace?.steps ?? []
+) {
+  return {
+    path: steps.map((step) => step.id),
+    steps: steps.map((step) => ({
+      id: step.id,
+      name: step.name,
+      duration_us: step.duration_us,
+      result: step.is_terminal ? result.actual_code ?? result.trace?.result_code ?? null : null,
+    })),
+    resultCode: result.actual_code ?? result.trace?.result_code ?? '',
+    resultMessage: result.actual_message ?? '',
+    output: result.actual_output as Record<string, any> | undefined,
+  };
+}
+
+function showResultInFlow(result: TestRunResult) {
+  if (!result.trace) return;
+  emit('show-in-flow', buildFlowTrace(result));
+}
+
+function openSubRuleTrace(result: TestRunResult, step: TestExecutionTraceStep) {
+  if (!step.sub_rule_ref || !step.sub_rule_frames?.length) return;
+  emit('open-sub-rule-trace', {
+    refName: step.sub_rule_ref,
+    trace: buildFlowTrace(result, step.sub_rule_frames),
+  });
+}
+
+function failureKind(message: string) {
+  const lower = message.toLowerCase();
+  if (lower.includes('sub-rule') && lower.includes('not found')) return 'reference';
+  if (lower.includes('contract') || lower.includes('schema')) return 'contract';
+  if (lower.includes('field not found') || lower.includes('evaluation error')) return 'binding';
+  if (lower.includes('output') || lower.includes('write')) return 'output';
+  if (lower.includes('execution failed')) return 'subRule';
+  return 'assertion';
+}
+
+function failureKindLabel(message: string) {
+  return t(`test.trace.failureKinds.${failureKind(message)}`);
+}
 </script>
 
 <template>
@@ -430,7 +499,9 @@ function durationMs(us: number): string {
                   <!-- Failures list -->
                   <div v-if="resultFor(tc.id)!.failures.length" class="failures">
                     <div v-for="(f, i) in resultFor(tc.id)!.failures" :key="i" class="failure-line">
-                      <t-icon name="close-circle" size="11px" class="failure-icon" />{{ f }}
+                      <t-icon name="close-circle" size="11px" class="failure-icon" />
+                      <span class="failure-kind">{{ failureKindLabel(f) }}</span>
+                      <span>{{ f }}</span>
                     </div>
                   </div>
 
@@ -439,12 +510,45 @@ function durationMs(us: number): string {
                     <span class="expect-pill expect-pill--actual">
                       code: <strong>{{ resultFor(tc.id)!.actual_code }}</strong>
                     </span>
+                    <span
+                      v-if="resultFor(tc.id)!.actual_message"
+                      class="expect-pill expect-pill--actual"
+                    >
+                      message: <strong>{{ resultFor(tc.id)!.actual_message }}</strong>
+                    </span>
                   </div>
                   <pre
                     v-if="resultFor(tc.id)!.actual_output"
                     class="detail-code detail-code--actual"
                     >{{ fmtJson(resultFor(tc.id)!.actual_output) }}</pre
                   >
+                </div>
+
+                <div v-if="resultFor(tc.id)!.trace" class="detail-section trace-section">
+                  <div class="trace-section__header">
+                    <div>
+                      <div class="detail-label">{{ t('test.project.traceDetails') }}</div>
+                      <div class="trace-section__meta">
+                        <span
+                          >{{ t('test.project.path') }}:
+                          {{ resultFor(tc.id)!.trace!.path_string }}</span
+                        >
+                        <span
+                          >{{ t('test.project.totalDuration') }}:
+                          {{ durationMs(resultFor(tc.id)!.trace!.total_duration_us) }}</span
+                        >
+                      </div>
+                    </div>
+                    <button class="trace-flow-btn" @click="showResultInFlow(resultFor(tc.id)!)">
+                      <t-icon name="flowchart" size="12px" />
+                      {{ t('test.trace.showInFlow') }}
+                    </button>
+                  </div>
+
+                  <TraceStepTree
+                    :steps="resultFor(tc.id)!.trace!.steps"
+                    @open-sub-rule="(step) => openSubRuleTrace(resultFor(tc.id)!, step)"
+                  />
                 </div>
               </template>
             </div>
@@ -846,8 +950,65 @@ function durationMs(us: number): string {
   color: #ef4444;
 }
 
+.failure-kind {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .actual-row {
   margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.trace-section {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(15, 23, 32, 0.46), rgba(15, 23, 32, 0.2)),
+    var(--ordo-bg-main, var(--ordo-hover-bg));
+}
+
+.trace-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trace-section__meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--ordo-text-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+
+.trace-flow-btn {
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 999px;
+  background: var(--ordo-bg-item, transparent);
+  color: var(--ordo-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.trace-flow-btn:hover {
+  background: var(--ordo-hover-bg);
+  color: var(--ordo-text-primary);
 }
 
 /* ── Editor panel ── */

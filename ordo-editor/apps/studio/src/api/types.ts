@@ -312,6 +312,17 @@ export interface TestExecutionTraceStep {
   is_terminal?: boolean;
   input_snapshot?: Record<string, unknown> | null;
   variables_snapshot?: Record<string, unknown> | null;
+  sub_rule_ref?: string | null;
+  sub_rule_input?: Record<string, unknown> | null;
+  sub_rule_outputs?: TestSubRuleOutputTrace[];
+  sub_rule_frames?: TestExecutionTraceStep[];
+}
+
+export interface TestSubRuleOutputTrace {
+  parent_var: string;
+  child_var: string;
+  value?: unknown;
+  missing?: boolean;
 }
 
 export interface TestExecutionTrace {

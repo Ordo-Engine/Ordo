@@ -16,7 +16,7 @@ use crate::{
     error::{ApiResult, PlatformError},
     models::{
         Claims, ProjectTestRunResult, Role, RulesetTestSummary, TestCase, TestExecutionTrace,
-        TestExecutionTraceStep, TestExpectation, TestRunResult,
+        TestExecutionTraceStep, TestExpectation, TestRunResult, TestSubRuleOutputTrace,
     },
     AppState,
 };
@@ -29,7 +29,7 @@ use chrono::Utc;
 use ordo_core::{
     context::Value as CoreValue,
     rule::{ExecutionOptions, RuleExecutor, RuleSet},
-    trace::ExecutionTrace,
+    trace::{ExecutionTrace, StepTrace, TraceConfig},
 };
 use ordo_protocol::StudioRuleSet;
 use serde::{Deserialize, Serialize};
@@ -473,7 +473,11 @@ async fn execute_tests(
             e
         ))
     })?;
-    let executor = RuleExecutor::new();
+    let executor = if include_trace {
+        RuleExecutor::with_trace(TraceConfig::full())
+    } else {
+        RuleExecutor::new()
+    };
     let mut results = Vec::with_capacity(tests.len());
 
     for tc in tests {
@@ -704,24 +708,107 @@ fn map_trace(trace: &ExecutionTrace) -> TestExecutionTrace {
         result_code: trace.result_code.clone(),
         total_duration_us: trace.total_duration_us,
         error: trace.error.clone(),
-        steps: trace
-            .steps
-            .iter()
-            .map(|step| TestExecutionTraceStep {
-                id: step.step_id.clone(),
-                name: step.step_name.clone(),
-                duration_us: step.duration_us,
-                next_step: step.next_step.clone(),
-                is_terminal: step.is_terminal,
-                input_snapshot: step
-                    .input_snapshot
-                    .as_ref()
-                    .and_then(|value| serde_json::to_value(value).ok()),
-                variables_snapshot: step
-                    .variables_snapshot
-                    .as_ref()
-                    .and_then(|value| serde_json::to_value(value).ok()),
+        steps: trace.steps.iter().map(map_trace_step).collect(),
+    }
+}
+
+fn map_trace_step(step: &StepTrace) -> TestExecutionTraceStep {
+    TestExecutionTraceStep {
+        id: step.step_id.clone(),
+        name: step.step_name.clone(),
+        duration_us: step.duration_us,
+        next_step: step.next_step.clone(),
+        is_terminal: step.is_terminal,
+        input_snapshot: step
+            .input_snapshot
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
+        variables_snapshot: step
+            .variables_snapshot
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
+        sub_rule_ref: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| call.ref_name.clone()),
+        sub_rule_input: step
+            .sub_rule_call
+            .as_ref()
+            .and_then(|call| serde_json::to_value(&call.input).ok()),
+        sub_rule_outputs: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| {
+                call.outputs
+                    .iter()
+                    .map(|output| TestSubRuleOutputTrace {
+                        parent_var: output.parent_var.clone(),
+                        child_var: output.child_var.clone(),
+                        value: output
+                            .value
+                            .as_ref()
+                            .and_then(|value| serde_json::to_value(value).ok()),
+                        missing: output.missing,
+                    })
+                    .collect()
             })
-            .collect(),
+            .unwrap_or_default(),
+        sub_rule_frames: step
+            .sub_rule_frames
+            .as_ref()
+            .map(|frames| frames.iter().map(map_trace_step).collect())
+            .unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ordo_core::trace::{SubRuleCallTrace, SubRuleOutputTrace};
+
+    #[test]
+    fn map_trace_preserves_parent_sub_rule_call_details() {
+        let child_output: CoreValue = serde_json::from_value(serde_json::json!("gold")).unwrap();
+        let child_input: CoreValue =
+            serde_json::from_value(serde_json::json!({ "score": 95 })).unwrap();
+
+        let child_terminal = StepTrace::terminal("grade_gold", "Grade gold", 7);
+        let mut parent_call =
+            StepTrace::continued("call_classifier", "Call classifier", 21, "finish");
+        parent_call.sub_rule_call = Some(SubRuleCallTrace {
+            ref_name: "classify_score".to_string(),
+            input: child_input,
+            outputs: vec![SubRuleOutputTrace {
+                parent_var: "customer_tier".to_string(),
+                child_var: "tier".to_string(),
+                value: Some(child_output),
+                missing: false,
+            }],
+        });
+        parent_call.sub_rule_frames = Some(vec![child_terminal]);
+
+        let mut trace = ExecutionTrace::new("checkout_policy");
+        trace.add_step(parent_call);
+        trace.set_result("APPROVED", 32);
+
+        let mapped = map_trace(&trace);
+        assert_eq!(mapped.path, vec!["call_classifier"]);
+        assert_eq!(mapped.result_code, "APPROVED");
+
+        let step = &mapped.steps[0];
+        assert_eq!(step.sub_rule_ref.as_deref(), Some("classify_score"));
+        assert_eq!(step.sub_rule_input.as_ref().unwrap()["score"], 95);
+        assert_eq!(step.sub_rule_outputs.len(), 1);
+        assert_eq!(step.sub_rule_outputs[0].parent_var, "customer_tier");
+        assert_eq!(step.sub_rule_outputs[0].child_var, "tier");
+        assert_eq!(
+            step.sub_rule_outputs[0].value.as_ref().unwrap(),
+            &serde_json::json!("gold")
+        );
+        assert!(!step.sub_rule_outputs[0].missing);
+
+        assert_eq!(step.sub_rule_frames.len(), 1);
+        assert_eq!(step.sub_rule_frames[0].id, "grade_gold");
+        assert!(step.sub_rule_frames[0].is_terminal);
     }
 }

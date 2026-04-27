@@ -20,6 +20,7 @@ import {
   type StepTraceInfo,
 } from './nodes';
 import { OrdoEdge } from './edges';
+import OrdoIcon from '../icons/OrdoIcon.vue';
 import OrdoFlowToolbar from './OrdoFlowToolbar.vue';
 import OrdoFlowPropertyPanel from './OrdoFlowPropertyPanel.vue';
 import {
@@ -209,6 +210,7 @@ const highlightedEdgeIds = ref<Set<string>>(new Set());
 const showExecutionOverlay = ref(false);
 const executionAnnotations = ref<Map<string, StepTraceInfo>>(new Map());
 let pendingTraceApplyToken = 0;
+let lastHandledExtractSubRuleRequestId: number | null = null;
 
 const isCanvasReadOnly = computed(() => props.disabled || props.traceMode);
 
@@ -377,8 +379,7 @@ watch(
     if (props.extractSubRuleRequest) {
       void applyExtractSubRuleRequest(props.extractSubRuleRequest);
     }
-  },
-  { immediate: true }
+  }
 );
 
 async function scheduleTraceApply(trace: ExecutionTraceData) {
@@ -1329,12 +1330,18 @@ function buildExtractSubRuleName(entryNode: FlowNode) {
 }
 
 async function applyExtractSubRuleRequest(request: ExtractSubRuleRequest) {
+  if (lastHandledExtractSubRuleRequestId === request.id) return;
+  lastHandledExtractSubRuleRequestId = request.id;
+
   if (isCanvasReadOnly.value) {
     emit('extract-sub-rule-invalid', t('flow.extractSubRuleReadOnly'));
     return;
   }
 
   await nextTick();
+  if (nodes.value.length === 0) {
+    await nextTick();
+  }
 
   const requestedIds = request.stepIds.filter((id) =>
     nodes.value.some((node) => node.id === id && isStepFlowNode(node))
@@ -1885,6 +1892,9 @@ onMounted(() => {
   // Force layout on first initialization
   initFromRuleset(isFirstInit.value);
   isFirstInit.value = false;
+  if (props.extractSubRuleRequest) {
+    void applyExtractSubRuleRequest(props.extractSubRuleRequest);
+  }
 });
 </script>
 

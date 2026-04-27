@@ -547,6 +547,7 @@ export default {
     focusTitle: 'Editing SubRule: {name}',
     focusDesc: 'This is a focused reusable graph. Save it before returning to the parent ruleset.',
     returnParent: 'Back to parent',
+    returnDispatcher: 'SubRule return dispatch',
     extractTitle: 'Extract SubRule',
     extractDesc:
       'Create a managed SubRule from {count} selected steps and replace the selection with one SubRule node.',

@@ -538,6 +538,7 @@ export default {
     focusTitle: '正在編輯子規則：{name}',
     focusDesc: '這是一個可重用的聚焦圖，返回父規則前請先儲存。',
     returnParent: '返回父規則',
+    returnDispatcher: '子規則返回分派',
     extractTitle: '提取為子規則',
     extractDesc: '將所選的 {count} 個步驟建立為託管子規則，並用一個子規則節點替換目前選區。',
     extractConfirm: '確認提取',

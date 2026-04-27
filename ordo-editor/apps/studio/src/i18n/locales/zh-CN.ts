@@ -538,6 +538,7 @@ export default {
     focusTitle: '正在编辑子规则：{name}',
     focusDesc: '这是一个可复用的聚焦图，返回父规则前请先保存。',
     returnParent: '返回父规则',
+    returnDispatcher: '子规则返回分派',
     extractTitle: '提取为子规则',
     extractDesc: '将选中的 {count} 个步骤创建为托管子规则，并用一个子规则节点替换当前选区。',
     extractConfirm: '确认提取',

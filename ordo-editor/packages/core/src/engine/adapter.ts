@@ -261,8 +261,6 @@ function convertValueToExprString(value: any): string {
     // The Context stores input data at root level, not under "input." key
     if (path.startsWith('$.')) {
       path = path.slice(2); // $.order.amount -> order.amount
-    } else if (path.startsWith('$')) {
-      path = path.slice(1);
     }
     return path;
   }
@@ -560,8 +558,6 @@ function convertToEngineExpr(value: any): any {
       let path = value.path || value.name || '';
       if (path.startsWith('$.')) {
         path = path.slice(2); // Remove $. prefix
-      } else if (path.startsWith('$')) {
-        path = path.slice(1);
       }
       return { Field: path };
     }

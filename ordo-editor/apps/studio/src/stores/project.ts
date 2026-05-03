@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { projectApi, rulesetDraftApi } from '@/api/platform-client';
+import { projectApi, rulesetDraftApi, subRuleApi } from '@/api/platform-client';
 import { normalizeRuleset } from '@/utils/ruleset';
+import { stripRuntimeGeneratedArtifacts } from '@/utils/ruleset';
 import { useAuthStore } from './auth';
 import { useOrgStore } from './org';
 import type {
@@ -10,6 +11,7 @@ import type {
   ProjectRuleset,
   ProjectRulesetMeta,
   RuleSetInfo,
+  SubRuleScope,
 } from '@/api/types';
 import type { RuleSet } from '@ordo-engine/editor-core';
 
@@ -21,6 +23,10 @@ export interface OpenTab {
   dirty: boolean;
   /** Platform draft sequence number for optimistic locking */
   draft_seq: number;
+  /** 'sub_rule' when this tab holds a managed SubRule asset draft */
+  kind?: 'sub_rule';
+  /** SubRule asset scope (only set when kind === 'sub_rule') */
+  subRuleScope?: SubRuleScope;
 }
 
 export const useProjectStore = defineStore('project', () => {
@@ -133,6 +139,32 @@ export const useProjectStore = defineStore('project', () => {
     activeTabName.value = name;
   }
 
+  async function openSubRule(name: string, scope: SubRuleScope = 'project') {
+    if (!auth.token || !currentProject.value) return;
+    const tabName = `§${name}`;
+    const existing = openTabs.value.find((t) => t.name === tabName);
+    if (existing) {
+      activeTabName.value = tabName;
+      return;
+    }
+    const org = orgStore.currentOrg;
+    if (!org) throw new Error('No active org');
+    const asset =
+      scope === 'org'
+        ? await subRuleApi.getOrg(auth.token, org.id, name)
+        : await subRuleApi.getProject(auth.token, org.id, currentProject.value.id, name);
+    const ruleset = normalizeRuleset(asset.draft, name);
+    openTabs.value.push({
+      name: tabName,
+      ruleset,
+      dirty: false,
+      draft_seq: asset.draft_seq,
+      kind: 'sub_rule',
+      subRuleScope: scope,
+    });
+    activeTabName.value = tabName;
+  }
+
   function updateActiveRuleset(ruleset: RuleSet) {
     const tab = openTabs.value.find((t) => t.name === activeTabName.value);
     if (tab) {
@@ -160,8 +192,34 @@ export const useProjectStore = defineStore('project', () => {
     const org = orgStore.currentOrg;
     if (!org) throw new Error('No active org');
 
+    if (tab.kind === 'sub_rule') {
+      const assetName = name.startsWith('§') ? name.slice(1) : name;
+      const sanitizedRuleset = stripRuntimeGeneratedArtifacts(tab.ruleset);
+      const asset =
+        tab.subRuleScope === 'org'
+          ? await subRuleApi.saveOrg(auth.token, org.id, assetName, {
+              name: assetName,
+              draft: sanitizedRuleset as any,
+              input_schema: [],
+              output_schema: [],
+              expected_seq: tab.draft_seq,
+            })
+          : await subRuleApi.saveProject(auth.token, org.id, currentProject.value.id, assetName, {
+              name: assetName,
+              draft: sanitizedRuleset as any,
+              input_schema: [],
+              output_schema: [],
+              expected_seq: tab.draft_seq,
+            });
+      tab.ruleset = sanitizedRuleset;
+      tab.dirty = false;
+      tab.draft_seq = asset.draft_seq;
+      return null;
+    }
+
+    const sanitizedRuleset = stripRuntimeGeneratedArtifacts(tab.ruleset);
     const result = await rulesetDraftApi.save(auth.token, org.id, currentProject.value.id, name, {
-      ruleset: tab.ruleset as any,
+      ruleset: sanitizedRuleset as any,
       expected_seq: tab.draft_seq,
     });
 
@@ -169,6 +227,7 @@ export const useProjectStore = defineStore('project', () => {
       return result;
     }
 
+    tab.ruleset = sanitizedRuleset;
     tab.dirty = false;
     tab.draft_seq = result.draft_seq;
     upsertDraftMeta(pickDraftMeta(result));
@@ -244,6 +303,7 @@ export const useProjectStore = defineStore('project', () => {
     selectProject,
     fetchRulesets,
     openRuleset,
+    openSubRule,
     updateActiveRuleset,
     setTabRuleset,
     saveRuleset,

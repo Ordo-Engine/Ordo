@@ -6,6 +6,8 @@
 import {
   RuleSet,
   Step,
+  SubRuleGraph,
+  SubRuleStep,
   getStepById,
   getAllStepIds,
   getNextStepIds,
@@ -148,6 +150,8 @@ export function validateRuleSet(
     validateStep(step, i, ruleset, opts, addError, addWarning, addInfo);
   }
 
+  validateSubRules(ruleset, opts, addError, addWarning);
+
   // Check broken references
   const brokenRefs = getBrokenReferences(ruleset);
   for (const { stepId, missingId } of brokenRefs) {
@@ -247,6 +251,10 @@ function validateStep(
       validateTerminalStep(step, basePath, addError, addWarning);
       break;
 
+    case 'sub_rule':
+      validateSubRuleStep(step, basePath, _ruleset, addError);
+      break;
+
     default:
       addError({
         code: 'INVALID_STEP_TYPE',
@@ -255,6 +263,156 @@ function validateStep(
         stepId: (step as Step).id,
       });
   }
+}
+
+/** Validate a sub-rule invocation step */
+function validateSubRuleStep(
+  step: SubRuleStep,
+  basePath: string,
+  ruleset: RuleSet,
+  addError: (e: Omit<ValidationError, 'severity'>) => void
+): void {
+  if (!step.refName) {
+    addError({
+      code: 'MISSING_SUB_RULE_REF',
+      message: `Sub-rule step "${step.id}" has no referenced sub-rule`,
+      path: `${basePath}.refName`,
+      stepId: step.id,
+    });
+  } else if (!ruleset.subRules?.[step.refName]) {
+    addError({
+      code: 'INVALID_SUB_RULE_REF',
+      message: `Sub-rule step "${step.id}" references non-existent sub-rule "${step.refName}"`,
+      path: `${basePath}.refName`,
+      stepId: step.id,
+    });
+  }
+
+  const graph = step.refName ? ruleset.subRules?.[step.refName] : undefined;
+  if (!graph) return;
+
+  const requiredInputs = (graph.inputSchema ?? []).filter((field) => field.required);
+  const boundFields = new Set((step.bindings ?? []).map((binding) => binding.field));
+  for (const field of requiredInputs) {
+    if (!boundFields.has(field.name)) {
+      addError({
+        code: 'MISSING_SUB_RULE_INPUT_BINDING',
+        message: `Sub-rule step "${step.id}" does not bind required input "${field.name}"`,
+        path: `${basePath}.bindings`,
+        stepId: step.id,
+      });
+    }
+  }
+
+  const requiredOutputs = (graph.outputSchema ?? []).filter((field) => field.required);
+  const mappedChildVars = new Set((step.outputs ?? []).map((output) => output.childVar));
+  for (const field of requiredOutputs) {
+    if (!mappedChildVars.has(field.name)) {
+      addError({
+        code: 'MISSING_SUB_RULE_OUTPUT_MAPPING',
+        message: `Sub-rule step "${step.id}" does not map required output "${field.name}"`,
+        path: `${basePath}.outputs`,
+        stepId: step.id,
+      });
+    }
+  }
+
+  (step.bindings ?? []).forEach((binding, index) => {
+    if (!binding.field) {
+      addError({
+        code: 'MISSING_SUB_RULE_BINDING_FIELD',
+        message: `Binding ${index} of sub-rule step "${step.id}" has no child field`,
+        path: `${basePath}.bindings[${index}].field`,
+        stepId: step.id,
+      });
+    }
+  });
+
+  (step.outputs ?? []).forEach((output, index) => {
+    if (!output.parentVar || !output.childVar) {
+      addError({
+        code: 'INVALID_SUB_RULE_OUTPUT_MAPPING',
+        message: `Output mapping ${index} of sub-rule step "${step.id}" must define both variables`,
+        path: `${basePath}.outputs[${index}]`,
+        stepId: step.id,
+      });
+    }
+  });
+}
+
+/** Validate embedded sub-rule graphs */
+function validateSubRules(
+  ruleset: RuleSet,
+  opts: ValidationOptions,
+  addError: (e: Omit<ValidationError, 'severity'>) => void,
+  addWarning: (e: Omit<ValidationError, 'severity'>) => void
+): void {
+  if (!ruleset.subRules) return;
+
+  for (const [name, graph] of Object.entries(ruleset.subRules)) {
+    validateSubRuleGraph(name, graph, ruleset, opts, addError, addWarning);
+  }
+
+  const cycles = detectSubRuleCycles(ruleset);
+  for (const cycle of cycles) {
+    addError({
+      code: 'SUB_RULE_CYCLE',
+      message: `Sub-rule call cycle detected: ${cycle.join(' -> ')}`,
+      path: 'subRules',
+    });
+  }
+}
+
+function validateSubRuleGraph(
+  name: string,
+  graph: SubRuleGraph,
+  ruleset: RuleSet,
+  opts: ValidationOptions,
+  addError: (e: Omit<ValidationError, 'severity'>) => void,
+  addWarning: (e: Omit<ValidationError, 'severity'>) => void
+): void {
+  const stepIds = new Set(graph.steps.map((step) => step.id));
+
+  if (!graph.entryStep) {
+    addError({
+      code: 'MISSING_SUB_RULE_ENTRY',
+      message: `Sub-rule "${name}" has no entry step`,
+      path: `subRules.${name}.entryStep`,
+    });
+  } else if (!stepIds.has(graph.entryStep)) {
+    addError({
+      code: 'INVALID_SUB_RULE_ENTRY',
+      message: `Sub-rule "${name}" entry step "${graph.entryStep}" does not exist`,
+      path: `subRules.${name}.entryStep`,
+    });
+  }
+
+  const duplicateIds = graph.steps
+    .map((step) => step.id)
+    .filter((id, index, ids) => ids.indexOf(id) !== index);
+  for (const id of new Set(duplicateIds)) {
+    addError({
+      code: 'DUPLICATE_SUB_RULE_STEP_ID',
+      message: `Sub-rule "${name}" has duplicate step ID "${id}"`,
+      path: `subRules.${name}.steps`,
+      stepId: id,
+    });
+  }
+
+  graph.steps.forEach((step, index) => {
+    validateStep(step, index, ruleset, opts, addError, addWarning, () => undefined);
+
+    for (const nextId of getNextStepIds(step)) {
+      if (nextId && !stepIds.has(nextId)) {
+        addError({
+          code: 'BROKEN_SUB_RULE_REFERENCE',
+          message: `Sub-rule "${name}" step "${step.id}" references non-existent step "${nextId}"`,
+          path: `subRules.${name}.steps[${index}]`,
+          stepId: step.id,
+        });
+      }
+    }
+  });
 }
 
 /** Validate a decision step */
@@ -397,6 +555,53 @@ function detectCycles(ruleset: RuleSet): string[][] {
   }
 
   dfs(ruleset.startStepId);
+  return cycles;
+}
+
+/** Detect cycles in the sub-rule call graph */
+function detectSubRuleCycles(ruleset: RuleSet): string[][] {
+  const cycles: string[][] = [];
+  const subRules = ruleset.subRules ?? {};
+  const visited = new Set<string>();
+  const recursionStack = new Set<string>();
+  const path: string[] = [];
+
+  function collectCalls(graph: SubRuleGraph): string[] {
+    return graph.steps
+      .filter((step): step is SubRuleStep => step.type === 'sub_rule')
+      .map((step) => step.refName)
+      .filter((refName) => !!subRules[refName]);
+  }
+
+  function dfs(name: string): void {
+    if (recursionStack.has(name)) {
+      const cycleStart = path.indexOf(name);
+      if (cycleStart !== -1) {
+        cycles.push([...path.slice(cycleStart), name]);
+      }
+      return;
+    }
+
+    if (visited.has(name)) return;
+    const graph = subRules[name];
+    if (!graph) return;
+
+    visited.add(name);
+    recursionStack.add(name);
+    path.push(name);
+
+    for (const next of collectCalls(graph)) {
+      dfs(next);
+    }
+
+    path.pop();
+    recursionStack.delete(name);
+  }
+
+  for (const name of Object.keys(subRules)) {
+    dfs(name);
+  }
+
   return cycles;
 }
 

@@ -154,12 +154,19 @@ const hasDiffChanges = computed(() => {
     (d.added_groups?.length ?? 0) > 0 ||
     (d.modified_groups?.length ?? 0) > 0 ||
     (d.removed_groups?.length ?? 0) > 0 ||
+    (d.added_sub_rules?.length ?? 0) > 0 ||
+    (d.modified_sub_rules?.length ?? 0) > 0 ||
+    (d.removed_sub_rules?.length ?? 0) > 0 ||
     d.input_schema_changed ||
     d.output_schema_changed ||
     d.tags_changed ||
     d.description_changed
   );
 });
+
+const hasSubRuleDependencies = computed(
+  () => (request.value?.request_snapshot.sub_rule_dependencies?.length ?? 0) > 0
+);
 
 function statusTheme(status: string) {
   if (['approved', 'completed'].includes(status)) return 'success';
@@ -208,6 +215,11 @@ function formatDatetime(iso: string | undefined | null) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function shortHash(value: string | undefined | null) {
+  if (!value) return '—';
+  return value.length > 12 ? `${value.slice(0, 12)}…` : value;
 }
 
 function historyScopeTheme(scope: string) {
@@ -851,6 +863,48 @@ async function doControlExecution(action: 'pause' | 'resume' | 'rollback') {
                 </div>
               </t-card>
             </div>
+
+            <t-card v-if="hasSubRuleDependencies" :bordered="false">
+              <div class="card-section-title">{{ t('releaseCenter.subRuleDependencies') }}</div>
+              <div class="sub-rule-dependency-list">
+                <article
+                  v-for="dependency in request.request_snapshot.sub_rule_dependencies"
+                  :key="`${dependency.asset_id}:${dependency.name}`"
+                  class="sub-rule-dependency"
+                >
+                  <div class="sub-rule-dependency__head">
+                    <div>
+                      <div class="sub-rule-dependency__title">
+                        {{ dependency.display_name || dependency.name }}
+                      </div>
+                      <div class="sub-rule-dependency__name">{{ dependency.name }}</div>
+                    </div>
+                    <t-tag size="small" variant="light" theme="primary">
+                      {{
+                        dependency.scope === 'project'
+                          ? t('subRules.scopeProject')
+                          : t('subRules.scopeOrg')
+                      }}
+                    </t-tag>
+                  </div>
+                  <div class="sub-rule-dependency__meta">
+                    <span class="sub-rule-pill">
+                      {{ t('releaseCenter.subRuleDraftSeq') }}
+                      <strong>#{{ dependency.draft_seq }}</strong>
+                    </span>
+                    <span class="sub-rule-pill">
+                      {{ t('releaseCenter.subRuleAssetId') }} <code>{{ dependency.asset_id }}</code>
+                    </span>
+                    <span class="sub-rule-pill">
+                      {{ t('releaseCenter.subRuleSnapshotHash') }}
+                      <code :title="dependency.content_hash">{{
+                        shortHash(dependency.content_hash)
+                      }}</code>
+                    </span>
+                  </div>
+                </article>
+              </div>
+            </t-card>
           </div>
         </t-tab-panel>
 
@@ -1221,6 +1275,88 @@ async function doControlExecution(action: 'pause' | 'resume' | 'rollback') {
                       class="diff-item diff-item--removed"
                     >
                       <strong>{{ name }}</strong>
+                    </div>
+                  </div>
+                  <p v-else class="diff-empty">{{ t('releaseCenter.diffEmpty') }}</p>
+                </t-card>
+              </div>
+            </template>
+
+            <template
+              v-if="
+                (request.content_diff.added_sub_rules?.length ?? 0) > 0 ||
+                (request.content_diff.modified_sub_rules?.length ?? 0) > 0 ||
+                (request.content_diff.removed_sub_rules?.length ?? 0) > 0
+              "
+            >
+              <div class="diff-columns">
+                <t-card :bordered="false">
+                  <div class="diff-col-head added">
+                    <span class="diff-col-sign">+</span>
+                    <span>{{ t('releaseCenter.diffAddedSubRules') }}</span>
+                    <span class="diff-col-count">{{
+                      request.content_diff.added_sub_rules?.length ?? 0
+                    }}</span>
+                  </div>
+                  <div v-if="request.content_diff.added_sub_rules?.length" class="diff-item-list">
+                    <div
+                      v-for="item in request.content_diff.added_sub_rules"
+                      :key="item.name"
+                      class="diff-item diff-item--added diff-item--subrule"
+                    >
+                      <strong>{{ item.name }}</strong>
+                      <span v-if="item.step_count !== undefined && item.step_count !== null">
+                        {{ item.step_count }} steps
+                      </span>
+                    </div>
+                  </div>
+                  <p v-else class="diff-empty">{{ t('releaseCenter.diffEmpty') }}</p>
+                </t-card>
+
+                <t-card :bordered="false">
+                  <div class="diff-col-head modified">
+                    <span class="diff-col-sign">~</span>
+                    <span>{{ t('releaseCenter.diffModifiedSubRules') }}</span>
+                    <span class="diff-col-count">{{
+                      request.content_diff.modified_sub_rules?.length ?? 0
+                    }}</span>
+                  </div>
+                  <div
+                    v-if="request.content_diff.modified_sub_rules?.length"
+                    class="diff-item-list"
+                  >
+                    <div
+                      v-for="item in request.content_diff.modified_sub_rules"
+                      :key="item.name"
+                      class="diff-item diff-item--modified diff-item--subrule"
+                    >
+                      <strong>{{ item.name }}</strong>
+                      <span v-if="item.content_hash" :title="item.content_hash">
+                        {{ shortHash(item.content_hash) }}
+                      </span>
+                    </div>
+                  </div>
+                  <p v-else class="diff-empty">{{ t('releaseCenter.diffEmpty') }}</p>
+                </t-card>
+
+                <t-card :bordered="false">
+                  <div class="diff-col-head removed">
+                    <span class="diff-col-sign">-</span>
+                    <span>{{ t('releaseCenter.diffRemovedSubRules') }}</span>
+                    <span class="diff-col-count">{{
+                      request.content_diff.removed_sub_rules?.length ?? 0
+                    }}</span>
+                  </div>
+                  <div v-if="request.content_diff.removed_sub_rules?.length" class="diff-item-list">
+                    <div
+                      v-for="item in request.content_diff.removed_sub_rules"
+                      :key="item.name"
+                      class="diff-item diff-item--removed diff-item--subrule"
+                    >
+                      <strong>{{ item.name }}</strong>
+                      <span v-if="item.step_count !== undefined && item.step_count !== null">
+                        {{ item.step_count }} steps
+                      </span>
                     </div>
                   </div>
                   <p v-else class="diff-empty">{{ t('releaseCenter.diffEmpty') }}</p>
@@ -1661,6 +1797,65 @@ async function doControlExecution(action: 'pause' | 'resume' | 'rollback') {
   gap: 12px;
 }
 
+.sub-rule-dependency-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.sub-rule-dependency {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(244, 247, 255, 0.96), rgba(255, 255, 255, 0.98));
+  display: grid;
+  gap: 10px;
+}
+
+.sub-rule-dependency__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sub-rule-dependency__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ordo-text-primary);
+}
+
+.sub-rule-dependency__name {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.sub-rule-dependency__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sub-rule-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  font-size: 11px;
+  color: var(--ordo-text-secondary);
+}
+
+.sub-rule-pill strong,
+.sub-rule-pill code {
+  color: var(--ordo-text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
 /* ── text blocks ───────────────────────────────────────────────────────── */
 .text-sections {
   display: flex;
@@ -1981,6 +2176,12 @@ async function doControlExecution(action: 'pause' | 'resume' | 'rollback') {
   font-size: 11px;
   color: var(--ordo-text-secondary);
   font-family: monospace;
+}
+
+.diff-item--subrule span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .diff-empty {
   font-size: 12px;

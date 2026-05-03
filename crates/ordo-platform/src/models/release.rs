@@ -1,3 +1,4 @@
+use super::SubRuleScope;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -249,10 +250,36 @@ pub struct ReleaseContentDiffSummary {
     pub added_groups: Vec<String>,
     pub removed_groups: Vec<String>,
     pub modified_groups: Vec<String>,
+    #[serde(default)]
+    pub added_sub_rules: Vec<ReleaseSubRuleDiffItem>,
+    #[serde(default)]
+    pub removed_sub_rules: Vec<ReleaseSubRuleDiffItem>,
+    #[serde(default)]
+    pub modified_sub_rules: Vec<ReleaseSubRuleDiffItem>,
     pub input_schema_changed: bool,
     pub output_schema_changed: bool,
     pub tags_changed: bool,
     pub description_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseSubRuleDependency {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub scope: SubRuleScope,
+    pub asset_id: String,
+    pub draft_seq: i64,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseSubRuleDiffItem {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_count: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -273,6 +300,8 @@ pub struct ReleaseRequestSnapshot {
     pub affected_instance_count: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_ruleset_snapshot: Option<serde_json::Value>,
+    #[serde(default)]
+    pub sub_rule_dependencies: Vec<ReleaseSubRuleDependency>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

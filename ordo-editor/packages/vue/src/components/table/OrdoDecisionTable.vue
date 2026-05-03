@@ -101,6 +101,28 @@ const hasTrace = computed(() => !!props.traceInput);
 
 type TraceVerdict = true | false | null;
 
+const schemaPathOptions = computed(() => {
+  const paths: Array<{ value: string; label: string; type: SchemaFieldType }> = [];
+
+  function flatten(fields: SchemaField[], prefix = '') {
+    for (const field of fields) {
+      const path = prefix ? `${prefix}.${field.name}` : field.name;
+      if (field.type === 'object' && field.fields?.length) {
+        flatten(field.fields, path);
+      } else {
+        paths.push({
+          value: `$.${path}`,
+          label: field.description ? `${field.name} - ${field.description}` : field.name,
+          type: field.type,
+        });
+      }
+    }
+  }
+
+  flatten(props.schema ?? []);
+  return paths;
+});
+
 function normalizePath(path: string): string {
   return path.startsWith('$.') ? path.slice(2) : path.startsWith('$') ? path.slice(1) : path;
 }
@@ -514,6 +536,14 @@ function cellTypeClass(cell: CellValue): string {
       @export-json="exportJson"
       @show-as-flow="$emit('showAsFlow')"
     />
+    <datalist id="ordo-decision-table-input-fields">
+      <option
+        v-for="field in schemaPathOptions"
+        :key="field.value"
+        :value="field.value"
+        :label="`${field.label} (${field.type})`"
+      />
+    </datalist>
 
     <!-- Empty state -->
     <div v-if="!hasColumns" class="ordo-decision-table__empty">
@@ -615,6 +645,7 @@ function cellTypeClass(cell: CellValue): string {
                   v-if="editingColId === col.id"
                   class="ordo-decision-table__col-input"
                   v-model="editingColField"
+                  list="ordo-decision-table-input-fields"
                   @blur="commitEditCol"
                   @keydown.enter="commitEditCol"
                   @keydown.esc="editingColId = null"
@@ -702,7 +733,6 @@ function cellTypeClass(cell: CellValue): string {
               class="ordo-decision-table__th ordo-decision-table__th--actions"
             ></th>
           </tr>
-
           <tr v-if="hasTrace" class="ordo-decision-table__trace-input-row">
             <th class="ordo-decision-table__th ordo-decision-table__th--handle">
               {{ t('table.traceInputRow') }}

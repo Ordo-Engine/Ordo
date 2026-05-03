@@ -3,7 +3,12 @@
  */
 
 export { default as OrdoFlowEditor } from './OrdoFlowEditor.vue';
-export type { ExecutionTraceData } from './OrdoFlowEditor.vue';
+export type {
+  ExecutionTraceData,
+  ExecutionTraceStep,
+  ExtractSubRulePayload,
+  ExtractSubRuleRequest,
+} from './OrdoFlowEditor.vue';
 export { default as OrdoFlowToolbar } from './OrdoFlowToolbar.vue';
 export { default as OrdoFlowPropertyPanel } from './OrdoFlowPropertyPanel.vue';
 

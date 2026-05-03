@@ -152,6 +152,8 @@ const pageInfo = computed(() => {
       return { title: t('projectNav.concepts'), subtitle: t('concepts.desc') };
     case 'contracts':
       return { title: t('projectNav.contracts'), subtitle: t('contracts.desc') };
+    case 'project-sub-rules':
+      return { title: t('projectNav.subRules'), subtitle: t('subRules.desc') };
     case 'tests':
       return { title: t('projectNav.tests'), subtitle: t('shell.testsSubtitle') };
     case 'versions':

@@ -17,6 +17,8 @@ pub struct StudioStep {
     // position is ignored during conversion (visual-only)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_generated: Option<String>,
     #[serde(flatten)]
     pub kind: StudioStepKind,
 }
@@ -56,6 +58,8 @@ pub enum StudioStepKind {
         bindings: Vec<StudioSubRuleBinding>,
         #[serde(default)]
         outputs: Vec<StudioSubRuleOutput>,
+        #[serde(rename = "returnPolicy", default)]
+        return_policy: Option<String>,
         #[serde(rename = "nextStepId")]
         next_step_id: String,
     },

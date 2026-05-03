@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -10,15 +10,18 @@ import { useEnvironmentStore } from '@/stores/environment';
 import { useRbacStore } from '@/stores/rbac';
 import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue';
 import TestCasePanel from './TestCasePanel.vue';
-import { rulesetHistoryApi } from '@/api/platform-client';
+import { rulesetHistoryApi, subRuleApi } from '@/api/platform-client';
 import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue';
-import { normalizeRuleset } from '@/utils/ruleset';
+import { materializeConceptsForExecution } from '@/utils/concepts';
+import { normalizeRuleset, stripRuntimeGeneratedArtifacts } from '@/utils/ruleset';
 import { getCurrentVersionDisplay, stripVersionSuffix } from '@/utils/ruleset-version';
 import type {
   AppendRulesetHistoryEntry,
   DraftConflictResponse,
+  FactDataType,
   RulesetHistoryEntry,
   RulesetHistorySource,
+  SubRuleAssetMeta,
 } from '@/api/types';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import {
@@ -34,6 +37,15 @@ import {
   generateId,
   Step,
   type RuleSet,
+  type ExecutionTraceData,
+  type FieldSuggestion,
+  type SubRuleBinding,
+  type SubRuleGraph,
+  type SubRuleOutput,
+  type SubRuleStep,
+  type TerminalStep,
+  type SubRuleAssetOption,
+  type ExtractSubRulePayload,
   type DecisionTable,
 } from '@ordo-engine/editor-vue';
 
@@ -50,6 +62,7 @@ const { t } = useI18n();
 const LOCAL_HISTORY_LIMIT = 120;
 const HISTORY_SYNC_DELAY_MS = 700;
 const EDIT_HISTORY_COMMIT_DELAY_MS = 450;
+const pendingSubRuleAssets = new Set<string>();
 
 const orgId = computed(() => route.params.orgId as string);
 const projectId = computed(() => route.params.projectId as string);
@@ -62,6 +75,7 @@ const editorMode = ref<'form' | 'flow' | 'table'>('form');
 const tabModes = new Map<string, 'form' | 'flow' | 'table'>();
 const openMenu = ref<'file' | 'edit' | 'select' | 'view' | 'window' | null>(null);
 const showHistoryPanel = ref(false);
+const showKnowledgeAdvisorPanel = ref(false);
 
 function switchToTab(name: string) {
   if (projectStore.activeTabName) {
@@ -445,23 +459,35 @@ function toggleTests() {
 
 function toggleExecution() {
   showExecution.value = !showExecution.value;
-  if (showExecution.value) showTests.value = false;
+  if (showExecution.value) {
+    showTests.value = false;
+    void hydrateActiveExecutionSubRules();
+  }
 }
 
 // ── Execution trace overlay (for "show in flow") ─────────────────────────────
-const executionTrace = ref<{
-  path: string[];
-  steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
-  resultCode: string;
-  resultMessage: string;
-  output?: Record<string, any>;
-} | null>(null);
+const executionTrace = ref<ExecutionTraceData | null>(null);
 const flowTraceMode = ref(false);
 
 function handleShowInFlow(trace: typeof executionTrace.value) {
   executionTrace.value = trace
     ? { ...trace, steps: [...trace.steps], path: [...trace.path] }
     : null;
+  flowTraceMode.value = true;
+  setEditorMode('flow');
+}
+
+async function handleOpenSubRuleTrace(payload: {
+  refName: string;
+  focusStepId?: string;
+  trace: NonNullable<typeof executionTrace.value>;
+}) {
+  await handleOpenSubRule(payload.refName);
+  executionTrace.value = {
+    ...payload.trace,
+    steps: [...payload.trace.steps],
+    path: [...payload.trace.path],
+  };
   flowTraceMode.value = true;
   setEditorMode('flow');
 }
@@ -480,7 +506,29 @@ const showCreate = ref(false);
 const creating = ref(false);
 const newName = ref('');
 const newType = ref<'flow' | 'table'>('flow');
+const showCreateSubRule = ref(false);
+const creatingSubRuleAsset = ref(false);
+const newSubRuleName = ref('');
+const newSubRuleDisplayName = ref('');
+const newSubRuleDescription = ref('');
 const saving = ref(false);
+const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
+const subRuleAssetsLoading = ref(false);
+const subRuleAssetsLoaded = ref(false);
+const subRuleDraftCache = ref<Record<string, RuleSet>>({});
+const subRuleHydrationLoading = ref(false);
+const subRuleHydrationError = ref<string | null>(null);
+const subRuleHydrationSeq = ref(0);
+const subRuleParentTabs = new Map<string, string>();
+const extractingSubRule = ref(false);
+const creatingKnowledgeFacts = ref(false);
+const extractSubRuleState = ref<{
+  parentTabName: string;
+  payload: ExtractSubRulePayload;
+  name: string;
+  displayName: string;
+  description: string;
+} | null>(null);
 const conflictState = ref<{
   rulesetName: string;
   localDraft: RuleSet;
@@ -529,6 +577,1393 @@ const requiresVersionBump = computed(
   () => !!activePublishedVersion.value && activePublishedVersion.value === activeDraftVersion.value
 );
 
+const subRuleAssetOptions = computed<SubRuleAssetOption[]>(() =>
+  subRuleAssets.value.map((asset) => ({
+    name: asset.name,
+    scope: asset.scope,
+    displayName: asset.display_name,
+    description: asset.description,
+  }))
+);
+
+const projectSubRuleAssets = computed(() =>
+  subRuleAssets.value
+    .filter((asset) => asset.scope === 'project')
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+);
+
+const catalogFieldSuggestions = computed<FieldSuggestion[]>(() => [
+  ...catalogStore.facts.map((fact) => ({
+    path: fact.name,
+    value: `$.${fact.name}`,
+    insertText: `$.${fact.name}`,
+    label: fact.name,
+    type: fact.data_type,
+    description: fact.description,
+    source: 'fact' as const,
+  })),
+  ...catalogStore.concepts.map((concept) => ({
+    path: concept.name,
+    value: concept.name,
+    insertText: concept.name,
+    label: concept.name,
+    type: concept.data_type,
+    description: concept.description || concept.expression,
+    source: 'concept' as const,
+  })),
+]);
+
+const activeSubRuleName = computed(() => {
+  const tab = projectStore.activeTab;
+  if (tab?.kind !== 'sub_rule') return null;
+  return tab.name.startsWith('§') ? tab.name.slice(1) : tab.name;
+});
+
+const activeSubRuleParentName = computed(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind !== 'sub_rule') return null;
+  return subRuleParentTabs.get(tab.name) ?? null;
+});
+
+type RulesetStep = RuleSet['steps'][number];
+
+interface RulesetGraphEdge {
+  source: string;
+  target: string;
+}
+
+interface SubRuleSuggestion {
+  id: string;
+  kind: 'group' | 'decision' | 'chain';
+  title: string;
+  description: string;
+  stepIds: string[];
+  entryStepId: string;
+  entryName: string;
+  stepCount: number;
+  score: number;
+}
+
+interface SubRuleCandidateValidation {
+  entryId: string;
+  exitTargetId?: string;
+}
+
+interface SubRuleExecutionRef {
+  refName: string;
+  assetName: string;
+  scope: 'project' | 'org';
+}
+
+interface KnowledgeFieldRef {
+  name: string;
+  dataType: FactDataType;
+  count: number;
+}
+
+interface RulesetKnowledgeAnalysis {
+  referencedFields: KnowledgeFieldRef[];
+  missingFields: KnowledgeFieldRef[];
+  knownInputCount: number;
+  contractInputCount: number;
+  contractOutputCount: number;
+  hasContract: boolean;
+}
+
+const activeSubRuleSuggestions = computed<SubRuleSuggestion[]>(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule' || activeSubRuleName.value || tab.ruleset.steps.length < 3)
+    return [];
+  return analyzeSubRuleSuggestions(tab.ruleset).slice(0, 3);
+});
+
+const primarySubRuleSuggestion = computed(() => activeSubRuleSuggestions.value[0] ?? null);
+const secondarySubRuleSuggestions = computed(() => activeSubRuleSuggestions.value.slice(1));
+const pendingSubRuleSuggestionId = ref<string | null>(null);
+
+const activeDecisionContract = computed(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return null;
+  return catalogStore.contracts.find((contract) => contract.ruleset_name === tab.name) ?? null;
+});
+
+const activeKnowledgeAnalysis = computed<RulesetKnowledgeAnalysis | null>(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return null;
+
+  const knownNames = new Set([
+    ...catalogStore.facts.map((fact) => fact.name),
+    ...catalogStore.concepts.map((concept) => concept.name),
+  ]);
+  const referencedFields = collectRulesetInputRefs(tab.ruleset);
+  const missingFields = referencedFields.filter((field) => !knownNames.has(field.name));
+  const contract = activeDecisionContract.value;
+
+  return {
+    referencedFields,
+    missingFields,
+    knownInputCount: referencedFields.length - missingFields.length,
+    contractInputCount: contract?.input_fields.length ?? 0,
+    contractOutputCount: contract?.output_fields.length ?? 0,
+    hasContract: Boolean(contract),
+  };
+});
+
+const knowledgeAdvisorVisible = computed(() => {
+  const analysis = activeKnowledgeAnalysis.value;
+  return Boolean(projectStore.activeTab && projectStore.activeTab.kind !== 'sub_rule' && analysis);
+});
+
+const knowledgeAdvisorSummary = computed(() => {
+  const analysis = activeKnowledgeAnalysis.value;
+  if (!analysis) return '';
+  if (analysis.missingFields.length > 0) {
+    return t('knowledgeAdvisor.missingSummary', { count: analysis.missingFields.length });
+  }
+  if (!analysis.hasContract) {
+    return t('knowledgeAdvisor.noContractSummary');
+  }
+  return t('knowledgeAdvisor.readySummary');
+});
+
+const knowledgeAdvisorDetail = computed(() => {
+  const analysis = activeKnowledgeAnalysis.value;
+  if (!analysis) return '';
+  if (analysis.missingFields.length > 0) {
+    return analysis.missingFields
+      .slice(0, 4)
+      .map((field) => field.name)
+      .join(', ');
+  }
+  return t('knowledgeAdvisor.detail', {
+    fields: analysis.referencedFields.length,
+    facts: catalogStore.facts.length,
+    concepts: catalogStore.concepts.length,
+  });
+});
+
+interface TerminalReturnBridge {
+  childSteps: RuleSet['steps'];
+  parentSteps: RuleSet['steps'];
+  nextStepId: string;
+  bindings: SubRuleBinding[];
+  outputs: SubRuleOutput[];
+}
+
+function literalExpr(value: string | number | boolean | null): any {
+  const valueType =
+    value === null
+      ? 'null'
+      : typeof value === 'number'
+        ? 'number'
+        : typeof value === 'boolean'
+          ? 'boolean'
+          : 'string';
+  return { type: 'literal', value, valueType };
+}
+
+function inferDataTypeFromValue(value: unknown): FactDataType | null {
+  if (!value || typeof value !== 'object') return null;
+  const expr = value as any;
+  if (expr.type === 'literal') {
+    if (expr.valueType === 'number' || typeof expr.value === 'number') return 'number';
+    if (expr.valueType === 'boolean' || typeof expr.value === 'boolean') return 'boolean';
+    if (expr.valueType === 'object') return 'object';
+    return 'string';
+  }
+  return null;
+}
+
+function mergeDataType(left: FactDataType, right: FactDataType): FactDataType {
+  if (left === right) return left;
+  if (left === 'string') return right;
+  if (right === 'string') return left;
+  return left;
+}
+
+function normalizeKnowledgePath(path: unknown): string | null {
+  if (typeof path !== 'string') return null;
+  let normalized = path.trim();
+  if (!normalized) return null;
+
+  normalized = normalized.replace(/^\$\.?/, '');
+  normalized = normalized.replace(/\[[^\]]+\]/g, '');
+  normalized = normalized.replace(/\.$/, '');
+
+  if (!normalized || normalized.startsWith('__ordo_')) return null;
+  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(normalized)) return null;
+  return normalized;
+}
+
+function addKnowledgeField(
+  fields: Map<string, KnowledgeFieldRef>,
+  path: unknown,
+  dataType: FactDataType = 'string'
+) {
+  const name = normalizeKnowledgePath(path);
+  if (!name) return;
+  const existing = fields.get(name);
+  if (existing) {
+    existing.count += 1;
+    existing.dataType = mergeDataType(existing.dataType, dataType);
+    return;
+  }
+  fields.set(name, { name, dataType, count: 1 });
+}
+
+function addExpressionStringRefs(fields: Map<string, KnowledgeFieldRef>, expression: string) {
+  const stripped = expression.replace(/"[^"]*"|'[^']*'/g, ' ');
+  const reserved = new Set([
+    'true',
+    'false',
+    'null',
+    'undefined',
+    'and',
+    'or',
+    'not',
+    'in',
+    'contains',
+  ]);
+
+  for (const match of stripped.matchAll(/\$?([A-Za-z_][A-Za-z0-9_.]*)/g)) {
+    const name = match[1];
+    const nextToken = stripped.slice((match.index ?? 0) + match[0].length).trimStart();
+    if (reserved.has(name) || /^[0-9]/.test(name)) continue;
+    if (nextToken.startsWith('(')) continue;
+    addKnowledgeField(fields, name);
+  }
+}
+
+function collectExprRefs(
+  expr: unknown,
+  fields: Map<string, KnowledgeFieldRef>,
+  typeHint: FactDataType | null = null
+) {
+  if (!expr) return;
+  if (typeof expr === 'string') {
+    addExpressionStringRefs(fields, expr);
+    return;
+  }
+  if (typeof expr !== 'object') return;
+
+  const node = expr as any;
+  if (node.type === 'variable') {
+    addKnowledgeField(fields, node.path, typeHint ?? 'string');
+    return;
+  }
+  if ('Field' in node) {
+    addKnowledgeField(fields, node.Field, typeHint ?? 'string');
+    return;
+  }
+  if (node.type === 'literal') return;
+
+  if (node.type === 'binary') {
+    const inferredType =
+      ['gt', 'gte', 'lt', 'lte'].includes(node.op) ||
+      inferDataTypeFromValue(node.left) === 'number' ||
+      inferDataTypeFromValue(node.right) === 'number'
+        ? 'number'
+        : null;
+    collectExprRefs(node.left, fields, inferredType);
+    collectExprRefs(node.right, fields, inferredType);
+    return;
+  }
+
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      value.forEach((item) => collectExprRefs(item, fields));
+    } else if (value && typeof value === 'object') {
+      collectExprRefs(value, fields);
+    }
+  }
+}
+
+function collectConditionRefs(condition: unknown, fields: Map<string, KnowledgeFieldRef>) {
+  if (!condition || typeof condition !== 'object') return;
+  const node = condition as any;
+
+  if (node.type === 'simple') {
+    const numericOperator = ['gt', 'gte', 'lt', 'lte'].includes(node.operator);
+    const rightType = inferDataTypeFromValue(node.right);
+    const leftType = inferDataTypeFromValue(node.left);
+    collectExprRefs(node.left, fields, numericOperator ? 'number' : rightType);
+    collectExprRefs(node.right, fields, numericOperator ? 'number' : leftType);
+    return;
+  }
+
+  if (node.type === 'logical') {
+    (node.conditions ?? []).forEach((child: unknown) => collectConditionRefs(child, fields));
+    return;
+  }
+
+  if (node.type === 'not') {
+    collectConditionRefs(node.condition, fields);
+    return;
+  }
+
+  if (node.type === 'expression') {
+    if (node.parsed) collectExprRefs(node.parsed, fields);
+    else if (node.expression) addExpressionStringRefs(fields, node.expression);
+  }
+}
+
+function collectAssignedVars(ruleset: RuleSet): Set<string> {
+  const assigned = new Set<string>();
+  for (const step of ruleset.steps as any[]) {
+    if (step.type === 'action') {
+      for (const assignment of step.assignments ?? []) {
+        const name = normalizeKnowledgePath(assignment.name);
+        if (name) assigned.add(name);
+      }
+      for (const externalCall of step.externalCalls ?? []) {
+        const name = normalizeKnowledgePath(externalCall.resultVariable);
+        if (name) assigned.add(name);
+      }
+    }
+    if (step.type === 'sub_rule') {
+      for (const output of step.outputs ?? []) {
+        const name = normalizeKnowledgePath(output.parentVar);
+        if (name) assigned.add(name);
+      }
+    }
+  }
+  return assigned;
+}
+
+function collectRulesetInputRefs(ruleset: RuleSet): KnowledgeFieldRef[] {
+  const fields = new Map<string, KnowledgeFieldRef>();
+  const assignedVars = collectAssignedVars(ruleset);
+
+  for (const step of ruleset.steps as any[]) {
+    if (step.systemGenerated) continue;
+
+    if (step.type === 'decision') {
+      for (const branch of step.branches ?? []) {
+        collectConditionRefs(branch.condition, fields);
+      }
+    }
+
+    if (step.type === 'action') {
+      for (const assignment of step.assignments ?? []) {
+        collectExprRefs(assignment.value, fields);
+      }
+      for (const externalCall of step.externalCalls ?? []) {
+        Object.values(externalCall.params ?? {}).forEach((expr) => collectExprRefs(expr, fields));
+        collectExprRefs(externalCall.fallbackValue, fields);
+      }
+    }
+
+    if (step.type === 'terminal') {
+      collectExprRefs(step.message, fields);
+      for (const output of step.output ?? []) {
+        collectExprRefs(output.value, fields);
+      }
+    }
+
+    if (step.type === 'sub_rule') {
+      for (const binding of step.bindings ?? []) {
+        collectExprRefs(binding.expr, fields);
+      }
+    }
+  }
+
+  return [...fields.values()]
+    .filter((field) => !assignedVars.has(field.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function variableExpr(path: string): any {
+  return { type: 'variable', path };
+}
+
+function cloneExpression<T>(expr: T): T {
+  return JSON.parse(JSON.stringify(expr));
+}
+
+function safeRuntimeName(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[^a-zA-Z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'value'
+  );
+}
+
+function collectExprDataFields(expr: any, fields: Set<string>) {
+  if (!expr || typeof expr !== 'object') return;
+
+  if (expr.type === 'variable' || expr.type === 'field') {
+    const rawPath = String(expr.path ?? expr.name ?? '').trim();
+    if (!rawPath || rawPath.startsWith('$')) {
+      if (rawPath.startsWith('$.')) fields.add(rawPath.slice(2));
+      return;
+    }
+    fields.add(rawPath.startsWith('data.') ? rawPath.slice(5) : rawPath);
+    return;
+  }
+
+  if (expr.type === 'binary') {
+    collectExprDataFields(expr.left, fields);
+    collectExprDataFields(expr.right, fields);
+    return;
+  }
+
+  if (expr.type === 'unary') {
+    collectExprDataFields(expr.operand, fields);
+    return;
+  }
+
+  if (expr.type === 'function') {
+    for (const arg of expr.args ?? []) collectExprDataFields(arg, fields);
+    return;
+  }
+
+  if (expr.type === 'conditional') {
+    collectExprDataFields(expr.condition, fields);
+    collectExprDataFields(expr.thenExpr, fields);
+    collectExprDataFields(expr.elseExpr, fields);
+    return;
+  }
+
+  if (expr.type === 'array') {
+    for (const item of expr.elements ?? []) collectExprDataFields(item, fields);
+    return;
+  }
+
+  if (expr.type === 'object') {
+    for (const value of Object.values(expr.properties ?? {})) {
+      collectExprDataFields(value, fields);
+    }
+  }
+}
+
+function collectConditionDataFields(condition: any, fields: Set<string>) {
+  if (!condition || typeof condition !== 'object') return;
+
+  if (condition.type === 'simple') {
+    collectExprDataFields(condition.left, fields);
+    collectExprDataFields(condition.right, fields);
+    return;
+  }
+
+  if (condition.type === 'logical' || condition.type === 'compound') {
+    for (const child of condition.conditions ?? []) collectConditionDataFields(child, fields);
+    return;
+  }
+
+  if (condition.type === 'not') {
+    collectConditionDataFields(condition.condition, fields);
+    return;
+  }
+
+  collectExprDataFields(condition, fields);
+}
+
+function collectStepDataFields(step: RulesetStep, fields: Set<string>) {
+  if (step.type === 'decision') {
+    for (const branch of step.branches) collectConditionDataFields(branch.condition, fields);
+    return;
+  }
+
+  if (step.type === 'action') {
+    for (const assignment of step.assignments ?? []) {
+      collectExprDataFields(assignment.value, fields);
+    }
+    for (const call of step.externalCalls ?? []) {
+      for (const value of Object.values(call.params ?? {})) collectExprDataFields(value, fields);
+      if (call.fallbackValue) collectExprDataFields(call.fallbackValue, fields);
+    }
+    if (step.logging?.message) collectExprDataFields(step.logging.message, fields);
+    return;
+  }
+
+  if (step.type === 'terminal') {
+    if (step.message) collectExprDataFields(step.message, fields);
+    for (const output of step.output ?? []) collectExprDataFields(output.value, fields);
+    return;
+  }
+
+  if (step.type === 'sub_rule') {
+    for (const binding of step.bindings ?? []) collectExprDataFields(binding.expr, fields);
+  }
+}
+
+function inferSubRuleInputBindings(steps: RuleSet['steps']): SubRuleBinding[] {
+  const fields = new Set<string>();
+  for (const step of steps) collectStepDataFields(step, fields);
+
+  return [...fields]
+    .filter((field) => field && !field.startsWith('$') && !field.startsWith('item.'))
+    .sort()
+    .map((field) => ({ field, expr: variableExpr(field) }));
+}
+
+function mergeSubRuleBindings(
+  existing: SubRuleBinding[] | undefined,
+  inferred: SubRuleBinding[]
+): SubRuleBinding[] | undefined {
+  const byField = new Map<string, SubRuleBinding>();
+  for (const binding of existing ?? []) byField.set(binding.field, binding);
+  for (const binding of inferred) {
+    if (!byField.has(binding.field)) byField.set(binding.field, binding);
+  }
+  return byField.size > 0 ? [...byField.values()] : undefined;
+}
+
+function mergeSubRuleOutputs(
+  existing: SubRuleOutput[] | undefined,
+  generated: SubRuleOutput[]
+): SubRuleOutput[] | undefined {
+  const byKey = new Map<string, SubRuleOutput>();
+  for (const output of existing ?? []) byKey.set(`${output.parentVar}:${output.childVar}`, output);
+  for (const output of generated) byKey.set(`${output.parentVar}:${output.childVar}`, output);
+  return byKey.size > 0 ? [...byKey.values()] : undefined;
+}
+
+function isRuntimeGeneratedStep(step: RulesetStep): boolean {
+  if (step.systemGenerated === 'sub_rule_runtime') return true;
+  return (
+    step.id.includes('__return_dispatch') ||
+    step.id.includes('__return_to_parent') ||
+    step.id.includes('__terminal_')
+  );
+}
+
+function createTerminalReturnBridge(
+  subRuleStepId: string,
+  sourceSteps: RuleSet['steps'],
+  position: { x: number; y: number }
+): TerminalReturnBridge | null {
+  const terminals = sourceSteps.filter((step): step is TerminalStep => step.type === 'terminal');
+  if (terminals.length === 0) return null;
+
+  const prefix = `__ordo_sub_${safeRuntimeName(subRuleStepId)}`;
+  const terminalIdVar = `${prefix}_terminal_id`;
+  const messageVar = `${prefix}_message`;
+  const returnStepId = `${subRuleStepId}__return_to_parent`;
+  const outputs: SubRuleOutput[] = [
+    { parentVar: terminalIdVar, childVar: terminalIdVar },
+    { parentVar: messageVar, childVar: messageVar },
+  ];
+  const outputVarByTerminal = new Map<string, string[]>();
+
+  const childSteps = sourceSteps.map((step) => {
+    if (step.type !== 'terminal') return cloneStep(step);
+
+    const terminal = step as TerminalStep;
+    const outputVars: string[] = [];
+    const assignments = [
+      Step.assign(terminalIdVar, literalExpr(terminal.id)),
+      Step.assign(
+        messageVar,
+        terminal.message ? cloneExpression(terminal.message) : literalExpr('')
+      ),
+    ];
+
+    for (const [index, output] of (terminal.output ?? []).entries()) {
+      const outputVar = `${prefix}_${safeRuntimeName(terminal.id)}_${safeRuntimeName(
+        output.name
+      )}_${index}`;
+      outputVars.push(outputVar);
+      outputs.push({ parentVar: outputVar, childVar: outputVar });
+      assignments.push(Step.assign(outputVar, output.value));
+    }
+    outputVarByTerminal.set(terminal.id, outputVars);
+
+    return Step.action({
+      id: terminal.id,
+      name: terminal.name,
+      description: terminal.description,
+      assignments,
+      nextStepId: returnStepId,
+      position: terminal.position,
+      systemGenerated: 'sub_rule_runtime',
+    });
+  });
+
+  childSteps.push(
+    Step.terminal({
+      id: returnStepId,
+      name: t('subRules.returnParent'),
+      code: 'OK',
+      position: { x: position.x + 260, y: position.y },
+      systemGenerated: 'sub_rule_runtime',
+    })
+  );
+
+  const parentTerminals = terminals.map((terminal, index) => {
+    const outputVars = outputVarByTerminal.get(terminal.id) ?? [];
+    return Step.terminal({
+      id: `${subRuleStepId}__terminal_${safeRuntimeName(terminal.id)}`,
+      name: terminal.name,
+      description: terminal.description,
+      code: terminal.code,
+      message: terminal.message ? cloneExpression(terminal.message) : undefined,
+      output: (terminal.output ?? []).map((output, outputIndex) => ({
+        name: output.name,
+        value: variableExpr(`$${outputVars[outputIndex]}`),
+      })),
+      position: {
+        x: position.x + 260,
+        y: position.y + index * 120,
+      },
+      systemGenerated: 'sub_rule_runtime',
+    });
+  });
+
+  if (parentTerminals.length === 1) {
+    return {
+      childSteps,
+      parentSteps: parentTerminals,
+      nextStepId: parentTerminals[0].id,
+      bindings: inferSubRuleInputBindings(sourceSteps),
+      outputs,
+    };
+  }
+
+  const dispatcherId = `${subRuleStepId}__return_dispatch`;
+  const dispatcher = Step.decision({
+    id: dispatcherId,
+    name: t('subRules.returnDispatcher'),
+    branches: terminals.slice(1).map((terminal, index) =>
+      Step.branch({
+        id: `${dispatcherId}_b_${index}`,
+        label: terminal.code,
+        condition: {
+          type: 'simple',
+          left: variableExpr(`$${terminalIdVar}`),
+          operator: 'eq',
+          right: literalExpr(terminal.id),
+        },
+        nextStepId: `${subRuleStepId}__terminal_${safeRuntimeName(terminal.id)}`,
+      })
+    ),
+    defaultNextStepId: parentTerminals[0].id,
+    position: { x: position.x + 220, y: position.y },
+    systemGenerated: 'sub_rule_runtime',
+  });
+
+  return {
+    childSteps,
+    parentSteps: [dispatcher, ...parentTerminals],
+    nextStepId: dispatcherId,
+    bindings: inferSubRuleInputBindings(sourceSteps),
+    outputs,
+  };
+}
+
+function subRuleDraftCacheKey(scope: SubRuleExecutionRef['scope'], name: string) {
+  return `${scope}:${name}`;
+}
+
+function collectStepSubRuleRefs(steps: RuleSet['steps']): SubRuleExecutionRef[] {
+  const refs = new Map<string, SubRuleExecutionRef>();
+
+  for (const step of steps) {
+    if (step.type !== 'sub_rule') continue;
+    const subRuleStep = step as SubRuleStep;
+    const refName = subRuleStep.refName?.trim();
+    if (!refName) continue;
+
+    const assetName = subRuleStep.assetRef?.name?.trim() || refName;
+    const scope = subRuleStep.assetRef?.scope ?? 'project';
+    const key = `${scope}:${assetName}:${refName}`;
+    refs.set(key, { refName, assetName, scope });
+  }
+
+  return [...refs.values()];
+}
+
+function getOpenSubRuleDraft(ref: SubRuleExecutionRef): RuleSet | null {
+  const byAssetName = projectStore.openTabs.find((tab) => tab.name === `§${ref.assetName}`);
+  if (byAssetName?.kind === 'sub_rule') return byAssetName.ruleset;
+
+  const byRefName = projectStore.openTabs.find((tab) => tab.name === `§${ref.refName}`);
+  return byRefName?.kind === 'sub_rule' ? byRefName.ruleset : null;
+}
+
+function getSubRuleDraftForExecution(ref: SubRuleExecutionRef): RuleSet | null {
+  const openDraft = getOpenSubRuleDraft(ref);
+  if (openDraft) return openDraft;
+
+  if (ref.scope === 'org') {
+    return (
+      subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.assetName)] ??
+      subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.refName)] ??
+      null
+    );
+  }
+
+  return (
+    subRuleDraftCache.value[subRuleDraftCacheKey('project', ref.assetName)] ??
+    subRuleDraftCache.value[subRuleDraftCacheKey('project', ref.refName)] ??
+    subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.assetName)] ??
+    subRuleDraftCache.value[subRuleDraftCacheKey('org', ref.refName)] ??
+    null
+  );
+}
+
+function subRuleGraphFromRuleset(ruleset: RuleSet, fallback?: SubRuleGraph): SubRuleGraph {
+  return {
+    entryStep: ruleset.startStepId,
+    steps: cloneRuleset(ruleset).steps,
+    inputSchema: ruleset.config.inputSchema ?? fallback?.inputSchema ?? [],
+    outputSchema: ruleset.config.outputSchema ?? fallback?.outputSchema ?? [],
+  };
+}
+
+function mergeExecutableSubRulesFromSteps(
+  steps: RuleSet['steps'],
+  subRules: Record<string, SubRuleGraph>,
+  depth: number,
+  stack: Set<string>
+) {
+  if (depth >= 8) return;
+
+  for (const ref of collectStepSubRuleRefs(steps)) {
+    const stackKey = `${ref.scope}:${ref.assetName}:${ref.refName}`;
+    if (stack.has(stackKey)) continue;
+
+    const draft = getSubRuleDraftForExecution(ref);
+    const existingGraph = subRules[ref.refName];
+    if (draft) {
+      stack.add(stackKey);
+      const executableChild = buildExecutableRuleset(draft, depth + 1, stack);
+      Object.assign(subRules, executableChild.subRules ?? {});
+      subRules[ref.refName] = subRuleGraphFromRuleset(executableChild, existingGraph);
+      stack.delete(stackKey);
+      continue;
+    }
+
+    if (existingGraph) {
+      stack.add(stackKey);
+      mergeExecutableSubRulesFromSteps(existingGraph.steps, subRules, depth + 1, stack);
+      stack.delete(stackKey);
+    }
+  }
+}
+
+function buildExecutableRuleset(ruleset: RuleSet, depth = 0, stack = new Set<string>()): RuleSet {
+  const executable = stripRuntimeGeneratedArtifacts(ruleset);
+  const subRules: Record<string, SubRuleGraph> = { ...(executable.subRules ?? {}) };
+
+  mergeExecutableSubRulesFromSteps(executable.steps, subRules, depth, stack);
+  repairTerminalReturningSubRuleSteps(executable, subRules);
+
+  return {
+    ...executable,
+    ...(Object.keys(subRules).length > 0 ? { subRules } : {}),
+  };
+}
+
+function repairTerminalReturningSubRuleSteps(
+  ruleset: RuleSet,
+  subRules: Record<string, SubRuleGraph>
+) {
+  const stepIds = new Set(ruleset.steps.map((step) => step.id));
+  const appendedSteps: RuleSet['steps'] = [];
+
+  ruleset.steps = ruleset.steps.map((step) => {
+    if (step.type !== 'sub_rule') return step;
+
+    const subRuleStep = step as SubRuleStep;
+    const shouldPropagateTerminal =
+      subRuleStep.returnPolicy === 'propagate_terminal' ||
+      !subRuleStep.nextStepId ||
+      !stepIds.has(subRuleStep.nextStepId);
+    if (!shouldPropagateTerminal) return subRuleStep;
+
+    const graph = subRules[subRuleStep.refName];
+    if (!graph?.steps.some((childStep) => childStep.type === 'terminal')) return subRuleStep;
+
+    const bridge = createTerminalReturnBridge(subRuleStep.id, graph.steps, {
+      x: subRuleStep.position?.x ?? 0,
+      y: subRuleStep.position?.y ?? 0,
+    });
+    if (!bridge) return subRuleStep;
+
+    const bridgedRefName = `${subRuleStep.refName}__${safeRuntimeName(
+      subRuleStep.id
+    )}_terminal_return`;
+    subRules[bridgedRefName] = {
+      ...graph,
+      steps: bridge.childSteps,
+    };
+    appendedSteps.push(...bridge.parentSteps);
+    for (const parentStep of bridge.parentSteps) stepIds.add(parentStep.id);
+
+    return {
+      ...subRuleStep,
+      refName: bridgedRefName,
+      returnPolicy: 'continue',
+      nextStepId: bridge.nextStepId,
+      bindings: mergeSubRuleBindings(subRuleStep.bindings, bridge.bindings),
+      outputs: mergeSubRuleOutputs(subRuleStep.outputs, bridge.outputs),
+    };
+  });
+
+  if (appendedSteps.length > 0) {
+    ruleset.steps.push(...appendedSteps);
+  }
+}
+
+function collectMissingExecutionSubRules(
+  ruleset: RuleSet,
+  missing = new Map<string, SubRuleExecutionRef>(),
+  visited = new Set<string>(),
+  depth = 0
+) {
+  if (depth >= 8) return missing;
+
+  const inlineSubRules = ruleset.subRules ?? {};
+  for (const ref of collectStepSubRuleRefs(ruleset.steps)) {
+    const key = `${ref.scope}:${ref.assetName}:${ref.refName}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+
+    const draft = getSubRuleDraftForExecution(ref);
+    const inlineGraph = inlineSubRules[ref.refName];
+
+    if (draft) {
+      collectMissingExecutionSubRules(draft, missing, visited, depth + 1);
+      continue;
+    }
+
+    if (inlineGraph) {
+      collectMissingExecutionSubRules(
+        {
+          config: ruleset.config,
+          startStepId: inlineGraph.entryStep,
+          steps: inlineGraph.steps,
+          subRules: inlineSubRules,
+        },
+        missing,
+        visited,
+        depth + 1
+      );
+      continue;
+    }
+
+    missing.set(key, ref);
+  }
+
+  return missing;
+}
+
+const activeExecutableRulesetResult = computed<{
+  ruleset: RuleSet | null;
+  error: string | null;
+}>(() => {
+  const tab = projectStore.activeTab;
+  if (!tab) return { ruleset: null, error: null };
+
+  try {
+    return {
+      ruleset: materializeConceptsForExecution(
+        buildExecutableRuleset(tab.ruleset),
+        catalogStore.concepts
+      ),
+      error: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ruleset: null,
+      error: t('editor.conceptMaterializationError', { message }),
+    };
+  }
+});
+
+const activeExecutableRuleset = computed(() => activeExecutableRulesetResult.value.ruleset);
+const conceptExecutionError = computed(() => activeExecutableRulesetResult.value.error);
+const executionPanelRuleset = computed<RuleSet>(() => {
+  return (
+    activeExecutableRuleset.value ??
+    projectStore.activeTab?.ruleset ??
+    documentToRuleSet(createEmptyFlowDocument())
+  );
+});
+
+async function fetchSubRuleDraftForExecution(ref: SubRuleExecutionRef) {
+  if (!auth.token || !orgId.value || !projectId.value) return;
+  if (getSubRuleDraftForExecution(ref)) return;
+
+  let asset;
+  if (ref.scope === 'org') {
+    asset = await subRuleApi.getOrg(auth.token, orgId.value, ref.assetName);
+  } else {
+    try {
+      asset = await subRuleApi.getProject(auth.token, orgId.value, projectId.value, ref.assetName);
+    } catch (error: any) {
+      if (error?.status !== 404) throw error;
+      asset = await subRuleApi.getOrg(auth.token, orgId.value, ref.assetName);
+    }
+  }
+
+  const draft = normalizeRuleset(asset.draft, asset.name);
+  subRuleDraftCache.value = {
+    ...subRuleDraftCache.value,
+    [subRuleDraftCacheKey(asset.scope, asset.name)]: draft,
+    [subRuleDraftCacheKey(ref.scope, ref.assetName)]: draft,
+  };
+}
+
+async function hydrateActiveExecutionSubRules() {
+  const tab = projectStore.activeTab;
+  if (!tab || !auth.token) return;
+
+  const seq = ++subRuleHydrationSeq.value;
+  subRuleHydrationLoading.value = true;
+  subRuleHydrationError.value = null;
+
+  try {
+    for (let depth = 0; depth < 8; depth += 1) {
+      const missing = [...collectMissingExecutionSubRules(tab.ruleset).values()];
+      if (missing.length === 0) break;
+
+      await Promise.all(missing.map((ref) => fetchSubRuleDraftForExecution(ref)));
+      if (seq !== subRuleHydrationSeq.value) return;
+    }
+
+    const unresolved = [...collectMissingExecutionSubRules(tab.ruleset).values()];
+    if (unresolved.length > 0) {
+      subRuleHydrationError.value = `Missing SubRules: ${unresolved
+        .map((ref) => ref.refName)
+        .join(', ')}`;
+    }
+  } catch (error: any) {
+    subRuleHydrationError.value = error?.message ?? t('subRules.loadFailed');
+  } finally {
+    if (seq === subRuleHydrationSeq.value) {
+      subRuleHydrationLoading.value = false;
+    }
+  }
+}
+
+watch(
+  () => [
+    showExecution.value,
+    projectStore.activeTabName,
+    projectStore.activeTab ? serializeRuleset(projectStore.activeTab.ruleset) : '',
+  ],
+  ([visible]) => {
+    if (visible) void hydrateActiveExecutionSubRules();
+  }
+);
+
+function getStepOutgoingIds(step: RulesetStep): string[] {
+  switch (step.type) {
+    case 'decision':
+      return [...step.branches.map((branch) => branch.nextStepId), step.defaultNextStepId].filter(
+        Boolean
+      );
+    case 'action':
+    case 'sub_rule':
+      return step.nextStepId ? [step.nextStepId] : [];
+    case 'terminal':
+    default:
+      return [];
+  }
+}
+
+function buildRulesetGraph(ruleset: RuleSet) {
+  const stepMap = new Map(ruleset.steps.map((step) => [step.id, step]));
+  const edges: RulesetGraphEdge[] = [];
+  const incoming = new Map<string, RulesetGraphEdge[]>();
+  const outgoing = new Map<string, RulesetGraphEdge[]>();
+
+  for (const step of ruleset.steps) {
+    incoming.set(step.id, []);
+    outgoing.set(step.id, []);
+  }
+
+  for (const step of ruleset.steps) {
+    for (const target of getStepOutgoingIds(step)) {
+      if (!stepMap.has(target)) continue;
+      const edge = { source: step.id, target };
+      edges.push(edge);
+      outgoing.get(step.id)?.push(edge);
+      incoming.get(target)?.push(edge);
+    }
+  }
+
+  return { stepMap, edges, incoming, outgoing };
+}
+
+function validateSubRuleCandidate(
+  ruleset: RuleSet,
+  stepIds: string[]
+): SubRuleCandidateValidation | null {
+  const selectedStepIds = new Set(stepIds);
+  if (selectedStepIds.size < 2) return null;
+
+  const graph = buildRulesetGraph(ruleset);
+  const selectedSteps = ruleset.steps.filter((step) => selectedStepIds.has(step.id));
+  if (selectedSteps.length !== selectedStepIds.size) return null;
+  if (selectedSteps.some((step) => step.type === 'sub_rule' || isRuntimeGeneratedStep(step))) {
+    return null;
+  }
+
+  const internalEdges = graph.edges.filter(
+    (edge) => selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalIncomingEdges = graph.edges.filter(
+    (edge) => !selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalOutgoingEdges = graph.edges.filter(
+    (edge) => selectedStepIds.has(edge.source) && !selectedStepIds.has(edge.target)
+  );
+
+  const incomingTargets = new Set(externalIncomingEdges.map((edge) => edge.target));
+  if (incomingTargets.size > 1) return null;
+
+  const internalIncomingTargets = new Set(internalEdges.map((edge) => edge.target));
+  let entryId: string | undefined;
+  if (incomingTargets.size === 1) {
+    entryId = [...incomingTargets][0];
+  } else if (selectedStepIds.has(ruleset.startStepId)) {
+    entryId = ruleset.startStepId;
+  } else {
+    const rootSteps = selectedSteps.filter((step) => !internalIncomingTargets.has(step.id));
+    if (rootSteps.length !== 1) return null;
+    entryId = rootSteps[0].id;
+  }
+
+  const reachable = new Set<string>();
+  const stack = [entryId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (reachable.has(current)) continue;
+    reachable.add(current);
+    for (const edge of internalEdges) {
+      if (edge.source === current && !reachable.has(edge.target)) {
+        stack.push(edge.target);
+      }
+    }
+  }
+  if (reachable.size !== selectedSteps.length) return null;
+
+  const exitTargets = new Set(externalOutgoingEdges.map((edge) => edge.target));
+  if (exitTargets.size > 1) return null;
+
+  const hasTerminal = selectedSteps.some((step) => step.type === 'terminal');
+  if (hasTerminal && externalOutgoingEdges.length > 0) return null;
+  if (!hasTerminal && externalOutgoingEdges.length === 0) return null;
+
+  return {
+    entryId,
+    exitTargetId: exitTargets.size === 1 ? [...exitTargets][0] : undefined,
+  };
+}
+
+function collectDownstreamRegion(ruleset: RuleSet, startStepId: string, limit = 10): string[] {
+  const graph = buildRulesetGraph(ruleset);
+  const selected = new Set<string>([startStepId]);
+  const queue = [...(graph.outgoing.get(startStepId) ?? []).map((edge) => edge.target)];
+
+  while (queue.length > 0 && selected.size < limit) {
+    const current = queue.shift()!;
+    if (selected.has(current) || !graph.stepMap.has(current)) continue;
+
+    const hasOutsideIncoming = (graph.incoming.get(current) ?? []).some(
+      (edge) => !selected.has(edge.source)
+    );
+    if (hasOutsideIncoming) continue;
+
+    selected.add(current);
+    const step = graph.stepMap.get(current);
+    if (!step || step.type === 'terminal') continue;
+
+    for (const edge of graph.outgoing.get(current) ?? []) {
+      if (!selected.has(edge.target)) queue.push(edge.target);
+    }
+  }
+
+  return ruleset.steps.map((step) => step.id).filter((id) => selected.has(id));
+}
+
+function collectLinearRegion(ruleset: RuleSet, startStepId: string, limit = 8): string[] {
+  const graph = buildRulesetGraph(ruleset);
+  const selected = new Set<string>([startStepId]);
+  let current = startStepId;
+
+  while (selected.size < limit) {
+    const outgoingEdges = graph.outgoing.get(current) ?? [];
+    if (outgoingEdges.length !== 1) break;
+
+    const next = outgoingEdges[0].target;
+    if (selected.has(next) || !graph.stepMap.has(next)) break;
+
+    const incomingEdges = graph.incoming.get(next) ?? [];
+    if (incomingEdges.length !== 1) break;
+
+    selected.add(next);
+    const nextStep = graph.stepMap.get(next);
+    if (!nextStep || nextStep.type === 'terminal') break;
+    current = next;
+  }
+
+  return ruleset.steps.map((step) => step.id).filter((id) => selected.has(id));
+}
+
+function analyzeSubRuleSuggestions(ruleset: RuleSet): SubRuleSuggestion[] {
+  const graph = buildRulesetGraph(ruleset);
+  const suggestions: SubRuleSuggestion[] = [];
+  const seen = new Set<string>();
+
+  function pushSuggestion(
+    kind: SubRuleSuggestion['kind'],
+    title: string,
+    description: string,
+    stepIds: string[],
+    score: number
+  ) {
+    const candidateIds = ruleset.steps
+      .map((step) => step.id)
+      .filter((id) => stepIds.includes(id) && graph.stepMap.has(id));
+    const validation = validateSubRuleCandidate(ruleset, candidateIds);
+    if (!validation) return;
+
+    const key = candidateIds.slice().sort().join('|');
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const entryStep = graph.stepMap.get(validation.entryId);
+    suggestions.push({
+      id: `${kind}:${key}`,
+      kind,
+      title,
+      description,
+      stepIds: candidateIds,
+      entryStepId: validation.entryId,
+      entryName: entryStep?.name ?? validation.entryId,
+      stepCount: candidateIds.length,
+      score: score + candidateIds.length,
+    });
+  }
+
+  for (const group of ruleset.groups ?? []) {
+    if (group.stepIds.length < 2) continue;
+    pushSuggestion(
+      'group',
+      t('subRules.suggestionGroupTitle', { name: group.name }),
+      group.description || t('subRules.suggestionGroupDesc'),
+      group.stepIds,
+      90
+    );
+  }
+
+  for (const step of ruleset.steps) {
+    if (isRuntimeGeneratedStep(step)) continue;
+    if (step.type === 'decision' && step.branches.length >= 2) {
+      const region = collectDownstreamRegion(ruleset, step.id);
+      if (region.length >= 3) {
+        pushSuggestion(
+          'decision',
+          t('subRules.suggestionDecisionTitle', { name: step.name }),
+          t('subRules.suggestionDecisionDesc', { count: region.length }),
+          region,
+          75
+        );
+      }
+    }
+  }
+
+  for (const step of ruleset.steps) {
+    if (step.type === 'terminal' || step.type === 'sub_rule' || isRuntimeGeneratedStep(step))
+      continue;
+
+    const incomingEdges = graph.incoming.get(step.id) ?? [];
+    if (incomingEdges.length === 1) {
+      const previousOutgoing = graph.outgoing.get(incomingEdges[0].source) ?? [];
+      if (previousOutgoing.length === 1) continue;
+    }
+
+    const region = collectLinearRegion(ruleset, step.id);
+    if (region.length >= 3) {
+      pushSuggestion(
+        'chain',
+        t('subRules.suggestionChainTitle', { name: step.name }),
+        t('subRules.suggestionChainDesc', { count: region.length }),
+        region,
+        55
+      );
+    }
+  }
+
+  return suggestions.sort((a, b) => b.score - a.score);
+}
+
+function cloneStep(step: RulesetStep): RulesetStep {
+  return JSON.parse(JSON.stringify(step));
+}
+
+function retargetStepNext(step: RulesetStep, fromIds: Set<string>, targetId: string): RulesetStep {
+  const cloned = cloneStep(step);
+
+  switch (cloned.type) {
+    case 'decision':
+      return {
+        ...cloned,
+        branches: cloned.branches.map((branch) => ({
+          ...branch,
+          nextStepId: fromIds.has(branch.nextStepId) ? targetId : branch.nextStepId,
+        })),
+        defaultNextStepId: fromIds.has(cloned.defaultNextStepId)
+          ? targetId
+          : cloned.defaultNextStepId,
+      } as RulesetStep;
+    case 'action':
+    case 'sub_rule':
+      return {
+        ...cloned,
+        nextStepId:
+          cloned.nextStepId && fromIds.has(cloned.nextStepId) ? targetId : cloned.nextStepId,
+      } as RulesetStep;
+    default:
+      return cloned;
+  }
+}
+
+function createSuggestedSubRuleExtractionPayload(
+  ruleset: RuleSet,
+  suggestion: SubRuleSuggestion
+): ExtractSubRulePayload | null {
+  const validation = validateSubRuleCandidate(ruleset, suggestion.stepIds);
+  if (!validation) return null;
+
+  const selectedIds = new Set(suggestion.stepIds);
+  const selectedSteps = ruleset.steps.filter((step) => selectedIds.has(step.id));
+  if (selectedSteps.length !== selectedIds.size) return null;
+
+  const entryStep = selectedSteps.find((step) => step.id === validation.entryId);
+  if (!entryStep) return null;
+
+  const suggestedName = sanitizeAssetName(
+    `${ruleset.config.name}_${entryStep.name || entryStep.id}`
+  );
+  const displayName = entryStep.name || t('step.subRule');
+  const subRuleStepId = generateId('step');
+  const exitTargetId = validation.exitTargetId;
+  const returnStepId = exitTargetId ? generateId('return') : undefined;
+  const outsideTargets = exitTargetId && returnStepId ? new Set([exitTargetId]) : new Set<string>();
+  const minX = Math.min(...selectedSteps.map((step) => step.position?.x ?? 0));
+  const minY = Math.min(...selectedSteps.map((step) => step.position?.y ?? 0));
+
+  const childSteps = selectedSteps.map((step) =>
+    returnStepId ? retargetStepNext(step, outsideTargets, returnStepId) : cloneStep(step)
+  );
+
+  if (returnStepId) {
+    childSteps.push(
+      Step.terminal({
+        id: returnStepId,
+        name: t('subRules.returnParent'),
+        code: 'OK',
+        position: {
+          x: Math.max(...selectedSteps.map((step) => step.position?.x ?? 0)) + 240,
+          y:
+            selectedSteps.reduce((sum, step) => sum + (step.position?.y ?? 0), 0) /
+            Math.max(selectedSteps.length, 1),
+        },
+        systemGenerated: 'sub_rule_runtime',
+      })
+    );
+  }
+
+  const draft: RuleSet = {
+    config: {
+      ...ruleset.config,
+      name: suggestedName,
+      version: '0.1.0',
+      description: t('subRules.extractedDescription', { count: selectedSteps.length }),
+      metadata: {
+        ...(ruleset.config.metadata ?? {}),
+        extractedFrom: ruleset.config.name,
+        extractedAt: new Date().toISOString(),
+      },
+    },
+    startStepId: validation.entryId,
+    steps: childSteps,
+    ...(ruleset.subRules ? { subRules: cloneRuleset(ruleset).subRules } : {}),
+    groups: ruleset.groups
+      ?.map((group) => ({
+        ...group,
+        stepIds: group.stepIds.filter((stepId) => selectedIds.has(stepId)),
+      }))
+      .filter((group) => group.stepIds.length > 0),
+  };
+
+  const subRuleStep = Step.subRule({
+    id: subRuleStepId,
+    name: displayName,
+    refName: suggestedName,
+    assetRef: {
+      scope: 'project',
+      name: suggestedName,
+    },
+    bindings: mergeSubRuleBindings(undefined, inferSubRuleInputBindings(selectedSteps)),
+    returnPolicy: exitTargetId ? 'continue' : 'propagate_terminal',
+    nextStepId: exitTargetId ?? '',
+    position: { x: minX, y: minY },
+  });
+
+  const firstSelectedIndex = ruleset.steps.findIndex((step) => selectedIds.has(step.id));
+  const parentSteps = ruleset.steps
+    .filter((step) => !selectedIds.has(step.id))
+    .map((step) => retargetStepNext(step, selectedIds, subRuleStepId));
+  parentSteps.splice(Math.max(firstSelectedIndex, 0), 0, subRuleStep);
+
+  const parentRuleset: RuleSet = {
+    ...cloneRuleset(ruleset),
+    startStepId: selectedIds.has(ruleset.startStepId) ? subRuleStepId : ruleset.startStepId,
+    steps: parentSteps,
+    groups: ruleset.groups?.map((group) => {
+      const nextStepIds = group.stepIds.filter((stepId) => !selectedIds.has(stepId));
+      if (group.stepIds.some((stepId) => selectedIds.has(stepId))) {
+        nextStepIds.push(subRuleStepId);
+      }
+      return {
+        ...group,
+        stepIds: Array.from(new Set(nextStepIds)),
+      };
+    }),
+  };
+
+  return {
+    suggestedName,
+    displayName,
+    subRuleStepId,
+    selectedStepCount: selectedSteps.length,
+    draft,
+    parentRuleset,
+  };
+}
+
+function requestSuggestedSubRuleExtraction(suggestion: SubRuleSuggestion) {
+  if (!canEdit.value || activeSubRuleName.value) return;
+
+  pendingSubRuleSuggestionId.value = suggestion.id;
+  const tab = projectStore.activeTab;
+  if (!tab) return;
+
+  const payload = createSuggestedSubRuleExtractionPayload(tab.ruleset, suggestion);
+  if (!payload) {
+    pendingSubRuleSuggestionId.value = null;
+    MessagePlugin.warning(t('subRules.suggestionsDesc'));
+    return;
+  }
+
+  setEditorMode('flow');
+  handleExtractSubRule(payload);
+}
+
+function handleExtractSubRuleInvalid(reason: string) {
+  pendingSubRuleSuggestionId.value = null;
+  MessagePlugin.warning(reason);
+}
+
 // ── Table support ──────────────────────────────────────────────────────────────
 const decisionTables = ref<Record<string, DecisionTable>>({});
 
@@ -574,19 +2009,34 @@ onMounted(async () => {
   await rbacStore.fetchRoles(orgId.value);
   await rbacStore.fetchMyRoles(orgId.value);
   await environmentStore.fetchEnvironments(orgId.value, projectId.value);
+  await refreshSubRuleAssets();
 
-  // Open ruleset from URL param
+  // Open ruleset or sub-rule from URL param
   if (rulesetNameParam.value) {
-    await openRuleset(rulesetNameParam.value);
+    await openTabFromParam(rulesetNameParam.value);
   } else if (projectStore.rulesets.length > 0 && projectStore.openTabs.length === 0) {
     await openRuleset(projectStore.rulesets[0].name);
   }
 });
 
+async function openTabFromParam(name: string) {
+  if (name.startsWith('§')) {
+    const refName = name.slice(1);
+    try {
+      await projectStore.openSubRule(refName, 'project');
+      tabModes.set(name, 'flow');
+    } catch {
+      await openRuleset(projectStore.rulesets[0]?.name ?? '');
+    }
+  } else {
+    await openRuleset(name);
+  }
+}
+
 watch(
   () => rulesetNameParam.value,
   async (name) => {
-    if (name) await openRuleset(name);
+    if (name) await openTabFromParam(name);
   }
 );
 
@@ -637,6 +2087,13 @@ function onDocumentPointerDown(event: MouseEvent) {
   if (!target?.closest('.editor-menubar')) {
     closeMenus();
   }
+  if (!target?.closest('.knowledge-dock') && !target?.closest('.knowledge-dock__panel')) {
+    showKnowledgeAdvisorPanel.value = false;
+  }
+}
+
+function toggleKnowledgeAdvisorPanel() {
+  showKnowledgeAdvisorPanel.value = !showKnowledgeAdvisorPanel.value;
 }
 
 function runMenuAction(action: () => void) {
@@ -675,12 +2132,425 @@ function canBeTable(rs: RuleSet): boolean {
 }
 
 function handleRulesetChange(ruleset: RuleSet) {
+  applyRulesetChange(ruleset);
+}
+
+function stripDecisionTableMetadata(ruleset: RuleSet): RuleSet {
+  if (!ruleset.config.metadata?._table) return ruleset;
+
+  const metadata = { ...ruleset.config.metadata };
+  delete metadata._table;
+  return {
+    ...ruleset,
+    config: {
+      ...ruleset.config,
+      metadata,
+    },
+  };
+}
+
+function applyRulesetChange(ruleset: RuleSet, actionOverride?: string) {
   const tab = projectStore.activeTab;
   if (!tab) return;
 
-  const action = buildHistoryAction(tab.ruleset, ruleset);
-  updateRulesetState(tab.name, ruleset);
-  scheduleEditHistoryEntry(tab.name, ruleset, action);
+  const incomingRuleset =
+    editorMode.value === 'flow' ? stripDecisionTableMetadata(ruleset) : ruleset;
+  const { ruleset: normalizedRuleset, refsToCreate } = normalizeSubRuleReferences(
+    tab.name,
+    incomingRuleset
+  );
+  const action = actionOverride ?? buildHistoryAction(tab.ruleset, normalizedRuleset);
+  updateRulesetState(tab.name, normalizedRuleset);
+  scheduleEditHistoryEntry(tab.name, normalizedRuleset, action);
+
+  for (const refName of refsToCreate) {
+    void ensureProjectSubRuleAsset(refName);
+  }
+}
+
+function makeUniqueProjectSubRuleName(baseName: string) {
+  const base = sanitizeAssetName(baseName);
+  const names = new Set(
+    subRuleAssets.value.filter((asset) => asset.scope === 'project').map((asset) => asset.name)
+  );
+  if (!names.has(base)) return base;
+
+  let suffix = 2;
+  while (names.has(`${base}_${suffix}`)) {
+    suffix += 1;
+  }
+  return `${base}_${suffix}`;
+}
+
+function hasAnySubRuleAsset(name: string) {
+  return subRuleAssets.value.some((asset) => asset.name === name);
+}
+
+function handleExtractSubRule(payload: ExtractSubRulePayload) {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return;
+
+  pendingSubRuleSuggestionId.value = null;
+  const name = makeUniqueProjectSubRuleName(payload.suggestedName);
+  extractSubRuleState.value = {
+    parentTabName: tab.name,
+    payload,
+    name,
+    displayName: payload.displayName,
+    description: t('subRules.extractedDescription', { count: payload.selectedStepCount }),
+  };
+}
+
+function retargetExtractedSubRuleStep(
+  ruleset: RuleSet,
+  subRuleStepId: string,
+  name: string,
+  displayName: string
+): RuleSet {
+  return {
+    ...ruleset,
+    steps: ruleset.steps.map((step) => {
+      if (step.id !== subRuleStepId || step.type !== 'sub_rule') return step;
+      const subRuleStep = step as SubRuleStep;
+      return {
+        ...subRuleStep,
+        name: displayName || name,
+        refName: name,
+        assetRef: {
+          scope: 'project' as const,
+          name,
+        },
+      };
+    }),
+  };
+}
+
+function inlineExtractedSubRule(
+  parentRuleset: RuleSet,
+  name: string,
+  draft: RuleSet,
+  previousName?: string
+): RuleSet {
+  const subRules = { ...(parentRuleset.subRules ?? {}) };
+  if (previousName && previousName !== name) {
+    delete subRules[previousName];
+  }
+
+  subRules[name] = {
+    entryStep: draft.startStepId,
+    steps: cloneRuleset(draft).steps,
+    inputSchema: draft.config.inputSchema ?? [],
+    outputSchema: draft.config.outputSchema ?? [],
+  };
+
+  return {
+    ...parentRuleset,
+    subRules,
+  };
+}
+
+async function confirmExtractSubRule() {
+  const state = extractSubRuleState.value;
+  if (!state || !auth.token) return;
+
+  const name = sanitizeAssetName(state.name);
+  if (!name) {
+    MessagePlugin.warning(t('subRules.nameRequired'));
+    return;
+  }
+  if (!subRuleAssetsLoaded.value) {
+    await refreshSubRuleAssets();
+  }
+  if (hasAnySubRuleAsset(name)) {
+    MessagePlugin.warning(t('subRules.nameExists', { name }));
+    return;
+  }
+
+  extractingSubRule.value = true;
+  try {
+    const displayName = state.displayName.trim() || name;
+    const description = state.description.trim();
+    const draft: RuleSet = {
+      ...cloneRuleset(state.payload.draft),
+      config: {
+        ...state.payload.draft.config,
+        name,
+        description,
+      },
+    };
+
+    await subRuleApi.saveProject(auth.token, orgId.value, projectId.value, name, {
+      name,
+      display_name: displayName,
+      description,
+      draft,
+      input_schema: [],
+      output_schema: [],
+      expected_seq: 0,
+    });
+    await refreshSubRuleAssets();
+
+    if (projectStore.activeTabName !== state.parentTabName) {
+      switchToTab(state.parentTabName);
+    }
+
+    const parentRuleset = inlineExtractedSubRule(
+      retargetExtractedSubRuleStep(
+        cloneRuleset(state.payload.parentRuleset),
+        state.payload.subRuleStepId,
+        name,
+        displayName
+      ),
+      name,
+      draft,
+      state.payload.suggestedName
+    );
+    applyRulesetChange(parentRuleset, t('historyPanel.actionExtractSubRule', { name }));
+
+    await projectStore.openSubRule(name, 'project');
+    const tabName = `§${name}`;
+    subRuleParentTabs.set(tabName, state.parentTabName);
+    tabModes.set(tabName, 'flow');
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
+
+    MessagePlugin.success(t('subRules.extractSuccess', { name }));
+    extractSubRuleState.value = null;
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.saveFailed'));
+  } finally {
+    extractingSubRule.value = false;
+  }
+}
+
+function normalizeSubRuleReferences(parentRulesetName: string, ruleset: RuleSet) {
+  let changed = false;
+  const refsToCreate: string[] = [];
+
+  const steps = ruleset.steps.map((step) => {
+    if (step.type !== 'sub_rule') return step;
+
+    const subRuleStep = step as SubRuleStep;
+    const generatedName =
+      subRuleStep.refName.trim() || `${sanitizeAssetName(parentRulesetName)}_${subRuleStep.id}`;
+    const assetRef: NonNullable<SubRuleStep['assetRef']> = {
+      ...(subRuleStep.assetRef ?? { scope: 'project' as const }),
+      scope: subRuleStep.assetRef?.scope ?? ('project' as const),
+      name: subRuleStep.assetRef?.name?.trim() || generatedName,
+    };
+
+    const needsPatch =
+      !subRuleStep.refName.trim() ||
+      !subRuleStep.assetRef ||
+      !subRuleStep.assetRef.name?.trim() ||
+      subRuleStep.assetRef.name !== assetRef.name;
+
+    if (needsPatch) {
+      changed = true;
+      refsToCreate.push(generatedName);
+      return {
+        ...subRuleStep,
+        refName: generatedName,
+        assetRef,
+      };
+    }
+
+    return subRuleStep;
+  });
+
+  return {
+    ruleset: changed ? { ...ruleset, steps } : ruleset,
+    refsToCreate,
+  };
+}
+
+function sanitizeAssetName(name: string) {
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'sub_rule'
+  );
+}
+
+function createDefaultSubRuleDraft(name: string): RuleSet {
+  const terminal = Step.terminal({
+    id: 'return_result',
+    name: t('subRules.defaultTerminalName'),
+    code: 'OK',
+    message: {
+      type: 'literal',
+      value: '',
+      valueType: 'string',
+    },
+    output: [],
+    position: { x: 160, y: 120 },
+  });
+
+  return {
+    config: {
+      name,
+      version: '0.1.0',
+      description: t('subRules.defaultDescription'),
+      enableTrace: true,
+    },
+    startStepId: terminal.id,
+    steps: [terminal],
+    groups: [],
+    metadata: {
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+async function refreshSubRuleAssets() {
+  if (!auth.token || !orgId.value || !projectId.value) return;
+  subRuleAssetsLoading.value = true;
+  try {
+    subRuleAssets.value = await subRuleApi.listProject(
+      auth.token,
+      orgId.value,
+      projectId.value,
+      true
+    );
+    subRuleAssetsLoaded.value = true;
+  } catch (e: any) {
+    subRuleAssetsLoaded.value = false;
+    MessagePlugin.warning(e.message || t('subRules.loadFailed'));
+  } finally {
+    subRuleAssetsLoading.value = false;
+  }
+}
+
+function hasProjectSubRuleAsset(name: string) {
+  return subRuleAssets.value.some((asset) => asset.scope === 'project' && asset.name === name);
+}
+
+async function ensureProjectSubRuleAsset(name: string) {
+  if (!auth.token || !orgId.value || !projectId.value) return;
+  const key = `${projectId.value}:${name}`;
+  if (pendingSubRuleAssets.has(key)) return;
+
+  if (!subRuleAssetsLoaded.value) {
+    await refreshSubRuleAssets();
+  }
+  if (hasProjectSubRuleAsset(name)) return;
+
+  pendingSubRuleAssets.add(key);
+  try {
+    await subRuleApi.saveProject(auth.token, orgId.value, projectId.value, name, {
+      name,
+      display_name: name,
+      description: t('subRules.defaultDescription'),
+      draft: createDefaultSubRuleDraft(name),
+      input_schema: [],
+      output_schema: [],
+      expected_seq: 0,
+    });
+    await refreshSubRuleAssets();
+  } catch (e: any) {
+    MessagePlugin.warning(e.message || t('subRules.saveFailed'));
+  } finally {
+    pendingSubRuleAssets.delete(key);
+  }
+}
+
+async function handleOpenSubRule(refName: string) {
+  if (!refName) return;
+  const parentTabName = projectStore.activeTab?.name ?? null;
+  const scope =
+    (projectStore.activeTab?.ruleset.steps as any[])?.find(
+      (s: any) => s.type === 'sub_rule' && s.refName === refName
+    )?.assetRef?.scope ?? 'project';
+  if (scope === 'project') {
+    await ensureProjectSubRuleAsset(refName);
+  }
+  try {
+    await projectStore.openSubRule(refName, scope);
+    const tabName = `§${refName}`;
+    if (parentTabName && parentTabName !== tabName) {
+      subRuleParentTabs.set(tabName, parentTabName);
+    }
+    tabModes.set(tabName, 'flow');
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.loadFailed'));
+  }
+}
+
+function openCreateProjectSubRule() {
+  newSubRuleName.value = makeUniqueProjectSubRuleName('sub_rule');
+  newSubRuleDisplayName.value = '';
+  newSubRuleDescription.value = '';
+  showCreateSubRule.value = true;
+}
+
+async function openProjectSubRuleAsset(name: string) {
+  if (!name) return;
+  const parentTabName =
+    projectStore.activeTab?.kind === 'sub_rule' ? null : projectStore.activeTab?.name ?? null;
+  try {
+    await projectStore.openSubRule(name, 'project');
+    const tabName = `§${name}`;
+    if (parentTabName && parentTabName !== tabName) {
+      subRuleParentTabs.set(tabName, parentTabName);
+    }
+    tabModes.set(tabName, 'flow');
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.loadFailed'));
+  }
+}
+
+async function handleCreateProjectSubRule() {
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('editor.noPermission'));
+    return;
+  }
+
+  if (!newSubRuleName.value.trim()) {
+    MessagePlugin.warning(t('subRules.nameRequired'));
+    return;
+  }
+  const name = sanitizeAssetName(newSubRuleName.value);
+
+  if (!subRuleAssetsLoaded.value) {
+    await refreshSubRuleAssets();
+  }
+  if (hasAnySubRuleAsset(name)) {
+    MessagePlugin.warning(t('subRules.nameExists', { name }));
+    return;
+  }
+  if (!auth.token || !orgId.value || !projectId.value) return;
+
+  creatingSubRuleAsset.value = true;
+  try {
+    await subRuleApi.saveProject(auth.token, orgId.value, projectId.value, name, {
+      name,
+      display_name: newSubRuleDisplayName.value.trim() || name,
+      description: newSubRuleDescription.value.trim() || t('subRules.defaultDescription'),
+      draft: createDefaultSubRuleDraft(name),
+      input_schema: [],
+      output_schema: [],
+      expected_seq: 0,
+    });
+    await refreshSubRuleAssets();
+    showCreateSubRule.value = false;
+    MessagePlugin.success(t('subRules.createSuccess'));
+    await openProjectSubRuleAsset(name);
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.saveFailed'));
+  } finally {
+    creatingSubRuleAsset.value = false;
+  }
+}
+
+function returnToSubRuleParent() {
+  const parentName = activeSubRuleParentName.value;
+  if (!parentName) return;
+  switchToTab(parentName);
+  router.replace(`${projectBase.value}/editor/${encodeURIComponent(parentName)}`);
 }
 
 function handleVersionChange(event: Event) {
@@ -743,6 +2613,9 @@ async function handleSave(name: string) {
     if (tab) {
       savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset));
       projectStore.setTabRuleset(name, cloneRuleset(tab.ruleset), false);
+      if (tab.kind === 'sub_rule') {
+        await refreshSubRuleAssets();
+      }
       pushHistoryEntry(name, tab.ruleset, t('historyPanel.actionSaveCheckpoint'), 'save');
       await flushHistoryQueue(name);
     }
@@ -788,6 +2661,7 @@ async function resolveConflictUseLocal() {
 
 function openReleaseCenter() {
   if (!projectStore.activeTab) return;
+  if (projectStore.activeTab.kind === 'sub_rule') return;
   router.push({
     name: 'project-release-request-create',
     params: {
@@ -796,6 +2670,43 @@ function openReleaseCenter() {
     },
     query: { ruleset: projectStore.activeTab.name },
   });
+}
+
+function openDecisionContract() {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return;
+  router.push({
+    name: 'contracts',
+    params: {
+      orgId: route.params.orgId,
+      projectId: route.params.projectId,
+    },
+    query: { ruleset: tab.name },
+  });
+}
+
+async function createMissingKnowledgeFacts() {
+  const fields = activeKnowledgeAnalysis.value?.missingFields ?? [];
+  if (!fields.length || !canEdit.value || creatingKnowledgeFacts.value) return;
+
+  creatingKnowledgeFacts.value = true;
+  try {
+    for (const field of fields) {
+      await catalogStore.upsertFact({
+        name: field.name,
+        data_type: field.dataType,
+        source: `request.body.${field.name}`,
+        null_policy: 'default',
+        description: t('knowledgeAdvisor.generatedFactDescription'),
+        owner: '',
+      });
+    }
+    MessagePlugin.success(t('knowledgeAdvisor.createFactsSuccess', { count: fields.length }));
+  } catch (error: any) {
+    MessagePlugin.error(error?.message ?? t('facts.saveFailed'));
+  } finally {
+    creatingKnowledgeFacts.value = false;
+  }
 }
 
 function handleCloseTab(name: string) {
@@ -925,47 +2836,90 @@ onUnmounted(() => {
         <span class="ruleset-sidebar__title">
           {{ projectStore.currentProject?.name ?? t('editor.newRuleset') }}
         </span>
-        <button
-          v-if="canEdit"
-          class="sidebar-btn"
-          :title="t('editor.newRuleset')"
-          @click="showCreate = true"
-        >
-          <t-icon name="add" size="16px" />
-        </button>
       </div>
 
       <div class="ruleset-sidebar__list">
-        <div v-if="projectStore.loading" class="sidebar-empty">
-          <t-loading size="small" />
-        </div>
-        <div v-else-if="projectStore.rulesets.length === 0" class="sidebar-empty">
-          {{ t('editor.noRulesets') }}
-        </div>
-        <div
-          v-for="rs in projectStore.rulesets"
-          :key="rs.name"
-          class="ruleset-item"
-          :class="{ 'is-active': rs.name === projectStore.activeTabName }"
-          @click="openRuleset(rs.name)"
-          @contextmenu.prevent="() => {}"
-        >
-          <t-icon name="file-code" size="14px" class="ruleset-item__icon" />
-          <span class="ruleset-item__name">{{ rs.name }}</span>
-          <span
-            v-if="projectStore.openTabs.find((t) => t.name === rs.name)?.dirty"
-            class="ruleset-item__dot"
-            :title="t('editor.unsaved')"
-          />
-          <button
-            v-if="canAdmin"
-            class="ruleset-item__del"
-            :title="t('editor.deleteTitle')"
-            @click.stop="handleDeleteRuleset(rs.name)"
+        <section class="sidebar-section">
+          <div class="sidebar-section__header">
+            <span>{{ t('editor.rulesets') }}</span>
+            <button
+              v-if="canEdit"
+              class="sidebar-btn"
+              :title="t('editor.newRuleset')"
+              @click="showCreate = true"
+            >
+              <t-icon name="add" size="14px" />
+            </button>
+          </div>
+          <div v-if="projectStore.loading" class="sidebar-empty sidebar-empty--compact">
+            <t-loading size="small" />
+          </div>
+          <div v-else-if="projectStore.rulesets.length === 0" class="sidebar-empty">
+            {{ t('editor.noRulesets') }}
+          </div>
+          <div
+            v-for="rs in projectStore.rulesets"
+            :key="rs.name"
+            class="ruleset-item"
+            :class="{ 'is-active': rs.name === projectStore.activeTabName }"
+            @click="openRuleset(rs.name)"
+            @contextmenu.prevent="() => {}"
           >
-            <t-icon name="close" size="12px" />
-          </button>
-        </div>
+            <t-icon name="file-code" size="14px" class="ruleset-item__icon" />
+            <span class="ruleset-item__name">{{ rs.name }}</span>
+            <span
+              v-if="projectStore.openTabs.find((t) => t.name === rs.name)?.dirty"
+              class="ruleset-item__dot"
+              :title="t('editor.unsaved')"
+            />
+            <button
+              v-if="canAdmin"
+              class="ruleset-item__del"
+              :title="t('editor.deleteTitle')"
+              @click.stop="handleDeleteRuleset(rs.name)"
+            >
+              <t-icon name="close" size="12px" />
+            </button>
+          </div>
+        </section>
+
+        <section class="sidebar-section sidebar-section--sub-rules">
+          <div class="sidebar-section__header">
+            <span>{{ t('subRules.projectAssets') }}</span>
+            <button
+              v-if="canEdit"
+              class="sidebar-btn"
+              :title="t('subRules.createTitle')"
+              @click="openCreateProjectSubRule"
+            >
+              <t-icon name="add" size="14px" />
+            </button>
+          </div>
+          <div v-if="subRuleAssetsLoading" class="sidebar-empty sidebar-empty--compact">
+            <t-loading size="small" />
+          </div>
+          <div v-else-if="projectSubRuleAssets.length === 0" class="sidebar-empty">
+            {{ t('subRules.noProjectAssets') }}
+          </div>
+          <div
+            v-for="asset in projectSubRuleAssets"
+            :key="asset.id"
+            class="ruleset-item ruleset-item--sub-rule"
+            :class="{ 'is-active': `§${asset.name}` === projectStore.activeTabName }"
+            @click="openProjectSubRuleAsset(asset.name)"
+          >
+            <t-icon name="git-branch" size="14px" class="ruleset-item__icon" />
+            <span class="ruleset-item__name">
+              {{ asset.display_name || asset.name }}
+              <small v-if="asset.display_name" class="ruleset-item__alias">{{ asset.name }}</small>
+            </span>
+            <span
+              v-if="projectStore.openTabs.find((t) => t.name === `§${asset.name}`)?.dirty"
+              class="ruleset-item__dot"
+              :title="t('editor.unsaved')"
+            />
+          </div>
+        </section>
       </div>
     </aside>
 
@@ -1113,6 +3067,141 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+
+        <div class="editor-menubar__spacer" />
+        <div class="editor-menubar__right" v-if="projectStore.activeTab">
+          <div
+            v-if="knowledgeAdvisorVisible"
+            class="knowledge-dock"
+            :class="{
+              'has-missing': (activeKnowledgeAnalysis?.missingFields.length ?? 0) > 0,
+              'has-contract': activeKnowledgeAnalysis?.hasContract,
+              'is-open': showKnowledgeAdvisorPanel,
+            }"
+          >
+            <button
+              type="button"
+              class="knowledge-dock__trigger"
+              :aria-expanded="showKnowledgeAdvisorPanel"
+              :aria-label="t('knowledgeAdvisor.title')"
+              @click.stop="toggleKnowledgeAdvisorPanel"
+            >
+              <span class="knowledge-dock__mark">
+                <t-icon name="layers" size="13px" />
+              </span>
+              <span class="knowledge-dock__label">{{ t('knowledgeAdvisor.title') }}</span>
+              <span class="knowledge-dock__stat">
+                {{
+                  t('knowledgeAdvisor.fieldsStat', {
+                    count: activeKnowledgeAnalysis?.referencedFields.length ?? 0,
+                  })
+                }}
+              </span>
+              <span
+                class="knowledge-dock__contract"
+                :class="{ 'is-warn': !activeKnowledgeAnalysis?.hasContract }"
+              >
+                {{
+                  activeKnowledgeAnalysis?.hasContract
+                    ? t('knowledgeAdvisor.contractReady')
+                    : t('knowledgeAdvisor.contractMissing')
+                }}
+              </span>
+              <t-icon class="knowledge-dock__chevron" name="chevron-down" size="12px" />
+            </button>
+            <div
+              v-if="showKnowledgeAdvisorPanel"
+              class="knowledge-dock__panel"
+              role="dialog"
+              :aria-label="t('knowledgeAdvisor.title')"
+              @click.stop
+            >
+              <div class="knowledge-dock__panel-head">
+                <span class="knowledge-dock__panel-mark">
+                  <t-icon name="layers" size="16px" />
+                </span>
+                <span class="knowledge-dock__panel-copy">
+                  <strong>{{ knowledgeAdvisorSummary }}</strong>
+                  <small>{{ knowledgeAdvisorDetail }}</small>
+                </span>
+              </div>
+              <div class="knowledge-dock__panel-stats">
+                <span>
+                  {{
+                    t('knowledgeAdvisor.fieldsStat', {
+                      count: activeKnowledgeAnalysis?.referencedFields.length ?? 0,
+                    })
+                  }}
+                </span>
+                <span>
+                  {{
+                    t('knowledgeAdvisor.assetsStat', {
+                      facts: catalogStore.facts.length,
+                      concepts: catalogStore.concepts.length,
+                    })
+                  }}
+                </span>
+                <span :class="{ 'is-warn': !activeKnowledgeAnalysis?.hasContract }">
+                  {{
+                    activeKnowledgeAnalysis?.hasContract
+                      ? t('knowledgeAdvisor.contractReady')
+                      : t('knowledgeAdvisor.contractMissing')
+                  }}
+                </span>
+              </div>
+              <div class="knowledge-dock__panel-actions">
+                <button
+                  v-if="(activeKnowledgeAnalysis?.missingFields.length ?? 0) > 0 && canEdit"
+                  type="button"
+                  class="knowledge-dock__btn knowledge-dock__btn--primary"
+                  :disabled="creatingKnowledgeFacts"
+                  @click="createMissingKnowledgeFacts"
+                >
+                  <t-icon name="add" size="13px" />
+                  {{
+                    t('knowledgeAdvisor.createMissingFacts', {
+                      count: activeKnowledgeAnalysis?.missingFields.length ?? 0,
+                    })
+                  }}
+                </button>
+                <button type="button" class="knowledge-dock__btn" @click="openDecisionContract">
+                  <t-icon name="file-code" size="13px" />
+                  {{
+                    activeKnowledgeAnalysis?.hasContract
+                      ? t('knowledgeAdvisor.openContract')
+                      : t('knowledgeAdvisor.defineContract')
+                  }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="menubar-divider" />
+          <div class="toolbar-version toolbar-version--menubar">
+            <label>{{ t('common.version') }}</label>
+            <input
+              :value="activeDraftVersion"
+              :disabled="!canEdit"
+              placeholder="1.0.0"
+              class="ordo-input-base toolbar-version__input"
+              @input="handleVersionChange"
+            />
+            <t-tag size="small" theme="primary" variant="light" class="toolbar-version__tag">
+              v{{ activeVersionDisplay }}
+            </t-tag>
+            <t-tag
+              v-if="activePublishedVersion"
+              size="small"
+              variant="light"
+              class="toolbar-version__tag toolbar-version__tag--published"
+            >
+              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
+            </t-tag>
+            <span v-if="requiresVersionBump" class="toolbar-version__warning">
+              {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Tabs bar -->
@@ -1124,8 +3213,22 @@ onUnmounted(() => {
           :class="{ 'is-active': tab.name === projectStore.activeTabName }"
           @click="switchToTab(tab.name)"
         >
-          <t-icon name="file-code" size="13px" class="tab-icon" />
-          <span class="tab-name">{{ tab.name }}</span>
+          <t-icon
+            :name="tab.kind === 'sub_rule' ? 'git-branch' : 'file-code'"
+            size="13px"
+            class="tab-icon"
+          />
+          <span class="tab-name">{{
+            tab.name.startsWith('§') ? tab.name.slice(1) : tab.name
+          }}</span>
+          <t-tag
+            v-if="tab.kind === 'sub_rule'"
+            size="small"
+            variant="light"
+            theme="warning"
+            class="tab-kind-badge"
+            >sub</t-tag
+          >
           <span v-if="tab.dirty" class="tab-dot" :title="t('editor.unsaved')" />
           <button
             class="tab-close"
@@ -1166,26 +3269,6 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="tab-divider" />
-          <div class="toolbar-version">
-            <label>{{ t('common.version') }}</label>
-            <input
-              :value="activeDraftVersion"
-              :disabled="!canEdit"
-              placeholder="1.0.0"
-              class="ordo-input-base toolbar-version__input"
-              @input="handleVersionChange"
-            />
-            <t-tag size="small" theme="primary" variant="light">
-              v{{ activeVersionDisplay }}
-            </t-tag>
-            <t-tag v-if="activePublishedVersion" size="small" variant="light">
-              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
-            </t-tag>
-          </div>
-          <div v-if="requiresVersionBump" class="toolbar-version__warning">
-            {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
-          </div>
-          <div class="tab-divider" />
           <button
             class="toolbar-btn"
             :class="{ 'is-active': showExecution }"
@@ -1214,6 +3297,7 @@ onUnmounted(() => {
           <button
             v-if="canPublish"
             class="toolbar-btn toolbar-btn--publish"
+            :disabled="projectStore.activeTab.kind === 'sub_rule'"
             :title="t('releaseCenter.createRequest')"
             @click="openReleaseCenter"
           >
@@ -1248,29 +3332,111 @@ onUnmounted(() => {
         >
           <template v-if="projectStore.activeTab">
             <div class="editor-view-shell">
+              <div
+                v-if="canEdit && primarySubRuleSuggestion"
+                class="sub-rule-advisor"
+                role="region"
+                :aria-label="t('subRules.suggestionsTitle')"
+              >
+                <button
+                  type="button"
+                  class="sub-rule-advisor__primary"
+                  :class="{
+                    'is-pending': pendingSubRuleSuggestionId === primarySubRuleSuggestion.id,
+                  }"
+                  @click="requestSuggestedSubRuleExtraction(primarySubRuleSuggestion)"
+                >
+                  <span class="sub-rule-advisor__mark">
+                    <t-icon name="git-branch" size="15px" />
+                  </span>
+                  <span class="sub-rule-advisor__copy">
+                    <span class="sub-rule-advisor__eyebrow">
+                      {{ t('subRules.suggestionsTitle') }}
+                    </span>
+                    <span class="sub-rule-advisor__title">
+                      {{ primarySubRuleSuggestion.title }}
+                    </span>
+                    <span class="sub-rule-advisor__meta">
+                      {{
+                        t('subRules.suggestionSteps', {
+                          count: primarySubRuleSuggestion.stepCount,
+                        })
+                      }}
+                      · {{ primarySubRuleSuggestion.entryName }}
+                    </span>
+                  </span>
+                  <span class="sub-rule-advisor__cta">
+                    <t-icon name="chevron-right" size="13px" />
+                    {{ t('subRules.suggestionCta') }}
+                  </span>
+                </button>
+                <div v-if="secondarySubRuleSuggestions.length" class="sub-rule-advisor__alternates">
+                  <button
+                    v-for="suggestion in secondarySubRuleSuggestions"
+                    :key="suggestion.id"
+                    type="button"
+                    class="sub-rule-advisor__chip"
+                    :class="{ 'is-pending': pendingSubRuleSuggestionId === suggestion.id }"
+                    :title="suggestion.description"
+                    @click="requestSuggestedSubRuleExtraction(suggestion)"
+                  >
+                    <span>{{ suggestion.title }}</span>
+                    <small>{{
+                      t('subRules.suggestionSteps', { count: suggestion.stepCount })
+                    }}</small>
+                  </button>
+                </div>
+              </div>
+              <div v-if="activeSubRuleName" class="sub-rule-focus-strip">
+                <div class="sub-rule-focus-strip__main">
+                  <t-icon name="git-branch" size="15px" />
+                  <span class="sub-rule-focus-strip__title">
+                    {{ t('subRules.focusTitle', { name: activeSubRuleName }) }}
+                  </span>
+                  <span class="sub-rule-focus-strip__desc">{{ t('subRules.focusDesc') }}</span>
+                </div>
+                <button
+                  v-if="activeSubRuleParentName"
+                  class="sub-rule-focus-strip__back"
+                  @click="returnToSubRuleParent"
+                >
+                  <t-icon name="rollback" size="14px" />
+                  {{ t('subRules.returnParent') }}
+                </button>
+              </div>
               <!-- Form mode -->
               <OrdoFormEditor
                 v-if="editorMode === 'form'"
                 :model-value="projectStore.activeTab.ruleset"
                 :disabled="!canEdit"
+                :managed-sub-rules="subRuleAssetOptions"
+                :suggestions="catalogFieldSuggestions"
                 :input-schema="
                   catalogStore.schemaFields.length ? catalogStore.schemaFields : undefined
                 "
                 @update:model-value="handleRulesetChange"
+                @open-sub-rule="handleOpenSubRule"
               />
               <!-- Flow mode -->
               <OrdoFlowEditor
                 v-else-if="editorMode === 'flow'"
                 :model-value="projectStore.activeTab.ruleset"
                 :disabled="!canEdit"
+                :managed-sub-rules="subRuleAssetOptions"
+                :suggestions="catalogFieldSuggestions"
                 :execution-trace="executionTrace"
+                :execution-ruleset="activeExecutableRuleset"
                 :trace-mode="flowTraceMode"
                 @update:model-value="handleRulesetChange"
+                @open-sub-rule="handleOpenSubRule"
+                @extract-sub-rule="handleExtractSubRule"
+                @extract-sub-rule-invalid="handleExtractSubRuleInvalid"
               />
               <!-- Decision table mode -->
               <OrdoDecisionTable
                 v-else-if="editorMode === 'table' && activeDecisionTable"
                 :model-value="activeDecisionTable"
+                :schema="catalogStore.schemaFields"
                 :disabled="!canEdit"
                 @update:model-value="handleTableChange"
                 @show-as-flow="handleShowAsFlow"
@@ -1286,7 +3452,8 @@ onUnmounted(() => {
           :style="{ height: executionHeight + 'px' }"
         >
           <OrdoExecutionPanel
-            :ruleset="projectStore.activeTab.ruleset"
+            v-if="!subRuleHydrationLoading && !subRuleHydrationError && !conceptExecutionError"
+            :ruleset="executionPanelRuleset"
             :visible="showExecution"
             :height="executionHeight"
             @update:visible="showExecution = $event"
@@ -1294,6 +3461,13 @@ onUnmounted(() => {
             @show-in-flow="handleShowInFlow"
             @clear-flow-trace="handleClearFlowTrace"
           />
+          <div v-else class="execution-panel-loading">
+            <t-loading v-if="subRuleHydrationLoading && !conceptExecutionError" size="small" />
+            <t-icon v-else name="error-circle" size="18px" />
+            <span>{{
+              conceptExecutionError || subRuleHydrationError || t('subRules.executionHydrating')
+            }}</span>
+          </div>
         </div>
 
         <!-- Test case panel -->
@@ -1301,10 +3475,14 @@ onUnmounted(() => {
           v-if="showTests"
           :project-id="projectId"
           :ruleset-name="projectStore.activeTab?.name ?? ''"
+          :ruleset="activeExecutableRuleset"
+          :sub-rule-mode="projectStore.activeTab?.kind === 'sub_rule'"
           :visible="showTests"
           :height="testsHeight"
           @update:visible="showTests = $event"
           @update:height="testsHeight = $event"
+          @show-in-flow="handleShowInFlow"
+          @open-sub-rule-trace="handleOpenSubRuleTrace"
         />
       </div>
 
@@ -1360,6 +3538,74 @@ onUnmounted(() => {
               {{ t('editor.tableType') }}
             </t-radio-button>
           </t-radio-group>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="showCreateSubRule"
+      :header="t('subRules.createTitle')"
+      :confirm-btn="{ content: t('common.create'), loading: creatingSubRuleAsset }"
+      @confirm="handleCreateProjectSubRule"
+      @close="showCreateSubRule = false"
+      width="460px"
+    >
+      <t-form label-align="top">
+        <p class="create-sub-rule-dialog__desc">{{ t('subRules.createDesc') }}</p>
+        <t-form-item :label="t('subRules.name')" required>
+          <t-input
+            v-model="newSubRuleName"
+            :placeholder="t('subRules.namePlaceholder')"
+            autofocus
+            @keyup.enter="handleCreateProjectSubRule"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.displayName')">
+          <t-input
+            v-model="newSubRuleDisplayName"
+            :placeholder="t('subRules.displayNamePlaceholder')"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.description')">
+          <t-textarea
+            v-model="newSubRuleDescription"
+            :placeholder="t('subRules.descriptionPlaceholder')"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      :visible="!!extractSubRuleState"
+      :header="t('subRules.extractTitle')"
+      :confirm-btn="{ content: t('subRules.extractConfirm'), loading: extractingSubRule }"
+      width="480px"
+      @confirm="confirmExtractSubRule"
+      @close="extractSubRuleState = null"
+    >
+      <t-form v-if="extractSubRuleState" label-align="top">
+        <p class="extract-sub-rule-dialog__desc">
+          {{
+            t('subRules.extractDesc', {
+              count: extractSubRuleState.payload.selectedStepCount,
+            })
+          }}
+        </p>
+        <t-form-item :label="t('subRules.name')" required>
+          <t-input
+            v-model="extractSubRuleState.name"
+            :placeholder="t('subRules.namePlaceholder')"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.displayName')">
+          <t-input
+            v-model="extractSubRuleState.displayName"
+            :placeholder="t('subRules.displayNamePlaceholder')"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.description')">
+          <t-textarea v-model="extractSubRuleState.description" :autosize="{ minRows: 3 }" />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -1438,16 +3684,44 @@ onUnmounted(() => {
 .ruleset-sidebar__list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 6px 0 10px;
+}
+
+.sidebar-section {
+  padding: 0 0 8px;
+}
+
+.sidebar-section + .sidebar-section {
+  border-top: 1px solid var(--ordo-border-light);
+  padding-top: 8px;
+}
+
+.sidebar-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px 0 12px;
+  color: var(--ordo-text-tertiary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .sidebar-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 12px;
+  padding: 14px 12px;
   font-size: 12px;
   color: var(--ordo-text-tertiary);
+  text-align: center;
+}
+
+.sidebar-empty--compact {
+  padding: 10px 12px;
 }
 
 .ruleset-item {
@@ -1473,6 +3747,10 @@ onUnmounted(() => {
   color: var(--ordo-text-primary);
 }
 
+.ruleset-item--sub-rule.is-active {
+  background: rgba(184, 118, 31, 0.12);
+}
+
 .ruleset-item__icon {
   flex-shrink: 0;
   opacity: 0.6;
@@ -1484,6 +3762,16 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.ruleset-item__alias {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ordo-text-tertiary);
+  font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -1543,6 +3831,28 @@ onUnmounted(() => {
 
 .editor-menu {
   position: relative;
+  flex: 0 0 auto;
+}
+
+.editor-menubar__spacer {
+  flex: 1;
+  min-width: 16px;
+}
+
+.editor-menubar__right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+}
+
+.menubar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--ordo-border-color);
+  flex: 0 0 auto;
 }
 
 .editor-menu__trigger {
@@ -1718,6 +4028,11 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.toolbar-version--menubar {
+  max-width: min(48vw, 520px);
+  flex: 0 1 auto;
+}
+
 .toolbar-version label {
   font-size: 11px;
   font-weight: 700;
@@ -1738,6 +4053,13 @@ onUnmounted(() => {
   outline: none;
 }
 
+.toolbar-version--menubar .toolbar-version__input {
+  width: 84px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+}
+
 .toolbar-version__input:focus {
   border-color: var(--ordo-accent);
 }
@@ -1747,6 +4069,14 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--ordo-warning);
   line-height: 1.2;
+}
+
+.toolbar-version--menubar .toolbar-version__warning {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 .mode-switch {
@@ -1813,6 +4143,16 @@ onUnmounted(() => {
   color: var(--ordo-text-primary);
 }
 
+.toolbar-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.toolbar-btn:disabled:hover {
+  background: transparent;
+  color: var(--ordo-text-secondary);
+}
+
 .toolbar-btn.is-active {
   color: var(--ordo-accent);
 }
@@ -1839,13 +4179,470 @@ onUnmounted(() => {
 .editor-view-shell {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.editor-view-shell > :not(.sub-rule-focus-strip):not(.sub-rule-advisor) {
+  flex: 1;
+  min-height: 0;
+}
+
+.sub-rule-advisor {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--ordo-border-light);
+  background: linear-gradient(90deg, rgba(0, 102, 184, 0.06), rgba(0, 102, 184, 0) 42%),
+    var(--ordo-bg-panel);
+}
+
+.sub-rule-advisor__primary,
+.sub-rule-advisor__chip {
+  border: 1px solid var(--ordo-border-color);
+  background: var(--ordo-bg-item);
+  color: var(--ordo-text-primary);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.sub-rule-advisor__primary:hover,
+.sub-rule-advisor__chip:hover {
+  border-color: rgba(0, 102, 184, 0.42);
+  background: var(--ordo-bg-selected);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.sub-rule-advisor__primary.is-pending,
+.sub-rule-advisor__chip.is-pending {
+  border-color: var(--ordo-accent);
+  background: var(--ordo-accent-bg);
+}
+
+.sub-rule-advisor__primary {
+  min-width: 0;
+  max-width: 660px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 10px;
+  text-align: left;
+}
+
+.sub-rule-advisor__mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--ordo-accent);
+  background: var(--ordo-accent-bg);
+}
+
+.sub-rule-advisor__copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+}
+
+.sub-rule-advisor__eyebrow {
+  color: var(--ordo-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.sub-rule-advisor__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sub-rule-advisor__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ordo-text-tertiary);
+  font-size: 11px;
+}
+
+.sub-rule-advisor__cta {
+  height: 24px;
+  border-radius: 7px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  background: var(--ordo-accent);
+  color: var(--ordo-text-inverse);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sub-rule-advisor__alternates {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sub-rule-advisor__chip {
+  max-width: 190px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--ordo-text-secondary);
+}
+
+.sub-rule-advisor__chip span,
+.sub-rule-advisor__chip small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-rule-advisor__chip span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sub-rule-advisor__chip small {
+  color: var(--ordo-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (max-width: 1100px) {
+  .sub-rule-advisor__alternates {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .sub-rule-advisor__copy {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+
+  .sub-rule-advisor__meta {
+    display: none;
+  }
+}
+
+.knowledge-dock {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.knowledge-dock__trigger {
+  height: 24px;
+  max-width: 320px;
+  border: 1px solid rgba(34, 134, 87, 0.22);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  color: var(--ordo-text-secondary);
+  background: linear-gradient(90deg, rgba(34, 134, 87, 0.1), rgba(34, 134, 87, 0.03));
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.knowledge-dock__trigger:hover,
+.knowledge-dock.is-open .knowledge-dock__trigger {
+  border-color: rgba(0, 102, 184, 0.34);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-selected);
+}
+
+.knowledge-dock.has-missing .knowledge-dock__trigger {
+  border-color: rgba(185, 112, 0, 0.26);
+  background: linear-gradient(90deg, rgba(185, 112, 0, 0.13), rgba(185, 112, 0, 0.04));
+}
+
+.knowledge-dock__mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #228657;
+  background: rgba(34, 134, 87, 0.12);
+}
+
+.knowledge-dock.has-missing .knowledge-dock__mark {
+  color: #b97000;
+  background: rgba(185, 112, 0, 0.14);
+}
+
+.knowledge-dock__label,
+.knowledge-dock__stat,
+.knowledge-dock__contract {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.knowledge-dock__label {
+  color: var(--ordo-text-primary);
+  font-weight: 850;
+}
+
+.knowledge-dock__stat,
+.knowledge-dock__contract {
+  color: var(--ordo-text-tertiary);
+  font-weight: 700;
+}
+
+.knowledge-dock__contract.is-warn,
+.knowledge-dock__panel-stats .is-warn {
+  color: #b97000;
+}
+
+.knowledge-dock__chevron {
+  color: var(--ordo-text-tertiary);
+}
+
+.knowledge-dock__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  padding: 12px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 14px;
+  background: var(--ordo-bg-panel);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.2);
+  z-index: 90;
+}
+
+.knowledge-dock__panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.knowledge-dock__panel-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #228657;
+  background: rgba(34, 134, 87, 0.12);
+  flex: 0 0 auto;
+}
+
+.knowledge-dock.has-missing .knowledge-dock__panel-mark {
+  color: #b97000;
+  background: rgba(185, 112, 0, 0.14);
+}
+
+.knowledge-dock__panel-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.knowledge-dock__panel-copy strong {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+}
+
+.knowledge-dock__panel-copy small {
+  color: var(--ordo-text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.knowledge-dock__panel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.knowledge-dock__panel-stats span {
+  height: 24px;
+  border: 1px solid var(--ordo-border-light);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--ordo-text-secondary);
+  background: var(--ordo-bg-item);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.knowledge-dock__panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.knowledge-dock__btn {
+  height: 28px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  color: var(--ordo-text-secondary);
+  background: var(--ordo-bg-item);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.knowledge-dock__btn:hover {
+  border-color: rgba(0, 102, 184, 0.42);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-selected);
+}
+
+.knowledge-dock__btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.knowledge-dock__btn--primary {
+  border-color: rgba(0, 102, 184, 0.18);
+  color: var(--ordo-text-inverse);
+  background: var(--ordo-accent);
+}
+
+.knowledge-dock__btn--primary:hover {
+  color: var(--ordo-text-inverse);
+  background: var(--ordo-accent-hover);
+}
+
+@media (max-width: 1280px) {
+  .knowledge-dock__contract {
+    display: none;
+  }
+
+  .toolbar-version--menubar .toolbar-version__warning {
+    display: none;
+  }
+}
+
+@media (max-width: 1040px) {
+  .knowledge-dock__stat {
+    display: none;
+  }
+
+  .toolbar-version__tag--published {
+    display: none;
+  }
+}
+
+.sub-rule-focus-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ordo-border-color);
+  background: linear-gradient(90deg, rgba(91, 112, 138, 0.16), rgba(91, 112, 138, 0.04)),
+    var(--ordo-bg-panel);
+}
+
+.sub-rule-focus-strip__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sub-rule-focus-strip__title {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sub-rule-focus-strip__desc {
+  color: var(--ordo-text-tertiary);
+  font-size: 12px;
+}
+
+.sub-rule-focus-strip__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 999px;
+  background: var(--ordo-bg-item);
+  color: var(--ordo-text-secondary);
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sub-rule-focus-strip__back:hover {
+  background: var(--ordo-hover-bg);
+  color: var(--ordo-text-primary);
+}
+
+.extract-sub-rule-dialog__desc {
+  margin: 0 0 16px;
+  color: var(--ordo-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.create-sub-rule-dialog__desc {
+  margin: 0 0 16px;
+  color: var(--ordo-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .execution-panel-wrap {
   flex-shrink: 0;
   border-top: 1px solid var(--ordo-border-color);
   overflow: hidden;
+}
+
+.execution-panel-loading {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--ordo-bg-canvas);
+  color: var(--ordo-text-secondary);
+  font-size: 13px;
 }
 
 .history-panel-wrap {

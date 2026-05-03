@@ -141,6 +141,11 @@ const router = createRouter({
               component: () => import('@/views/project/ContractView.vue'),
             },
             {
+              path: 'sub-rules',
+              name: 'project-sub-rules',
+              component: () => import('@/views/project/SubRulesView.vue'),
+            },
+            {
               path: 'tests',
               name: 'tests',
               component: () => import('@/views/project/TestView.vue'),

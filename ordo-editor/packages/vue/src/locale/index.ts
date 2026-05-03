@@ -86,6 +86,7 @@ export interface LocaleMessages {
     decision: string;
     action: string;
     terminal: string;
+    subRule: string;
     start: string;
     setAsStart: string;
     branches: string;
@@ -101,6 +102,25 @@ export interface LocaleMessages {
     typeDecision: string;
     typeAction: string;
     typeTerminal: string;
+    typeSubRule: string;
+    refName: string;
+    managedAsset: string;
+    customSubRuleName: string;
+    assetScope: string;
+    assetVersion: string;
+    scopeProject: string;
+    scopeOrg: string;
+    latestPublished: string;
+    bindings: string;
+    addBinding: string;
+    outputs: string;
+    addOutput: string;
+    childField: string;
+    parentVariable: string;
+    childVariable: string;
+    noBindings: string;
+    noSubRuleOutputs: string;
+    openSubRuleEditor: string;
     branch: string;
     default: string;
     next: string;
@@ -151,6 +171,17 @@ export interface LocaleMessages {
     newGroup: string;
     externalCall: string;
     conditionLabel: string;
+    extractSubRule: string;
+    extractSubRuleSelectNodes: string;
+    extractSubRuleNoGroups: string;
+    extractSubRuleSingleEntry: string;
+    extractSubRuleConnected: string;
+    extractSubRuleSingleExit: string;
+    extractSubRuleNoMixedExit: string;
+    extractSubRuleNeedsExit: string;
+    extractSubRuleReadOnly: string;
+    extractedSubRuleDescription: string;
+    subRuleReturn: string;
   };
   validation: {
     valid: string;
@@ -278,6 +309,7 @@ const en: LocaleMessages = {
     decision: 'Decision',
     action: 'Action',
     terminal: 'Terminal',
+    subRule: 'Sub-rule',
     start: 'START',
     setAsStart: 'Set Start',
     branches: 'Branches',
@@ -293,6 +325,25 @@ const en: LocaleMessages = {
     typeDecision: 'Decision',
     typeAction: 'Action',
     typeTerminal: 'Terminal',
+    typeSubRule: 'Sub-rule',
+    refName: 'Reference',
+    managedAsset: 'Managed Asset',
+    customSubRuleName: 'Custom / Quick Create',
+    assetScope: 'Asset Scope',
+    assetVersion: 'Asset Version',
+    scopeProject: 'Project',
+    scopeOrg: 'Organization',
+    latestPublished: 'Latest published',
+    bindings: 'Input Bindings',
+    addBinding: 'Add Binding',
+    outputs: 'Output Mappings',
+    addOutput: 'Add Output',
+    childField: 'Child Field',
+    parentVariable: 'Parent Variable',
+    childVariable: 'Child Variable',
+    noBindings: 'No input bindings.',
+    noSubRuleOutputs: 'No output mappings.',
+    openSubRuleEditor: 'Open Sub-Rule in Editor',
     branch: 'Branch',
     default: 'Default',
     next: 'Next',
@@ -343,6 +394,18 @@ const en: LocaleMessages = {
     newGroup: 'New Group',
     externalCall: 'Call',
     conditionLabel: 'Condition',
+    extractSubRule: 'Extract SubRule',
+    extractSubRuleSelectNodes: 'Select one or more steps first.',
+    extractSubRuleNoGroups: 'Only step nodes can be extracted. Groups are not supported.',
+    extractSubRuleSingleEntry: 'Selection must have exactly one entry point.',
+    extractSubRuleConnected: 'Selection must be one connected executable region.',
+    extractSubRuleSingleExit: 'Selection can only continue to one outside target.',
+    extractSubRuleNoMixedExit:
+      'Selection cannot mix terminal endings with paths that continue outside the selection.',
+    extractSubRuleNeedsExit: 'Selection must end in a terminal or continue to an outside step.',
+    extractSubRuleReadOnly: 'The editor is read-only.',
+    extractedSubRuleDescription: 'Extracted reusable SubRule decision graph.',
+    subRuleReturn: 'Return to parent',
   },
   validation: {
     valid: 'Valid',
@@ -470,6 +533,7 @@ const zhCN: LocaleMessages = {
     decision: '决策节点',
     action: '动作节点',
     terminal: '结束节点',
+    subRule: '子规则节点',
     start: '起始',
     setAsStart: '设为起始',
     branches: '分支条件',
@@ -485,6 +549,25 @@ const zhCN: LocaleMessages = {
     typeDecision: '决策',
     typeAction: '动作',
     typeTerminal: '终结',
+    typeSubRule: '子规则',
+    refName: '引用子规则',
+    managedAsset: '托管资产',
+    customSubRuleName: '自定义 / 快速创建',
+    assetScope: '资产范围',
+    assetVersion: '资产版本',
+    scopeProject: '项目级',
+    scopeOrg: '组织级',
+    latestPublished: '最新已发布版本',
+    bindings: '输入绑定',
+    addBinding: '添加绑定',
+    outputs: '输出映射',
+    addOutput: '添加输出',
+    childField: '子规则字段',
+    parentVariable: '父级变量',
+    childVariable: '子规则变量',
+    noBindings: '暂无输入绑定。',
+    noSubRuleOutputs: '暂无输出映射。',
+    openSubRuleEditor: '在编辑器中打开子规则',
     branch: '分支',
     default: '默认',
     next: '下一步',
@@ -535,6 +618,17 @@ const zhCN: LocaleMessages = {
     newGroup: '新分组',
     externalCall: '调用',
     conditionLabel: '条件',
+    extractSubRule: '提取为子规则',
+    extractSubRuleSelectNodes: '请先选择一个或多个步骤。',
+    extractSubRuleNoGroups: '只能提取步骤节点，暂不支持分组节点。',
+    extractSubRuleSingleEntry: '选区必须只有一个入口。',
+    extractSubRuleConnected: '选区必须是一个连通的可执行区域。',
+    extractSubRuleSingleExit: '选区只能继续到一个外部目标。',
+    extractSubRuleNoMixedExit: '选区不能同时包含终结路径和继续到外部的路径。',
+    extractSubRuleNeedsExit: '选区必须以终结节点结束，或继续到一个外部步骤。',
+    extractSubRuleReadOnly: '编辑器当前为只读状态。',
+    extractedSubRuleDescription: '从父规则提取出的可复用子规则决策图。',
+    subRuleReturn: '返回父规则',
   },
   validation: {
     valid: '有效',
@@ -662,6 +756,7 @@ const zhTW: LocaleMessages = {
     decision: '決策節點',
     action: '動作節點',
     terminal: '結束節點',
+    subRule: '子規則節點',
     start: '起始',
     setAsStart: '設為起始',
     branches: '分支條件',
@@ -677,6 +772,25 @@ const zhTW: LocaleMessages = {
     typeDecision: '決策',
     typeAction: '動作',
     typeTerminal: '終結',
+    typeSubRule: '子規則',
+    refName: '引用子規則',
+    managedAsset: '託管資產',
+    customSubRuleName: '自訂 / 快速建立',
+    assetScope: '資產範圍',
+    assetVersion: '資產版本',
+    scopeProject: '專案級',
+    scopeOrg: '組織級',
+    latestPublished: '最新已發佈版本',
+    bindings: '輸入綁定',
+    addBinding: '新增綁定',
+    outputs: '輸出映射',
+    addOutput: '新增輸出',
+    childField: '子規則欄位',
+    parentVariable: '父級變數',
+    childVariable: '子規則變數',
+    noBindings: '尚無輸入綁定。',
+    noSubRuleOutputs: '尚無輸出映射。',
+    openSubRuleEditor: '在編輯器中開啟子規則',
     branch: '分支',
     default: '預設',
     next: '下一步',
@@ -727,6 +841,17 @@ const zhTW: LocaleMessages = {
     newGroup: '新群組',
     externalCall: '呼叫',
     conditionLabel: '條件',
+    extractSubRule: '提取為子規則',
+    extractSubRuleSelectNodes: '請先選擇一個或多個步驟。',
+    extractSubRuleNoGroups: '只能提取步驟節點，暫不支援群組節點。',
+    extractSubRuleSingleEntry: '選區必須只有一個入口。',
+    extractSubRuleConnected: '選區必須是一個連通的可執行區域。',
+    extractSubRuleSingleExit: '選區只能繼續到一個外部目標。',
+    extractSubRuleNoMixedExit: '選區不能同時包含終結路徑和繼續到外部的路徑。',
+    extractSubRuleNeedsExit: '選區必須以終結節點結束，或繼續到一個外部步驟。',
+    extractSubRuleReadOnly: '編輯器目前為唯讀狀態。',
+    extractedSubRuleDescription: '從父規則提取出的可重用子規則決策圖。',
+    subRuleReturn: '返回父規則',
   },
   validation: {
     valid: '有效',

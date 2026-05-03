@@ -29,6 +29,7 @@ pub mod ruleset_history;
 pub mod server_registry;
 pub mod store;
 pub mod sub_org_member;
+pub mod sub_rules;
 pub mod sync;
 pub mod template;
 pub mod templates_api;
@@ -41,6 +42,7 @@ pub struct AppState {
     pub config: Arc<PlatformConfig>,
     pub http_client: reqwest::Client,
     pub templates: Arc<TemplateStore>,
+    pub nats_client: Option<async_nats::Client>,
     pub sync_publisher: Option<Arc<sync::NatsPublisher>>,
     pub marketplace_cache: Arc<github::MarketplaceCache>,
 }
@@ -170,10 +172,11 @@ pub async fn build_app_state(
         }),
     );
 
-    let sync_publisher = if let Some(nats_url) = config.nats_url.as_deref() {
-        let jetstream = sync::connect(nats_url)
+    let (nats_client, sync_publisher) = if let Some(nats_url) = config.nats_url.as_deref() {
+        let nats_client = sync::connect_client(nats_url)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to connect to NATS at {}: {}", nats_url, e))?;
+        let jetstream = async_nats::jetstream::new(nats_client.clone());
         sync::ensure_stream(&jetstream, &config.nats_subject_prefix)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to ensure NATS stream: {}", e))?;
@@ -190,13 +193,16 @@ pub async fn build_app_state(
             sync::start_registry_subscriber(registry_consumer, store.clone());
         }
 
-        Some(Arc::new(sync::NatsPublisher::new(
-            jetstream,
-            config.nats_subject_prefix.clone(),
-            config.resolve_instance_id(),
-        )))
+        (
+            Some(nats_client),
+            Some(Arc::new(sync::NatsPublisher::new(
+                jetstream,
+                config.nats_subject_prefix.clone(),
+                config.resolve_instance_id(),
+            ))),
+        )
     } else {
-        None
+        (None, None)
     };
 
     Ok(AppState {
@@ -204,6 +210,7 @@ pub async fn build_app_state(
         config,
         http_client,
         templates,
+        nats_client,
         sync_publisher,
         marketplace_cache: github::MarketplaceCache::new(),
     })

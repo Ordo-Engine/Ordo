@@ -9,7 +9,7 @@ use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, ExprParser};
-use crate::trace::{ExecutionTrace, StepTrace, TraceConfig};
+use crate::trace::{ExecutionTrace, StepTrace, SubRuleCallTrace, SubRuleOutputTrace, TraceConfig};
 use rayon::prelude::*;
 use std::sync::Arc;
 
@@ -279,74 +279,99 @@ impl RuleExecutor {
 
             // Execute step — branch on tracing to avoid Instant syscalls in the hot path.
             // When tracing is off (default), zero Instant calls per step.
-            let (step_result, step_duration, sub_frames) = if let StepKind::SubRule {
-                ref_name,
-                bindings,
-                outputs,
-                next_step,
-            } = &step.kind
-            {
-                // SubRule: execute inline sub-graph, then map outputs back to parent context
-                if remaining_call_depth == 0 {
-                    return Err(OrdoError::eval_error(format!(
-                        "SubRule max nesting depth ({}) exceeded calling '{}'",
-                        self.max_call_depth, ref_name
-                    )));
-                }
-                let graph = ruleset.sub_rules.get(ref_name.as_str()).ok_or_else(|| {
-                    OrdoError::eval_error(format!("Sub-rule '{}' not found", ref_name))
-                })?;
-                let mut child_data = hashbrown::HashMap::new();
-                for (field, expr) in bindings {
-                    child_data.insert(
-                        std::sync::Arc::from(field.as_str()),
-                        self.evaluator.eval(expr, &ctx)?,
-                    );
-                }
-                let child_input = Value::object_optimized(child_data);
-                let step_start = if tracing { Some(Instant::now()) } else { None };
-                let (child_ctx, sub_trace) = self.execute_sub_graph(
-                    &ruleset.sub_rules,
-                    graph,
-                    child_input,
-                    &ruleset.config.field_missing,
-                    tracing,
-                    remaining_call_depth - 1,
-                )?;
-                let dur = step_start
-                    .map(|t| t.elapsed().as_micros() as u64)
-                    .unwrap_or(0);
-                for (parent_var, child_var) in outputs {
-                    if let Some(val) = child_ctx.variables().get(child_var.as_str()) {
-                        ctx.set_variable(parent_var.clone(), val.clone());
+            let (step_result, step_duration, sub_frames, sub_rule_call) =
+                if let StepKind::SubRule {
+                    ref_name,
+                    bindings,
+                    outputs,
+                    next_step,
+                } = &step.kind
+                {
+                    // SubRule: execute inline sub-graph, then map outputs back to parent context
+                    if remaining_call_depth == 0 {
+                        return Err(OrdoError::eval_error(format!(
+                            "SubRule max nesting depth ({}) exceeded calling '{}'",
+                            self.max_call_depth, ref_name
+                        )));
                     }
-                }
-                let frames = if tracing { Some(sub_trace) } else { None };
-                (
-                    StepResult::Continue {
-                        next_step: next_step.as_str(),
-                    },
-                    dur,
-                    frames,
-                )
-            } else if tracing {
-                let step_start = Instant::now();
-                let result = self.execute_step(
-                    step,
-                    &mut ctx,
-                    &ruleset.config.field_missing,
-                    remaining_call_depth,
-                )?;
-                (result, step_start.elapsed().as_micros() as u64, None)
-            } else {
-                let result = self.execute_step(
-                    step,
-                    &mut ctx,
-                    &ruleset.config.field_missing,
-                    remaining_call_depth,
-                )?;
-                (result, 0, None)
-            };
+                    let graph = ruleset.sub_rules.get(ref_name.as_str()).ok_or_else(|| {
+                        OrdoError::eval_error(format!("Sub-rule '{}' not found", ref_name))
+                    })?;
+                    let mut child_data = hashbrown::HashMap::new();
+                    for (field, expr) in bindings {
+                        if let Some(value) = self.evaluate_sub_rule_binding(
+                            expr,
+                            &ctx,
+                            &ruleset.config.field_missing,
+                        )? {
+                            child_data.insert(std::sync::Arc::from(field.as_str()), value);
+                        }
+                    }
+                    let child_input = Value::object_optimized(child_data);
+                    let traced_child_input = if tracing {
+                        Some(child_input.clone())
+                    } else {
+                        None
+                    };
+                    let step_start = if tracing { Some(Instant::now()) } else { None };
+                    let (child_ctx, sub_trace) = self.execute_sub_graph(
+                        &ruleset.sub_rules,
+                        graph,
+                        child_input,
+                        &ruleset.config.field_missing,
+                        tracing,
+                        remaining_call_depth - 1,
+                    )?;
+                    let dur = step_start
+                        .map(|t| t.elapsed().as_micros() as u64)
+                        .unwrap_or(0);
+                    let mut output_trace = Vec::new();
+                    for (parent_var, child_var) in outputs {
+                        let value = child_ctx.variables().get(child_var.as_str()).cloned();
+                        if let Some(val) = &value {
+                            ctx.set_variable(parent_var.clone(), val.clone());
+                        }
+                        if tracing {
+                            output_trace.push(SubRuleOutputTrace {
+                                parent_var: parent_var.clone(),
+                                child_var: child_var.clone(),
+                                missing: value.is_none(),
+                                value,
+                            });
+                        }
+                    }
+                    let frames = if tracing { Some(sub_trace) } else { None };
+                    let call_trace = traced_child_input.map(|input| SubRuleCallTrace {
+                        ref_name: ref_name.clone(),
+                        input,
+                        outputs: output_trace,
+                    });
+                    (
+                        StepResult::Continue {
+                            next_step: next_step.as_str(),
+                        },
+                        dur,
+                        frames,
+                        call_trace,
+                    )
+                } else if tracing {
+                    let step_start = Instant::now();
+                    let result = self.execute_step(
+                        step,
+                        &mut ctx,
+                        &ruleset.config.field_missing,
+                        remaining_call_depth,
+                    )?;
+                    (result, step_start.elapsed().as_micros() as u64, None, None)
+                } else {
+                    let result = self.execute_step(
+                        step,
+                        &mut ctx,
+                        &ruleset.config.field_missing,
+                        remaining_call_depth,
+                    )?;
+                    (result, 0, None, None)
+                };
 
             // Record trace (only when enabled — zero overhead otherwise)
             if let Some(ref mut trace) = trace {
@@ -375,6 +400,9 @@ impl RuleExecutor {
                 };
                 if let Some(frames) = sub_frames {
                     step_trace.sub_rule_frames = Some(frames);
+                }
+                if let Some(call) = sub_rule_call {
+                    step_trace.sub_rule_call = Some(call);
                 }
                 trace.add_step(step_trace);
             }
@@ -561,7 +589,7 @@ impl RuleExecutor {
                         step_id: current.clone(),
                     })?;
 
-            let (result, dur, sub_frames) = if let StepKind::SubRule {
+            let (result, dur, sub_frames, sub_rule_call) = if let StepKind::SubRule {
                 ref_name,
                 bindings,
                 outputs,
@@ -579,16 +607,23 @@ impl RuleExecutor {
                 })?;
                 let mut child_data = hashbrown::HashMap::new();
                 for (field, expr) in bindings {
-                    child_data.insert(
-                        std::sync::Arc::from(field.as_str()),
-                        self.evaluator.eval(expr, &ctx)?,
-                    );
+                    if let Some(value) =
+                        self.evaluate_sub_rule_binding(expr, &ctx, field_missing)?
+                    {
+                        child_data.insert(std::sync::Arc::from(field.as_str()), value);
+                    }
                 }
+                let child_input = Value::object_optimized(child_data);
+                let traced_child_input = if tracing {
+                    Some(child_input.clone())
+                } else {
+                    None
+                };
                 let step_start = if tracing { Some(Instant::now()) } else { None };
                 let (child_ctx, child_frames) = self.execute_sub_graph(
                     sub_rules,
                     graph,
-                    Value::object_optimized(child_data),
+                    child_input,
                     field_missing,
                     tracing,
                     remaining_call_depth - 1,
@@ -596,26 +631,43 @@ impl RuleExecutor {
                 let dur = step_start
                     .map(|t| t.elapsed().as_micros() as u64)
                     .unwrap_or(0);
+                let mut output_trace = Vec::new();
                 for (parent_var, child_var) in outputs {
-                    if let Some(val) = child_ctx.variables().get(child_var.as_str()) {
+                    let value = child_ctx.variables().get(child_var.as_str()).cloned();
+                    if let Some(val) = &value {
                         ctx.set_variable(parent_var.clone(), val.clone());
                     }
+                    if tracing {
+                        output_trace.push(SubRuleOutputTrace {
+                            parent_var: parent_var.clone(),
+                            child_var: child_var.clone(),
+                            missing: value.is_none(),
+                            value,
+                        });
+                    }
                 }
+                let call_trace = traced_child_input.map(|input| SubRuleCallTrace {
+                    ref_name: ref_name.clone(),
+                    input,
+                    outputs: output_trace,
+                });
                 (
                     StepResult::Continue {
                         next_step: next_step.as_str(),
                     },
                     dur,
                     if tracing { Some(child_frames) } else { None },
+                    call_trace,
                 )
             } else if tracing {
                 let t = Instant::now();
                 let r = self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?;
-                (r, t.elapsed().as_micros() as u64, None)
+                (r, t.elapsed().as_micros() as u64, None, None)
             } else {
                 (
                     self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?,
                     0,
+                    None,
                     None,
                 )
             };
@@ -635,6 +687,9 @@ impl RuleExecutor {
                 }
                 if let Some(frames) = sub_frames {
                     st.sub_rule_frames = Some(frames);
+                }
+                if let Some(call) = sub_rule_call {
+                    st.sub_rule_call = Some(call);
                 }
                 frames.push(st);
             }
@@ -692,6 +747,23 @@ impl RuleExecutor {
                 Ok(false)
             }
             Err(e) => Err(e),
+        }
+    }
+
+    fn evaluate_sub_rule_binding(
+        &self,
+        expr: &crate::expr::Expr,
+        ctx: &Context,
+        field_missing: &FieldMissingBehavior,
+    ) -> Result<Option<Value>> {
+        match self.evaluator.eval(expr, ctx) {
+            Ok(value) => Ok(Some(value)),
+            Err(OrdoError::FieldNotFound { .. })
+                if *field_missing == FieldMissingBehavior::Lenient =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -1530,6 +1602,15 @@ mod tests {
             result.output.get_path("tier"),
             Some(&Value::string("silver"))
         );
+
+        // Missing binding field should preserve lenient branch semantics.
+        let input: Value = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+        assert_eq!(result.code, "DONE");
+        assert_eq!(
+            result.output.get_path("tier"),
+            Some(&Value::string("silver"))
+        );
     }
 
     #[test]
@@ -1653,8 +1734,20 @@ mod tests {
 
         assert_eq!(result.output.get_path("tier"), Some(&Value::string("gold")));
         let trace = result.trace.unwrap();
+        let call = trace.steps[0].sub_rule_call.as_ref().unwrap();
+        assert_eq!(call.ref_name, "classify_score");
+        assert_eq!(call.input.get_path("score"), Some(&Value::int(95)));
+        assert_eq!(call.outputs[0].parent_var, "tier");
+        assert_eq!(call.outputs[0].child_var, "tier");
+        assert_eq!(call.outputs[0].value, Some(Value::string("gold")));
         let top_frames = trace.steps[0].sub_rule_frames.as_ref().unwrap();
         assert_eq!(top_frames[0].step_id, "normalize");
+        let nested_call = top_frames[0].sub_rule_call.as_ref().unwrap();
+        assert_eq!(nested_call.ref_name, "normalize_score");
+        assert_eq!(
+            nested_call.input.get_path("raw_score"),
+            Some(&Value::int(95))
+        );
         assert!(top_frames[0].sub_rule_frames.is_some());
     }
 

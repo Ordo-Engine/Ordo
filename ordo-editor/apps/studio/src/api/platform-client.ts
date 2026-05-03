@@ -32,6 +32,7 @@ import type {
   ProjectRulesetMeta,
   ProjectTestRunResult,
   PublishRequest,
+  AdHocTestRunRequest,
   RedeployRequest,
   ReleaseExecution,
   ReleaseExecutionEvent,
@@ -48,6 +49,10 @@ import type {
   SaveDraftRequest,
   ServerInfo,
   SetCanaryRequest,
+  SaveSubRuleAssetRequest,
+  SubRuleAsset,
+  SubRuleAssetMeta,
+  SubRuleScope,
   TemplateDetail,
   TemplateMetadata,
   TestCase,
@@ -440,6 +445,14 @@ export const testApi = {
     });
   },
 
+  runAdHoc(token: string, projectId: string, req: AdHocTestRunRequest): Promise<TestRunResult> {
+    return request(`/projects/${projectId}/tests/run-ad-hoc`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(req),
+    });
+  },
+
   /** Returns a download URL (use window.open or anchor href). */
   exportUrl(projectId: string, rulesetName: string, format: 'yaml' | 'json' = 'yaml'): string {
     return `${BASE}/projects/${projectId}/rulesets/${encodeURIComponent(
@@ -731,6 +744,75 @@ export const rulesetDraftApi = {
       )}/deployments/${deploymentId}/redeploy`,
       { method: 'POST', token, body: JSON.stringify(req) }
     );
+  },
+};
+
+// ── Managed SubRule Assets ───────────────────────────────────────────────────
+
+export const subRuleApi = {
+  listProject(
+    token: string,
+    orgId: string,
+    projectId: string,
+    includeOrg = true
+  ): Promise<SubRuleAssetMeta[]> {
+    const qs = includeOrg ? '' : '?include_org=false';
+    return request(`/orgs/${orgId}/projects/${projectId}/sub-rules${qs}`, { token });
+  },
+
+  listOrg(token: string, orgId: string): Promise<SubRuleAssetMeta[]> {
+    return request(`/orgs/${orgId}/sub-rules`, { token });
+  },
+
+  getProject(token: string, orgId: string, projectId: string, name: string): Promise<SubRuleAsset> {
+    return request(`/orgs/${orgId}/projects/${projectId}/sub-rules/${encodeURIComponent(name)}`, {
+      token,
+    });
+  },
+
+  getOrg(token: string, orgId: string, name: string): Promise<SubRuleAsset> {
+    return request(`/orgs/${orgId}/sub-rules/${encodeURIComponent(name)}`, { token });
+  },
+
+  saveProject(
+    token: string,
+    orgId: string,
+    projectId: string,
+    name: string,
+    req: SaveSubRuleAssetRequest
+  ): Promise<SubRuleAsset> {
+    return request(`/orgs/${orgId}/projects/${projectId}/sub-rules/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(req),
+    });
+  },
+
+  saveOrg(
+    token: string,
+    orgId: string,
+    name: string,
+    req: SaveSubRuleAssetRequest
+  ): Promise<SubRuleAsset> {
+    return request(`/orgs/${orgId}/sub-rules/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify(req),
+    });
+  },
+
+  deleteProject(token: string, orgId: string, projectId: string, name: string): Promise<void> {
+    return request(`/orgs/${orgId}/projects/${projectId}/sub-rules/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
+
+  deleteOrg(token: string, orgId: string, name: string): Promise<void> {
+    return request(`/orgs/${orgId}/sub-rules/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      token,
+    });
   },
 };
 

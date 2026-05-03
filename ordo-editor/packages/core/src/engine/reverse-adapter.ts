@@ -342,6 +342,7 @@ function convertEngineSubRuleStep(step: EngineStep): SubRuleStep {
       expr: convertFromEngineExpr(expr),
     })),
     outputs: (step.outputs ?? []).map(([parentVar, childVar]) => ({ parentVar, childVar })),
+    returnPolicy: step.next_step ? 'continue' : 'propagate_terminal',
     nextStepId: step.next_step ?? '',
   };
 }

@@ -12,11 +12,13 @@ import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue';
 import TestCasePanel from './TestCasePanel.vue';
 import { rulesetHistoryApi, subRuleApi } from '@/api/platform-client';
 import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue';
-import { normalizeRuleset } from '@/utils/ruleset';
+import { materializeConceptsForExecution } from '@/utils/concepts';
+import { normalizeRuleset, stripRuntimeGeneratedArtifacts } from '@/utils/ruleset';
 import { getCurrentVersionDisplay, stripVersionSuffix } from '@/utils/ruleset-version';
 import type {
   AppendRulesetHistoryEntry,
   DraftConflictResponse,
+  FactDataType,
   RulesetHistoryEntry,
   RulesetHistorySource,
   SubRuleAssetMeta,
@@ -35,6 +37,8 @@ import {
   generateId,
   Step,
   type RuleSet,
+  type ExecutionTraceData,
+  type FieldSuggestion,
   type SubRuleBinding,
   type SubRuleGraph,
   type SubRuleOutput,
@@ -71,6 +75,7 @@ const editorMode = ref<'form' | 'flow' | 'table'>('form');
 const tabModes = new Map<string, 'form' | 'flow' | 'table'>();
 const openMenu = ref<'file' | 'edit' | 'select' | 'view' | 'window' | null>(null);
 const showHistoryPanel = ref(false);
+const showKnowledgeAdvisorPanel = ref(false);
 
 function switchToTab(name: string) {
   if (projectStore.activeTabName) {
@@ -461,13 +466,7 @@ function toggleExecution() {
 }
 
 // ── Execution trace overlay (for "show in flow") ─────────────────────────────
-const executionTrace = ref<{
-  path: string[];
-  steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
-  resultCode: string;
-  resultMessage: string;
-  output?: Record<string, any>;
-} | null>(null);
+const executionTrace = ref<ExecutionTraceData | null>(null);
 const flowTraceMode = ref(false);
 
 function handleShowInFlow(trace: typeof executionTrace.value) {
@@ -480,6 +479,7 @@ function handleShowInFlow(trace: typeof executionTrace.value) {
 
 async function handleOpenSubRuleTrace(payload: {
   refName: string;
+  focusStepId?: string;
   trace: NonNullable<typeof executionTrace.value>;
 }) {
   await handleOpenSubRule(payload.refName);
@@ -506,8 +506,14 @@ const showCreate = ref(false);
 const creating = ref(false);
 const newName = ref('');
 const newType = ref<'flow' | 'table'>('flow');
+const showCreateSubRule = ref(false);
+const creatingSubRuleAsset = ref(false);
+const newSubRuleName = ref('');
+const newSubRuleDisplayName = ref('');
+const newSubRuleDescription = ref('');
 const saving = ref(false);
 const subRuleAssets = ref<SubRuleAssetMeta[]>([]);
+const subRuleAssetsLoading = ref(false);
 const subRuleAssetsLoaded = ref(false);
 const subRuleDraftCache = ref<Record<string, RuleSet>>({});
 const subRuleHydrationLoading = ref(false);
@@ -515,6 +521,7 @@ const subRuleHydrationError = ref<string | null>(null);
 const subRuleHydrationSeq = ref(0);
 const subRuleParentTabs = new Map<string, string>();
 const extractingSubRule = ref(false);
+const creatingKnowledgeFacts = ref(false);
 const extractSubRuleState = ref<{
   parentTabName: string;
   payload: ExtractSubRulePayload;
@@ -579,6 +586,34 @@ const subRuleAssetOptions = computed<SubRuleAssetOption[]>(() =>
   }))
 );
 
+const projectSubRuleAssets = computed(() =>
+  subRuleAssets.value
+    .filter((asset) => asset.scope === 'project')
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+);
+
+const catalogFieldSuggestions = computed<FieldSuggestion[]>(() => [
+  ...catalogStore.facts.map((fact) => ({
+    path: fact.name,
+    value: `$.${fact.name}`,
+    insertText: `$.${fact.name}`,
+    label: fact.name,
+    type: fact.data_type,
+    description: fact.description,
+    source: 'fact' as const,
+  })),
+  ...catalogStore.concepts.map((concept) => ({
+    path: concept.name,
+    value: concept.name,
+    insertText: concept.name,
+    label: concept.name,
+    type: concept.data_type,
+    description: concept.description || concept.expression,
+    source: 'concept' as const,
+  })),
+]);
+
 const activeSubRuleName = computed(() => {
   const tab = projectStore.activeTab;
   if (tab?.kind !== 'sub_rule') return null;
@@ -621,15 +656,92 @@ interface SubRuleExecutionRef {
   scope: 'project' | 'org';
 }
 
+interface KnowledgeFieldRef {
+  name: string;
+  dataType: FactDataType;
+  count: number;
+}
+
+interface RulesetKnowledgeAnalysis {
+  referencedFields: KnowledgeFieldRef[];
+  missingFields: KnowledgeFieldRef[];
+  knownInputCount: number;
+  contractInputCount: number;
+  contractOutputCount: number;
+  hasContract: boolean;
+}
+
 const activeSubRuleSuggestions = computed<SubRuleSuggestion[]>(() => {
   const tab = projectStore.activeTab;
-  if (!tab || tab.kind === 'sub_rule' || tab.ruleset.steps.length < 3) return [];
+  if (!tab || tab.kind === 'sub_rule' || activeSubRuleName.value || tab.ruleset.steps.length < 3)
+    return [];
   return analyzeSubRuleSuggestions(tab.ruleset).slice(0, 3);
 });
 
 const primarySubRuleSuggestion = computed(() => activeSubRuleSuggestions.value[0] ?? null);
 const secondarySubRuleSuggestions = computed(() => activeSubRuleSuggestions.value.slice(1));
 const pendingSubRuleSuggestionId = ref<string | null>(null);
+
+const activeDecisionContract = computed(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return null;
+  return catalogStore.contracts.find((contract) => contract.ruleset_name === tab.name) ?? null;
+});
+
+const activeKnowledgeAnalysis = computed<RulesetKnowledgeAnalysis | null>(() => {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return null;
+
+  const knownNames = new Set([
+    ...catalogStore.facts.map((fact) => fact.name),
+    ...catalogStore.concepts.map((concept) => concept.name),
+  ]);
+  const referencedFields = collectRulesetInputRefs(tab.ruleset);
+  const missingFields = referencedFields.filter((field) => !knownNames.has(field.name));
+  const contract = activeDecisionContract.value;
+
+  return {
+    referencedFields,
+    missingFields,
+    knownInputCount: referencedFields.length - missingFields.length,
+    contractInputCount: contract?.input_fields.length ?? 0,
+    contractOutputCount: contract?.output_fields.length ?? 0,
+    hasContract: Boolean(contract),
+  };
+});
+
+const knowledgeAdvisorVisible = computed(() => {
+  const analysis = activeKnowledgeAnalysis.value;
+  return Boolean(projectStore.activeTab && projectStore.activeTab.kind !== 'sub_rule' && analysis);
+});
+
+const knowledgeAdvisorSummary = computed(() => {
+  const analysis = activeKnowledgeAnalysis.value;
+  if (!analysis) return '';
+  if (analysis.missingFields.length > 0) {
+    return t('knowledgeAdvisor.missingSummary', { count: analysis.missingFields.length });
+  }
+  if (!analysis.hasContract) {
+    return t('knowledgeAdvisor.noContractSummary');
+  }
+  return t('knowledgeAdvisor.readySummary');
+});
+
+const knowledgeAdvisorDetail = computed(() => {
+  const analysis = activeKnowledgeAnalysis.value;
+  if (!analysis) return '';
+  if (analysis.missingFields.length > 0) {
+    return analysis.missingFields
+      .slice(0, 4)
+      .map((field) => field.name)
+      .join(', ');
+  }
+  return t('knowledgeAdvisor.detail', {
+    fields: analysis.referencedFields.length,
+    facts: catalogStore.facts.length,
+    concepts: catalogStore.concepts.length,
+  });
+});
 
 interface TerminalReturnBridge {
   childSteps: RuleSet['steps'];
@@ -649,6 +761,216 @@ function literalExpr(value: string | number | boolean | null): any {
           ? 'boolean'
           : 'string';
   return { type: 'literal', value, valueType };
+}
+
+function inferDataTypeFromValue(value: unknown): FactDataType | null {
+  if (!value || typeof value !== 'object') return null;
+  const expr = value as any;
+  if (expr.type === 'literal') {
+    if (expr.valueType === 'number' || typeof expr.value === 'number') return 'number';
+    if (expr.valueType === 'boolean' || typeof expr.value === 'boolean') return 'boolean';
+    if (expr.valueType === 'object') return 'object';
+    return 'string';
+  }
+  return null;
+}
+
+function mergeDataType(left: FactDataType, right: FactDataType): FactDataType {
+  if (left === right) return left;
+  if (left === 'string') return right;
+  if (right === 'string') return left;
+  return left;
+}
+
+function normalizeKnowledgePath(path: unknown): string | null {
+  if (typeof path !== 'string') return null;
+  let normalized = path.trim();
+  if (!normalized) return null;
+
+  normalized = normalized.replace(/^\$\.?/, '');
+  normalized = normalized.replace(/\[[^\]]+\]/g, '');
+  normalized = normalized.replace(/\.$/, '');
+
+  if (!normalized || normalized.startsWith('__ordo_')) return null;
+  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(normalized)) return null;
+  return normalized;
+}
+
+function addKnowledgeField(
+  fields: Map<string, KnowledgeFieldRef>,
+  path: unknown,
+  dataType: FactDataType = 'string'
+) {
+  const name = normalizeKnowledgePath(path);
+  if (!name) return;
+  const existing = fields.get(name);
+  if (existing) {
+    existing.count += 1;
+    existing.dataType = mergeDataType(existing.dataType, dataType);
+    return;
+  }
+  fields.set(name, { name, dataType, count: 1 });
+}
+
+function addExpressionStringRefs(fields: Map<string, KnowledgeFieldRef>, expression: string) {
+  const stripped = expression.replace(/"[^"]*"|'[^']*'/g, ' ');
+  const reserved = new Set([
+    'true',
+    'false',
+    'null',
+    'undefined',
+    'and',
+    'or',
+    'not',
+    'in',
+    'contains',
+  ]);
+
+  for (const match of stripped.matchAll(/\$?([A-Za-z_][A-Za-z0-9_.]*)/g)) {
+    const name = match[1];
+    const nextToken = stripped.slice((match.index ?? 0) + match[0].length).trimStart();
+    if (reserved.has(name) || /^[0-9]/.test(name)) continue;
+    if (nextToken.startsWith('(')) continue;
+    addKnowledgeField(fields, name);
+  }
+}
+
+function collectExprRefs(
+  expr: unknown,
+  fields: Map<string, KnowledgeFieldRef>,
+  typeHint: FactDataType | null = null
+) {
+  if (!expr) return;
+  if (typeof expr === 'string') {
+    addExpressionStringRefs(fields, expr);
+    return;
+  }
+  if (typeof expr !== 'object') return;
+
+  const node = expr as any;
+  if (node.type === 'variable') {
+    addKnowledgeField(fields, node.path, typeHint ?? 'string');
+    return;
+  }
+  if ('Field' in node) {
+    addKnowledgeField(fields, node.Field, typeHint ?? 'string');
+    return;
+  }
+  if (node.type === 'literal') return;
+
+  if (node.type === 'binary') {
+    const inferredType =
+      ['gt', 'gte', 'lt', 'lte'].includes(node.op) ||
+      inferDataTypeFromValue(node.left) === 'number' ||
+      inferDataTypeFromValue(node.right) === 'number'
+        ? 'number'
+        : null;
+    collectExprRefs(node.left, fields, inferredType);
+    collectExprRefs(node.right, fields, inferredType);
+    return;
+  }
+
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      value.forEach((item) => collectExprRefs(item, fields));
+    } else if (value && typeof value === 'object') {
+      collectExprRefs(value, fields);
+    }
+  }
+}
+
+function collectConditionRefs(condition: unknown, fields: Map<string, KnowledgeFieldRef>) {
+  if (!condition || typeof condition !== 'object') return;
+  const node = condition as any;
+
+  if (node.type === 'simple') {
+    const numericOperator = ['gt', 'gte', 'lt', 'lte'].includes(node.operator);
+    const rightType = inferDataTypeFromValue(node.right);
+    const leftType = inferDataTypeFromValue(node.left);
+    collectExprRefs(node.left, fields, numericOperator ? 'number' : rightType);
+    collectExprRefs(node.right, fields, numericOperator ? 'number' : leftType);
+    return;
+  }
+
+  if (node.type === 'logical') {
+    (node.conditions ?? []).forEach((child: unknown) => collectConditionRefs(child, fields));
+    return;
+  }
+
+  if (node.type === 'not') {
+    collectConditionRefs(node.condition, fields);
+    return;
+  }
+
+  if (node.type === 'expression') {
+    if (node.parsed) collectExprRefs(node.parsed, fields);
+    else if (node.expression) addExpressionStringRefs(fields, node.expression);
+  }
+}
+
+function collectAssignedVars(ruleset: RuleSet): Set<string> {
+  const assigned = new Set<string>();
+  for (const step of ruleset.steps as any[]) {
+    if (step.type === 'action') {
+      for (const assignment of step.assignments ?? []) {
+        const name = normalizeKnowledgePath(assignment.name);
+        if (name) assigned.add(name);
+      }
+      for (const externalCall of step.externalCalls ?? []) {
+        const name = normalizeKnowledgePath(externalCall.resultVariable);
+        if (name) assigned.add(name);
+      }
+    }
+    if (step.type === 'sub_rule') {
+      for (const output of step.outputs ?? []) {
+        const name = normalizeKnowledgePath(output.parentVar);
+        if (name) assigned.add(name);
+      }
+    }
+  }
+  return assigned;
+}
+
+function collectRulesetInputRefs(ruleset: RuleSet): KnowledgeFieldRef[] {
+  const fields = new Map<string, KnowledgeFieldRef>();
+  const assignedVars = collectAssignedVars(ruleset);
+
+  for (const step of ruleset.steps as any[]) {
+    if (step.systemGenerated) continue;
+
+    if (step.type === 'decision') {
+      for (const branch of step.branches ?? []) {
+        collectConditionRefs(branch.condition, fields);
+      }
+    }
+
+    if (step.type === 'action') {
+      for (const assignment of step.assignments ?? []) {
+        collectExprRefs(assignment.value, fields);
+      }
+      for (const externalCall of step.externalCalls ?? []) {
+        Object.values(externalCall.params ?? {}).forEach((expr) => collectExprRefs(expr, fields));
+        collectExprRefs(externalCall.fallbackValue, fields);
+      }
+    }
+
+    if (step.type === 'terminal') {
+      collectExprRefs(step.message, fields);
+      for (const output of step.output ?? []) {
+        collectExprRefs(output.value, fields);
+      }
+    }
+
+    if (step.type === 'sub_rule') {
+      for (const binding of step.bindings ?? []) {
+        collectExprRefs(binding.expr, fields);
+      }
+    }
+  }
+
+  return [...fields.values()]
+    .filter((field) => !assignedVars.has(field.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function variableExpr(path: string): any {
@@ -799,6 +1121,15 @@ function mergeSubRuleOutputs(
   return byKey.size > 0 ? [...byKey.values()] : undefined;
 }
 
+function isRuntimeGeneratedStep(step: RulesetStep): boolean {
+  if (step.systemGenerated === 'sub_rule_runtime') return true;
+  return (
+    step.id.includes('__return_dispatch') ||
+    step.id.includes('__return_to_parent') ||
+    step.id.includes('__terminal_')
+  );
+}
+
 function createTerminalReturnBridge(
   subRuleStepId: string,
   sourceSteps: RuleSet['steps'],
@@ -847,6 +1178,7 @@ function createTerminalReturnBridge(
       assignments,
       nextStepId: returnStepId,
       position: terminal.position,
+      systemGenerated: 'sub_rule_runtime',
     });
   });
 
@@ -856,6 +1188,7 @@ function createTerminalReturnBridge(
       name: t('subRules.returnParent'),
       code: 'OK',
       position: { x: position.x + 260, y: position.y },
+      systemGenerated: 'sub_rule_runtime',
     })
   );
 
@@ -875,6 +1208,7 @@ function createTerminalReturnBridge(
         x: position.x + 260,
         y: position.y + index * 120,
       },
+      systemGenerated: 'sub_rule_runtime',
     });
   });
 
@@ -907,6 +1241,7 @@ function createTerminalReturnBridge(
     ),
     defaultNextStepId: parentTerminals[0].id,
     position: { x: position.x + 220, y: position.y },
+    systemGenerated: 'sub_rule_runtime',
   });
 
   return {
@@ -1010,7 +1345,7 @@ function mergeExecutableSubRulesFromSteps(
 }
 
 function buildExecutableRuleset(ruleset: RuleSet, depth = 0, stack = new Set<string>()): RuleSet {
-  const executable = cloneRuleset(ruleset);
+  const executable = stripRuntimeGeneratedArtifacts(ruleset);
   const subRules: Record<string, SubRuleGraph> = { ...(executable.subRules ?? {}) };
 
   mergeExecutableSubRulesFromSteps(executable.steps, subRules, depth, stack);
@@ -1033,7 +1368,11 @@ function repairTerminalReturningSubRuleSteps(
     if (step.type !== 'sub_rule') return step;
 
     const subRuleStep = step as SubRuleStep;
-    if (subRuleStep.nextStepId && stepIds.has(subRuleStep.nextStepId)) return subRuleStep;
+    const shouldPropagateTerminal =
+      subRuleStep.returnPolicy === 'propagate_terminal' ||
+      !subRuleStep.nextStepId ||
+      !stepIds.has(subRuleStep.nextStepId);
+    if (!shouldPropagateTerminal) return subRuleStep;
 
     const graph = subRules[subRuleStep.refName];
     if (!graph?.steps.some((childStep) => childStep.type === 'terminal')) return subRuleStep;
@@ -1057,6 +1396,7 @@ function repairTerminalReturningSubRuleSteps(
     return {
       ...subRuleStep,
       refName: bridgedRefName,
+      returnPolicy: 'continue',
       nextStepId: bridge.nextStepId,
       bindings: mergeSubRuleBindings(subRuleStep.bindings, bridge.bindings),
       outputs: mergeSubRuleOutputs(subRuleStep.outputs, bridge.outputs),
@@ -1111,10 +1451,38 @@ function collectMissingExecutionSubRules(
   return missing;
 }
 
-const activeExecutableRuleset = computed(() => {
+const activeExecutableRulesetResult = computed<{
+  ruleset: RuleSet | null;
+  error: string | null;
+}>(() => {
   const tab = projectStore.activeTab;
-  if (!tab) return null;
-  return buildExecutableRuleset(tab.ruleset);
+  if (!tab) return { ruleset: null, error: null };
+
+  try {
+    return {
+      ruleset: materializeConceptsForExecution(
+        buildExecutableRuleset(tab.ruleset),
+        catalogStore.concepts
+      ),
+      error: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ruleset: null,
+      error: t('editor.conceptMaterializationError', { message }),
+    };
+  }
+});
+
+const activeExecutableRuleset = computed(() => activeExecutableRulesetResult.value.ruleset);
+const conceptExecutionError = computed(() => activeExecutableRulesetResult.value.error);
+const executionPanelRuleset = computed<RuleSet>(() => {
+  return (
+    activeExecutableRuleset.value ??
+    projectStore.activeTab?.ruleset ??
+    documentToRuleSet(createEmptyFlowDocument())
+  );
 });
 
 async function fetchSubRuleDraftForExecution(ref: SubRuleExecutionRef) {
@@ -1233,6 +1601,9 @@ function validateSubRuleCandidate(
   const graph = buildRulesetGraph(ruleset);
   const selectedSteps = ruleset.steps.filter((step) => selectedStepIds.has(step.id));
   if (selectedSteps.length !== selectedStepIds.size) return null;
+  if (selectedSteps.some((step) => step.type === 'sub_rule' || isRuntimeGeneratedStep(step))) {
+    return null;
+  }
 
   const internalEdges = graph.edges.filter(
     (edge) => selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
@@ -1384,6 +1755,7 @@ function analyzeSubRuleSuggestions(ruleset: RuleSet): SubRuleSuggestion[] {
   }
 
   for (const step of ruleset.steps) {
+    if (isRuntimeGeneratedStep(step)) continue;
     if (step.type === 'decision' && step.branches.length >= 2) {
       const region = collectDownstreamRegion(ruleset, step.id);
       if (region.length >= 3) {
@@ -1399,7 +1771,8 @@ function analyzeSubRuleSuggestions(ruleset: RuleSet): SubRuleSuggestion[] {
   }
 
   for (const step of ruleset.steps) {
-    if (step.type === 'terminal') continue;
+    if (step.type === 'terminal' || step.type === 'sub_rule' || isRuntimeGeneratedStep(step))
+      continue;
 
     const incomingEdges = graph.incoming.get(step.id) ?? [];
     if (incomingEdges.length === 1) {
@@ -1478,15 +1851,9 @@ function createSuggestedSubRuleExtractionPayload(
   const minX = Math.min(...selectedSteps.map((step) => step.position?.x ?? 0));
   const minY = Math.min(...selectedSteps.map((step) => step.position?.y ?? 0));
 
-  let childSteps = selectedSteps.map((step) =>
+  const childSteps = selectedSteps.map((step) =>
     returnStepId ? retargetStepNext(step, outsideTargets, returnStepId) : cloneStep(step)
   );
-  const terminalReturnBridge = !exitTargetId
-    ? createTerminalReturnBridge(subRuleStepId, childSteps, { x: minX, y: minY })
-    : null;
-  if (terminalReturnBridge) {
-    childSteps = terminalReturnBridge.childSteps;
-  }
 
   if (returnStepId) {
     childSteps.push(
@@ -1500,6 +1867,7 @@ function createSuggestedSubRuleExtractionPayload(
             selectedSteps.reduce((sum, step) => sum + (step.position?.y ?? 0), 0) /
             Math.max(selectedSteps.length, 1),
         },
+        systemGenerated: 'sub_rule_runtime',
       })
     );
   }
@@ -1536,8 +1904,8 @@ function createSuggestedSubRuleExtractionPayload(
       name: suggestedName,
     },
     bindings: mergeSubRuleBindings(undefined, inferSubRuleInputBindings(selectedSteps)),
-    outputs: terminalReturnBridge?.outputs,
-    nextStepId: exitTargetId ?? terminalReturnBridge?.nextStepId ?? '',
+    returnPolicy: exitTargetId ? 'continue' : 'propagate_terminal',
+    nextStepId: exitTargetId ?? '',
     position: { x: minX, y: minY },
   });
 
@@ -1546,9 +1914,6 @@ function createSuggestedSubRuleExtractionPayload(
     .filter((step) => !selectedIds.has(step.id))
     .map((step) => retargetStepNext(step, selectedIds, subRuleStepId));
   parentSteps.splice(Math.max(firstSelectedIndex, 0), 0, subRuleStep);
-  if (terminalReturnBridge) {
-    parentSteps.splice(Math.max(firstSelectedIndex, 0) + 1, 0, ...terminalReturnBridge.parentSteps);
-  }
 
   const parentRuleset: RuleSet = {
     ...cloneRuleset(ruleset),
@@ -1722,6 +2087,13 @@ function onDocumentPointerDown(event: MouseEvent) {
   if (!target?.closest('.editor-menubar')) {
     closeMenus();
   }
+  if (!target?.closest('.knowledge-dock') && !target?.closest('.knowledge-dock__panel')) {
+    showKnowledgeAdvisorPanel.value = false;
+  }
+}
+
+function toggleKnowledgeAdvisorPanel() {
+  showKnowledgeAdvisorPanel.value = !showKnowledgeAdvisorPanel.value;
 }
 
 function runMenuAction(action: () => void) {
@@ -2034,6 +2406,7 @@ function createDefaultSubRuleDraft(name: string): RuleSet {
 
 async function refreshSubRuleAssets() {
   if (!auth.token || !orgId.value || !projectId.value) return;
+  subRuleAssetsLoading.value = true;
   try {
     subRuleAssets.value = await subRuleApi.listProject(
       auth.token,
@@ -2045,6 +2418,8 @@ async function refreshSubRuleAssets() {
   } catch (e: any) {
     subRuleAssetsLoaded.value = false;
     MessagePlugin.warning(e.message || t('subRules.loadFailed'));
+  } finally {
+    subRuleAssetsLoading.value = false;
   }
 }
 
@@ -2101,6 +2476,73 @@ async function handleOpenSubRule(refName: string) {
     router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
   } catch (e: any) {
     MessagePlugin.error(e.message || t('subRules.loadFailed'));
+  }
+}
+
+function openCreateProjectSubRule() {
+  newSubRuleName.value = makeUniqueProjectSubRuleName('sub_rule');
+  newSubRuleDisplayName.value = '';
+  newSubRuleDescription.value = '';
+  showCreateSubRule.value = true;
+}
+
+async function openProjectSubRuleAsset(name: string) {
+  if (!name) return;
+  const parentTabName =
+    projectStore.activeTab?.kind === 'sub_rule' ? null : projectStore.activeTab?.name ?? null;
+  try {
+    await projectStore.openSubRule(name, 'project');
+    const tabName = `§${name}`;
+    if (parentTabName && parentTabName !== tabName) {
+      subRuleParentTabs.set(tabName, parentTabName);
+    }
+    tabModes.set(tabName, 'flow');
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(tabName)}`);
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.loadFailed'));
+  }
+}
+
+async function handleCreateProjectSubRule() {
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('editor.noPermission'));
+    return;
+  }
+
+  if (!newSubRuleName.value.trim()) {
+    MessagePlugin.warning(t('subRules.nameRequired'));
+    return;
+  }
+  const name = sanitizeAssetName(newSubRuleName.value);
+
+  if (!subRuleAssetsLoaded.value) {
+    await refreshSubRuleAssets();
+  }
+  if (hasAnySubRuleAsset(name)) {
+    MessagePlugin.warning(t('subRules.nameExists', { name }));
+    return;
+  }
+  if (!auth.token || !orgId.value || !projectId.value) return;
+
+  creatingSubRuleAsset.value = true;
+  try {
+    await subRuleApi.saveProject(auth.token, orgId.value, projectId.value, name, {
+      name,
+      display_name: newSubRuleDisplayName.value.trim() || name,
+      description: newSubRuleDescription.value.trim() || t('subRules.defaultDescription'),
+      draft: createDefaultSubRuleDraft(name),
+      input_schema: [],
+      output_schema: [],
+      expected_seq: 0,
+    });
+    await refreshSubRuleAssets();
+    showCreateSubRule.value = false;
+    MessagePlugin.success(t('subRules.createSuccess'));
+    await openProjectSubRuleAsset(name);
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('subRules.saveFailed'));
+  } finally {
+    creatingSubRuleAsset.value = false;
   }
 }
 
@@ -2230,6 +2672,43 @@ function openReleaseCenter() {
   });
 }
 
+function openDecisionContract() {
+  const tab = projectStore.activeTab;
+  if (!tab || tab.kind === 'sub_rule') return;
+  router.push({
+    name: 'contracts',
+    params: {
+      orgId: route.params.orgId,
+      projectId: route.params.projectId,
+    },
+    query: { ruleset: tab.name },
+  });
+}
+
+async function createMissingKnowledgeFacts() {
+  const fields = activeKnowledgeAnalysis.value?.missingFields ?? [];
+  if (!fields.length || !canEdit.value || creatingKnowledgeFacts.value) return;
+
+  creatingKnowledgeFacts.value = true;
+  try {
+    for (const field of fields) {
+      await catalogStore.upsertFact({
+        name: field.name,
+        data_type: field.dataType,
+        source: `request.body.${field.name}`,
+        null_policy: 'default',
+        description: t('knowledgeAdvisor.generatedFactDescription'),
+        owner: '',
+      });
+    }
+    MessagePlugin.success(t('knowledgeAdvisor.createFactsSuccess', { count: fields.length }));
+  } catch (error: any) {
+    MessagePlugin.error(error?.message ?? t('facts.saveFailed'));
+  } finally {
+    creatingKnowledgeFacts.value = false;
+  }
+}
+
 function handleCloseTab(name: string) {
   const tab = projectStore.openTabs.find((t) => t.name === name);
   if (tab?.dirty) {
@@ -2357,47 +2836,90 @@ onUnmounted(() => {
         <span class="ruleset-sidebar__title">
           {{ projectStore.currentProject?.name ?? t('editor.newRuleset') }}
         </span>
-        <button
-          v-if="canEdit"
-          class="sidebar-btn"
-          :title="t('editor.newRuleset')"
-          @click="showCreate = true"
-        >
-          <t-icon name="add" size="16px" />
-        </button>
       </div>
 
       <div class="ruleset-sidebar__list">
-        <div v-if="projectStore.loading" class="sidebar-empty">
-          <t-loading size="small" />
-        </div>
-        <div v-else-if="projectStore.rulesets.length === 0" class="sidebar-empty">
-          {{ t('editor.noRulesets') }}
-        </div>
-        <div
-          v-for="rs in projectStore.rulesets"
-          :key="rs.name"
-          class="ruleset-item"
-          :class="{ 'is-active': rs.name === projectStore.activeTabName }"
-          @click="openRuleset(rs.name)"
-          @contextmenu.prevent="() => {}"
-        >
-          <t-icon name="file-code" size="14px" class="ruleset-item__icon" />
-          <span class="ruleset-item__name">{{ rs.name }}</span>
-          <span
-            v-if="projectStore.openTabs.find((t) => t.name === rs.name)?.dirty"
-            class="ruleset-item__dot"
-            :title="t('editor.unsaved')"
-          />
-          <button
-            v-if="canAdmin"
-            class="ruleset-item__del"
-            :title="t('editor.deleteTitle')"
-            @click.stop="handleDeleteRuleset(rs.name)"
+        <section class="sidebar-section">
+          <div class="sidebar-section__header">
+            <span>{{ t('editor.rulesets') }}</span>
+            <button
+              v-if="canEdit"
+              class="sidebar-btn"
+              :title="t('editor.newRuleset')"
+              @click="showCreate = true"
+            >
+              <t-icon name="add" size="14px" />
+            </button>
+          </div>
+          <div v-if="projectStore.loading" class="sidebar-empty sidebar-empty--compact">
+            <t-loading size="small" />
+          </div>
+          <div v-else-if="projectStore.rulesets.length === 0" class="sidebar-empty">
+            {{ t('editor.noRulesets') }}
+          </div>
+          <div
+            v-for="rs in projectStore.rulesets"
+            :key="rs.name"
+            class="ruleset-item"
+            :class="{ 'is-active': rs.name === projectStore.activeTabName }"
+            @click="openRuleset(rs.name)"
+            @contextmenu.prevent="() => {}"
           >
-            <t-icon name="close" size="12px" />
-          </button>
-        </div>
+            <t-icon name="file-code" size="14px" class="ruleset-item__icon" />
+            <span class="ruleset-item__name">{{ rs.name }}</span>
+            <span
+              v-if="projectStore.openTabs.find((t) => t.name === rs.name)?.dirty"
+              class="ruleset-item__dot"
+              :title="t('editor.unsaved')"
+            />
+            <button
+              v-if="canAdmin"
+              class="ruleset-item__del"
+              :title="t('editor.deleteTitle')"
+              @click.stop="handleDeleteRuleset(rs.name)"
+            >
+              <t-icon name="close" size="12px" />
+            </button>
+          </div>
+        </section>
+
+        <section class="sidebar-section sidebar-section--sub-rules">
+          <div class="sidebar-section__header">
+            <span>{{ t('subRules.projectAssets') }}</span>
+            <button
+              v-if="canEdit"
+              class="sidebar-btn"
+              :title="t('subRules.createTitle')"
+              @click="openCreateProjectSubRule"
+            >
+              <t-icon name="add" size="14px" />
+            </button>
+          </div>
+          <div v-if="subRuleAssetsLoading" class="sidebar-empty sidebar-empty--compact">
+            <t-loading size="small" />
+          </div>
+          <div v-else-if="projectSubRuleAssets.length === 0" class="sidebar-empty">
+            {{ t('subRules.noProjectAssets') }}
+          </div>
+          <div
+            v-for="asset in projectSubRuleAssets"
+            :key="asset.id"
+            class="ruleset-item ruleset-item--sub-rule"
+            :class="{ 'is-active': `§${asset.name}` === projectStore.activeTabName }"
+            @click="openProjectSubRuleAsset(asset.name)"
+          >
+            <t-icon name="git-branch" size="14px" class="ruleset-item__icon" />
+            <span class="ruleset-item__name">
+              {{ asset.display_name || asset.name }}
+              <small v-if="asset.display_name" class="ruleset-item__alias">{{ asset.name }}</small>
+            </span>
+            <span
+              v-if="projectStore.openTabs.find((t) => t.name === `§${asset.name}`)?.dirty"
+              class="ruleset-item__dot"
+              :title="t('editor.unsaved')"
+            />
+          </div>
+        </section>
       </div>
     </aside>
 
@@ -2545,6 +3067,141 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+
+        <div class="editor-menubar__spacer" />
+        <div class="editor-menubar__right" v-if="projectStore.activeTab">
+          <div
+            v-if="knowledgeAdvisorVisible"
+            class="knowledge-dock"
+            :class="{
+              'has-missing': (activeKnowledgeAnalysis?.missingFields.length ?? 0) > 0,
+              'has-contract': activeKnowledgeAnalysis?.hasContract,
+              'is-open': showKnowledgeAdvisorPanel,
+            }"
+          >
+            <button
+              type="button"
+              class="knowledge-dock__trigger"
+              :aria-expanded="showKnowledgeAdvisorPanel"
+              :aria-label="t('knowledgeAdvisor.title')"
+              @click.stop="toggleKnowledgeAdvisorPanel"
+            >
+              <span class="knowledge-dock__mark">
+                <t-icon name="layers" size="13px" />
+              </span>
+              <span class="knowledge-dock__label">{{ t('knowledgeAdvisor.title') }}</span>
+              <span class="knowledge-dock__stat">
+                {{
+                  t('knowledgeAdvisor.fieldsStat', {
+                    count: activeKnowledgeAnalysis?.referencedFields.length ?? 0,
+                  })
+                }}
+              </span>
+              <span
+                class="knowledge-dock__contract"
+                :class="{ 'is-warn': !activeKnowledgeAnalysis?.hasContract }"
+              >
+                {{
+                  activeKnowledgeAnalysis?.hasContract
+                    ? t('knowledgeAdvisor.contractReady')
+                    : t('knowledgeAdvisor.contractMissing')
+                }}
+              </span>
+              <t-icon class="knowledge-dock__chevron" name="chevron-down" size="12px" />
+            </button>
+            <div
+              v-if="showKnowledgeAdvisorPanel"
+              class="knowledge-dock__panel"
+              role="dialog"
+              :aria-label="t('knowledgeAdvisor.title')"
+              @click.stop
+            >
+              <div class="knowledge-dock__panel-head">
+                <span class="knowledge-dock__panel-mark">
+                  <t-icon name="layers" size="16px" />
+                </span>
+                <span class="knowledge-dock__panel-copy">
+                  <strong>{{ knowledgeAdvisorSummary }}</strong>
+                  <small>{{ knowledgeAdvisorDetail }}</small>
+                </span>
+              </div>
+              <div class="knowledge-dock__panel-stats">
+                <span>
+                  {{
+                    t('knowledgeAdvisor.fieldsStat', {
+                      count: activeKnowledgeAnalysis?.referencedFields.length ?? 0,
+                    })
+                  }}
+                </span>
+                <span>
+                  {{
+                    t('knowledgeAdvisor.assetsStat', {
+                      facts: catalogStore.facts.length,
+                      concepts: catalogStore.concepts.length,
+                    })
+                  }}
+                </span>
+                <span :class="{ 'is-warn': !activeKnowledgeAnalysis?.hasContract }">
+                  {{
+                    activeKnowledgeAnalysis?.hasContract
+                      ? t('knowledgeAdvisor.contractReady')
+                      : t('knowledgeAdvisor.contractMissing')
+                  }}
+                </span>
+              </div>
+              <div class="knowledge-dock__panel-actions">
+                <button
+                  v-if="(activeKnowledgeAnalysis?.missingFields.length ?? 0) > 0 && canEdit"
+                  type="button"
+                  class="knowledge-dock__btn knowledge-dock__btn--primary"
+                  :disabled="creatingKnowledgeFacts"
+                  @click="createMissingKnowledgeFacts"
+                >
+                  <t-icon name="add" size="13px" />
+                  {{
+                    t('knowledgeAdvisor.createMissingFacts', {
+                      count: activeKnowledgeAnalysis?.missingFields.length ?? 0,
+                    })
+                  }}
+                </button>
+                <button type="button" class="knowledge-dock__btn" @click="openDecisionContract">
+                  <t-icon name="file-code" size="13px" />
+                  {{
+                    activeKnowledgeAnalysis?.hasContract
+                      ? t('knowledgeAdvisor.openContract')
+                      : t('knowledgeAdvisor.defineContract')
+                  }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="menubar-divider" />
+          <div class="toolbar-version toolbar-version--menubar">
+            <label>{{ t('common.version') }}</label>
+            <input
+              :value="activeDraftVersion"
+              :disabled="!canEdit"
+              placeholder="1.0.0"
+              class="ordo-input-base toolbar-version__input"
+              @input="handleVersionChange"
+            />
+            <t-tag size="small" theme="primary" variant="light" class="toolbar-version__tag">
+              v{{ activeVersionDisplay }}
+            </t-tag>
+            <t-tag
+              v-if="activePublishedVersion"
+              size="small"
+              variant="light"
+              class="toolbar-version__tag toolbar-version__tag--published"
+            >
+              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
+            </t-tag>
+            <span v-if="requiresVersionBump" class="toolbar-version__warning">
+              {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Tabs bar -->
@@ -2610,26 +3267,6 @@ onUnmounted(() => {
             >
               <t-icon name="table" size="14px" />
             </button>
-          </div>
-          <div class="tab-divider" />
-          <div class="toolbar-version">
-            <label>{{ t('common.version') }}</label>
-            <input
-              :value="activeDraftVersion"
-              :disabled="!canEdit"
-              placeholder="1.0.0"
-              class="ordo-input-base toolbar-version__input"
-              @input="handleVersionChange"
-            />
-            <t-tag size="small" theme="primary" variant="light">
-              v{{ activeVersionDisplay }}
-            </t-tag>
-            <t-tag v-if="activePublishedVersion" size="small" variant="light">
-              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
-            </t-tag>
-          </div>
-          <div v-if="requiresVersionBump" class="toolbar-version__warning">
-            {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
           </div>
           <div class="tab-divider" />
           <button
@@ -2773,6 +3410,7 @@ onUnmounted(() => {
                 :model-value="projectStore.activeTab.ruleset"
                 :disabled="!canEdit"
                 :managed-sub-rules="subRuleAssetOptions"
+                :suggestions="catalogFieldSuggestions"
                 :input-schema="
                   catalogStore.schemaFields.length ? catalogStore.schemaFields : undefined
                 "
@@ -2785,7 +3423,9 @@ onUnmounted(() => {
                 :model-value="projectStore.activeTab.ruleset"
                 :disabled="!canEdit"
                 :managed-sub-rules="subRuleAssetOptions"
+                :suggestions="catalogFieldSuggestions"
                 :execution-trace="executionTrace"
+                :execution-ruleset="activeExecutableRuleset"
                 :trace-mode="flowTraceMode"
                 @update:model-value="handleRulesetChange"
                 @open-sub-rule="handleOpenSubRule"
@@ -2796,6 +3436,7 @@ onUnmounted(() => {
               <OrdoDecisionTable
                 v-else-if="editorMode === 'table' && activeDecisionTable"
                 :model-value="activeDecisionTable"
+                :schema="catalogStore.schemaFields"
                 :disabled="!canEdit"
                 @update:model-value="handleTableChange"
                 @show-as-flow="handleShowAsFlow"
@@ -2811,8 +3452,8 @@ onUnmounted(() => {
           :style="{ height: executionHeight + 'px' }"
         >
           <OrdoExecutionPanel
-            v-if="!subRuleHydrationLoading && !subRuleHydrationError"
-            :ruleset="activeExecutableRuleset ?? projectStore.activeTab.ruleset"
+            v-if="!subRuleHydrationLoading && !subRuleHydrationError && !conceptExecutionError"
+            :ruleset="executionPanelRuleset"
             :visible="showExecution"
             :height="executionHeight"
             @update:visible="showExecution = $event"
@@ -2821,9 +3462,11 @@ onUnmounted(() => {
             @clear-flow-trace="handleClearFlowTrace"
           />
           <div v-else class="execution-panel-loading">
-            <t-loading v-if="subRuleHydrationLoading" size="small" />
+            <t-loading v-if="subRuleHydrationLoading && !conceptExecutionError" size="small" />
             <t-icon v-else name="error-circle" size="18px" />
-            <span>{{ subRuleHydrationError || t('subRules.executionHydrating') }}</span>
+            <span>{{
+              conceptExecutionError || subRuleHydrationError || t('subRules.executionHydrating')
+            }}</span>
           </div>
         </div>
 
@@ -2832,7 +3475,7 @@ onUnmounted(() => {
           v-if="showTests"
           :project-id="projectId"
           :ruleset-name="projectStore.activeTab?.name ?? ''"
-          :ruleset="activeExecutableRuleset ?? projectStore.activeTab?.ruleset ?? null"
+          :ruleset="activeExecutableRuleset"
           :sub-rule-mode="projectStore.activeTab?.kind === 'sub_rule'"
           :visible="showTests"
           :height="testsHeight"
@@ -2895,6 +3538,40 @@ onUnmounted(() => {
               {{ t('editor.tableType') }}
             </t-radio-button>
           </t-radio-group>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="showCreateSubRule"
+      :header="t('subRules.createTitle')"
+      :confirm-btn="{ content: t('common.create'), loading: creatingSubRuleAsset }"
+      @confirm="handleCreateProjectSubRule"
+      @close="showCreateSubRule = false"
+      width="460px"
+    >
+      <t-form label-align="top">
+        <p class="create-sub-rule-dialog__desc">{{ t('subRules.createDesc') }}</p>
+        <t-form-item :label="t('subRules.name')" required>
+          <t-input
+            v-model="newSubRuleName"
+            :placeholder="t('subRules.namePlaceholder')"
+            autofocus
+            @keyup.enter="handleCreateProjectSubRule"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.displayName')">
+          <t-input
+            v-model="newSubRuleDisplayName"
+            :placeholder="t('subRules.displayNamePlaceholder')"
+          />
+        </t-form-item>
+        <t-form-item :label="t('subRules.description')">
+          <t-textarea
+            v-model="newSubRuleDescription"
+            :placeholder="t('subRules.descriptionPlaceholder')"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -3007,16 +3684,44 @@ onUnmounted(() => {
 .ruleset-sidebar__list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 6px 0 10px;
+}
+
+.sidebar-section {
+  padding: 0 0 8px;
+}
+
+.sidebar-section + .sidebar-section {
+  border-top: 1px solid var(--ordo-border-light);
+  padding-top: 8px;
+}
+
+.sidebar-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px 0 12px;
+  color: var(--ordo-text-tertiary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .sidebar-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 12px;
+  padding: 14px 12px;
   font-size: 12px;
   color: var(--ordo-text-tertiary);
+  text-align: center;
+}
+
+.sidebar-empty--compact {
+  padding: 10px 12px;
 }
 
 .ruleset-item {
@@ -3042,6 +3747,10 @@ onUnmounted(() => {
   color: var(--ordo-text-primary);
 }
 
+.ruleset-item--sub-rule.is-active {
+  background: rgba(184, 118, 31, 0.12);
+}
+
 .ruleset-item__icon {
   flex-shrink: 0;
   opacity: 0.6;
@@ -3053,6 +3762,16 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.ruleset-item__alias {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ordo-text-tertiary);
+  font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -3112,6 +3831,28 @@ onUnmounted(() => {
 
 .editor-menu {
   position: relative;
+  flex: 0 0 auto;
+}
+
+.editor-menubar__spacer {
+  flex: 1;
+  min-width: 16px;
+}
+
+.editor-menubar__right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+}
+
+.menubar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--ordo-border-color);
+  flex: 0 0 auto;
 }
 
 .editor-menu__trigger {
@@ -3287,6 +4028,11 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.toolbar-version--menubar {
+  max-width: min(48vw, 520px);
+  flex: 0 1 auto;
+}
+
 .toolbar-version label {
   font-size: 11px;
   font-weight: 700;
@@ -3307,6 +4053,13 @@ onUnmounted(() => {
   outline: none;
 }
 
+.toolbar-version--menubar .toolbar-version__input {
+  width: 84px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+}
+
 .toolbar-version__input:focus {
   border-color: var(--ordo-accent);
 }
@@ -3316,6 +4069,14 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--ordo-warning);
   line-height: 1.2;
+}
+
+.toolbar-version--menubar .toolbar-version__warning {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 .mode-switch {
@@ -3591,6 +4352,220 @@ onUnmounted(() => {
   }
 }
 
+.knowledge-dock {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.knowledge-dock__trigger {
+  height: 24px;
+  max-width: 320px;
+  border: 1px solid rgba(34, 134, 87, 0.22);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  color: var(--ordo-text-secondary);
+  background: linear-gradient(90deg, rgba(34, 134, 87, 0.1), rgba(34, 134, 87, 0.03));
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.knowledge-dock__trigger:hover,
+.knowledge-dock.is-open .knowledge-dock__trigger {
+  border-color: rgba(0, 102, 184, 0.34);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-selected);
+}
+
+.knowledge-dock.has-missing .knowledge-dock__trigger {
+  border-color: rgba(185, 112, 0, 0.26);
+  background: linear-gradient(90deg, rgba(185, 112, 0, 0.13), rgba(185, 112, 0, 0.04));
+}
+
+.knowledge-dock__mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #228657;
+  background: rgba(34, 134, 87, 0.12);
+}
+
+.knowledge-dock.has-missing .knowledge-dock__mark {
+  color: #b97000;
+  background: rgba(185, 112, 0, 0.14);
+}
+
+.knowledge-dock__label,
+.knowledge-dock__stat,
+.knowledge-dock__contract {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.knowledge-dock__label {
+  color: var(--ordo-text-primary);
+  font-weight: 850;
+}
+
+.knowledge-dock__stat,
+.knowledge-dock__contract {
+  color: var(--ordo-text-tertiary);
+  font-weight: 700;
+}
+
+.knowledge-dock__contract.is-warn,
+.knowledge-dock__panel-stats .is-warn {
+  color: #b97000;
+}
+
+.knowledge-dock__chevron {
+  color: var(--ordo-text-tertiary);
+}
+
+.knowledge-dock__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  padding: 12px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 14px;
+  background: var(--ordo-bg-panel);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.2);
+  z-index: 90;
+}
+
+.knowledge-dock__panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.knowledge-dock__panel-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #228657;
+  background: rgba(34, 134, 87, 0.12);
+  flex: 0 0 auto;
+}
+
+.knowledge-dock.has-missing .knowledge-dock__panel-mark {
+  color: #b97000;
+  background: rgba(185, 112, 0, 0.14);
+}
+
+.knowledge-dock__panel-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.knowledge-dock__panel-copy strong {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+}
+
+.knowledge-dock__panel-copy small {
+  color: var(--ordo-text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.knowledge-dock__panel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.knowledge-dock__panel-stats span {
+  height: 24px;
+  border: 1px solid var(--ordo-border-light);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--ordo-text-secondary);
+  background: var(--ordo-bg-item);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.knowledge-dock__panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.knowledge-dock__btn {
+  height: 28px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  color: var(--ordo-text-secondary);
+  background: var(--ordo-bg-item);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.knowledge-dock__btn:hover {
+  border-color: rgba(0, 102, 184, 0.42);
+  color: var(--ordo-text-primary);
+  background: var(--ordo-bg-selected);
+}
+
+.knowledge-dock__btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.knowledge-dock__btn--primary {
+  border-color: rgba(0, 102, 184, 0.18);
+  color: var(--ordo-text-inverse);
+  background: var(--ordo-accent);
+}
+
+.knowledge-dock__btn--primary:hover {
+  color: var(--ordo-text-inverse);
+  background: var(--ordo-accent-hover);
+}
+
+@media (max-width: 1280px) {
+  .knowledge-dock__contract {
+    display: none;
+  }
+
+  .toolbar-version--menubar .toolbar-version__warning {
+    display: none;
+  }
+}
+
+@media (max-width: 1040px) {
+  .knowledge-dock__stat {
+    display: none;
+  }
+
+  .toolbar-version__tag--published {
+    display: none;
+  }
+}
+
 .sub-rule-focus-strip {
   flex: none;
   display: flex;
@@ -3640,6 +4615,13 @@ onUnmounted(() => {
 }
 
 .extract-sub-rule-dialog__desc {
+  margin: 0 0 16px;
+  color: var(--ordo-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.create-sub-rule-dialog__desc {
   margin: 0 0 16px;
   color: var(--ordo-text-secondary);
   font-size: 13px;

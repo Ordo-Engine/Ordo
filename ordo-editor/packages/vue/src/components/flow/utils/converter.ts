@@ -333,6 +333,7 @@ export function flowToRuleset(
         const subRuleStep = step as SubRuleStep;
         const outgoingEdge = findLinearExecutionEdge(edges, node.id);
         subRuleStep.nextStepId = outgoingEdge?.target ?? '';
+        subRuleStep.returnPolicy = outgoingEdge?.target ? 'continue' : 'propagate_terminal';
         break;
       }
 

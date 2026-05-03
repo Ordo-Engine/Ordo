@@ -319,12 +319,14 @@ export interface TestFailureDetail {
   kind: TestFailureKind;
   step_id?: string | null;
   sub_rule_ref?: string | null;
+  trace_path?: string[];
 }
 
 export interface TestExecutionTraceStep {
   id: string;
   name: string;
   duration_us: number;
+  result?: string | null;
   next_step?: string | null;
   is_terminal?: boolean;
   input_snapshot?: Record<string, unknown> | null;
@@ -640,10 +642,28 @@ export interface ReleaseContentDiffSummary {
   added_groups: string[];
   removed_groups: string[];
   modified_groups: string[];
+  added_sub_rules: ReleaseSubRuleDiffItem[];
+  removed_sub_rules: ReleaseSubRuleDiffItem[];
+  modified_sub_rules: ReleaseSubRuleDiffItem[];
   input_schema_changed: boolean;
   output_schema_changed: boolean;
   tags_changed: boolean;
   description_changed: boolean;
+}
+
+export interface ReleaseSubRuleDependency {
+  name: string;
+  display_name?: string | null;
+  scope: SubRuleScope;
+  asset_id: string;
+  draft_seq: number;
+  content_hash: string;
+}
+
+export interface ReleaseSubRuleDiffItem {
+  name: string;
+  content_hash?: string | null;
+  step_count?: number | null;
 }
 
 export interface ReleaseRequestSnapshot {
@@ -663,6 +683,8 @@ export interface ReleaseRequestSnapshot {
   rollout_strategy: RolloutStrategy;
   rollback_policy: RollbackPolicy;
   affected_instance_count: number;
+  target_ruleset_snapshot?: RuleSet | null;
+  sub_rule_dependencies: ReleaseSubRuleDependency[];
 }
 
 export interface ReleaseRequest {

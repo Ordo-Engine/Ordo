@@ -46,13 +46,6 @@ const tabs = computed(() => [
     active: route.path.endsWith('/contracts'),
   },
   {
-    value: 'sub-rules',
-    label: t('projectNav.subRules'),
-    icon: 'git-branch',
-    to: `${base.value}/sub-rules`,
-    active: route.path.endsWith('/sub-rules'),
-  },
-  {
     value: 'tests',
     label: t('projectNav.tests'),
     icon: 'task-checked',

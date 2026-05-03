@@ -698,6 +698,7 @@ fn failure_detail(message: &str, step_id: Option<String>) -> TestFailureDetail {
         kind: classify_failure(message),
         step_id,
         sub_rule_ref: extract_sub_rule_ref(message),
+        trace_path: Vec::new(),
     }
 }
 
@@ -732,15 +733,93 @@ fn attach_trace_target(
     mut failures: Vec<TestFailureDetail>,
     trace: Option<&TestExecutionTrace>,
 ) -> Vec<TestFailureDetail> {
-    let terminal_step = trace
-        .and_then(|t| t.steps.last())
-        .map(|step| step.id.clone());
     for failure in &mut failures {
-        if failure.step_id.is_none() {
-            failure.step_id = terminal_step.clone();
+        if let Some(trace) = trace {
+            if let Some(target) = locate_failure_trace_target(trace, failure) {
+                failure.step_id = Some(target.step_id);
+                failure.trace_path = target.path;
+                if failure.sub_rule_ref.is_none() {
+                    failure.sub_rule_ref = target.sub_rule_ref;
+                }
+                continue;
+            }
+            if failure.step_id.is_none() {
+                failure.step_id = trace.steps.last().map(|step| step.id.clone());
+            }
+            if failure.trace_path.is_empty() {
+                failure.trace_path = trace.path.clone();
+            }
         }
     }
     failures
+}
+
+#[derive(Debug, Clone)]
+struct FailureTraceTarget {
+    step_id: String,
+    path: Vec<String>,
+    sub_rule_ref: Option<String>,
+}
+
+fn locate_failure_trace_target(
+    trace: &TestExecutionTrace,
+    failure: &TestFailureDetail,
+) -> Option<FailureTraceTarget> {
+    if let Some(step_id) = failure.step_id.as_deref() {
+        return find_trace_target_by_step_id(&trace.steps, step_id, &[]);
+    }
+
+    if matches!(
+        failure.kind,
+        TestFailureKind::Binding | TestFailureKind::Output | TestFailureKind::SubRule
+    ) {
+        return find_deepest_trace_target(&trace.steps, &[]);
+    }
+
+    None
+}
+
+fn find_trace_target_by_step_id(
+    steps: &[TestExecutionTraceStep],
+    step_id: &str,
+    path_prefix: &[String],
+) -> Option<FailureTraceTarget> {
+    for step in steps {
+        let mut path = path_prefix.to_vec();
+        path.push(step.id.clone());
+
+        if step.id == step_id {
+            return Some(FailureTraceTarget {
+                step_id: step.id.clone(),
+                path,
+                sub_rule_ref: step.sub_rule_ref.clone(),
+            });
+        }
+
+        if let Some(found) = find_trace_target_by_step_id(&step.sub_rule_frames, step_id, &path) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_deepest_trace_target(
+    steps: &[TestExecutionTraceStep],
+    path_prefix: &[String],
+) -> Option<FailureTraceTarget> {
+    let step = steps.last()?;
+    let mut path = path_prefix.to_vec();
+    path.push(step.id.clone());
+
+    if let Some(found) = find_deepest_trace_target(&step.sub_rule_frames, &path) {
+        return Some(found);
+    }
+
+    Some(FailureTraceTarget {
+        step_id: step.id.clone(),
+        path,
+        sub_rule_ref: step.sub_rule_ref.clone(),
+    })
 }
 
 fn compare_expectation(
@@ -953,5 +1032,37 @@ mod tests {
         assert_eq!(step.sub_rule_frames.len(), 1);
         assert_eq!(step.sub_rule_frames[0].id, "grade_gold");
         assert!(step.sub_rule_frames[0].is_terminal);
+    }
+
+    #[test]
+    fn attach_trace_target_prefers_deepest_sub_rule_frame() {
+        let mut top = StepTrace::continued("check_parent", "Check parent", 12, "finish");
+        top.sub_rule_call = Some(SubRuleCallTrace {
+            ref_name: "child_rule".to_string(),
+            input: serde_json::from_value(serde_json::json!({ "score": 95 })).unwrap(),
+            outputs: Vec::new(),
+        });
+
+        let child_terminal = StepTrace::terminal("child_terminal", "Child terminal", 4);
+        top.sub_rule_frames = Some(vec![child_terminal]);
+
+        let mut trace = ExecutionTrace::new("parent_rule");
+        trace.add_step(top);
+        trace.set_result("NO_COUPON", 18);
+        let mapped = map_trace(&trace);
+
+        let failures = attach_trace_target(
+            vec![failure_detail(
+                "Execution failed: Field not found: score",
+                None,
+            )],
+            Some(&mapped),
+        );
+
+        assert_eq!(failures[0].step_id.as_deref(), Some("child_terminal"));
+        assert_eq!(
+            failures[0].trace_path,
+            vec!["check_parent".to_string(), "child_terminal".to_string()]
+        );
     }
 }

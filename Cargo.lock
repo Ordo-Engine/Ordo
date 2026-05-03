@@ -2347,6 +2347,7 @@ dependencies = [
  "chrono",
  "clap",
  "futures",
+ "hashbrown 0.14.5",
  "hex",
  "hostname",
  "jsonwebtoken",

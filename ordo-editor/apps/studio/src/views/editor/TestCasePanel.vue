@@ -33,7 +33,7 @@ const emit = defineEmits<{
     e: 'show-in-flow',
     trace: {
       path: string[];
-      steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+      steps: TestExecutionTraceStep[];
       resultCode: string;
       resultMessage: string;
       output?: Record<string, any>;
@@ -43,9 +43,10 @@ const emit = defineEmits<{
     e: 'open-sub-rule-trace',
     payload: {
       refName: string;
+      focusStepId?: string;
       trace: {
         path: string[];
-        steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+        steps: TestExecutionTraceStep[];
         resultCode: string;
         resultMessage: string;
         output?: Record<string, any>;
@@ -394,14 +395,15 @@ function buildFlowTrace(
   result: TestRunResult,
   steps: TestExecutionTraceStep[] = result.trace?.steps ?? []
 ) {
+  const mapStep = (step: TestExecutionTraceStep): TestExecutionTraceStep => ({
+    ...step,
+    result: step.is_terminal ? result.actual_code ?? result.trace?.result_code ?? null : undefined,
+    sub_rule_frames: step.sub_rule_frames?.map(mapStep) ?? [],
+  });
+
   return {
     path: steps.map((step) => step.id),
-    steps: steps.map((step) => ({
-      id: step.id,
-      name: step.name,
-      duration_us: step.duration_us,
-      result: step.is_terminal ? result.actual_code ?? result.trace?.result_code ?? null : null,
-    })),
+    steps: steps.map(mapStep),
     resultCode: result.actual_code ?? result.trace?.result_code ?? '',
     resultMessage: result.actual_message ?? '',
     output: result.actual_output as Record<string, any> | undefined,
@@ -417,12 +419,51 @@ function openSubRuleTrace(result: TestRunResult, step: TestExecutionTraceStep) {
   if (!step.sub_rule_ref || !step.sub_rule_frames?.length) return;
   emit('open-sub-rule-trace', {
     refName: step.sub_rule_ref,
+    focusStepId: step.sub_rule_frames.at(-1)?.id,
     trace: buildFlowTrace(result, step.sub_rule_frames),
   });
 }
 
 function failureDetailFor(result: TestRunResult, index: number): TestFailureDetail | null {
   return result.failure_details?.[index] ?? null;
+}
+
+function findNestedFailureTarget(
+  steps: TestExecutionTraceStep[],
+  stepId: string
+): { refName: string; steps: TestExecutionTraceStep[] } | null {
+  for (const step of steps) {
+    if (step.sub_rule_frames?.length) {
+      if (step.sub_rule_ref && step.sub_rule_frames.some((item) => item.id === stepId)) {
+        return {
+          refName: step.sub_rule_ref,
+          steps: step.sub_rule_frames,
+        };
+      }
+      const nested = findNestedFailureTarget(step.sub_rule_frames, stepId);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function openFailureTarget(result: TestRunResult, detail?: TestFailureDetail | null) {
+  if (!result.trace || !detail?.step_id) {
+    showResultInFlow(result);
+    return;
+  }
+
+  const nested = findNestedFailureTarget(result.trace.steps, detail.step_id);
+  if (nested) {
+    emit('open-sub-rule-trace', {
+      refName: nested.refName,
+      focusStepId: detail.step_id,
+      trace: buildFlowTrace(result, nested.steps),
+    });
+    return;
+  }
+
+  showResultInFlow(result);
 }
 
 function failureKind(message: string, detail?: TestFailureDetail | null) {
@@ -609,13 +650,19 @@ function failureKindLabel(message: string, detail?: TestFailureDetail | null) {
               </div>
 
               <div v-if="probeResult.failures.length" class="failures">
-                <div v-for="(f, i) in probeResult.failures" :key="i" class="failure-line">
+                <button
+                  v-for="(f, i) in probeResult.failures"
+                  :key="i"
+                  type="button"
+                  class="failure-line"
+                  @click="openFailureTarget(probeResult!, failureDetailFor(probeResult!, i))"
+                >
                   <t-icon name="close-circle" size="11px" class="failure-icon" />
                   <span class="failure-kind">{{
                     failureKindLabel(f, failureDetailFor(probeResult, i))
                   }}</span>
                   <span>{{ f }}</span>
-                </div>
+                </button>
               </div>
 
               <div v-if="probeResult.actual_code" class="actual-row">
@@ -764,17 +811,24 @@ function failureKindLabel(message: string, detail?: TestFailureDetail | null) {
 
                     <!-- Failures list -->
                     <div v-if="resultFor(tc.id)!.failures.length" class="failures">
-                      <div
+                      <button
                         v-for="(f, i) in resultFor(tc.id)!.failures"
                         :key="i"
                         class="failure-line"
+                        type="button"
+                        @click="
+                          openFailureTarget(
+                            resultFor(tc.id)!,
+                            failureDetailFor(resultFor(tc.id)!, i)
+                          )
+                        "
                       >
                         <t-icon name="close-circle" size="11px" class="failure-icon" />
                         <span class="failure-kind">{{
                           failureKindLabel(f, failureDetailFor(resultFor(tc.id)!, i))
                         }}</span>
                         <span>{{ f }}</span>
-                      </div>
+                      </button>
                     </div>
 
                     <!-- Actual output -->
@@ -1267,9 +1321,19 @@ function failureKindLabel(message: string, detail?: TestFailureDetail | null) {
   display: flex;
   align-items: flex-start;
   gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
   font-size: 11px;
   color: #ef4444;
   line-height: 1.4;
+  cursor: pointer;
+}
+
+.failure-line:hover {
+  color: #dc2626;
 }
 .failure-icon {
   flex-shrink: 0;

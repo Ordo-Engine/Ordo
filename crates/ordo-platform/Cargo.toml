@@ -40,6 +40,7 @@ sqlx.workspace = true
 url = "2"
 sha2.workspace = true
 hex.workspace = true
+hashbrown.workspace = true
 ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }
 ordo-protocol = { path = "../ordo-protocol" }
 

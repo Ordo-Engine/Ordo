@@ -5,6 +5,7 @@
 export { default as OrdoFlowEditor } from './OrdoFlowEditor.vue';
 export type {
   ExecutionTraceData,
+  ExecutionTraceStep,
   ExtractSubRulePayload,
   ExtractSubRuleRequest,
 } from './OrdoFlowEditor.vue';

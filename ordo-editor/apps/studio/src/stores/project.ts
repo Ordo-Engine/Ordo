@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { projectApi, rulesetDraftApi, subRuleApi } from '@/api/platform-client';
 import { normalizeRuleset } from '@/utils/ruleset';
+import { stripRuntimeGeneratedArtifacts } from '@/utils/ruleset';
 import { useAuthStore } from './auth';
 import { useOrgStore } from './org';
 import type {
@@ -193,29 +194,32 @@ export const useProjectStore = defineStore('project', () => {
 
     if (tab.kind === 'sub_rule') {
       const assetName = name.startsWith('§') ? name.slice(1) : name;
+      const sanitizedRuleset = stripRuntimeGeneratedArtifacts(tab.ruleset);
       const asset =
         tab.subRuleScope === 'org'
           ? await subRuleApi.saveOrg(auth.token, org.id, assetName, {
               name: assetName,
-              draft: tab.ruleset as any,
+              draft: sanitizedRuleset as any,
               input_schema: [],
               output_schema: [],
               expected_seq: tab.draft_seq,
             })
           : await subRuleApi.saveProject(auth.token, org.id, currentProject.value.id, assetName, {
               name: assetName,
-              draft: tab.ruleset as any,
+              draft: sanitizedRuleset as any,
               input_schema: [],
               output_schema: [],
               expected_seq: tab.draft_seq,
             });
+      tab.ruleset = sanitizedRuleset;
       tab.dirty = false;
       tab.draft_seq = asset.draft_seq;
       return null;
     }
 
+    const sanitizedRuleset = stripRuntimeGeneratedArtifacts(tab.ruleset);
     const result = await rulesetDraftApi.save(auth.token, org.id, currentProject.value.id, name, {
-      ruleset: tab.ruleset as any,
+      ruleset: sanitizedRuleset as any,
       expected_seq: tab.draft_seq,
     });
 
@@ -223,6 +227,7 @@ export const useProjectStore = defineStore('project', () => {
       return result;
     }
 
+    tab.ruleset = sanitizedRuleset;
     tab.dirty = false;
     tab.draft_seq = result.draft_seq;
     upsertDraftMeta(pickDraftMeta(result));

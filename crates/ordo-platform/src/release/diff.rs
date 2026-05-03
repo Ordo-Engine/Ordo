@@ -1,4 +1,5 @@
 use super::*;
+use crate::models::ReleaseSubRuleDiffItem;
 
 pub(super) fn build_release_content_diff(
     baseline: Option<&JsonValue>,
@@ -9,6 +10,8 @@ pub(super) fn build_release_content_diff(
     let after_steps = extract_steps(target);
     let before_groups = baseline.map(extract_groups).unwrap_or_default();
     let after_groups = extract_groups(target);
+    let before_sub_rules = baseline.map(extract_sub_rules).unwrap_or_default();
+    let after_sub_rules = extract_sub_rules(target);
 
     let before_ids: BTreeSet<_> = before_steps.keys().cloned().collect();
     let after_ids: BTreeSet<_> = after_steps.keys().cloned().collect();
@@ -58,6 +61,31 @@ pub(super) fn build_release_content_diff(
         })
         .collect();
 
+    let before_sub_rule_names: BTreeSet<_> = before_sub_rules.keys().cloned().collect();
+    let after_sub_rule_names: BTreeSet<_> = after_sub_rules.keys().cloned().collect();
+    let added_sub_rules = after_sub_rule_names
+        .difference(&before_sub_rule_names)
+        .filter_map(|name| after_sub_rules.get(name))
+        .map(|item| item.descriptor())
+        .collect();
+    let removed_sub_rules = before_sub_rule_names
+        .difference(&after_sub_rule_names)
+        .filter_map(|name| before_sub_rules.get(name))
+        .map(|item| item.descriptor())
+        .collect();
+    let modified_sub_rules = before_sub_rule_names
+        .intersection(&after_sub_rule_names)
+        .filter_map(|name| {
+            let before = before_sub_rules.get(name)?;
+            let after = after_sub_rules.get(name)?;
+            if before.content_hash != after.content_hash {
+                Some(after.descriptor())
+            } else {
+                None
+            }
+        })
+        .collect();
+
     ReleaseContentDiffSummary {
         baseline_version: baseline_version.map(str::to_string),
         step_count_before: before_steps.len() as i32,
@@ -70,6 +98,9 @@ pub(super) fn build_release_content_diff(
         added_groups,
         removed_groups,
         modified_groups,
+        added_sub_rules,
+        removed_sub_rules,
+        modified_sub_rules,
         input_schema_changed: extract_schema_len(baseline, "inputSchema")
             != extract_schema_len(Some(target), "inputSchema"),
         output_schema_changed: extract_schema_len(baseline, "outputSchema")
@@ -93,6 +124,23 @@ struct StepSnapshot {
     name: String,
     step_type: Option<String>,
     canonical: String,
+}
+
+#[derive(Clone)]
+struct SubRuleSnapshot {
+    name: String,
+    content_hash: String,
+    step_count: i32,
+}
+
+impl SubRuleSnapshot {
+    fn descriptor(&self) -> ReleaseSubRuleDiffItem {
+        ReleaseSubRuleDiffItem {
+            name: self.name.clone(),
+            content_hash: Some(self.content_hash.clone()),
+            step_count: Some(self.step_count),
+        }
+    }
 }
 
 impl StepSnapshot {
@@ -167,6 +215,42 @@ fn extract_groups(snapshot: &JsonValue) -> BTreeMap<String, String> {
     items
 }
 
+fn extract_sub_rules(snapshot: &JsonValue) -> BTreeMap<String, SubRuleSnapshot> {
+    let mut items = BTreeMap::new();
+    let Some(JsonValue::Object(sub_rules)) = snapshot.get("sub_rules") else {
+        return items;
+    };
+
+    for (name, graph) in sub_rules {
+        let content_hash = hash_json_value(graph);
+        let step_count = graph
+            .get("steps")
+            .map(|steps| match steps {
+                JsonValue::Array(items) => items.len(),
+                JsonValue::Object(items) => items.len(),
+                _ => 0,
+            })
+            .unwrap_or(0) as i32;
+        items.insert(
+            name.clone(),
+            SubRuleSnapshot {
+                name: name.clone(),
+                content_hash,
+                step_count,
+            },
+        );
+    }
+
+    items
+}
+
+pub(crate) fn hash_json_value(value: &JsonValue) -> String {
+    use sha2::{Digest, Sha256};
+
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    hex::encode(Sha256::digest(bytes))
+}
+
 fn extract_schema_len(snapshot: Option<&JsonValue>, field: &str) -> usize {
     snapshot
         .and_then(|value| value.get("config"))
@@ -197,4 +281,52 @@ pub(super) fn extract_ruleset_version(snapshot: &JsonValue) -> Option<&str> {
         .get("config")
         .and_then(|config| config.get("version"))
         .and_then(|value| value.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_release_content_diff_detects_sub_rule_changes() {
+        let baseline = serde_json::json!({
+            "config": { "version": "1.0.0" },
+            "steps": [],
+            "groups": [],
+            "sub_rules": {
+                "review_gate": {
+                    "entry_step": "start",
+                    "steps": {
+                        "start": { "id": "start", "name": "Start", "type": "terminal", "code": "OK" }
+                    }
+                }
+            }
+        });
+        let target = serde_json::json!({
+            "config": { "version": "1.0.1" },
+            "steps": [],
+            "groups": [],
+            "sub_rules": {
+                "review_gate": {
+                    "entry_step": "start",
+                    "steps": {
+                        "start": { "id": "start", "name": "Start", "type": "terminal", "code": "UPDATED" }
+                    }
+                },
+                "fraud_gate": {
+                    "entry_step": "gate",
+                    "steps": {
+                        "gate": { "id": "gate", "name": "Gate", "type": "terminal", "code": "OK" }
+                    }
+                }
+            }
+        });
+
+        let diff = build_release_content_diff(Some(&baseline), &target, Some("1.0.0"));
+        assert_eq!(diff.added_sub_rules.len(), 1);
+        assert_eq!(diff.added_sub_rules[0].name, "fraud_gate");
+        assert_eq!(diff.modified_sub_rules.len(), 1);
+        assert_eq!(diff.modified_sub_rules[0].name, "review_gate");
+        assert!(diff.removed_sub_rules.is_empty());
+    }
 }

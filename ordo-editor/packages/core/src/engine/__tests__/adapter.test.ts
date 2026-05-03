@@ -264,6 +264,60 @@ describe('Format Adapter', () => {
       ]);
     });
 
+    it('preserves variable namespace for runtime sub-rule bridge outputs', () => {
+      const editorRuleset: RuleSet = {
+        config: { name: 'runtime-sub-rule-bridge' },
+        startStepId: 'dispatch',
+        steps: [
+          {
+            id: 'dispatch',
+            name: 'Dispatch',
+            type: 'decision',
+            branches: [
+              {
+                id: 'b1',
+                condition: {
+                  type: 'simple',
+                  left: Expr.variable('$__ordo_sub_terminal_id'),
+                  operator: 'eq',
+                  right: Expr.string('vip'),
+                },
+                nextStepId: 'vip-terminal',
+              },
+            ],
+            defaultNextStepId: 'default-terminal',
+          } as DecisionStep,
+          {
+            id: 'default-terminal',
+            name: 'Default',
+            type: 'terminal',
+            code: 'DEFAULT',
+            output: [
+              {
+                name: 'coupon_type',
+                value: Expr.variable('$__ordo_sub_coupon_type'),
+              },
+            ],
+          } as TerminalStep,
+          {
+            id: 'vip-terminal',
+            name: 'VIP',
+            type: 'terminal',
+            code: 'VIP',
+          } as TerminalStep,
+        ],
+      };
+
+      const engineRuleset = convertToEngineFormat(editorRuleset);
+
+      expect(engineRuleset.steps.dispatch.branches?.[0]?.condition).toBe(
+        '$__ordo_sub_terminal_id == "vip"'
+      );
+      expect(engineRuleset.steps['default-terminal'].result?.output).toEqual([
+        ['coupon_type', { Field: '$__ordo_sub_coupon_type' }],
+      ]);
+    });
+
     it('preserves runtime variable references while normalizing input fields', () => {
       const editorRuleset: RuleSet = {
         config: { name: 'variable-reference-test' },
@@ -593,6 +647,60 @@ describe('Format Adapter', () => {
 
       expect(result.valid).toBe(false);
       expect(result.errors.some((error) => error.code === 'SUB_RULE_CYCLE')).toBe(true);
+    });
+
+    it('allows terminal-propagating sub-rules without an authoring next step', () => {
+      const ruleset: RuleSet = {
+        config: { name: 'terminal-propagation' },
+        startStepId: 'call',
+        steps: [
+          {
+            id: 'call',
+            name: 'Call',
+            type: 'sub_rule',
+            refName: 'tiering',
+            returnPolicy: 'propagate_terminal',
+            nextStepId: '',
+          } as SubRuleStep,
+        ],
+        subRules: {
+          tiering: {
+            entryStep: 'done',
+            steps: [{ id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep],
+          },
+        },
+      };
+
+      const result = validateRuleSet(ruleset);
+
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows sub-rule calls to end the parent flow without a stored return policy', () => {
+      const ruleset: RuleSet = {
+        config: { name: 'legacy-empty-next-sub-rule' },
+        startStepId: 'call',
+        steps: [
+          {
+            id: 'call',
+            name: 'Call',
+            type: 'sub_rule',
+            refName: 'tiering',
+            nextStepId: '',
+          } as SubRuleStep,
+        ],
+        subRules: {
+          tiering: {
+            entryStep: 'done',
+            steps: [{ id: 'done', name: 'Done', type: 'terminal', code: 'OK' } as TerminalStep],
+          },
+        },
+      };
+
+      const result = validateRuleSet(ruleset);
+
+      expect(result.valid).toBe(true);
+      expect(result.errors.some((error) => error.message.includes('has no next step'))).toBe(false);
     });
   });
 });

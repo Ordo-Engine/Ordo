@@ -3,19 +3,23 @@
  * OrdoExpressionInput - Expression input with syntax highlighting and autocomplete
  * 表达式输入组件，支持语法高亮和自动补全
  */
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue';
 
 export interface FieldSuggestion {
   /** Field path (e.g., "user.name") */
   path: string;
   /** Alias for path — used by action/terminal editors */
   value?: string;
+  /** Exact text inserted into the expression. Defaults to "$." + path. */
+  insertText?: string;
   /** Display label */
   label: string;
   /** Field type */
   type?: string;
   /** Description */
   description?: string;
+  /** Suggestion origin, used for badges and insertion semantics. */
+  source?: 'fact' | 'concept' | 'schema' | 'variable';
 }
 
 /** JIT analysis result for the expression */
@@ -73,11 +77,13 @@ const emit = defineEmits<{
 }>();
 
 // State
+const wrapperRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | HTMLTextAreaElement | null>(null);
 const showSuggestions = ref(false);
 const selectedSuggestionIndex = ref(0);
 const cursorPosition = ref(0);
 const validationError = ref<string | null>(null);
+const suggestionsStyle = ref<Record<string, string>>({});
 
 // JIT compatibility state
 const internalJitAnalysis = ref<JITAnalysisResult | null>(null);
@@ -159,18 +165,25 @@ const currentWord = computed(() => {
 
 const filteredSuggestions = computed(() => {
   const word = currentWord.value.toLowerCase();
-  if (!word || word.length < 1) return [];
+  if (!word || word.length < 1) return props.suggestions.slice(0, 12);
 
   // Include $ prefix suggestions
-  const prefix = word.startsWith('$') ? word.slice(1) : word;
+  const prefix = word.startsWith('$.')
+    ? word.slice(2)
+    : word.startsWith('$')
+      ? word.slice(1)
+      : word;
 
   return props.suggestions
     .filter((s) => {
       const searchPath = s.path.toLowerCase();
       const searchLabel = s.label.toLowerCase();
-      return searchPath.includes(prefix) || searchLabel.includes(prefix);
+      const insertText = getSuggestionInsertText(s).toLowerCase();
+      return (
+        searchPath.includes(prefix) || searchLabel.includes(prefix) || insertText.includes(prefix)
+      );
     })
-    .slice(0, 10);
+    .slice(0, 12);
 });
 
 // Simple expression validation
@@ -251,9 +264,13 @@ function handleInput(event: Event) {
   emit('update:modelValue', target.value);
 
   // Show suggestions if typing a variable
-  if (currentWord.value.startsWith('$') || currentWord.value.length > 0) {
+  if (
+    props.suggestions.length > 0 &&
+    (currentWord.value.startsWith('$') || currentWord.value.length > 0)
+  ) {
     showSuggestions.value = filteredSuggestions.value.length > 0;
     selectedSuggestionIndex.value = 0;
+    void nextTick(updateSuggestionPosition);
   } else {
     showSuggestions.value = false;
   }
@@ -268,7 +285,13 @@ function handleBlur() {
 }
 
 function handleKeyDown(event: KeyboardEvent) {
-  if (!showSuggestions.value) return;
+  if (!showSuggestions.value) {
+    if ((event.ctrlKey || event.metaKey) && event.key === ' ') {
+      event.preventDefault();
+      openSuggestions();
+    }
+    return;
+  }
 
   switch (event.key) {
     case 'ArrowDown':
@@ -297,6 +320,63 @@ function handleKeyDown(event: KeyboardEvent) {
   }
 }
 
+function getSuggestionInsertText(suggestion: FieldSuggestion): string {
+  if (suggestion.insertText) return suggestion.insertText;
+  const candidate = suggestion.value ?? suggestion.path;
+  return candidate.startsWith('$') ? candidate : `$.${candidate}`;
+}
+
+function getSuggestionDisplay(suggestion: FieldSuggestion): string {
+  return suggestion.label || suggestion.path;
+}
+
+function getSuggestionTechnicalPath(suggestion: FieldSuggestion): string {
+  return getSuggestionInsertText(suggestion);
+}
+
+function openSuggestions() {
+  if (props.disabled || props.suggestions.length === 0) return;
+  updateCursorPosition();
+  showSuggestions.value = true;
+  selectedSuggestionIndex.value = 0;
+  inputRef.value?.focus();
+  void nextTick(updateSuggestionPosition);
+}
+
+function updateSuggestionPosition() {
+  const anchor = wrapperRef.value;
+  if (!anchor || !showSuggestions.value) return;
+
+  const rect = anchor.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const width = Math.min(Math.max(rect.width, 220), viewportWidth - 16);
+  const left = Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8));
+  const belowTop = rect.bottom + 4;
+  const spaceBelow = viewportHeight - belowTop - 12;
+  const spaceAbove = rect.top - 12;
+  const preferredMaxHeight = 280;
+
+  let top = belowTop;
+  let maxHeight = Math.min(preferredMaxHeight, Math.max(160, spaceBelow));
+
+  if (spaceBelow < 140 && spaceAbove > spaceBelow) {
+    maxHeight = Math.min(preferredMaxHeight, Math.max(160, spaceAbove));
+    top = Math.max(8, rect.top - maxHeight - 4);
+  }
+
+  suggestionsStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    maxHeight: `${maxHeight}px`,
+  };
+}
+
+function handleViewportChange() {
+  updateSuggestionPosition();
+}
+
 function selectSuggestion(suggestion: FieldSuggestion) {
   const text = props.modelValue;
   const pos = cursorPosition.value;
@@ -310,7 +390,8 @@ function selectSuggestion(suggestion: FieldSuggestion) {
   // Replace current word with suggestion
   const before = text.slice(0, start);
   const after = text.slice(pos);
-  const newValue = `${before}$.${suggestion.path}${after}`;
+  const insertText = getSuggestionInsertText(suggestion);
+  const newValue = `${before}${insertText}${after}`;
 
   emit('update:modelValue', newValue);
   showSuggestions.value = false;
@@ -319,7 +400,7 @@ function selectSuggestion(suggestion: FieldSuggestion) {
   setTimeout(() => {
     if (inputRef.value) {
       inputRef.value.focus();
-      const newPos = start + suggestion.path.length + 2; // +2 for "$."
+      const newPos = start + insertText.length;
       inputRef.value.setSelectionRange(newPos, newPos);
     }
   }, 0);
@@ -334,25 +415,36 @@ function updateCursorPosition() {
 
 // Keyboard shortcut: Ctrl+Space to show suggestions
 function handleGlobalKeyDown(event: KeyboardEvent) {
-  if (event.ctrlKey && event.key === ' ' && document.activeElement === inputRef.value) {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.key === ' ' &&
+    document.activeElement === inputRef.value
+  ) {
     event.preventDefault();
-    showSuggestions.value = props.suggestions.length > 0;
+    openSuggestions();
   }
 }
 
 onMounted(() => {
   document.addEventListener('keydown', handleGlobalKeyDown);
+  window.addEventListener('resize', handleViewportChange);
+  window.addEventListener('scroll', handleViewportChange, true);
 });
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalKeyDown);
+  window.removeEventListener('resize', handleViewportChange);
+  window.removeEventListener('scroll', handleViewportChange, true);
 });
 </script>
 
 <template>
-  <div class="ordo-expression-input" :class="{ disabled, invalid: !!validationError }">
+  <div
+    class="ordo-expression-input"
+    :class="{ disabled, invalid: !!validationError, 'is-suggesting': showSuggestions }"
+  >
     <!-- Input field -->
-    <div class="ordo-expression-input__wrapper">
+    <div ref="wrapperRef" class="ordo-expression-input__wrapper">
       <component
         :is="multiline ? 'textarea' : 'input'"
         ref="inputRef"
@@ -368,6 +460,16 @@ onUnmounted(() => {
         @click="updateCursorPosition"
         @keyup="updateCursorPosition"
       />
+
+      <button
+        v-if="suggestions.length > 0 && !disabled"
+        type="button"
+        class="ordo-expression-input__picker"
+        title="Choose fact or concept"
+        @mousedown.prevent="openSuggestions"
+      >
+        字段
+      </button>
 
       <!-- Indicators container -->
       <div
@@ -426,27 +528,45 @@ onUnmounted(() => {
     </div>
 
     <!-- Suggestions dropdown -->
-    <Transition name="ordo-fade">
-      <div v-if="showSuggestions" class="ordo-expression-input__suggestions">
+    <Teleport to="body">
+      <Transition name="ordo-fade">
         <div
-          v-for="(suggestion, index) in filteredSuggestions"
-          :key="suggestion.path"
-          class="ordo-expression-input__suggestion"
-          :class="{ selected: index === selectedSuggestionIndex }"
-          @mousedown.prevent="selectSuggestion(suggestion)"
+          v-if="showSuggestions"
+          class="ordo-expression-input__suggestions"
+          :style="suggestionsStyle"
         >
-          <div class="ordo-expression-input__suggestion-main">
-            <span class="ordo-expression-input__suggestion-path">$.{{ suggestion.path }}</span>
-            <span v-if="suggestion.description" class="ordo-expression-input__suggestion-desc">
-              {{ suggestion.description }}
+          <div
+            v-for="(suggestion, index) in filteredSuggestions"
+            :key="suggestion.path"
+            class="ordo-expression-input__suggestion"
+            :class="{ selected: index === selectedSuggestionIndex }"
+            @mousedown.prevent="selectSuggestion(suggestion)"
+          >
+            <div class="ordo-expression-input__suggestion-main">
+              <span class="ordo-expression-input__suggestion-path">
+                {{ getSuggestionDisplay(suggestion) }}
+              </span>
+              <span class="ordo-expression-input__suggestion-technical">
+                {{ getSuggestionTechnicalPath(suggestion) }}
+              </span>
+              <span v-if="suggestion.description" class="ordo-expression-input__suggestion-desc">
+                {{ suggestion.description }}
+              </span>
+            </div>
+            <span
+              v-if="suggestion.source"
+              class="ordo-expression-input__suggestion-source"
+              :class="`is-${suggestion.source}`"
+            >
+              {{ suggestion.source }}
+            </span>
+            <span v-if="suggestion.type" class="ordo-expression-input__suggestion-type">
+              {{ suggestion.type }}
             </span>
           </div>
-          <span v-if="suggestion.type" class="ordo-expression-input__suggestion-type">
-            {{ suggestion.type }}
-          </span>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
 
     <!-- Validation error message -->
     <div v-if="validationError" class="ordo-expression-input__error-message">
@@ -461,6 +581,10 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.ordo-expression-input.is-suggesting {
+  z-index: var(--ordo-z-popover, 20000);
+}
+
 .ordo-expression-input__wrapper {
   position: relative;
   display: flex;
@@ -470,7 +594,7 @@ onUnmounted(() => {
 .ordo-expression-input__field {
   width: 100%;
   height: 32px;
-  padding: 0 28px 0 var(--ordo-space-sm); /* Right padding for indicator */
+  padding: 0 70px 0 var(--ordo-space-sm); /* Right padding for picker + indicator */
   border: 1px solid var(--ordo-border-color);
   border-radius: var(--ordo-radius-md);
   font-size: var(--ordo-font-size-sm);
@@ -516,13 +640,42 @@ onUnmounted(() => {
 
 .ordo-expression-input__indicators {
   position: absolute;
-  right: 8px;
+  right: 34px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 4px;
   pointer-events: none;
+}
+
+.ordo-expression-input__picker {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--ordo-border-light);
+  border-radius: var(--ordo-radius-sm);
+  background: color-mix(in srgb, var(--ordo-bg-input) 88%, var(--ordo-primary-500) 12%);
+  color: var(--ordo-primary-600);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.ordo-expression-input__picker:hover {
+  border-color: var(--ordo-primary-400);
+  background: var(--ordo-primary-50);
 }
 
 .ordo-expression-input__field.is-multiline + .ordo-expression-input__indicators {
@@ -569,16 +722,12 @@ onUnmounted(() => {
 
 /* Suggestions Dropdown */
 .ordo-expression-input__suggestions {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
+  position: fixed;
   background: var(--ordo-bg-popup);
   border: 1px solid var(--ordo-border-color);
   border-radius: var(--ordo-radius-md);
   box-shadow: var(--ordo-shadow-lg);
-  z-index: var(--ordo-z-dropdown);
-  max-height: 240px;
+  z-index: var(--ordo-z-popover, 20000);
   overflow-y: auto;
 }
 
@@ -586,6 +735,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 6px 10px;
   cursor: pointer;
   transition: background-color 0.1s;
@@ -614,16 +764,29 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
 }
 
 .ordo-expression-input__suggestion-path {
-  font-family: var(--ordo-font-mono);
+  font-family: var(--ordo-font-sans);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 650;
   color: var(--ordo-text-primary);
 }
 
+.ordo-expression-input__suggestion-technical {
+  margin-top: 2px;
+  font-family: var(--ordo-font-mono);
+  font-size: 10px;
+  color: var(--ordo-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ordo-expression-input__suggestion-desc {
+  margin-top: 2px;
   font-size: 11px;
   color: var(--ordo-text-tertiary);
   white-space: nowrap;
@@ -639,6 +802,36 @@ onUnmounted(() => {
   border-radius: var(--ordo-radius-xs);
   margin-left: 8px;
   font-family: var(--ordo-font-mono);
+}
+
+.ordo-expression-input__suggestion-source {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+
+.ordo-expression-input__suggestion-source.is-fact,
+.ordo-expression-input__suggestion-source.is-schema {
+  color: var(--ordo-primary-600);
+  background: color-mix(in srgb, var(--ordo-primary-500) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ordo-primary-500) 22%, transparent);
+}
+
+.ordo-expression-input__suggestion-source.is-concept {
+  color: var(--ordo-warning);
+  background: color-mix(in srgb, var(--ordo-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ordo-warning) 24%, transparent);
+}
+
+.ordo-expression-input__suggestion-source.is-variable {
+  color: var(--ordo-success);
+  background: color-mix(in srgb, var(--ordo-success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ordo-success) 24%, transparent);
 }
 
 .ordo-expression-input__error-message {

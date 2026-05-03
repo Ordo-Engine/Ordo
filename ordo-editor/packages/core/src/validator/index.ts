@@ -288,15 +288,6 @@ function validateSubRuleStep(
     });
   }
 
-  if (!step.nextStepId) {
-    addError({
-      code: 'MISSING_NEXT_STEP',
-      message: `Sub-rule step "${step.id}" has no next step`,
-      path: `${basePath}.nextStepId`,
-      stepId: step.id,
-    });
-  }
-
   const graph = step.refName ? ruleset.subRules?.[step.refName] : undefined;
   if (!graph) return;
 

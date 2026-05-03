@@ -4,7 +4,7 @@ package ordo.v1;
 
 option java_package = "com.ordo.proto.v1";
 option java_multiple_files = true;
-option go_package = "github.com/pama-lee/ordo/proto/v1";
+option go_package = "github.com/Ordo-Engine/Ordo/proto/v1";
 
 // =============================================================================
 // Ordo Rule Engine Service
@@ -303,4 +303,3 @@ message HealthResponse {
   // Server uptime in seconds
   uint64 uptime_seconds = 4;
 }
-

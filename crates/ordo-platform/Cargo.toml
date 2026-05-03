@@ -1,6 +1,6 @@
 [package]
 name = "ordo-platform"
-version = "0.4.0"
+version = "0.4.2"
 edition = "2021"
 license = "MIT"
 description = "Ordo decision management platform — organization, project, auth, and governance APIs"
@@ -9,15 +9,24 @@ description = "Ordo decision management platform — organization, project, auth
 name = "ordo-platform"
 path = "src/main.rs"
 
+[[bin]]
+name = "ordo-platform-worker"
+path = "src/bin/ordo-platform-worker.rs"
+
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
+async-nats = "0.38"
 axum.workspace = true
 chrono.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+hostname = "0.4"
 jsonwebtoken.workspace = true
 rand.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+urlencoding = "2"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
@@ -27,7 +36,12 @@ tower-http = { workspace = true, features = ["trace", "cors", "catch-panic"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4"] }
+sqlx.workspace = true
+url = "2"
+sha2.workspace = true
+hex.workspace = true
+ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }
+ordo-protocol = { path = "../ordo-protocol" }
 
 [dev-dependencies]
 tempfile = "3"
-ordo-core = { path = "../ordo-core" }

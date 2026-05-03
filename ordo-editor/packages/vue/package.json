@@ -1,6 +1,6 @@
 {
   "name": "@ordo-engine/editor-vue",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Vue 3 components for Ordo Rule Editor",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -55,7 +55,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Pama-Lee/Ordo.git",
+    "url": "https://github.com/Ordo-Engine/Ordo.git",
     "directory": "ordo-editor/packages/vue"
   },
   "publishConfig": {

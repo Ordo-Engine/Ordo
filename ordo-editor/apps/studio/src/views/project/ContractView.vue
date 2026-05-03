@@ -1,61 +1,53 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useRouter, useRoute } from 'vue-router'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { useCatalogStore } from '@/stores/catalog'
-import { useProjectStore } from '@/stores/project'
-import { useOrgStore } from '@/stores/org'
-import { useAuthStore } from '@/stores/auth'
-import { engineApi } from '@/api/engine-client'
-import {
-  conditionToString,
-  convertFromEngineFormat,
-  exprToString,
-} from '@ordo-engine/editor-core'
-import type {
-  Condition,
-  Expr,
-  RuleSet,
-  SchemaField,
-} from '@ordo-engine/editor-core'
-import type { ContractField, DecisionContract, FactDataType } from '@/api/types'
+import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter, useRoute } from 'vue-router';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import { useCatalogStore } from '@/stores/catalog';
+import { useProjectStore } from '@/stores/project';
+import { useOrgStore } from '@/stores/org';
+import { useAuthStore } from '@/stores/auth';
+import { rulesetDraftApi } from '@/api/platform-client';
+import { normalizeRuleset } from '@/utils/ruleset';
+import { conditionToString, exprToString } from '@ordo-engine/editor-core';
+import type { Condition, Expr, RuleSet, SchemaField } from '@ordo-engine/editor-core';
+import type { ContractField, DecisionContract, FactDataType } from '@/api/types';
 
-type ContractForm = Omit<DecisionContract, 'updated_at'>
-type SectionKey = 'overview' | 'inputs' | 'outputs' | 'notes'
-type ValidationLevel = 'error' | 'warning'
+type ContractForm = Omit<DecisionContract, 'updated_at'>;
+type SectionKey = 'overview' | 'inputs' | 'outputs' | 'notes';
+type ValidationLevel = 'error' | 'warning';
 
 interface ValidationIssue {
-  id: string
-  level: ValidationLevel
-  message: string
+  id: string;
+  level: ValidationLevel;
+  message: string;
   action?: {
-    kind: 'create-fact'
-    name: string
-    label: string
-  }
+    kind: 'create-fact';
+    name: string;
+    label: string;
+  };
 }
 
-const catalog = useCatalogStore()
-const projectStore = useProjectStore()
-const orgStore = useOrgStore()
-const auth = useAuthStore()
-const { t } = useI18n()
-const router = useRouter()
-const route = useRoute()
+const catalog = useCatalogStore();
+const projectStore = useProjectStore();
+const orgStore = useOrgStore();
+const auth = useAuthStore();
+const { t } = useI18n();
+const router = useRouter();
+const route = useRoute();
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
-const canEdit = computed(() => auth.user ? orgStore.canAdmin(auth.user.id) : false)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
+const canEdit = computed(() => (auth.user ? orgStore.canAdmin(auth.user.id) : false));
 
-const selectedRulesetName = ref('')
-const activeSection = ref<SectionKey>('overview')
-const saving = ref(false)
-const loadingRuleset = ref(false)
-const rulesetLoadError = ref<string | null>(null)
-const rulesetCache = ref<Record<string, RuleSet>>({})
-const form = ref<ContractForm>(emptyContract(''))
-const baselineSignature = ref('')
+const selectedRulesetName = ref('');
+const activeSection = ref<SectionKey>('overview');
+const saving = ref(false);
+const loadingRuleset = ref(false);
+const rulesetLoadError = ref<string | null>(null);
+const rulesetCache = ref<Record<string, RuleSet>>({});
+const form = ref<ContractForm>(emptyContract(''));
+const baselineSignature = ref('');
 
 const dataTypeOptions = computed<{ label: string; value: FactDataType }[]>(() => [
   { label: t('facts.typeString'), value: 'string' },
@@ -63,66 +55,59 @@ const dataTypeOptions = computed<{ label: string; value: FactDataType }[]>(() =>
   { label: t('facts.typeBoolean'), value: 'boolean' },
   { label: t('facts.typeDate'), value: 'date' },
   { label: t('facts.typeObject'), value: 'object' },
-])
+]);
 
 const sortedRulesets = computed(() => {
-  const withContract = new Set(catalog.contracts.map((c) => c.ruleset_name))
-  const all = projectStore.rulesets.map((r) => r.name)
-  return [
-    ...all.filter((n) => withContract.has(n)),
-    ...all.filter((n) => !withContract.has(n)),
-  ]
-})
+  const withContract = new Set(catalog.contracts.map((c) => c.ruleset_name));
+  const all = projectStore.rulesets.map((r) => r.name);
+  return [...all.filter((n) => withContract.has(n)), ...all.filter((n) => !withContract.has(n))];
+});
 
 const contractMap = computed(() => {
-  const map = new Map<string, DecisionContract>()
+  const map = new Map<string, DecisionContract>();
   for (const contract of catalog.contracts) {
-    map.set(contract.ruleset_name, contract)
+    map.set(contract.ruleset_name, contract);
   }
-  return map
-})
+  return map;
+});
 
 const selectedRulesetInfo = computed(
-  () => projectStore.rulesets.find((ruleset) => ruleset.name === selectedRulesetName.value) ?? null,
-)
+  () => projectStore.rulesets.find((ruleset) => ruleset.name === selectedRulesetName.value) ?? null
+);
 
-const selectedContract = computed(
-  () => contractMap.value.get(selectedRulesetName.value) ?? null,
-)
+const selectedContract = computed(() => contractMap.value.get(selectedRulesetName.value) ?? null);
 
-const selectedRuleset = computed(
-  () => rulesetCache.value[selectedRulesetName.value] ?? null,
-)
+const selectedRuleset = computed(() => rulesetCache.value[selectedRulesetName.value] ?? null);
 
 const factLookup = computed(() => {
-  const map = new Map<string, { type: FactDataType; description?: string; required?: boolean }>()
+  const map = new Map<string, { type: FactDataType; description?: string; required?: boolean }>();
   for (const fact of catalog.facts) {
     map.set(fact.name, {
       type: fact.data_type,
       description: fact.description,
       required: fact.null_policy === 'error',
-    })
+    });
   }
-  return map
-})
+  return map;
+});
 
 const inputSuggestions = computed(() =>
-  selectedRuleset.value ? inferInputFields(selectedRuleset.value) : [],
-)
+  selectedRuleset.value ? inferInputFields(selectedRuleset.value) : []
+);
 
 const outputSuggestions = computed(() =>
-  selectedRuleset.value ? inferOutputFields(selectedRuleset.value) : [],
-)
+  selectedRuleset.value ? inferOutputFields(selectedRuleset.value) : []
+);
 
 const rulesetStats = computed(() => {
-  const ruleset = selectedRuleset.value
+  const ruleset = selectedRuleset.value;
   if (!ruleset) {
     return {
       steps: 0,
       decisions: 0,
       actions: 0,
       terminals: 0,
-    }
+    };
   }
 
   return {
@@ -130,38 +115,38 @@ const rulesetStats = computed(() => {
     decisions: ruleset.steps.filter((step) => step.type === 'decision').length,
     actions: ruleset.steps.filter((step) => step.type === 'action').length,
     terminals: ruleset.steps.filter((step) => step.type === 'terminal').length,
-  }
-})
+  };
+});
 
 const terminalCodes = computed(() => {
-  const ruleset = selectedRuleset.value
-  if (!ruleset) return []
-  const codes = new Set<string>()
+  const ruleset = selectedRuleset.value;
+  if (!ruleset) return [];
+  const codes = new Set<string>();
   for (const step of ruleset.steps) {
     if (step.type === 'terminal' && step.code) {
-      codes.add(step.code)
+      codes.add(step.code);
     }
   }
-  return Array.from(codes)
-})
+  return Array.from(codes);
+});
 
 const baselineContract = computed(() =>
   selectedContract.value
     ? toForm(selectedContract.value)
-    : buildDraftContract(selectedRulesetName.value, selectedRuleset.value),
-)
+    : buildDraftContract(selectedRulesetName.value, selectedRuleset.value)
+);
 
-const isDirty = computed(() => contractSignature(form.value) !== baselineSignature.value)
+const isDirty = computed(() => contractSignature(form.value) !== baselineSignature.value);
 
 const validationIssues = computed<ValidationIssue[]>(() => {
-  const issues: ValidationIssue[] = []
+  const issues: ValidationIssue[] = [];
 
   if (!form.value.version_pattern.trim()) {
     issues.push({
       id: 'missing-version',
       level: 'error',
       message: t('contracts.validationMissingVersion'),
-    })
+    });
   }
 
   if (!form.value.owner.trim()) {
@@ -169,7 +154,7 @@ const validationIssues = computed<ValidationIssue[]>(() => {
       id: 'missing-owner',
       level: 'warning',
       message: t('contracts.validationMissingOwner'),
-    })
+    });
   }
 
   if (!form.value.sla_p99_ms && form.value.sla_p99_ms !== 0) {
@@ -177,7 +162,7 @@ const validationIssues = computed<ValidationIssue[]>(() => {
       id: 'missing-sla',
       level: 'warning',
       message: t('contracts.validationMissingSla'),
-    })
+    });
   }
 
   if (form.value.input_fields.length === 0) {
@@ -185,7 +170,7 @@ const validationIssues = computed<ValidationIssue[]>(() => {
       id: 'missing-inputs',
       level: 'error',
       message: t('contracts.validationNoInputFields'),
-    })
+    });
   }
 
   if (form.value.output_fields.length === 0) {
@@ -193,7 +178,7 @@ const validationIssues = computed<ValidationIssue[]>(() => {
       id: 'missing-outputs',
       level: 'error',
       message: t('contracts.validationNoOutputFields'),
-    })
+    });
   }
 
   for (const duplicate of findDuplicateNames(form.value.input_fields)) {
@@ -201,7 +186,7 @@ const validationIssues = computed<ValidationIssue[]>(() => {
       id: `dup-input-${duplicate}`,
       level: 'error',
       message: t('contracts.validationDuplicateField', { name: duplicate }),
-    })
+    });
   }
 
   for (const duplicate of findDuplicateNames(form.value.output_fields)) {
@@ -209,17 +194,17 @@ const validationIssues = computed<ValidationIssue[]>(() => {
       id: `dup-output-${duplicate}`,
       level: 'error',
       message: t('contracts.validationDuplicateField', { name: duplicate }),
-    })
+    });
   }
 
   const knownInputNames = new Set([
     ...inputSuggestions.value.map((field) => field.name),
     ...catalog.facts.map((fact) => fact.name),
-  ])
-  const knownOutputNames = new Set(outputSuggestions.value.map((field) => field.name))
+  ]);
+  const knownOutputNames = new Set(outputSuggestions.value.map((field) => field.name));
 
   for (const field of form.value.input_fields) {
-    const name = field.name.trim()
+    const name = field.name.trim();
     if (name && !knownInputNames.has(name)) {
       issues.push({
         id: `unknown-input-${name}`,
@@ -232,27 +217,27 @@ const validationIssues = computed<ValidationIssue[]>(() => {
               label: t('contracts.actionCreateFact'),
             }
           : undefined,
-      })
+      });
     }
   }
 
   for (const field of form.value.output_fields) {
-    const name = field.name.trim()
+    const name = field.name.trim();
     if (name && knownOutputNames.size > 0 && !knownOutputNames.has(name)) {
       issues.push({
         id: `unknown-output-${name}`,
         level: 'warning',
         message: t('contracts.validationUnknownOutput', { name }),
-      })
+      });
     }
   }
 
-  return issues
-})
+  return issues;
+});
 
 const requestExample = computed(() =>
-  JSON.stringify(buildExampleObject(form.value.input_fields), null, 2),
-)
+  JSON.stringify(buildExampleObject(form.value.input_fields), null, 2)
+);
 
 const responseExample = computed(() =>
   JSON.stringify(
@@ -261,52 +246,52 @@ const responseExample = computed(() =>
       output: buildExampleObject(form.value.output_fields),
     },
     null,
-    2,
-  ),
-)
+    2
+  )
+);
 
 const sidebarRulesets = computed(() =>
   sortedRulesets.value.map((name) => {
-    const contract = contractMap.value.get(name)
+    const contract = contractMap.value.get(name);
     return {
       name,
       hasContract: Boolean(contract),
       inputCount: contract?.input_fields.length ?? 0,
       outputCount: contract?.output_fields.length ?? 0,
-    }
-  }),
-)
+    };
+  })
+);
 
 watch(
   [sortedRulesets, () => route.query.ruleset],
   () => {
     if (sortedRulesets.value.length === 0) {
-      selectedRulesetName.value = ''
-      return
+      selectedRulesetName.value = '';
+      return;
     }
 
-    const queryRuleset = typeof route.query.ruleset === 'string' ? route.query.ruleset : ''
+    const queryRuleset = typeof route.query.ruleset === 'string' ? route.query.ruleset : '';
     if (queryRuleset && sortedRulesets.value.includes(queryRuleset)) {
       if (selectedRulesetName.value !== queryRuleset) {
-        selectedRulesetName.value = queryRuleset
+        selectedRulesetName.value = queryRuleset;
       }
-      return
+      return;
     }
 
     if (!selectedRulesetName.value || !sortedRulesets.value.includes(selectedRulesetName.value)) {
-      selectedRulesetName.value = sortedRulesets.value[0]
+      selectedRulesetName.value = sortedRulesets.value[0];
     }
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 watch(
   selectedRulesetName,
   async (name) => {
-    activeSection.value = 'overview'
-    rulesetLoadError.value = null
+    activeSection.value = 'overview';
+    rulesetLoadError.value = null;
 
-    if (!name) return
+    if (!name) return;
 
     if (route.query.ruleset !== name) {
       void router.replace({
@@ -314,20 +299,20 @@ watch(
           ...route.query,
           ruleset: name,
         },
-      })
+      });
     }
 
-    await ensureRulesetLoaded(name)
-    hydrateForm()
+    await ensureRulesetLoaded(name);
+    hydrateForm();
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 watch(selectedContract, () => {
   if (!isDirty.value) {
-    hydrateForm()
+    hydrateForm();
   }
-})
+});
 
 function emptyContract(rulesetName: string): ContractForm {
   return {
@@ -338,7 +323,7 @@ function emptyContract(rulesetName: string): ContractForm {
     input_fields: [],
     output_fields: [],
     notes: '',
-  }
+  };
 }
 
 function cloneField(field: ContractField): ContractField {
@@ -347,7 +332,7 @@ function cloneField(field: ContractField): ContractField {
     data_type: field.data_type,
     required: field.required,
     description: field.description ?? '',
-  }
+  };
 }
 
 function toForm(contract: DecisionContract | ContractForm): ContractForm {
@@ -359,7 +344,7 @@ function toForm(contract: DecisionContract | ContractForm): ContractForm {
     input_fields: contract.input_fields.map(cloneField),
     output_fields: contract.output_fields.map(cloneField),
     notes: contract.notes ?? '',
-  }
+  };
 }
 
 function contractSignature(contract: ContractForm): string {
@@ -371,7 +356,7 @@ function contractSignature(contract: ContractForm): string {
     input_fields: contract.input_fields.map(normalizeFieldForSignature),
     output_fields: contract.output_fields.map(normalizeFieldForSignature),
     notes: (contract.notes ?? '').trim(),
-  })
+  });
 }
 
 function normalizeFieldForSignature(field: ContractField) {
@@ -380,70 +365,70 @@ function normalizeFieldForSignature(field: ContractField) {
     data_type: field.data_type,
     required: field.required,
     description: (field.description ?? '').trim(),
-  }
+  };
 }
 
 function hydrateForm() {
-  const next = baselineContract.value
-  form.value = toForm(next)
-  baselineSignature.value = contractSignature(form.value)
+  const next = baselineContract.value;
+  form.value = toForm(next);
+  baselineSignature.value = contractSignature(form.value);
 }
 
 async function ensureRulesetLoaded(name: string) {
-  if (!auth.token || !projectId.value || rulesetCache.value[name]) {
-    return
+  if (!auth.token || !projectId.value || !orgId.value || rulesetCache.value[name]) {
+    return;
   }
 
-  loadingRuleset.value = true
+  loadingRuleset.value = true;
   try {
-    const engineRuleset = await engineApi.getRuleset(auth.token, projectId.value, name)
+    const draft = await rulesetDraftApi.get(auth.token, orgId.value, projectId.value, name);
     rulesetCache.value = {
       ...rulesetCache.value,
-      [name]: convertFromEngineFormat(engineRuleset as any),
-    }
+      [name]: normalizeRuleset(draft.draft, name),
+    };
   } catch (error: any) {
-    rulesetLoadError.value = error.message || t('contracts.loadRulesetFailed')
+    rulesetLoadError.value = error.message || t('contracts.loadRulesetFailed');
   } finally {
-    loadingRuleset.value = false
+    loadingRuleset.value = false;
   }
 }
 
 function buildDraftContract(rulesetName: string, ruleset: RuleSet | null): ContractForm {
-  const draft = emptyContract(rulesetName)
+  const draft = emptyContract(rulesetName);
 
-  if (!ruleset) return draft
+  if (!ruleset) return draft;
 
-  draft.version_pattern = toVersionPattern(ruleset.config.version)
-  draft.input_fields = inferInputFields(ruleset)
-  draft.output_fields = inferOutputFields(ruleset)
+  draft.version_pattern = toVersionPattern(ruleset.config.version);
+  draft.input_fields = inferInputFields(ruleset);
+  draft.output_fields = inferOutputFields(ruleset);
 
-  return draft
+  return draft;
 }
 
 function toVersionPattern(version?: string): string {
-  if (!version) return '1.x'
-  const major = version.split('.')[0]?.trim()
-  return major ? `${major}.x` : '1.x'
+  if (!version) return '1.x';
+  const major = version.split('.')[0]?.trim();
+  return major ? `${major}.x` : '1.x';
 }
 
 function mapSchemaFieldType(type?: SchemaField['type']): FactDataType {
   switch (type) {
     case 'number':
-      return 'number'
+      return 'number';
     case 'boolean':
-      return 'boolean'
+      return 'boolean';
     case 'object':
     case 'array':
     case 'any':
-      return 'object'
+      return 'object';
     case 'string':
     default:
-      return 'string'
+      return 'string';
   }
 }
 
 function inferInputFields(ruleset: RuleSet): ContractField[] {
-  const fields = new Map<string, ContractField>()
+  const fields = new Map<string, ContractField>();
 
   for (const field of ruleset.config.inputSchema ?? []) {
     fields.set(field.name, {
@@ -451,26 +436,26 @@ function inferInputFields(ruleset: RuleSet): ContractField[] {
       data_type: mapSchemaFieldType(field.type),
       required: field.required ?? false,
       description: field.description ?? '',
-    })
+    });
   }
 
   for (const path of collectReferencedInputs(ruleset)) {
-    const fact = factLookup.value.get(path)
-    if (!fact || fields.has(path)) continue
+    const fact = factLookup.value.get(path);
+    if (!fact || fields.has(path)) continue;
 
     fields.set(path, {
       name: path,
       data_type: fact.type,
       required: fact.required ?? false,
       description: fact.description ?? '',
-    })
+    });
   }
 
-  return Array.from(fields.values())
+  return Array.from(fields.values());
 }
 
 function inferOutputFields(ruleset: RuleSet): ContractField[] {
-  const fields = new Map<string, ContractField>()
+  const fields = new Map<string, ContractField>();
 
   for (const field of ruleset.config.outputSchema ?? []) {
     fields.set(field.name, {
@@ -478,222 +463,222 @@ function inferOutputFields(ruleset: RuleSet): ContractField[] {
       data_type: mapSchemaFieldType(field.type),
       required: field.required ?? false,
       description: field.description ?? '',
-    })
+    });
   }
 
   for (const step of ruleset.steps) {
-    if (step.type !== 'terminal') continue
+    if (step.type !== 'terminal') continue;
 
     for (const output of step.output ?? []) {
-      if (!output.name || fields.has(output.name)) continue
+      if (!output.name || fields.has(output.name)) continue;
 
       fields.set(output.name, {
         name: output.name,
         data_type: inferExprDataType(output.value, ruleset),
         required: true,
         description: '',
-      })
+      });
     }
   }
 
-  return Array.from(fields.values())
+  return Array.from(fields.values());
 }
 
 function collectReferencedInputs(ruleset: RuleSet): string[] {
-  const paths = new Set<string>()
+  const paths = new Set<string>();
 
   for (const step of ruleset.steps) {
     if (step.type === 'decision') {
       for (const branch of step.branches) {
-        collectConditionPaths(branch.condition, paths)
+        collectConditionPaths(branch.condition, paths);
       }
-      continue
+      continue;
     }
 
     if (step.type === 'action') {
       for (const assignment of step.assignments ?? []) {
-        collectExprPaths(assignment.value, paths)
+        collectExprPaths(assignment.value, paths);
       }
       for (const call of step.externalCalls ?? []) {
         for (const param of Object.values(call.params ?? {})) {
-          collectExprPaths(param, paths)
+          collectExprPaths(param, paths);
         }
         if (call.fallbackValue) {
-          collectExprPaths(call.fallbackValue, paths)
+          collectExprPaths(call.fallbackValue, paths);
         }
       }
       if (step.logging?.message) {
-        collectExprPaths(step.logging.message, paths)
+        collectExprPaths(step.logging.message, paths);
       }
-      continue
+      continue;
     }
 
     if (step.type === 'terminal') {
       if (step.message) {
-        collectExprPaths(step.message, paths)
+        collectExprPaths(step.message, paths);
       }
       for (const output of step.output ?? []) {
-        collectExprPaths(output.value, paths)
+        collectExprPaths(output.value, paths);
       }
     }
   }
 
-  return Array.from(paths)
+  return Array.from(paths);
 }
 
 function collectConditionPaths(condition: Condition, paths: Set<string>) {
   switch (condition.type) {
     case 'simple':
-      collectExprPaths(condition.left, paths)
-      collectExprPaths(condition.right, paths)
-      break
+      collectExprPaths(condition.left, paths);
+      collectExprPaths(condition.right, paths);
+      break;
     case 'logical':
       for (const child of condition.conditions) {
-        collectConditionPaths(child, paths)
+        collectConditionPaths(child, paths);
       }
-      break
+      break;
     case 'not':
-      collectConditionPaths(condition.condition, paths)
-      break
+      collectConditionPaths(condition.condition, paths);
+      break;
     case 'expression':
       for (const match of condition.expression.matchAll(/\$\.([A-Za-z0-9_.]+)/g)) {
-        paths.add(match[1])
+        paths.add(match[1]);
       }
-      break
+      break;
     case 'constant':
-      break
+      break;
   }
 }
 
 function collectExprPaths(expr: Expr, paths: Set<string>) {
   switch (expr.type) {
     case 'variable': {
-      const normalized = normalizeVariablePath(expr.path)
+      const normalized = normalizeVariablePath(expr.path);
       if (normalized) {
-        paths.add(normalized)
+        paths.add(normalized);
       }
-      break
+      break;
     }
     case 'binary':
-      collectExprPaths(expr.left, paths)
-      collectExprPaths(expr.right, paths)
-      break
+      collectExprPaths(expr.left, paths);
+      collectExprPaths(expr.right, paths);
+      break;
     case 'unary':
-      collectExprPaths(expr.operand, paths)
-      break
+      collectExprPaths(expr.operand, paths);
+      break;
     case 'function':
       for (const arg of expr.args) {
-        collectExprPaths(arg, paths)
+        collectExprPaths(arg, paths);
       }
-      break
+      break;
     case 'conditional':
-      collectExprPaths(expr.condition, paths)
-      collectExprPaths(expr.thenExpr, paths)
-      collectExprPaths(expr.elseExpr, paths)
-      break
+      collectExprPaths(expr.condition, paths);
+      collectExprPaths(expr.thenExpr, paths);
+      collectExprPaths(expr.elseExpr, paths);
+      break;
     case 'array':
       for (const element of expr.elements) {
-        collectExprPaths(element, paths)
+        collectExprPaths(element, paths);
       }
-      break
+      break;
     case 'object':
       for (const value of Object.values(expr.properties)) {
-        collectExprPaths(value, paths)
+        collectExprPaths(value, paths);
       }
-      break
+      break;
     case 'member':
-      collectExprPaths(expr.object, paths)
+      collectExprPaths(expr.object, paths);
       if (typeof expr.property !== 'string') {
-        collectExprPaths(expr.property, paths)
+        collectExprPaths(expr.property, paths);
       }
-      break
+      break;
     case 'literal':
-      break
+      break;
   }
 }
 
 function normalizeVariablePath(path: string): string | null {
-  if (!path.startsWith('$.')) return null
-  return path.slice(2)
+  if (!path.startsWith('$.')) return null;
+  return path.slice(2);
 }
 
 function inferExprDataType(expr: Expr, ruleset: RuleSet): FactDataType {
   switch (expr.type) {
     case 'literal':
-      if (expr.valueType === 'number') return 'number'
-      if (expr.valueType === 'boolean') return 'boolean'
-      return 'string'
+      if (expr.valueType === 'number') return 'number';
+      if (expr.valueType === 'boolean') return 'boolean';
+      return 'string';
     case 'variable': {
-      const normalized = normalizeVariablePath(expr.path)
-      if (!normalized) return 'string'
+      const normalized = normalizeVariablePath(expr.path);
+      if (!normalized) return 'string';
 
-      const fact = factLookup.value.get(normalized)
-      if (fact) return fact.type
+      const fact = factLookup.value.get(normalized);
+      if (fact) return fact.type;
 
       for (const field of ruleset.config.inputSchema ?? []) {
-        if (field.name === normalized) return mapSchemaFieldType(field.type)
+        if (field.name === normalized) return mapSchemaFieldType(field.type);
       }
       for (const field of ruleset.config.outputSchema ?? []) {
-        if (field.name === normalized) return mapSchemaFieldType(field.type)
+        if (field.name === normalized) return mapSchemaFieldType(field.type);
       }
-      return 'string'
+      return 'string';
     }
     case 'binary':
-      if (['add', 'sub', 'mul', 'div', 'mod'].includes(expr.op)) return 'number'
-      return 'boolean'
+      if (['add', 'sub', 'mul', 'div', 'mod'].includes(expr.op)) return 'number';
+      return 'boolean';
     case 'unary':
-      return expr.op === 'neg' ? 'number' : 'boolean'
+      return expr.op === 'neg' ? 'number' : 'boolean';
     case 'conditional':
-      return inferExprDataType(expr.thenExpr, ruleset)
+      return inferExprDataType(expr.thenExpr, ruleset);
     case 'array':
     case 'object':
     case 'member':
-      return 'object'
+      return 'object';
     case 'function':
-      return 'string'
+      return 'string';
   }
 }
 
 function findDuplicateNames(fields: ContractField[]): string[] {
-  const seen = new Set<string>()
-  const duplicates = new Set<string>()
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
 
   for (const field of fields) {
-    const name = field.name.trim()
-    if (!name) continue
+    const name = field.name.trim();
+    if (!name) continue;
     if (seen.has(name)) {
-      duplicates.add(name)
+      duplicates.add(name);
     } else {
-      seen.add(name)
+      seen.add(name);
     }
   }
 
-  return Array.from(duplicates)
+  return Array.from(duplicates);
 }
 
 function buildExampleObject(fields: ContractField[]) {
-  const payload: Record<string, unknown> = {}
+  const payload: Record<string, unknown> = {};
   for (const field of fields) {
-    const name = field.name.trim()
-    if (!name) continue
-    payload[name] = sampleValueForType(field.data_type)
+    const name = field.name.trim();
+    if (!name) continue;
+    payload[name] = sampleValueForType(field.data_type);
   }
-  return payload
+  return payload;
 }
 
 function sampleValueForType(type: FactDataType): unknown {
   switch (type) {
     case 'number':
-      return 100
+      return 100;
     case 'boolean':
-      return true
+      return true;
     case 'date':
-      return '2026-04-12T00:00:00Z'
+      return '2026-04-12T00:00:00Z';
     case 'object':
-      return {}
+      return {};
     case 'string':
     default:
-      return 'example'
+      return 'example';
   }
 }
 
@@ -703,28 +688,28 @@ function addField(list: ContractField[]) {
     data_type: 'string',
     required: true,
     description: '',
-  })
+  });
 }
 
 function removeField(list: ContractField[], index: number) {
-  list.splice(index, 1)
+  list.splice(index, 1);
 }
 
 function applyInputSuggestions() {
-  form.value.input_fields = inputSuggestions.value.map(cloneField)
+  form.value.input_fields = inputSuggestions.value.map(cloneField);
 }
 
 function applyOutputSuggestions() {
-  form.value.output_fields = outputSuggestions.value.map(cloneField)
+  form.value.output_fields = outputSuggestions.value.map(cloneField);
 }
 
 function refreshFromRuleset() {
-  hydrateForm()
+  hydrateForm();
 }
 
 async function handleSave() {
-  if (!selectedRulesetName.value) return
-  saving.value = true
+  if (!selectedRulesetName.value) return;
+  saving.value = true;
   try {
     const saved = await catalog.upsertContract(selectedRulesetName.value, {
       version_pattern: form.value.version_pattern.trim(),
@@ -743,24 +728,24 @@ async function handleSave() {
         description: field.description?.trim() || undefined,
       })),
       notes: form.value.notes?.trim() || undefined,
-    })
+    });
     if (!saved) {
-      throw new Error(t('contracts.saveFailed'))
+      throw new Error(t('contracts.saveFailed'));
     }
-    form.value = toForm(saved)
-    baselineSignature.value = contractSignature(form.value)
-    MessagePlugin.success(t('contracts.saveSuccess'))
+    form.value = toForm(saved);
+    baselineSignature.value = contractSignature(form.value);
+    MessagePlugin.success(t('contracts.saveSuccess'));
   } catch (error: any) {
-    MessagePlugin.error(error.message || t('contracts.saveFailed'))
+    MessagePlugin.error(error.message || t('contracts.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
 function handleDelete() {
-  if (!selectedRulesetName.value) return
+  if (!selectedRulesetName.value) return;
 
-  const name = selectedRulesetName.value
+  const name = selectedRulesetName.value;
   const dialog = DialogPlugin.confirm({
     header: t('contracts.deleteDialog'),
     body: t('contracts.deleteConfirm', { name }),
@@ -768,53 +753,55 @@ function handleDelete() {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await catalog.deleteContract(name)
-        dialog.hide()
-        hydrateForm()
-        MessagePlugin.success(t('contracts.deleteSuccess'))
+        await catalog.deleteContract(name);
+        dialog.hide();
+        hydrateForm();
+        MessagePlugin.success(t('contracts.deleteSuccess'));
       } catch (error: any) {
-        MessagePlugin.error(error.message || t('contracts.saveFailed'))
+        MessagePlugin.error(error.message || t('contracts.saveFailed'));
       }
     },
-  })
+  });
 }
 
 function openRulesetEditor() {
-  if (!selectedRulesetName.value) return
-  void router.push(`/orgs/${orgId.value}/projects/${projectId.value}/editor/${selectedRulesetName.value}`)
+  if (!selectedRulesetName.value) return;
+  void router.push(
+    `/orgs/${orgId.value}/projects/${projectId.value}/editor/${selectedRulesetName.value}`
+  );
 }
 
 function handleValidationAction(issue: ValidationIssue) {
-  if (!issue.action) return
+  if (!issue.action) return;
 
   if (issue.action.kind === 'create-fact') {
     void router.push({
       path: `/orgs/${orgId.value}/projects/${projectId.value}/facts`,
       query: { createFact: issue.action.name },
-    })
+    });
   }
 }
 
 function selectRuleset(name: string) {
-  selectedRulesetName.value = name
+  selectedRulesetName.value = name;
 }
 
 function sectionLabel(section: SectionKey): string {
   switch (section) {
     case 'overview':
-      return t('contracts.overviewTab')
+      return t('contracts.overviewTab');
     case 'inputs':
-      return t('contracts.inputFields')
+      return t('contracts.inputFields');
     case 'outputs':
-      return t('contracts.outputFields')
+      return t('contracts.outputFields');
     case 'notes':
-      return t('contracts.notesLabel')
+      return t('contracts.notesLabel');
   }
 }
 
 function summaryRowForRuleset() {
-  const ruleset = selectedRuleset.value
-  if (!ruleset) return []
+  const ruleset = selectedRuleset.value;
+  if (!ruleset) return [];
 
   return [
     ...ruleset.steps
@@ -825,7 +812,9 @@ function summaryRowForRuleset() {
         title: step.name,
         detail:
           step.type === 'decision'
-            ? step.branches.map((branch) => branch.label || conditionToString(branch.condition)).join(' · ')
+            ? step.branches
+                .map((branch) => branch.label || conditionToString(branch.condition))
+                .join(' · ')
             : '',
       })),
     ...ruleset.steps
@@ -834,17 +823,26 @@ function summaryRowForRuleset() {
       .map((step) => ({
         id: step.id,
         title: step.name,
-        detail: step.type === 'terminal' ? (step.output ?? []).map((field) => `${field.name} = ${exprToString(field.value)}`).join(' · ') : '',
+        detail:
+          step.type === 'terminal'
+            ? (step.output ?? [])
+                .map((field) => `${field.name} = ${exprToString(field.value)}`)
+                .join(' · ')
+            : '',
       })),
-  ]
+  ];
 }
 </script>
 
 <template>
   <div class="contract-view">
     <t-breadcrumb class="asset-breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
-      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{ t('breadcrumb.projects') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push(`/orgs/${orgId}/projects`)">{{
+        t('breadcrumb.projects')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('projectNav.contracts') }}</t-breadcrumb-item>
     </t-breadcrumb>
 
@@ -860,7 +858,7 @@ function summaryRowForRuleset() {
     </div>
 
     <div v-else-if="projectStore.rulesets.length === 0" class="asset-empty">
-      <t-icon name="file-safety" size="40px" style="opacity:0.3" />
+      <t-icon name="file-safety" size="40px" style="opacity: 0.3" />
       <p>{{ t('contracts.noRulesets') }}</p>
     </div>
 
@@ -897,14 +895,20 @@ function summaryRowForRuleset() {
             <div class="contract-main__title-row">
               <h3 class="contract-main__title">{{ selectedRulesetName }}</h3>
               <t-tag size="small" variant="light" :theme="selectedContract ? 'success' : 'warning'">
-                {{ selectedContract ? t('contracts.workspaceSaved') : t('contracts.workspaceDraft') }}
+                {{
+                  selectedContract ? t('contracts.workspaceSaved') : t('contracts.workspaceDraft')
+                }}
               </t-tag>
               <t-tag v-if="selectedRulesetInfo?.version" size="small" variant="light">
                 v{{ selectedRulesetInfo.version }}
               </t-tag>
             </div>
             <p class="contract-main__subtitle">
-              {{ selectedRuleset?.config.description || selectedRulesetInfo?.description || t('project.noDesc') }}
+              {{
+                selectedRuleset?.config.description ||
+                selectedRulesetInfo?.description ||
+                t('project.noDesc')
+              }}
             </p>
           </div>
 
@@ -915,7 +919,14 @@ function summaryRowForRuleset() {
             <t-button size="small" variant="outline" @click="refreshFromRuleset">
               {{ t('contracts.refreshDraft') }}
             </t-button>
-            <t-button v-if="canEdit" size="small" theme="primary" :loading="saving" :disabled="!isDirty" @click="handleSave">
+            <t-button
+              v-if="canEdit"
+              size="small"
+              theme="primary"
+              :loading="saving"
+              :disabled="!isDirty"
+              @click="handleSave"
+            >
               {{ t('contracts.saveBtn') }}
             </t-button>
             <t-button
@@ -993,11 +1004,7 @@ function summaryRowForRuleset() {
 
                   <label class="contract-form-item">
                     <span class="contract-form-item__label">{{ t('contracts.slaLabel') }}</span>
-                    <t-input-number
-                      v-model="form.sla_p99_ms"
-                      :disabled="!canEdit"
-                      :min="0"
-                    />
+                    <t-input-number v-model="form.sla_p99_ms" :disabled="!canEdit" :min="0" />
                   </label>
                 </div>
 
@@ -1028,14 +1035,29 @@ function summaryRowForRuleset() {
               <template v-else-if="activeSection === 'inputs'">
                 <div class="field-toolbar">
                   <div>
-                    <div class="field-toolbar__title">{{ t('contracts.inputCount', { count: form.input_fields.length }) }}</div>
-                    <div class="field-toolbar__hint">{{ t('contracts.detectedInputs') }}: {{ inputSuggestions.length }}</div>
+                    <div class="field-toolbar__title">
+                      {{ t('contracts.inputCount', { count: form.input_fields.length }) }}
+                    </div>
+                    <div class="field-toolbar__hint">
+                      {{ t('contracts.detectedInputs') }}: {{ inputSuggestions.length }}
+                    </div>
                   </div>
                   <div class="field-toolbar__actions">
-                    <t-button size="small" variant="outline" :disabled="!canEdit" @click="applyInputSuggestions">
+                    <t-button
+                      size="small"
+                      variant="outline"
+                      :disabled="!canEdit"
+                      @click="applyInputSuggestions"
+                    >
                       {{ t('contracts.useSuggestedInputs') }}
                     </t-button>
-                    <t-button size="small" theme="primary" variant="outline" :disabled="!canEdit" @click="addField(form.input_fields)">
+                    <t-button
+                      size="small"
+                      theme="primary"
+                      variant="outline"
+                      :disabled="!canEdit"
+                      @click="addField(form.input_fields)"
+                    >
                       <t-icon name="add" />
                       {{ t('contracts.addInput') }}
                     </t-button>
@@ -1047,13 +1069,29 @@ function summaryRowForRuleset() {
                 </div>
 
                 <div v-else class="field-editor">
-                  <div v-for="(field, index) in form.input_fields" :key="index" class="field-editor__row">
-                    <t-input v-model="field.name" :disabled="!canEdit" :placeholder="t('contracts.fieldName')" />
-                    <t-select v-model="field.data_type" :disabled="!canEdit" :options="dataTypeOptions" />
+                  <div
+                    v-for="(field, index) in form.input_fields"
+                    :key="index"
+                    class="field-editor__row"
+                  >
+                    <t-input
+                      v-model="field.name"
+                      :disabled="!canEdit"
+                      :placeholder="t('contracts.fieldName')"
+                    />
+                    <t-select
+                      v-model="field.data_type"
+                      :disabled="!canEdit"
+                      :options="dataTypeOptions"
+                    />
                     <t-checkbox v-model="field.required" :disabled="!canEdit">
                       {{ t('contracts.required') }}
                     </t-checkbox>
-                    <t-input v-model="field.description" :disabled="!canEdit" :placeholder="t('contracts.fieldDesc')" />
+                    <t-input
+                      v-model="field.description"
+                      :disabled="!canEdit"
+                      :placeholder="t('contracts.fieldDesc')"
+                    />
                     <t-button
                       size="small"
                       variant="text"
@@ -1070,14 +1108,29 @@ function summaryRowForRuleset() {
               <template v-else-if="activeSection === 'outputs'">
                 <div class="field-toolbar">
                   <div>
-                    <div class="field-toolbar__title">{{ t('contracts.outputCount', { count: form.output_fields.length }) }}</div>
-                    <div class="field-toolbar__hint">{{ t('contracts.detectedOutputs') }}: {{ outputSuggestions.length }}</div>
+                    <div class="field-toolbar__title">
+                      {{ t('contracts.outputCount', { count: form.output_fields.length }) }}
+                    </div>
+                    <div class="field-toolbar__hint">
+                      {{ t('contracts.detectedOutputs') }}: {{ outputSuggestions.length }}
+                    </div>
                   </div>
                   <div class="field-toolbar__actions">
-                    <t-button size="small" variant="outline" :disabled="!canEdit" @click="applyOutputSuggestions">
+                    <t-button
+                      size="small"
+                      variant="outline"
+                      :disabled="!canEdit"
+                      @click="applyOutputSuggestions"
+                    >
                       {{ t('contracts.useSuggestedOutputs') }}
                     </t-button>
-                    <t-button size="small" theme="primary" variant="outline" :disabled="!canEdit" @click="addField(form.output_fields)">
+                    <t-button
+                      size="small"
+                      theme="primary"
+                      variant="outline"
+                      :disabled="!canEdit"
+                      @click="addField(form.output_fields)"
+                    >
                       <t-icon name="add" />
                       {{ t('contracts.addOutput') }}
                     </t-button>
@@ -1089,13 +1142,29 @@ function summaryRowForRuleset() {
                 </div>
 
                 <div v-else class="field-editor">
-                  <div v-for="(field, index) in form.output_fields" :key="index" class="field-editor__row">
-                    <t-input v-model="field.name" :disabled="!canEdit" :placeholder="t('contracts.fieldName')" />
-                    <t-select v-model="field.data_type" :disabled="!canEdit" :options="dataTypeOptions" />
+                  <div
+                    v-for="(field, index) in form.output_fields"
+                    :key="index"
+                    class="field-editor__row"
+                  >
+                    <t-input
+                      v-model="field.name"
+                      :disabled="!canEdit"
+                      :placeholder="t('contracts.fieldName')"
+                    />
+                    <t-select
+                      v-model="field.data_type"
+                      :disabled="!canEdit"
+                      :options="dataTypeOptions"
+                    />
                     <t-checkbox v-model="field.required" :disabled="!canEdit">
                       {{ t('contracts.required') }}
                     </t-checkbox>
-                    <t-input v-model="field.description" :disabled="!canEdit" :placeholder="t('contracts.fieldDesc')" />
+                    <t-input
+                      v-model="field.description"
+                      :disabled="!canEdit"
+                      :placeholder="t('contracts.fieldDesc')"
+                    />
                     <t-button
                       size="small"
                       variant="text"
@@ -1127,8 +1196,18 @@ function summaryRowForRuleset() {
             <section class="assist-card">
               <div class="assist-card__header">
                 <h4>{{ t('contracts.healthTitle') }}</h4>
-                <t-tag size="small" :theme="validationIssues.some((item) => item.level === 'error') ? 'danger' : 'success'" variant="light">
-                  {{ validationIssues.length === 0 ? t('contracts.healthReady') : t('contracts.healthNeedsWork') }}
+                <t-tag
+                  size="small"
+                  :theme="
+                    validationIssues.some((item) => item.level === 'error') ? 'danger' : 'success'
+                  "
+                  variant="light"
+                >
+                  {{
+                    validationIssues.length === 0
+                      ? t('contracts.healthReady')
+                      : t('contracts.healthNeedsWork')
+                  }}
                 </t-tag>
               </div>
               <div v-if="validationIssues.length === 0" class="assist-empty">

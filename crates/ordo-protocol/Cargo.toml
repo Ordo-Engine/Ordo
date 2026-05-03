@@ -1,0 +1,16 @@
+[package]
+name = "ordo-protocol"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Studio ↔ engine protocol conversion layer for Ordo"
+
+[dependencies]
+ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+hashbrown = { version = "0.14", features = ["serde"] }
+
+[dev-dependencies]
+serde_json = "1"

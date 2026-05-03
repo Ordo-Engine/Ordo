@@ -2,7 +2,7 @@
 //!
 //! Defines the structure of rule sets
 
-use super::step::Step;
+use super::step::{Step, SubRuleGraph};
 use crate::error::Result;
 use hashbrown::HashMap as FastMap;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,7 @@ pub struct RuleSetConfig {
     pub description: String,
 
     /// Entry step ID
+    #[serde(default = "default_entry_step")]
     pub entry_step: String,
 
     /// Field missing behavior (default: lenient)
@@ -52,6 +53,10 @@ pub struct RuleSetConfig {
 
 fn default_version() -> String {
     "1.0.0".to_string()
+}
+
+fn default_entry_step() -> String {
+    "start".to_string()
 }
 
 fn default_max_depth() -> usize {
@@ -83,6 +88,10 @@ pub struct RuleSet {
 
     /// Steps by ID (hashbrown for faster lookup in the execution hot loop)
     pub steps: FastMap<String, Step>,
+
+    /// Inline sub-rule graphs referenced by StepKind::SubRule
+    #[serde(default)]
+    pub sub_rules: FastMap<String, SubRuleGraph>,
 }
 
 impl RuleSet {
@@ -102,7 +111,14 @@ impl RuleSet {
                 metadata: HashMap::new(),
             },
             steps: FastMap::new(),
+            sub_rules: FastMap::new(),
         }
+    }
+
+    /// Add a sub-rule graph
+    pub fn add_sub_rule(&mut self, name: impl Into<String>, graph: SubRuleGraph) -> &mut Self {
+        self.sub_rules.insert(name.into(), graph);
+        self
     }
 
     /// Add a step
@@ -123,6 +139,8 @@ impl RuleSet {
 
     /// Validate the RuleSet
     pub fn validate(&self) -> std::result::Result<(), Vec<String>> {
+        use super::step::StepKind;
+
         let mut errors = Vec::new();
 
         // Check entry step exists
@@ -130,7 +148,7 @@ impl RuleSet {
             errors.push(format!("Entry step '{}' not found", self.config.entry_step));
         }
 
-        // Check all referenced steps exist
+        // Check all referenced steps and sub-rules exist
         for step in self.steps.values() {
             for next_step in step.referenced_steps() {
                 if !self.steps.contains_key(&next_step) {
@@ -140,6 +158,39 @@ impl RuleSet {
                     ));
                 }
             }
+            if let StepKind::SubRule { ref_name, .. } = &step.kind {
+                if !self.sub_rules.contains_key(ref_name) {
+                    errors.push(format!(
+                        "Step '{}' references non-existent sub-rule '{}'",
+                        step.id, ref_name
+                    ));
+                }
+            }
+        }
+
+        // Validate each sub-rule graph's internal integrity
+        for (name, graph) in &self.sub_rules {
+            if !graph.steps.contains_key(&graph.entry_step) {
+                errors.push(format!(
+                    "Sub-rule '{}' entry step '{}' not found",
+                    name, graph.entry_step
+                ));
+            }
+            for step in graph.steps.values() {
+                for next_step in step.referenced_steps() {
+                    if !graph.steps.contains_key(&next_step) {
+                        errors.push(format!(
+                            "Sub-rule '{}' step '{}' references non-existent step '{}'",
+                            name, step.id, next_step
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Cycle detection on sub-rule call graph
+        if let Err(cycle) = self.check_sub_rule_cycles() {
+            errors.push(cycle);
         }
 
         if errors.is_empty() {
@@ -147,6 +198,47 @@ impl RuleSet {
         } else {
             Err(errors)
         }
+    }
+
+    /// DFS cycle detection on the sub-rule → sub-rule call graph.
+    fn check_sub_rule_cycles(&self) -> std::result::Result<(), String> {
+        use super::step::StepKind;
+        use std::collections::HashSet;
+
+        fn dfs(
+            name: &str,
+            sub_rules: &FastMap<String, SubRuleGraph>,
+            visiting: &mut HashSet<String>,
+            visited: &mut HashSet<String>,
+        ) -> std::result::Result<(), String> {
+            if visiting.contains(name) {
+                return Err(format!(
+                    "Cycle detected in sub-rule call graph at '{}'",
+                    name
+                ));
+            }
+            if visited.contains(name) {
+                return Ok(());
+            }
+            visiting.insert(name.to_string());
+            if let Some(graph) = sub_rules.get(name) {
+                for step in graph.steps.values() {
+                    if let StepKind::SubRule { ref_name, .. } = &step.kind {
+                        dfs(ref_name, sub_rules, visiting, visited)?;
+                    }
+                }
+            }
+            visiting.remove(name);
+            visited.insert(name.to_string());
+            Ok(())
+        }
+
+        let mut visiting = HashSet::new();
+        let mut visited = HashSet::new();
+        for name in self.sub_rules.keys() {
+            dfs(name, &self.sub_rules, &mut visiting, &mut visited)?;
+        }
+        Ok(())
     }
 
     /// Load from JSON string (raw, without compilation)
@@ -208,6 +300,11 @@ impl RuleSet {
     pub fn compile(&mut self) -> Result<()> {
         for step in self.steps.values_mut() {
             step.compile()?;
+        }
+        for graph in self.sub_rules.values_mut() {
+            for step in graph.steps.values_mut() {
+                step.compile()?;
+            }
         }
         Ok(())
     }

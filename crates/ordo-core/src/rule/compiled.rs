@@ -26,7 +26,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 const MAGIC: &[u8; 4] = b"ORDO";
-const VERSION: u16 = 1;
+const VERSION: u16 = 3;
 const FLAG_HAS_SIGNATURE: u16 = 0b0001;
 
 /// Maximum allowed size for collections during deserialization (prevent DoS attacks)
@@ -136,6 +136,7 @@ pub struct CompiledRuleSet {
     pub metadata: CompiledMetadata,
     pub entry_step: u32,
     pub steps: Vec<CompiledStep>,
+    pub sub_rules: HashMap<u32, CompiledSubRuleGraph>,
     pub expressions: Vec<CompiledExpr>,
     pub string_pool: Vec<String>,
     pub signature: Option<CompiledSignature>,
@@ -160,6 +161,7 @@ impl CompiledRuleSet {
             metadata,
             entry_step,
             steps,
+            sub_rules: HashMap::new(),
             expressions,
             string_pool,
             signature: None,
@@ -167,6 +169,11 @@ impl CompiledRuleSet {
         };
         ruleset.rebuild_index();
         ruleset
+    }
+
+    pub fn with_sub_rules(mut self, sub_rules: HashMap<u32, CompiledSubRuleGraph>) -> Self {
+        self.sub_rules = sub_rules;
+        self
     }
 
     pub fn get_step(&self, step_hash: u32) -> Result<&CompiledStep> {
@@ -189,6 +196,12 @@ impl CompiledRuleSet {
             .get(index as usize)
             .map(|s| s.as_str())
             .ok_or_else(|| OrdoError::parse_error("String pool index out of range"))
+    }
+
+    pub fn get_sub_rule(&self, name: u32) -> Result<&CompiledSubRuleGraph> {
+        self.sub_rules
+            .get(&name)
+            .ok_or_else(|| OrdoError::parse_error("Sub-rule not found in compiled ruleset"))
     }
 
     pub fn rebuild_index(&mut self) {
@@ -325,9 +338,29 @@ impl CompiledRuleSet {
             steps.push(CompiledStep::deserialize(&mut cursor)?);
         }
 
+        let sub_rules = if version >= 3 {
+            let sub_rule_count = read_u32(&mut cursor)? as usize;
+            if sub_rule_count > MAX_COLLECTION_SIZE {
+                return Err(OrdoError::parse_error(format!(
+                    "Sub-rule count {} exceeds maximum {}",
+                    sub_rule_count, MAX_COLLECTION_SIZE
+                )));
+            }
+            let mut sub_rules = HashMap::with_capacity(sub_rule_count);
+            for _ in 0..sub_rule_count {
+                let name = read_u32(&mut cursor)?;
+                let graph = CompiledSubRuleGraph::deserialize(&mut cursor)?;
+                sub_rules.insert(name, graph);
+            }
+            sub_rules
+        } else {
+            HashMap::new()
+        };
+
         let entry_step = read_u32(&mut cursor)?;
 
-        let mut ruleset = Self::new(metadata, entry_step, steps, expressions, string_pool);
+        let mut ruleset = Self::new(metadata, entry_step, steps, expressions, string_pool)
+            .with_sub_rules(sub_rules);
         ruleset.signature = signature;
         Ok(ruleset)
     }
@@ -402,6 +435,12 @@ impl CompiledRuleSet {
         write_u32(out, self.steps.len() as u32);
         for step in &self.steps {
             step.serialize(out);
+        }
+
+        write_u32(out, self.sub_rules.len() as u32);
+        for (name, graph) in &self.sub_rules {
+            write_u32(out, *name);
+            graph.serialize(out);
         }
 
         write_u32(out, self.entry_step);
@@ -479,6 +518,13 @@ pub enum CompiledStep {
         outputs: Vec<CompiledOutput>,
         data: Value,
     },
+    SubRule {
+        id_hash: u32,
+        ref_name: u32,
+        bindings: Vec<CompiledSubRuleBinding>,
+        outputs: Vec<CompiledSubRuleOutput>,
+        next_step: u32,
+    },
 }
 
 impl CompiledStep {
@@ -487,6 +533,7 @@ impl CompiledStep {
             CompiledStep::Decision { id_hash, .. } => *id_hash,
             CompiledStep::Action { id_hash, .. } => *id_hash,
             CompiledStep::Terminal { id_hash, .. } => *id_hash,
+            CompiledStep::SubRule { id_hash, .. } => *id_hash,
         }
     }
 
@@ -534,6 +581,26 @@ impl CompiledStep {
                     output.serialize(out);
                 }
                 write_value(out, data);
+            }
+            CompiledStep::SubRule {
+                id_hash,
+                ref_name,
+                bindings,
+                outputs,
+                next_step,
+            } => {
+                write_u8(out, 3);
+                write_u32(out, *id_hash);
+                write_u32(out, *ref_name);
+                write_u32(out, bindings.len() as u32);
+                for binding in bindings {
+                    binding.serialize(out);
+                }
+                write_u32(out, outputs.len() as u32);
+                for output in outputs {
+                    output.serialize(out);
+                }
+                write_u32(out, *next_step);
             }
         }
     }
@@ -587,8 +654,135 @@ impl CompiledStep {
                     data,
                 })
             }
+            3 => {
+                let id_hash = read_u32(cursor)?;
+                let ref_name = read_u32(cursor)?;
+                let binding_count = read_u32(cursor)? as usize;
+                let mut bindings = Vec::with_capacity(binding_count);
+                for _ in 0..binding_count {
+                    bindings.push(CompiledSubRuleBinding::deserialize(cursor)?);
+                }
+                let output_count = read_u32(cursor)? as usize;
+                let mut outputs = Vec::with_capacity(output_count);
+                for _ in 0..output_count {
+                    outputs.push(CompiledSubRuleOutput::deserialize(cursor)?);
+                }
+                let next_step = read_u32(cursor)?;
+                Ok(CompiledStep::SubRule {
+                    id_hash,
+                    ref_name,
+                    bindings,
+                    outputs,
+                    next_step,
+                })
+            }
             _ => Err(OrdoError::parse_error("Unknown compiled step tag")),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledSubRuleGraph {
+    pub entry_step: u32,
+    pub steps: Vec<CompiledStep>,
+    step_index: HashMap<u32, usize>,
+}
+
+impl CompiledSubRuleGraph {
+    pub fn new(entry_step: u32, steps: Vec<CompiledStep>) -> Self {
+        let mut graph = Self {
+            entry_step,
+            steps,
+            step_index: HashMap::new(),
+        };
+        graph.rebuild_index();
+        graph
+    }
+
+    pub fn get_step(&self, step_hash: u32) -> Result<&CompiledStep> {
+        let index =
+            self.step_index
+                .get(&step_hash)
+                .copied()
+                .ok_or_else(|| OrdoError::StepNotFound {
+                    step_id: format!("{step_hash}"),
+                })?;
+        self.steps
+            .get(index)
+            .ok_or_else(|| OrdoError::StepNotFound {
+                step_id: format!("{step_hash}"),
+            })
+    }
+
+    fn rebuild_index(&mut self) {
+        self.step_index.clear();
+        for (idx, step) in self.steps.iter().enumerate() {
+            self.step_index.insert(step.id_hash(), idx);
+        }
+    }
+
+    fn serialize(&self, out: &mut Vec<u8>) {
+        write_u32(out, self.entry_step);
+        write_u32(out, self.steps.len() as u32);
+        for step in &self.steps {
+            step.serialize(out);
+        }
+    }
+
+    fn deserialize(cursor: &mut Cursor<'_>) -> Result<Self> {
+        let entry_step = read_u32(cursor)?;
+        let step_count = read_u32(cursor)? as usize;
+        if step_count > MAX_COLLECTION_SIZE {
+            return Err(OrdoError::parse_error(format!(
+                "Sub-rule step count {} exceeds maximum {}",
+                step_count, MAX_COLLECTION_SIZE
+            )));
+        }
+        let mut steps = Vec::with_capacity(step_count);
+        for _ in 0..step_count {
+            steps.push(CompiledStep::deserialize(cursor)?);
+        }
+        Ok(Self::new(entry_step, steps))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledSubRuleBinding {
+    pub name: u32,
+    pub expr: u32,
+}
+
+impl CompiledSubRuleBinding {
+    fn serialize(&self, out: &mut Vec<u8>) {
+        write_u32(out, self.name);
+        write_u32(out, self.expr);
+    }
+
+    fn deserialize(cursor: &mut Cursor<'_>) -> Result<Self> {
+        Ok(Self {
+            name: read_u32(cursor)?,
+            expr: read_u32(cursor)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledSubRuleOutput {
+    pub parent_variable: u32,
+    pub child_variable: u32,
+}
+
+impl CompiledSubRuleOutput {
+    fn serialize(&self, out: &mut Vec<u8>) {
+        write_u32(out, self.parent_variable);
+        write_u32(out, self.child_variable);
+    }
+
+    fn deserialize(cursor: &mut Cursor<'_>) -> Result<Self> {
+        Ok(Self {
+            parent_variable: read_u32(cursor)?,
+            child_variable: read_u32(cursor)?,
+        })
     }
 }
 
@@ -668,6 +862,13 @@ pub enum CompiledAction {
         value: u32,
         tags: Vec<(u32, u32)>,
     },
+    ExternalCall {
+        service: u32,
+        method: u32,
+        params: Vec<(u32, u32)>,
+        result_variable: Option<u32>,
+        timeout_ms: u64,
+    },
 }
 
 impl CompiledAction {
@@ -693,6 +894,24 @@ impl CompiledAction {
                     write_u32(out, *v);
                 }
             }
+            CompiledAction::ExternalCall {
+                service,
+                method,
+                params,
+                result_variable,
+                timeout_ms,
+            } => {
+                write_u8(out, 3);
+                write_u32(out, *service);
+                write_u32(out, *method);
+                write_u32(out, params.len() as u32);
+                for (name, expr) in params {
+                    write_u32(out, *name);
+                    write_u32(out, *expr);
+                }
+                write_option_u32(out, *result_variable);
+                write_u64(out, *timeout_ms);
+            }
         }
     }
 
@@ -715,6 +934,24 @@ impl CompiledAction {
                     tags.push((read_u32(cursor)?, read_u32(cursor)?));
                 }
                 Ok(CompiledAction::Metric { name, value, tags })
+            }
+            3 => {
+                let service = read_u32(cursor)?;
+                let method = read_u32(cursor)?;
+                let count = read_u32(cursor)? as usize;
+                let mut params = Vec::with_capacity(count);
+                for _ in 0..count {
+                    params.push((read_u32(cursor)?, read_u32(cursor)?));
+                }
+                let result_variable = read_option_u32(cursor)?;
+                let timeout_ms = read_u64(cursor)?;
+                Ok(CompiledAction::ExternalCall {
+                    service,
+                    method,
+                    params,
+                    result_variable,
+                    timeout_ms,
+                })
             }
             _ => Err(OrdoError::parse_error("Unknown compiled action tag")),
         }
@@ -1004,6 +1241,11 @@ fn crc32_hash(data: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::{
+        CapabilityCategory, CapabilityDescriptor, CapabilityProvider, CapabilityRegistry,
+        CapabilityRequest, CapabilityResponse,
+    };
+    use crate::error::OrdoError;
     use crate::expr::Expr;
     use crate::rule::{
         Action, ActionKind, CompiledRuleExecutor, Condition, RuleSet, RuleSetCompiler, Step,
@@ -1015,6 +1257,55 @@ mod tests {
     use crate::signature::signer::RuleSigner;
     #[cfg(feature = "signature")]
     use crate::signature::verifier::RuleVerifier;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct EchoCapability;
+
+    impl CapabilityProvider for EchoCapability {
+        fn descriptor(&self) -> CapabilityDescriptor {
+            CapabilityDescriptor::new("network.http", CapabilityCategory::Network)
+        }
+
+        fn invoke(&self, request: &CapabilityRequest) -> Result<CapabilityResponse> {
+            let payload = match &request.payload {
+                Value::Object(payload) => payload,
+                other => {
+                    return Err(OrdoError::capability_invocation(
+                        "network.http",
+                        format!("expected object payload, got {other:?}"),
+                    ));
+                }
+            };
+
+            let url = payload
+                .get("url")
+                .cloned()
+                .ok_or_else(|| OrdoError::capability_invocation("network.http", "missing url"))?;
+            let amount = payload.get("amount").cloned().ok_or_else(|| {
+                OrdoError::capability_invocation("network.http", "missing amount")
+            })?;
+
+            Ok(CapabilityResponse::new(Value::object({
+                let mut response = HashMap::new();
+                response.insert("status".to_string(), Value::int(200));
+                response.insert("method".to_string(), Value::string(&request.operation));
+                response.insert("url".to_string(), url);
+                response.insert("echoed_amount".to_string(), amount);
+                response
+            }))
+            .with_metadata("provider", "echo"))
+        }
+    }
+
+    fn unique_temp_ordo_path(prefix: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nonce}.ordo"))
+    }
 
     fn build_ruleset() -> RuleSet {
         let mut ruleset = RuleSet::new("compiled_test", "start");
@@ -1317,6 +1608,69 @@ mod tests {
 
         println!("All file roundtrip tests passed!");
         println!("File saved at: {:?}", file_path);
+    }
+
+    #[test]
+    fn test_compiled_external_call_ordo_file_roundtrip() {
+        let mut ruleset = RuleSet::new("compiled_external_file", "invoke");
+        ruleset.add_step(Step::action(
+            "invoke",
+            "Invoke HTTP Capability",
+            vec![Action {
+                kind: ActionKind::ExternalCall {
+                    service: "network.http".to_string(),
+                    method: "POST".to_string(),
+                    params: vec![
+                        (
+                            "url".to_string(),
+                            Expr::literal("https://example.test/file-roundtrip"),
+                        ),
+                        ("amount".to_string(), Expr::field("amount")),
+                    ],
+                    result_variable: Some("http_result".to_string()),
+                    timeout_ms: 250,
+                },
+                description: String::new(),
+            }],
+            "done",
+        ));
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("OK")
+                .with_output("status", Expr::field("$http_result.payload.status"))
+                .with_output("method", Expr::field("$http_result.payload.method"))
+                .with_output("amount", Expr::field("$http_result.payload.echoed_amount"))
+                .with_output("provider", Expr::field("$http_result.metadata.provider")),
+        ));
+
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let file_path = unique_temp_ordo_path("compiled-external-call");
+        compiled.save_to_file(&file_path).unwrap();
+
+        let loaded = CompiledRuleSet::load_from_file(&file_path).unwrap();
+        let registry = Arc::new(CapabilityRegistry::new());
+        registry.register(Arc::new(EchoCapability));
+
+        let mut executor = CompiledRuleExecutor::new();
+        executor.set_capability_invoker(registry);
+
+        let input = serde_json::from_str(r#"{"amount": 42}"#).unwrap();
+        let result = executor.execute(&loaded, input).unwrap();
+
+        assert_eq!(result.code, "OK");
+        assert_eq!(result.output.get_path("status"), Some(&Value::int(200)));
+        assert_eq!(
+            result.output.get_path("method"),
+            Some(&Value::string("POST"))
+        );
+        assert_eq!(result.output.get_path("amount"), Some(&Value::int(42)));
+        assert_eq!(
+            result.output.get_path("provider"),
+            Some(&Value::string("echo"))
+        );
+
+        std::fs::remove_file(&file_path).unwrap();
     }
 
     #[test]

@@ -188,8 +188,6 @@ impl ExprCompiler {
             } => self.compile_conditional(condition, then_branch, else_branch),
 
             Expr::Array(elements) => {
-                // For now, compile each element and return the last register
-                // A proper implementation would create an array value
                 if elements.is_empty() {
                     let reg = self.alloc_reg();
                     let const_idx = self.add_constant(Value::array(vec![]));
@@ -215,16 +213,74 @@ impl ExprCompiler {
                     return reg;
                 }
 
-                // Fall back to loading the first element for now
-                self.compile_expr(&elements[0])
+                let result_reg = self.alloc_reg();
+                let const_idx = self.add_constant(Value::array(vec![]));
+                self.emit(Instruction::new(
+                    Opcode::LoadConst,
+                    result_reg,
+                    const_idx,
+                    0,
+                ));
+                for element in elements {
+                    let value_reg = self.compile_expr(element);
+                    self.emit(Instruction::new(
+                        Opcode::ArrayPush,
+                        result_reg,
+                        value_reg,
+                        0,
+                    ));
+                }
+                result_reg
             }
 
-            Expr::Object(_pairs) => {
-                // Simplified: return empty object
-                let reg = self.alloc_reg();
+            Expr::Object(pairs) => {
+                if pairs.is_empty() {
+                    let reg = self.alloc_reg();
+                    let const_idx =
+                        self.add_constant(Value::object(std::collections::HashMap::new()));
+                    self.emit(Instruction::new(Opcode::LoadConst, reg, const_idx, 0));
+                    return reg;
+                }
+
+                if pairs
+                    .iter()
+                    .all(|(_, value)| matches!(value, Expr::Literal(_)))
+                {
+                    let object: std::collections::HashMap<String, Value> = pairs
+                        .iter()
+                        .filter_map(|(key, value)| {
+                            if let Expr::Literal(value) = value {
+                                Some((key.clone(), value.clone()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    let reg = self.alloc_reg();
+                    let const_idx = self.add_constant(Value::object(object));
+                    self.emit(Instruction::new(Opcode::LoadConst, reg, const_idx, 0));
+                    return reg;
+                }
+
+                let result_reg = self.alloc_reg();
                 let const_idx = self.add_constant(Value::object(std::collections::HashMap::new()));
-                self.emit(Instruction::new(Opcode::LoadConst, reg, const_idx, 0));
-                reg
+                self.emit(Instruction::new(
+                    Opcode::LoadConst,
+                    result_reg,
+                    const_idx,
+                    0,
+                ));
+                for (key, value) in pairs {
+                    let value_reg = self.compile_expr(value);
+                    let key_idx = self.add_field(key);
+                    self.emit(Instruction::new(
+                        Opcode::ObjectSet,
+                        result_reg,
+                        value_reg,
+                        key_idx,
+                    ));
+                }
+                result_reg
             }
 
             Expr::Exists(path) => {

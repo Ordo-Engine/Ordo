@@ -1,99 +1,200 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useSystemStore } from '@/stores/system';
+import { MessagePlugin } from 'tdesign-vue-next';
+import platformLogo from '@/assets/platform-logo.png';
 
-const router = useRouter()
-const auth = useAuthStore()
-const { t } = useI18n()
+const router = useRouter();
+const auth = useAuthStore();
+const systemStore = useSystemStore();
+const { t } = useI18n();
 
-const displayName = ref('')
-const email = ref('')
-const password = ref('')
-const password2 = ref('')
-const loading = ref(false)
+const displayName = ref('');
+const email = ref('');
+const password = ref('');
+const password2 = ref('');
+const loading = ref(false);
+
+onMounted(() => {
+  systemStore.fetchConfig();
+});
 
 async function handleRegister() {
   if (!email.value || !password.value || !displayName.value) {
-    MessagePlugin.warning(t('auth.fillRequired'))
-    return
+    MessagePlugin.warning(t('auth.fillRequired'));
+    return;
   }
   if (password.value !== password2.value) {
-    MessagePlugin.warning(t('auth.passwordMismatch'))
-    return
+    MessagePlugin.warning(t('auth.passwordMismatch'));
+    return;
   }
   if (password.value.length < 8) {
-    MessagePlugin.warning(t('auth.passwordTooShort'))
-    return
+    MessagePlugin.warning(t('auth.passwordTooShort'));
+    return;
   }
-  loading.value = true
+  loading.value = true;
   try {
-    await auth.register(email.value, password.value, displayName.value)
-    router.push('/')
+    await auth.register(email.value, password.value, displayName.value);
+    router.push('/');
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('auth.registerFailed'))
+    MessagePlugin.error(e.message || t('auth.registerFailed'));
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 </script>
 
 <template>
   <div class="auth-page">
-    <div class="auth-card">
-      <div class="auth-header">
-        <svg class="auth-logo" width="32" height="32" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="3" width="8" height="8" rx="1" fill="#0066b8" />
-          <rect x="13" y="3" width="8" height="8" rx="1" fill="#0066b8" opacity=".6" />
-          <rect x="3" y="13" width="8" height="8" rx="1" fill="#0066b8" opacity=".6" />
-          <rect x="13" y="13" width="8" height="8" rx="1" fill="#0066b8" opacity=".3" />
-        </svg>
-        <h1 class="auth-title">{{ t('auth.createAccount') }}</h1>
-        <p class="auth-subtitle">{{ t('auth.joinStudio') }}</p>
+    <!-- Left brand area -->
+    <div class="brand-area">
+      <div class="brand-logo">
+        <img :src="platformLogo" alt="Ordo" class="brand-logo-img" />
+        <span class="brand-name">Ordo</span>
       </div>
 
-      <div class="auth-form">
-        <div class="form-field">
-          <label class="form-label">{{ t('auth.displayNameLabel') }}</label>
-          <t-input v-model="displayName" :placeholder="t('auth.displayNamePlaceholder')" size="large" clearable />
+      <div class="brand-copy">
+        <h1 class="brand-headline">{{ t('auth.subtitle') }}</h1>
+        <p class="brand-tagline">{{ t('auth.tagline') }}</p>
+      </div>
+
+      <ul class="brand-features">
+        <li>
+          <svg class="feat-check" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15" />
+            <path
+              d="M4.5 8l2.5 2.5 4.5-4.5"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          {{ t('auth.feature1') }}
+        </li>
+        <li>
+          <svg class="feat-check" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15" />
+            <path
+              d="M4.5 8l2.5 2.5 4.5-4.5"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          {{ t('auth.feature2') }}
+        </li>
+        <li>
+          <svg class="feat-check" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="8" fill="#22c55e" fill-opacity="0.15" />
+            <path
+              d="M4.5 8l2.5 2.5 4.5-4.5"
+              stroke="#16a34a"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          {{ t('auth.feature3') }}
+        </li>
+      </ul>
+    </div>
+
+    <!-- Right: floating form card -->
+    <div class="form-card">
+      <!-- Loading skeleton -->
+      <div v-if="systemStore.loading" class="loading-state">
+        <t-skeleton
+          theme="paragraph"
+          animation="gradient"
+          :row-col="[{ width: '40%' }, { width: '100%' }, { width: '100%' }, { width: '100%' }]"
+        />
+      </div>
+
+      <!-- Registration disabled -->
+      <template v-else-if="!systemStore.allowRegistration">
+        <div class="disabled-header">
+          <div class="disabled-icon">
+            <svg viewBox="0 0 24 24" fill="none" width="24" height="24">
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+                fill="currentColor"
+              />
+            </svg>
+          </div>
+          <h2 class="form-title">{{ t('auth.registrationDisabled') }}</h2>
         </div>
-        <div class="form-field">
-          <label class="form-label">{{ t('auth.emailLabel') }}</label>
-          <t-input v-model="email" placeholder="your@email.com" type="email" size="large" clearable />
+        <p class="disabled-desc">{{ t('auth.registrationDisabledDesc') }}</p>
+        <router-link to="/login" class="back-btn"> ← {{ t('auth.backToLogin') }} </router-link>
+      </template>
+
+      <!-- Registration form -->
+      <template v-else>
+        <div class="form-header">
+          <h2 class="form-title">{{ t('auth.createAccount') }}</h2>
         </div>
-        <div class="form-field">
-          <label class="form-label">{{ t('auth.passwordLabel') }}</label>
-          <t-input v-model="password" :placeholder="t('auth.passwordMinPlaceholder')" type="password" size="large" />
-        </div>
-        <div class="form-field">
-          <label class="form-label">{{ t('auth.confirmPasswordLabel') }}</label>
-          <t-input
-            v-model="password2"
-            :placeholder="t('auth.confirmPasswordPlaceholder')"
-            type="password"
+
+        <div class="form-fields">
+          <div class="field">
+            <label class="field-label">{{ t('auth.displayNameLabel') }}</label>
+            <t-input
+              v-model="displayName"
+              :placeholder="t('auth.displayNamePlaceholder')"
+              size="large"
+              clearable
+            />
+          </div>
+          <div class="field">
+            <label class="field-label">{{ t('auth.emailLabel') }}</label>
+            <t-input
+              v-model="email"
+              placeholder="you@company.com"
+              type="email"
+              size="large"
+              clearable
+            />
+          </div>
+          <div class="field">
+            <label class="field-label">{{ t('auth.passwordLabel') }}</label>
+            <t-input
+              v-model="password"
+              :placeholder="t('auth.passwordMinPlaceholder')"
+              type="password"
+              size="large"
+            />
+          </div>
+          <div class="field">
+            <label class="field-label">{{ t('auth.confirmPasswordLabel') }}</label>
+            <t-input
+              v-model="password2"
+              :placeholder="t('auth.confirmPasswordPlaceholder')"
+              type="password"
+              size="large"
+              @keyup.enter="handleRegister"
+            />
+          </div>
+
+          <t-button
+            theme="primary"
+            block
             size="large"
-            @keyup.enter="handleRegister"
-          />
+            :loading="loading"
+            class="submit-btn"
+            @click="handleRegister"
+          >
+            {{ t('auth.registerBtn') }}
+          </t-button>
         </div>
 
-        <t-button
-          theme="primary"
-          block
-          size="large"
-          :loading="loading"
-          class="submit-btn"
-          @click="handleRegister"
-        >
-          {{ t('auth.registerBtn') }}
-        </t-button>
-      </div>
-
-      <div class="auth-footer">
-        {{ t('auth.hasAccount') }}
-        <router-link to="/login" class="auth-link">{{ t('auth.loginLink') }}</router-link>
-      </div>
+        <div class="form-footer">
+          {{ t('auth.hasAccount') }}
+          <router-link to="/login" class="form-link">{{ t('auth.loginLink') }}</router-link>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -101,78 +202,232 @@ async function handleRegister() {
 <style scoped>
 .auth-page {
   min-height: 100vh;
-  background: var(--ordo-bg-app);
+  background: #f2f0ea;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 48px 64px;
+  gap: 80px;
 }
 
-.auth-card {
-  width: 100%;
-  max-width: 400px;
-  background: var(--ordo-bg-panel);
-  border: 1px solid var(--ordo-border-color);
-  border-radius: var(--ordo-radius-xl);
-  padding: 40px;
-  box-shadow: var(--ordo-shadow-md);
+/* ── Left brand area ──────────────────────────────────────────────────────── */
+.brand-area {
+  flex: 1;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
 }
 
-.auth-header {
-  text-align: center;
-  margin-bottom: 32px;
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.auth-logo {
-  display: block;
-  margin: 0 auto 12px;
+.brand-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
-.auth-title {
-  font-size: 22px;
+.brand-name {
+  font-size: 20px;
   font-weight: 700;
-  color: var(--ordo-text-primary);
-  margin: 0 0 4px;
+  color: #1a1714;
+  letter-spacing: -0.3px;
 }
 
-.auth-subtitle {
-  font-size: 13px;
-  color: var(--ordo-text-secondary);
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brand-headline {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a1714;
+  line-height: 1.2;
   margin: 0;
 }
 
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  margin-bottom: 24px;
+.brand-tagline {
+  font-size: 15px;
+  color: #5a534a;
+  line-height: 1.7;
+  margin: 0;
 }
 
-.form-field {
+.brand-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.brand-features li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #3d3830;
+  line-height: 1.5;
+}
+
+.feat-check {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* ── Right form card ──────────────────────────────────────────────────────── */
+.form-card {
+  width: 400px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.04),
+    0 10px 40px rgba(0, 0, 0, 0.08);
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.loading-state {
+  padding: 8px 0;
+}
+
+/* Disabled state */
+.disabled-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.disabled-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #fef3c7;
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.disabled-desc {
+  font-size: 14px;
+  color: #5a534a;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ordo-accent);
+  text-decoration: none;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.form-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.form-sub {
+  font-size: 13px;
+  color: #8a8178;
+  margin: 0;
+}
+
+.form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.form-label {
+.field-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--ordo-text-secondary);
+  color: #374151;
 }
 
 .submit-btn {
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
-.auth-footer {
+.form-footer {
   text-align: center;
   font-size: 13px;
-  color: var(--ordo-text-secondary);
+  color: #8a8178;
+  padding-top: 4px;
+  border-top: 1px solid #f0ede6;
 }
 
-.auth-link {
+.form-link {
   color: var(--ordo-accent);
   text-decoration: none;
   font-weight: 500;
+  margin-left: 4px;
+}
+
+.form-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .auth-page {
+    flex-direction: column;
+    padding: 40px 24px;
+    gap: 40px;
+    justify-content: flex-start;
+    padding-top: 60px;
+  }
+
+  .brand-area {
+    max-width: 100%;
+    gap: 16px;
+  }
+
+  .brand-headline {
+    font-size: 24px;
+  }
+
+  .brand-features {
+    display: none;
+  }
+
+  .form-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 32px 28px;
+  }
 }
 </style>

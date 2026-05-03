@@ -1,39 +1,42 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { useTestStore } from '@/stores/test'
-import { useCatalogStore } from '@/stores/catalog'
-import { useAuthStore } from '@/stores/auth'
-import type { TestCase, TestCaseInput, TestRunResult } from '@/api/types'
+import { ref, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import { useTestStore } from '@/stores/test';
+import { useCatalogStore } from '@/stores/catalog';
+import { useAuthStore } from '@/stores/auth';
+import type { TestCase, TestCaseInput, TestRunResult } from '@/api/types';
 
 const props = defineProps<{
-  projectId: string
-  rulesetName: string
-  visible: boolean
-  height: number
-}>()
+  projectId: string;
+  rulesetName: string;
+  visible: boolean;
+  height: number;
+}>();
 
 const emit = defineEmits<{
-  (e: 'update:visible', v: boolean): void
-  (e: 'update:height', v: number): void
-}>()
+  (e: 'update:visible', v: boolean): void;
+  (e: 'update:height', v: number): void;
+}>();
 
-const { t } = useI18n()
-const testStore = useTestStore()
-const catalog = useCatalogStore()
-const auth = useAuthStore()
+const { t } = useI18n();
+const route = useRoute();
+const testStore = useTestStore();
+const catalog = useCatalogStore();
+const auth = useAuthStore();
+const orgId = computed(() => route.params.orgId as string);
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-const expandedId = ref<string | null>(null)
-const editingId = ref<string | null>(null)
-const showEditor = ref(false)
-const form = ref<TestCaseInput>(emptyForm())
-const inputJson = ref('{}')
-const expectOutputJson = ref('')
-const saving = ref(false)
-const jsonError = ref('')
+const expandedId = ref<string | null>(null);
+const editingId = ref<string | null>(null);
+const showEditor = ref(false);
+const form = ref<TestCaseInput>(emptyForm());
+const inputJson = ref('{}');
+const expectOutputJson = ref('');
+const saving = ref(false);
+const jsonError = ref('');
 
 function emptyForm(): TestCaseInput {
   return {
@@ -42,25 +45,25 @@ function emptyForm(): TestCaseInput {
     input: {},
     expect: { code: undefined, message: undefined, output: undefined },
     tags: [],
-  }
+  };
 }
 
-const tests = computed(() => testStore.testsByRuleset.get(props.rulesetName) ?? [])
-const results = computed(() => testStore.runResults.get(props.rulesetName) ?? [])
-const running = computed(() => testStore.running)
-const runningOne = computed(() => testStore.runningOne)
-const loading = computed(() => testStore.loadingRuleset.get(props.rulesetName) ?? false)
+const tests = computed(() => testStore.testsByRuleset.get(props.rulesetName) ?? []);
+const results = computed(() => testStore.runResults.get(props.rulesetName) ?? []);
+const running = computed(() => testStore.running);
+const runningOne = computed(() => testStore.runningOne);
+const loading = computed(() => testStore.loadingRuleset.get(props.rulesetName) ?? false);
 
-const passCount = computed(() => results.value.filter((r) => r.passed).length)
-const failCount = computed(() => results.value.filter((r) => !r.passed).length)
-const hasResults = computed(() => results.value.length > 0)
+const passCount = computed(() => results.value.filter((r) => r.passed).length);
+const failCount = computed(() => results.value.filter((r) => !r.passed).length);
+const hasResults = computed(() => results.value.length > 0);
 
 function resultFor(id: string): TestRunResult | undefined {
-  return results.value.find((r) => r.test_id === id)
+  return results.value.find((r) => r.test_id === id);
 }
 
 function toggleExpand(id: string) {
-  expandedId.value = expandedId.value === id ? null : id
+  expandedId.value = expandedId.value === id ? null : id;
 }
 
 // ── Load tests ────────────────────────────────────────────────────────────────
@@ -68,125 +71,138 @@ function toggleExpand(id: string) {
 watch(
   () => [props.projectId, props.rulesetName],
   ([pid, name]) => {
-    if (pid && name) testStore.fetchTests(pid as string, name as string)
+    if (pid && name) testStore.fetchTests(pid as string, name as string);
   },
-  { immediate: true },
-)
+  { immediate: true }
+);
 
 // ── Resize ────────────────────────────────────────────────────────────────────
 
-let dragStartY = 0
-let dragStartH = 0
+let dragStartY = 0;
+let dragStartH = 0;
 
 function onResizeMousedown(e: MouseEvent) {
-  dragStartY = e.clientY
-  dragStartH = props.height
-  window.addEventListener('mousemove', onResizeMousemove)
-  window.addEventListener('mouseup', onResizeMouseup)
+  dragStartY = e.clientY;
+  dragStartH = props.height;
+  window.addEventListener('mousemove', onResizeMousemove);
+  window.addEventListener('mouseup', onResizeMouseup);
 }
 function onResizeMousemove(e: MouseEvent) {
-  emit('update:height', Math.max(200, Math.min(640, dragStartH + dragStartY - e.clientY)))
+  emit('update:height', Math.max(200, Math.min(640, dragStartH + dragStartY - e.clientY)));
 }
 function onResizeMouseup() {
-  window.removeEventListener('mousemove', onResizeMousemove)
-  window.removeEventListener('mouseup', onResizeMouseup)
+  window.removeEventListener('mousemove', onResizeMousemove);
+  window.removeEventListener('mouseup', onResizeMouseup);
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 async function runAll() {
   try {
-    await testStore.runTests(props.projectId, props.rulesetName)
-    MessagePlugin.success(t('test.runSuccess'))
+    await testStore.runTests(orgId.value, props.projectId, props.rulesetName);
+    MessagePlugin.success(t('test.runSuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('test.saveFailed'))
+    MessagePlugin.error(e?.message ?? t('test.saveFailed'));
   }
 }
 
 async function runOne(tc: TestCase) {
   try {
-    await testStore.runOneTest(props.projectId, props.rulesetName, tc.id)
+    await testStore.runOneTest(orgId.value, props.projectId, props.rulesetName, tc.id);
     // Auto-expand to show result
-    expandedId.value = tc.id
+    expandedId.value = tc.id;
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('test.saveFailed'))
+    MessagePlugin.error(e?.message ?? t('test.saveFailed'));
   }
 }
 
 function doExport(format: 'yaml' | 'json') {
-  if (!auth.token) return
-  const url = `/api/v1/projects/${props.projectId}/rulesets/${encodeURIComponent(props.rulesetName)}/tests/export?format=${format}`
+  if (!auth.token) return;
+  const url = `/api/v1/projects/${props.projectId}/rulesets/${encodeURIComponent(
+    props.rulesetName
+  )}/tests/export?format=${format}`;
   fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } })
     .then((r) => r.blob())
     .then((blob) => {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `${props.rulesetName}_tests.${format}`
-      a.click()
-      URL.revokeObjectURL(a.href)
-    })
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${props.rulesetName}_tests.${format}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
 function openCreate() {
-  editingId.value = null
-  form.value = emptyForm()
-  inputJson.value = '{}'
-  expectOutputJson.value = ''
-  jsonError.value = ''
-  showEditor.value = true
-  expandedId.value = null
+  editingId.value = null;
+  form.value = emptyForm();
+  inputJson.value = '{}';
+  expectOutputJson.value = '';
+  jsonError.value = '';
+  showEditor.value = true;
+  expandedId.value = null;
 }
 
 function openEdit(tc: TestCase) {
-  editingId.value = tc.id
+  editingId.value = tc.id;
   form.value = {
     name: tc.name,
     description: tc.description,
     input: tc.input,
     expect: { ...tc.expect },
     tags: [...tc.tags],
-  }
-  inputJson.value = JSON.stringify(tc.input, null, 2)
-  expectOutputJson.value = tc.expect.output ? JSON.stringify(tc.expect.output, null, 2) : ''
-  jsonError.value = ''
-  showEditor.value = true
+  };
+  inputJson.value = JSON.stringify(tc.input, null, 2);
+  expectOutputJson.value = tc.expect.output ? JSON.stringify(tc.expect.output, null, 2) : '';
+  jsonError.value = '';
+  showEditor.value = true;
 }
 
 function cancelEdit() {
-  showEditor.value = false
+  showEditor.value = false;
 }
 
 async function saveTest() {
-  jsonError.value = ''
-  const name = form.value.name.trim()
-  if (!name) { MessagePlugin.warning(t('test.nameRequired')); return }
-
-  try { form.value.input = JSON.parse(inputJson.value || '{}') }
-  catch { jsonError.value = 'input'; return }
-
-  if (expectOutputJson.value.trim()) {
-    try { form.value.expect.output = JSON.parse(expectOutputJson.value) }
-    catch { jsonError.value = 'output'; return }
-  } else {
-    form.value.expect.output = undefined
+  jsonError.value = '';
+  const name = form.value.name.trim();
+  if (!name) {
+    MessagePlugin.warning(t('test.nameRequired'));
+    return;
   }
 
-  saving.value = true
+  try {
+    form.value.input = JSON.parse(inputJson.value || '{}');
+  } catch {
+    jsonError.value = 'input';
+    return;
+  }
+
+  if (expectOutputJson.value.trim()) {
+    try {
+      form.value.expect.output = JSON.parse(expectOutputJson.value);
+    } catch {
+      jsonError.value = 'output';
+      return;
+    }
+  } else {
+    form.value.expect.output = undefined;
+  }
+
+  saving.value = true;
   try {
     if (editingId.value) {
-      await testStore.updateTest(props.projectId, props.rulesetName, editingId.value, form.value)
-      MessagePlugin.success(t('test.updateSuccess'))
+      await testStore.updateTest(props.projectId, props.rulesetName, editingId.value, form.value);
+      MessagePlugin.success(t('test.updateSuccess'));
     } else {
-      await testStore.createTest(props.projectId, props.rulesetName, form.value)
-      MessagePlugin.success(t('test.createSuccess'))
+      await testStore.createTest(props.projectId, props.rulesetName, form.value);
+      MessagePlugin.success(t('test.createSuccess'));
     }
-    showEditor.value = false
+    showEditor.value = false;
   } catch (e: any) {
-    MessagePlugin.error(e?.message ?? t('test.saveFailed'))
+    MessagePlugin.error(e?.message ?? t('test.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
@@ -198,41 +214,52 @@ async function deleteTest(tc: TestCase) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await testStore.deleteTest(props.projectId, props.rulesetName, tc.id)
-        if (expandedId.value === tc.id) expandedId.value = null
-        MessagePlugin.success(t('test.deleteSuccess'))
+        await testStore.deleteTest(props.projectId, props.rulesetName, tc.id);
+        if (expandedId.value === tc.id) expandedId.value = null;
+        MessagePlugin.success(t('test.deleteSuccess'));
       } catch (e: any) {
-        MessagePlugin.error(e?.message ?? t('common.saveFailed'))
-      } finally { dialog.hide() }
+        MessagePlugin.error(e?.message ?? t('common.saveFailed'));
+      } finally {
+        dialog.hide();
+      }
     },
     onClose: () => dialog.hide(),
-  })
+  });
 }
 
 function generateFromContract() {
-  const contract = catalog.contracts.find((c) => c.ruleset_name === props.rulesetName)
-  if (!contract) return
-  const skeleton: Record<string, unknown> = {}
+  const contract = catalog.contracts.find((c) => c.ruleset_name === props.rulesetName);
+  if (!contract) return;
+  const skeleton: Record<string, unknown> = {};
   for (const field of contract.input_fields) {
     switch (field.data_type) {
-      case 'number': skeleton[field.name] = 0; break
-      case 'boolean': skeleton[field.name] = false; break
-      case 'date': skeleton[field.name] = new Date().toISOString().slice(0, 10); break
-      case 'object': skeleton[field.name] = {}; break
-      default: skeleton[field.name] = ''
+      case 'number':
+        skeleton[field.name] = 0;
+        break;
+      case 'boolean':
+        skeleton[field.name] = false;
+        break;
+      case 'date':
+        skeleton[field.name] = new Date().toISOString().slice(0, 10);
+        break;
+      case 'object':
+        skeleton[field.name] = {};
+        break;
+      default:
+        skeleton[field.name] = '';
     }
   }
-  inputJson.value = JSON.stringify(skeleton, null, 2)
+  inputJson.value = JSON.stringify(skeleton, null, 2);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtJson(v: unknown): string {
-  return JSON.stringify(v, null, 2)
+  return JSON.stringify(v, null, 2);
 }
 
 function durationMs(us: number): string {
-  return (us / 1000).toFixed(1) + 'ms'
+  return (us / 1000).toFixed(1) + 'ms';
 }
 </script>
 
@@ -258,8 +285,13 @@ function durationMs(us: number): string {
         <t-button size="small" variant="outline" @click="openCreate" :disabled="!rulesetName">
           <t-icon name="add" size="12px" />{{ t('test.newCase') }}
         </t-button>
-        <t-button size="small" variant="outline" :loading="running"
-          :disabled="!rulesetName || tests.length === 0" @click="runAll">
+        <t-button
+          size="small"
+          variant="outline"
+          :loading="running"
+          :disabled="!rulesetName || tests.length === 0"
+          @click="runAll"
+        >
           <t-icon name="play-circle" size="12px" />{{ t('test.runAll') }}
         </t-button>
         <t-dropdown trigger="click">
@@ -268,8 +300,12 @@ function durationMs(us: number): string {
           </t-button>
           <template #dropdown>
             <t-dropdown-menu>
-              <t-dropdown-item @click="doExport('yaml')">{{ t('test.export.yaml') }}</t-dropdown-item>
-              <t-dropdown-item @click="doExport('json')">{{ t('test.export.json') }}</t-dropdown-item>
+              <t-dropdown-item @click="doExport('yaml')">{{
+                t('test.export.yaml')
+              }}</t-dropdown-item>
+              <t-dropdown-item @click="doExport('json')">{{
+                t('test.export.json')
+              }}</t-dropdown-item>
             </t-dropdown-menu>
           </template>
         </t-dropdown>
@@ -282,7 +318,7 @@ function durationMs(us: number): string {
 
     <!-- No ruleset -->
     <div v-if="!rulesetName" class="panel-empty">
-      <t-icon name="task-checked" size="32px" style="opacity:0.25" />
+      <t-icon name="task-checked" size="32px" style="opacity: 0.25" />
       <p>{{ t('test.panel.noRuleset') }}</p>
     </div>
 
@@ -290,22 +326,26 @@ function durationMs(us: number): string {
     <div v-else class="test-panel__body">
       <!-- Test list -->
       <div class="test-list" :class="{ 'test-list--narrow': showEditor }">
-
         <div v-if="loading" class="panel-loading"><t-loading size="small" /></div>
 
         <div v-else-if="tests.length === 0" class="panel-empty-small">
           <span>{{ t('test.noTests') }}</span>
-          <t-button size="small" variant="text" @click="openCreate">{{ t('test.addFirst') }}</t-button>
+          <t-button size="small" variant="text" @click="openCreate">{{
+            t('test.addFirst')
+          }}</t-button>
         </div>
 
         <template v-else>
-          <div v-for="tc in tests" :key="tc.id" class="test-item"
+          <div
+            v-for="tc in tests"
+            :key="tc.id"
+            class="test-item"
             :class="{
               'test-item--pass': resultFor(tc.id)?.passed === true,
               'test-item--fail': resultFor(tc.id)?.passed === false,
               'test-item--expanded': expandedId === tc.id,
-            }">
-
+            }"
+          >
             <!-- Row summary (always visible) -->
             <div class="test-item__row" @click="toggleExpand(tc.id)">
               <span class="status-icon">
@@ -327,9 +367,12 @@ function durationMs(us: number): string {
               </span>
 
               <div class="test-item__btns" @click.stop>
-                <t-button size="small" variant="text"
+                <t-button
+                  size="small"
+                  variant="text"
                   :loading="runningOne.has(tc.id)"
-                  @click="runOne(tc)">
+                  @click="runOne(tc)"
+                >
                   <t-icon name="play-circle" size="12px" />
                 </t-button>
                 <t-button size="small" variant="text" @click="openEdit(tc)">
@@ -340,13 +383,15 @@ function durationMs(us: number): string {
                 </t-button>
               </div>
 
-              <t-icon :name="expandedId === tc.id ? 'chevron-up' : 'chevron-down'"
-                size="12px" class="expand-chevron" />
+              <t-icon
+                :name="expandedId === tc.id ? 'chevron-up' : 'chevron-down'"
+                size="12px"
+                class="expand-chevron"
+              />
             </div>
 
             <!-- Expanded detail -->
             <div v-if="expandedId === tc.id" class="test-item__detail">
-
               <!-- Input -->
               <div class="detail-section">
                 <div class="detail-label">{{ t('test.fieldInput') }}</div>
@@ -357,21 +402,27 @@ function durationMs(us: number): string {
               <div class="detail-section">
                 <div class="detail-label">{{ t('test.fieldExpectCode') }}</div>
                 <div class="expect-row">
-                  <span class="expect-pill">code: <strong>{{ tc.expect.code ?? '—' }}</strong></span>
+                  <span class="expect-pill"
+                    >code: <strong>{{ tc.expect.code ?? '—' }}</strong></span
+                  >
                   <span v-if="tc.expect.message" class="expect-pill">
                     message: <strong>{{ tc.expect.message }}</strong>
                   </span>
                 </div>
-                <div v-if="tc.expect.output" class="detail-label" style="margin-top:6px">
+                <div v-if="tc.expect.output" class="detail-label" style="margin-top: 6px">
                   {{ t('test.fieldExpectOutput') }}
                 </div>
-                <pre v-if="tc.expect.output" class="detail-code">{{ fmtJson(tc.expect.output) }}</pre>
+                <pre v-if="tc.expect.output" class="detail-code">{{
+                  fmtJson(tc.expect.output)
+                }}</pre>
               </div>
 
               <!-- Result (if run) -->
               <template v-if="resultFor(tc.id)">
-                <div class="detail-section detail-section--result"
-                  :class="resultFor(tc.id)!.passed ? 'result--pass' : 'result--fail'">
+                <div
+                  class="detail-section detail-section--result"
+                  :class="resultFor(tc.id)!.passed ? 'result--pass' : 'result--fail'"
+                >
                   <div class="detail-label">
                     {{ resultFor(tc.id)!.passed ? t('test.result.pass') : t('test.result.fail') }}
                   </div>
@@ -389,7 +440,11 @@ function durationMs(us: number): string {
                       code: <strong>{{ resultFor(tc.id)!.actual_code }}</strong>
                     </span>
                   </div>
-                  <pre v-if="resultFor(tc.id)!.actual_output" class="detail-code detail-code--actual">{{ fmtJson(resultFor(tc.id)!.actual_output) }}</pre>
+                  <pre
+                    v-if="resultFor(tc.id)!.actual_output"
+                    class="detail-code detail-code--actual"
+                    >{{ fmtJson(resultFor(tc.id)!.actual_output) }}</pre
+                  >
                 </div>
               </template>
             </div>
@@ -415,8 +470,11 @@ function durationMs(us: number): string {
               <label class="form-label">{{ t('test.fieldInput') }}</label>
               <t-button
                 v-if="catalog.contracts.some((c) => c.ruleset_name === rulesetName)"
-                size="small" variant="text" style="font-size:11px;padding:0"
-                @click="generateFromContract">
+                size="small"
+                variant="text"
+                style="font-size: 11px; padding: 0"
+                @click="generateFromContract"
+              >
                 {{ t('test.generateFromContract') }}
               </t-button>
             </div>
@@ -438,8 +496,13 @@ function durationMs(us: number): string {
           <div class="form-row">
             <label class="form-label">{{ t('test.fieldExpectOutput') }}</label>
             <div class="json-wrap" :class="{ 'has-error': jsonError === 'output' }">
-              <textarea v-model="expectOutputJson" class="json-editor" rows="3"
-                spellcheck="false" placeholder='{"coupon_type":"vip"}' />
+              <textarea
+                v-model="expectOutputJson"
+                class="json-editor"
+                rows="3"
+                spellcheck="false"
+                placeholder='{"coupon_type":"vip"}'
+              />
             </div>
           </div>
 
@@ -449,8 +512,12 @@ function durationMs(us: number): string {
           </div>
 
           <div class="form-actions">
-            <t-button size="small" variant="outline" @click="cancelEdit">{{ t('common.cancel') }}</t-button>
-            <t-button size="small" theme="primary" :loading="saving" @click="saveTest">{{ t('common.save') }}</t-button>
+            <t-button size="small" variant="outline" @click="cancelEdit">{{
+              t('common.cancel')
+            }}</t-button>
+            <t-button size="small" theme="primary" :loading="saving" @click="saveTest">{{
+              t('common.save')
+            }}</t-button>
           </div>
         </div>
       </div>
@@ -472,7 +539,10 @@ function durationMs(us: number): string {
   cursor: ns-resize;
   flex-shrink: 0;
 }
-.test-panel__handle:hover { background: var(--ordo-accent); opacity: 0.35; }
+.test-panel__handle:hover {
+  background: var(--ordo-accent);
+  opacity: 0.35;
+}
 
 /* ── Header ── */
 .test-panel__header {
@@ -507,7 +577,10 @@ function durationMs(us: number): string {
   white-space: nowrap;
 }
 
-.summary-badges { display: flex; gap: 4px; }
+.summary-badges {
+  display: flex;
+  gap: 4px;
+}
 
 .badge {
   font-size: 11px;
@@ -516,10 +589,20 @@ function durationMs(us: number): string {
   background: var(--ordo-hover-bg);
   color: var(--ordo-text-tertiary);
 }
-.badge--pass { background: rgba(34,197,94,.12); color: #16a34a; }
-.badge--fail { background: rgba(239,68,68,.12); color: #dc2626; }
+.badge--pass {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+.badge--fail {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
 
-.test-panel__actions { display: flex; gap: 4px; margin-left: auto; }
+.test-panel__actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
 
 .close-btn {
   background: none;
@@ -530,7 +613,9 @@ function durationMs(us: number): string {
   display: flex;
   align-items: center;
 }
-.close-btn:hover { color: var(--ordo-text-primary); }
+.close-btn:hover {
+  color: var(--ordo-text-primary);
+}
 
 /* ── Body layout ── */
 .test-panel__body {
@@ -579,8 +664,12 @@ function durationMs(us: number): string {
   border-left: 2px solid transparent;
   transition: border-color 0.1s;
 }
-.test-item--pass { border-left-color: #22c55e; }
-.test-item--fail { border-left-color: #ef4444; }
+.test-item--pass {
+  border-left-color: #22c55e;
+}
+.test-item--fail {
+  border-left-color: #ef4444;
+}
 
 .test-item__row {
   display: flex;
@@ -592,10 +681,17 @@ function durationMs(us: number): string {
   transition: background 0.1s;
   user-select: none;
 }
-.test-item__row:hover { background: var(--ordo-hover-bg); }
-.test-item--expanded .test-item__row { background: var(--ordo-hover-bg); }
+.test-item__row:hover {
+  background: var(--ordo-hover-bg);
+}
+.test-item--expanded .test-item__row {
+  background: var(--ordo-hover-bg);
+}
 
-.status-icon { width: 16px; flex-shrink: 0; }
+.status-icon {
+  width: 16px;
+  flex-shrink: 0;
+}
 
 .dot {
   display: inline-flex;
@@ -607,9 +703,18 @@ function durationMs(us: number): string {
   font-size: 9px;
   font-weight: bold;
 }
-.dot--pending { background: var(--ordo-hover-bg); border: 1px solid var(--ordo-border-color); }
-.dot--pass { background: rgba(34,197,94,.15); color: #16a34a; }
-.dot--fail { background: rgba(239,68,68,.15); color: #dc2626; }
+.dot--pending {
+  background: var(--ordo-hover-bg);
+  border: 1px solid var(--ordo-border-color);
+}
+.dot--pass {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+.dot--fail {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
 
 .test-item__info {
   flex: 1;
@@ -625,7 +730,11 @@ function durationMs(us: number): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.test-item__tags { display: flex; gap: 3px; flex-shrink: 0; }
+.test-item__tags {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
 .tag {
   background: var(--ordo-hover-bg);
   border-radius: 3px;
@@ -656,15 +765,23 @@ function durationMs(us: number): string {
   gap: 10px;
 }
 
-.detail-section { display: flex; flex-direction: column; gap: 4px; }
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
 .detail-section--result {
   border-radius: 5px;
   padding: 8px 10px;
   background: var(--ordo-bg-main, var(--ordo-hover-bg));
 }
-.result--pass { border: 1px solid rgba(34,197,94,.3); }
-.result--fail { border: 1px solid rgba(239,68,68,.25); }
+.result--pass {
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.result--fail {
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
 
 .detail-label {
   font-size: 10px;
@@ -680,20 +797,24 @@ function durationMs(us: number): string {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   color: var(--ordo-text-primary);
-  background: var(--ordo-bg-deep, rgba(0,0,0,.06));
+  background: var(--ordo-bg-deep, rgba(0, 0, 0, 0.06));
   border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-all;
   line-height: 1.5;
 }
 .detail-code--actual {
-  background: rgba(239,68,68,.05);
-  border: 1px solid rgba(239,68,68,.15);
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.15);
 }
 
-.expect-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.expect-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .expect-pill {
-  background: rgba(99,102,241,.1);
+  background: rgba(99, 102, 241, 0.1);
   border-radius: 4px;
   padding: 2px 7px;
   font-size: 11px;
@@ -701,11 +822,16 @@ function durationMs(us: number): string {
   color: var(--ordo-text-secondary);
 }
 .expect-pill--actual {
-  background: rgba(239,68,68,.1);
+  background: rgba(239, 68, 68, 0.1);
   color: #dc2626;
 }
 
-.failures { display: flex; flex-direction: column; gap: 3px; margin: 4px 0; }
+.failures {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0;
+}
 .failure-line {
   display: flex;
   align-items: flex-start;
@@ -714,9 +840,15 @@ function durationMs(us: number): string {
   color: #ef4444;
   line-height: 1.4;
 }
-.failure-icon { flex-shrink: 0; margin-top: 1px; color: #ef4444; }
+.failure-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #ef4444;
+}
 
-.actual-row { margin-top: 6px; }
+.actual-row {
+  margin-top: 6px;
+}
 
 /* ── Editor panel ── */
 .test-editor {
@@ -748,16 +880,30 @@ function durationMs(us: number): string {
   gap: 10px;
 }
 
-.form-row { display: flex; flex-direction: column; gap: 4px; }
-.form-label-row { display: flex; align-items: center; justify-content: space-between; }
-.form-label { font-size: 11px; color: var(--ordo-text-secondary); font-weight: 500; }
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.form-label {
+  font-size: 11px;
+  color: var(--ordo-text-secondary);
+  font-weight: 500;
+}
 
 .json-wrap {
   border: 1px solid var(--ordo-border-color);
   border-radius: 4px;
   overflow: hidden;
 }
-.json-wrap.has-error { border-color: #ef4444; }
+.json-wrap.has-error {
+  border-color: #ef4444;
+}
 
 .json-editor {
   width: 100%;

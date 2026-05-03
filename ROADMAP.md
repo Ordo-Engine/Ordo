@@ -2,8 +2,8 @@
 
 For the full roadmap with details on each milestone, visit our documentation site:
 
-- **English**: [Roadmap](https://pama-lee.github.io/Ordo/docs/en/roadmap)
-- **中文**: [产品路线图](https://pama-lee.github.io/Ordo/docs/zh/roadmap)
+- **English**: [Roadmap](https://ordo-engine.github.io/Ordo/docs/en/roadmap)
+- **中文**: [产品路线图](https://ordo-engine.github.io/Ordo/docs/zh/roadmap)
 
 ## Quick Overview
 
@@ -20,4 +20,4 @@ Milestones 1–5 are fully open source (MIT). Ordo Cloud adds managed hosting an
 
 ---
 
-Have feedback on priorities? [Open an issue](https://github.com/Pama-Lee/Ordo/issues) or join our [Discord](https://discord.gg/Y529FkArhh).
+Have feedback on priorities? [Open an issue](https://github.com/Ordo-Engine/Ordo/issues) or join our [Discord](https://discord.gg/Y529FkArhh).

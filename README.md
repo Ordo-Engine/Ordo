@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pama-lee.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
+  <a href="https://ordo-engine.github.io/Ordo/"><img src="https://img.shields.io/badge/demo-playground-brightgreen" alt="Playground" /></a>
   <img src="https://img.shields.io/badge/rust-1.83%2B-orange?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
   <a href="https://www.npmjs.com/package/@ordo-engine/editor-core"><img src="https://img.shields.io/npm/v/@ordo-engine/editor-core?label=npm&color=cb3837" alt="npm" /></a>
@@ -18,14 +18,14 @@
 
 ---
 
-Ordo started as a rule engine. It's grown into a platform for teams who need to **own their decision logic** — not scatter it across codebases, spreadsheets, and tribal knowledge.
+Ordo has entered its **platform phase**. Teams can now manage organizations, projects, templates, rulesets, tests, release workflows, and connected servers from one workspace instead of scattering decision logic across codebases, spreadsheets, and tribal knowledge.
 
-**Engine** — sub-microsecond rule execution, JIT-compiled, runs everywhere (HTTP · gRPC · WASM · CLI).  
-**Platform** — org and project management, fact catalog, decision contracts, version history, rule templates.  
-**Studio** — visual flow editor, test case management, one-click template instantiation.
+**Platform** — org workspace, project hub, server fleet, templates, release center, testing and governance.  
+**Studio** — visual flow editor, decision table editor, trace-driven testing, version history, template instantiation.  
+**Engine** — sub-microsecond rule execution, JIT-compiled, runs everywhere (HTTP · gRPC · WASM · CLI).
 
 <p align="center">
-  <img src="images/main.png" alt="Ordo Studio" width="100%" />
+  <img src="images/screenshots/first_page.png" alt="Ordo Platform Dashboard" width="100%" />
 </p>
 
 ---
@@ -34,12 +34,13 @@ Ordo started as a rule engine. It's grown into a platform for teams who need to 
 
 | | **Ordo** | OPA | Drools | json-rules-engine |
 |---|---|---|---|---|
-| Single-rule latency | **~1.6 µs** | ~1 ms | ~5–10 ms | ~0.5 ms |
 | JIT compilation | ✅ Cranelift | ❌ | ❌ | ❌ |
-| Visual editor | ✅ | ❌ | ✅ heavy | ❌ |
-| Platform / governance | ✅ | ❌ | ❌ | ❌ |
-| WASM / browser | ✅ | ❌ | ❌ | ✅ Node only |
-| Deployment | single binary | agent + server | JVM | Node.js |
+| Authoring model | Visual flow + decision table | Rego policy code | DRL / DMN + Business Central | JSON rule DSL |
+| Built-in web workbench | ✅ Studio | Playground / APIs | ✅ Business Central | ❌ |
+| Browser / Wasm target | ✅ Native | ✅ Policy-to-Wasm | ❌ | ✅ Browser JS |
+| Deployment | Single binary or hosted platform | Binary, sidecar, or service | JVM app, KIE Server, Business Central | JS library for Node/browser |
+
+Comparison focuses on first-party documented authoring and deployment capabilities rather than cross-project benchmark claims.
 
 ---
 
@@ -52,7 +53,7 @@ docker compose up          # platform + engine + studio
 # open http://localhost:5173
 ```
 
-Or use the hosted **[Live Playground](https://pama-lee.github.io/Ordo/)** — no install needed.
+Or use the hosted **[Live Playground](https://ordo-engine.github.io/Ordo/)** — no install needed.
 
 ### Engine only
 
@@ -86,11 +87,16 @@ npm install @ordo-engine/editor-react  # React
 - **Decision table** — spreadsheet-style multi-condition rules
 - **Templates** — ship pre-built rule sets (e.g. `ecommerce-coupon`) that teams clone in one click
 
+### Platform Workspace
+- **Organization and project hub** — manage orgs, projects, members, roles, and project workspaces from one dashboard
+- **Server fleet** — register connected Ordo servers, group them by environment, and target release rollouts by instance
+- **Release center** — create release requests, track staged rollouts, approvals, retries, and rollback history
+
 ### Governance
 - **Fact catalog** — register every input field with type, source, latency, and null policy
 - **Decision contracts** — typed input/output schemas per ruleset; generate test skeletons automatically
 - **Version history** — full snapshot log per ruleset; roll back with one click
-- **Test management** — create, run, and export test cases (ordo-cli-compatible YAML)
+- **Test and diagnostics** — run platform-local draft tests, inspect expected/actual diffs, replay execution paths, and review decision-table hits
 
 ### Engine
 - **1.63 µs** interpreter · **50–80 ns** JIT (Cranelift) · **54k QPS** HTTP single-thread
@@ -127,14 +133,14 @@ ordo/
 
 | Milestone | Target | Goal |
 |-----------|--------|------|
-| **M1 — Studio** | v0.4 ✅ | Platform layer, Studio app, test management |
+| **M1 — Platform Foundation** | v0.4 ✅ | Org workspace, Studio app, template flow, test management |
 | **First Decision** | v0.5 | 5-min onboarding, guided setup wizard |
-| **Deploy & Connect** | v0.6 | One-click publish from Studio to Engine, SDK codegen |
+| **Deploy & Connect** | v0.6 | Release center, server registration, rollout execution, SDK codegen |
 | **Observe** | v0.7 | Execution dashboard, trace explorer, alerting |
 | **Govern** | v0.8 | Change requests, impact analysis, approval flows |
 | **Ordo Cloud** | v1.0 | Managed platform with hosted engine |
 
-Full roadmap → [docs/roadmap](https://pama-lee.github.io/Ordo/docs/en/roadmap)
+Full roadmap → [docs/roadmap](https://ordo-engine.github.io/Ordo/docs/en/roadmap)
 
 ---
 
@@ -142,4 +148,4 @@ Full roadmap → [docs/roadmap](https://pama-lee.github.io/Ordo/docs/en/roadmap)
 
 MIT — see [LICENSE](LICENSE).
 
-<p align="center"><sub>Built with Rust · <a href="https://discord.gg/Y529FkArhh">Discord</a> · <a href="https://pama-lee.github.io/Ordo/">Docs</a></sub></p>
+<p align="center"><sub>Built with Rust · <a href="https://discord.gg/Y529FkArhh">Discord</a> · <a href="https://ordo-engine.github.io/Ordo/">Docs</a></sub></p>

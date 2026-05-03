@@ -14,10 +14,10 @@ hero:
       link: /en/guide/getting-started
     - theme: alt
       text: Try Playground
-      link: https://pama-lee.github.io/Ordo/
+      link: https://ordo-engine.github.io/Ordo/
     - theme: alt
       text: View on GitHub
-      link: https://github.com/Pama-Lee/Ordo
+      link: https://github.com/Ordo-Engine/Ordo
 
 features:
   - icon: 🏛️
@@ -70,4 +70,3 @@ features:
   }
 }
 ```
-

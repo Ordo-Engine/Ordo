@@ -1,16 +1,6 @@
-//! Ordo Platform Server
-//!
-//! Standalone HTTP service providing:
-//! - User authentication (register, login, JWT)
-//! - Organization and member management
-//! - Project (decision domain) management
-//! - Authenticated proxy to ordo-server engine API
-//!
-//! Designed to run alongside ordo-server without modifying it.
-//! ordo-server remains a pure rule engine with zero platform code.
+//! Ordo Platform Server.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::{
     routing::{any, get, post, put},
@@ -24,88 +14,40 @@ use tower_http::{
 };
 use tracing::info;
 
-mod auth;
-mod catalog;
-mod config;
-mod contract;
-mod error;
-mod member;
-mod middleware;
-mod models;
-mod org;
-mod project;
-mod proxy;
-mod ruleset_history;
-mod store;
-mod template;
-mod templates_api;
-mod testing;
-
-use config::PlatformConfig;
-use middleware::require_auth;
-use store::PlatformStore;
-use template::TemplateStore;
-
-/// Shared application state
-#[derive(Clone)]
-pub struct AppState {
-    pub store: Arc<PlatformStore>,
-    pub config: Arc<PlatformConfig>,
-    pub http_client: reqwest::Client,
-    pub templates: Arc<TemplateStore>,
-}
+use ordo_platform::{
+    auth, bootstrap_platform_store, build_app_state, catalog, config::PlatformConfig,
+    connect_platform_store, contract, environment, github, i18n, init_tracing, member,
+    middleware::require_auth, notification, org, project, proxy, publish_existing_tenants, release,
+    ruleset_draft, ruleset_history, server_registry, start_server_registry_maintenance,
+    sub_org_member, templates_api, testing,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Arc::new(PlatformConfig::parse());
 
-    // Init logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                config
-                    .log_level
-                    .parse()
-                    .unwrap_or_else(|_| "info".parse().unwrap())
-            }),
-        )
-        .init();
+    init_tracing(&config)?;
 
-    // Validate config
     if let Err(e) = config.validate() {
         return Err(anyhow::anyhow!("Configuration error: {}", e));
     }
 
     info!("Starting ordo-platform on {}", config.listen_addr);
     info!("Engine URL: {}", config.engine_url);
-    info!("Platform dir: {:?}", config.platform_dir);
+    if config.nats_enabled() {
+        info!(
+            "NATS sync enabled (url={}, prefix={})",
+            config.nats_url.as_deref().unwrap_or(""),
+            config.nats_subject_prefix
+        );
+    }
 
-    // Init store
-    let store = Arc::new(PlatformStore::new(config.platform_dir.clone()).await?);
+    let store = connect_platform_store(&config).await?;
+    bootstrap_platform_store(&store, false).await?;
+    start_server_registry_maintenance(store.clone());
 
-    // HTTP client for engine proxy
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
-
-    // Load rule templates (best-effort — missing dir just disables the feature)
-    let templates = Arc::new(
-        TemplateStore::load_from_dir(&config.templates_dir).unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to load templates from {:?}: {:#}",
-                config.templates_dir,
-                e
-            );
-            TemplateStore::default()
-        }),
-    );
-
-    let state = AppState {
-        store,
-        config: config.clone(),
-        http_client,
-        templates,
-    };
+    let state = build_app_state(config.clone(), store, false).await?;
+    publish_existing_tenants(&state).await;
 
     // CORS
     let cors = {
@@ -127,8 +69,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Routes that don't require authentication
     let public_routes = Router::new()
+        .route("/api/v1/system/config", get(auth::system_config))
         .route("/api/v1/auth/register", post(auth::register))
-        .route("/api/v1/auth/login", post(auth::login));
+        .route("/api/v1/auth/login", post(auth::login))
+        // GitHub OAuth callback (public — GitHub redirects here)
+        .route("/api/v1/github/callback", get(github::github_callback))
+        // Internal: called by ordo-server (token auth inside handler)
+        .route("/api/v1/internal/register", post(server_registry::register_server))
+        .route("/api/v1/internal/heartbeat", post(server_registry::server_heartbeat));
 
     // Routes that require authentication
     let protected_routes = Router::new()
@@ -141,6 +89,17 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:id",
             get(org::get_org).put(org::update_org).delete(org::delete_org),
+        )
+        .route("/api/v1/orgs/:id/sub-orgs", get(org::list_sub_orgs))
+        // Cross-org sub-org member management (auth based on parent org role)
+        .route(
+            "/api/v1/orgs/:parent_id/sub-orgs/:sub_id/members",
+            get(sub_org_member::list_sub_org_members)
+                .post(sub_org_member::add_sub_org_member),
+        )
+        .route(
+            "/api/v1/orgs/:parent_id/sub-orgs/:sub_id/members/:uid",
+            axum::routing::delete(sub_org_member::remove_sub_org_member),
         )
         // Members
         .route(
@@ -224,7 +183,176 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/v1/projects/:pid/tests/run",
-            get(testing::run_project_tests),
+            get(testing::run_project_tests).post(testing::run_project_tests),
+        )
+        // Server registry
+        .route("/api/v1/servers", get(server_registry::list_servers))
+        .route("/api/v1/servers/:id", get(server_registry::get_server).delete(server_registry::delete_server))
+        .route("/api/v1/servers/:id/metrics", get(server_registry::get_server_metrics))
+        .route("/api/v1/servers/:id/health", get(server_registry::get_server_health))
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/server",
+            axum::routing::put(server_registry::bind_project_server),
+        )
+        // GitHub OAuth (protected)
+        .route("/api/v1/github/connect", get(github::get_connect_url))
+        .route("/api/v1/github/status", get(github::get_status))
+        .route("/api/v1/github/disconnect", axum::routing::delete(github::disconnect))
+        // GitHub Marketplace
+        .route("/api/v1/marketplace/search", get(github::search_marketplace))
+        .route("/api/v1/marketplace/repos/:owner/:repo", get(github::get_marketplace_item))
+        .route(
+            "/api/v1/marketplace/install/:owner/:repo",
+            post(github::install_marketplace_item),
+        )
+        // RBAC: org roles
+        .route(
+            "/api/v1/orgs/:oid/roles",
+            get(org::list_roles).post(org::create_role),
+        )
+        .route(
+            "/api/v1/orgs/:oid/roles/:rid",
+            put(org::update_role).delete(org::delete_role),
+        )
+        // RBAC: member role assignments
+        .route(
+            "/api/v1/orgs/:oid/members/:uid/roles",
+            get(org::list_member_roles).post(org::assign_member_role),
+        )
+        .route(
+            "/api/v1/orgs/:oid/members/:uid/roles/:rid",
+            axum::routing::delete(org::revoke_member_role),
+        )
+        // Environments
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/environments",
+            get(environment::list_environments).post(environment::create_environment),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/environments/:eid",
+            put(environment::update_environment).delete(environment::delete_environment),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/environments/:eid/canary",
+            put(environment::set_canary),
+        )
+        // Release center
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/release-policies",
+            get(release::list_release_policies).post(release::create_release_policy),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/release-policies/:rid",
+            put(release::update_release_policy).delete(release::delete_release_policy),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases",
+            get(release::list_release_requests).post(release::create_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/preview",
+            get(release::preview_release_target),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid",
+            get(release::get_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/history",
+            get(release::list_release_request_history),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/approve",
+            post(release::approve_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/reject",
+            post(release::reject_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/execute",
+            post(release::execute_release_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/pause",
+            post(release::pause_release_execution),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/resume",
+            post(release::resume_release_execution),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/rollback",
+            post(release::rollback_release_execution),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/execution",
+            get(release::get_release_execution_for_request),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/releases/:rid/executions/:eid/events",
+            get(release::list_release_execution_events),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/release-executions/current",
+            get(release::get_current_release_execution),
+        )
+        // Notifications
+        .route(
+            "/api/v1/orgs/:oid/notifications",
+            get(notification::list_notifications),
+        )
+        .route(
+            "/api/v1/orgs/:oid/notifications/count",
+            get(notification::get_notification_count),
+        )
+        .route(
+            "/api/v1/orgs/:oid/notifications/read-all",
+            post(notification::mark_all_notifications_read),
+        )
+        .route(
+            "/api/v1/orgs/:oid/notifications/:nid/read",
+            post(notification::mark_notification_read),
+        )
+        .route(
+            "/api/v1/orgs/:oid/releases/pending-for-me",
+            get(notification::list_pending_approvals_for_me),
+        )
+        // Draft rulesets
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets",
+            get(ruleset_draft::list_drafts),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name",
+            get(ruleset_draft::get_draft)
+                .put(ruleset_draft::save_draft)
+                .delete(ruleset_draft::delete_draft),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/publish",
+            post(ruleset_draft::publish_draft),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/trace",
+            post(ruleset_draft::trace_draft),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/convert",
+            post(ruleset_draft::convert_draft_ruleset),
+        )
+        // Deployment history
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/deployments",
+            get(ruleset_draft::list_project_deployments),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/deployments",
+            get(ruleset_draft::list_ruleset_deployments),
+        )
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/rulesets/:name/deployments/:did/redeploy",
+            post(ruleset_draft::redeploy),
         )
         // Engine proxy: /api/v1/engine/:project_id/*path → ordo-server
         .route("/api/v1/engine/:project_id/*path", any(proxy::proxy_engine))
@@ -239,6 +367,7 @@ async fn main() -> anyhow::Result<()> {
     let app = public_routes
         .merge(protected_routes)
         .merge(health)
+        .layer(axum::middleware::from_fn(i18n::with_request_locale))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(CatchPanicLayer::new())

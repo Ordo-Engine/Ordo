@@ -3,7 +3,7 @@
  * OrdoFlowEditor - Flow-based ruleset editor
  * 流程图模式规则集编辑器
  */
-import { ref, computed, inject, watch, onMounted, markRaw, provide } from 'vue';
+import { ref, computed, inject, watch, onMounted, markRaw, provide, nextTick } from 'vue';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
@@ -11,7 +11,14 @@ import { MiniMap } from '@vue-flow/minimap';
 import type { RuleSet, Step } from '@ordo-engine/editor-core';
 import { Step as StepFactory, generateId } from '@ordo-engine/editor-core';
 
-import { DecisionNode, ActionNode, TerminalNode, GroupNode, type StepTraceInfo } from './nodes';
+import {
+  DecisionNode,
+  ActionNode,
+  TerminalNode,
+  SubRuleNode,
+  GroupNode,
+  type StepTraceInfo,
+} from './nodes';
 import { OrdoEdge } from './edges';
 import OrdoFlowToolbar from './OrdoFlowToolbar.vue';
 import OrdoFlowPropertyPanel from './OrdoFlowPropertyPanel.vue';
@@ -32,7 +39,7 @@ import {
 } from './utils/layout';
 import { useI18n, LOCALE_KEY, type Lang } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
-type NodeCreationType = 'decision' | 'action' | 'terminal';
+type NodeCreationType = 'decision' | 'action' | 'terminal' | 'sub_rule';
 
 /** Execution trace data for overlay */
 export interface ExecutionTraceData {
@@ -64,17 +71,21 @@ export interface Props {
   locale?: Lang;
   /** Execution trace to display as overlay */
   executionTrace?: ExecutionTraceData | null;
+  /** Lock the canvas into execution path mode without selection/edit interactions */
+  traceMode?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
   disabled: false,
   executionTrace: null,
+  traceMode: false,
 });
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
   change: [value: RuleSet];
+  'open-sub-rule': [name: string];
 }>();
 
 const FLOW_EDGE_STYLE_KEY = '_flowEdgeStyle';
@@ -132,6 +143,7 @@ const nodeTypes: Record<string, any> = {
   decision: markRaw(DecisionNode),
   action: markRaw(ActionNode),
   terminal: markRaw(TerminalNode),
+  sub_rule: markRaw(SubRuleNode),
   group: markRaw(GroupNode),
 };
 
@@ -171,6 +183,9 @@ const highlightedEdgeIds = ref<Set<string>>(new Set());
 // Execution trace overlay state
 const showExecutionOverlay = ref(false);
 const executionAnnotations = ref<Map<string, StepTraceInfo>>(new Map());
+let pendingTraceApplyToken = 0;
+
+const isCanvasReadOnly = computed(() => props.disabled || props.traceMode);
 
 // Selected node data
 const selectedNode = computed(() => {
@@ -202,6 +217,8 @@ const nodeDragPreviewLabel = computed(() => {
       return t('step.action');
     case 'terminal':
       return t('step.terminal');
+    case 'sub_rule':
+      return t('step.subRule');
   }
 });
 
@@ -215,6 +232,8 @@ const nodeDragPreviewTypeLabel = computed(() => {
       return t('step.typeAction');
     case 'terminal':
       return t('step.typeTerminal');
+    case 'sub_rule':
+      return t('step.typeSubRule');
   }
 });
 
@@ -248,6 +267,10 @@ function initFromRuleset(forceLayout = false) {
       autoLayout();
     }, 10);
   }
+
+  if (props.executionTrace) {
+    void scheduleTraceApply(props.executionTrace);
+  }
 }
 
 function buildFlowConfig() {
@@ -275,7 +298,8 @@ function syncToRuleset() {
     edges.value,
     buildFlowConfig(),
     props.modelValue.startStepId,
-    currentGroupNodes
+    currentGroupNodes,
+    props.modelValue.subRules
   );
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
@@ -301,13 +325,22 @@ watch(
   () => props.executionTrace,
   (trace) => {
     if (trace) {
-      applyExecutionTrace(trace);
+      void scheduleTraceApply(trace);
     } else {
       clearExecutionTrace();
     }
   },
   { immediate: true }
 );
+
+async function scheduleTraceApply(trace: ExecutionTraceData) {
+  const token = ++pendingTraceApplyToken;
+  await nextTick();
+  setTimeout(() => {
+    if (token !== pendingTraceApplyToken) return;
+    applyExecutionTrace(trace);
+  }, 120);
+}
 
 // ============================================
 // Execution trace overlay functionality
@@ -369,6 +402,7 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
  * Clear execution trace overlay
  */
 function clearExecutionTrace() {
+  pendingTraceApplyToken++;
   showExecutionOverlay.value = false;
   executionAnnotations.value = new Map();
   highlightedNodeIds.value = new Set();
@@ -548,6 +582,10 @@ function applyHighlightStyles() {
 
 // Handle node selection
 function onNodeClick(event: any) {
+  if (isCanvasReadOnly.value) {
+    hideContextMenu();
+    return;
+  }
   const nodeId = event.node?.id;
   if (!nodeId) return;
 
@@ -576,14 +614,26 @@ function onNodeClick(event: any) {
 }
 
 function onPaneClick() {
+  if (isCanvasReadOnly.value) {
+    hideContextMenu();
+    return;
+  }
   selectedNodeId.value = null;
   selectedNodeIds.value = [];
   updateHighlightedPath(null); // Clear highlight
   hideContextMenu();
 }
 
+function onNodeDblClick(event: any) {
+  const step = event.node?.data?.step;
+  if (step?.type === 'sub_rule' && step.refName) {
+    emit('open-sub-rule', step.refName);
+  }
+}
+
 // Handle right-click on pane
 function onPaneContextMenu(event: MouseEvent) {
+  if (isCanvasReadOnly.value) return;
   event.preventDefault();
   selectedEdgeId.value = null; // Clear edge selection
   // Only show context menu if there are selected nodes
@@ -594,6 +644,7 @@ function onPaneContextMenu(event: MouseEvent) {
 
 // Handle right-click on node
 function onNodeContextMenu(event: any) {
+  if (isCanvasReadOnly.value) return;
   const nodeEvent = event.event as MouseEvent;
   nodeEvent.preventDefault();
   nodeEvent.stopPropagation();
@@ -613,6 +664,7 @@ function onNodeContextMenu(event: any) {
 
 // Handle right-click on edge
 function onEdgeContextMenu(event: any) {
+  if (isCanvasReadOnly.value) return;
   const edgeEvent = event.event as MouseEvent;
   edgeEvent.preventDefault();
   edgeEvent.stopPropagation();
@@ -629,6 +681,7 @@ function onEdgeContextMenu(event: any) {
 
 // Handle selection change from Vue Flow
 function onSelectionChange(params: any) {
+  if (isCanvasReadOnly.value) return;
   const nodeIds = params.nodes?.map((n: any) => n.id) || [];
   selectedNodeIds.value = nodeIds;
   if (nodeIds.length === 1) {
@@ -669,7 +722,25 @@ onConnect((params) => {
     targetHandle: params.targetHandle || undefined,
     renderStyle: edgeStyle.value,
   });
-  edges.value.push(newEdge);
+
+  // For action/sub_rule nodes, an output handle can only have one outgoing exec edge.
+  // Replace any existing outgoing exec edge from the same source+handle to avoid
+  // findLinearExecutionEdge picking up the stale edge and silently discarding the new one.
+  const isLinearExecEdge =
+    !newEdge.data?.branchId && !newEdge.data?.isDefault && newEdge.data?.edgeType === 'exec';
+  const filtered = isLinearExecEdge
+    ? edges.value.filter(
+        (e) =>
+          !(
+            e.source === newEdge.source &&
+            e.data?.edgeType === 'exec' &&
+            !e.data?.branchId &&
+            !e.data?.isDefault
+          )
+      )
+    : edges.value;
+
+  edges.value = [...filtered, newEdge];
   syncToRuleset();
 });
 
@@ -825,6 +896,18 @@ function createStep(type: NodeCreationType, id: string): Step {
         name: t('step.terminal'),
         code: 'RESULT',
       });
+    case 'sub_rule':
+      const firstSubRuleName = Object.keys(props.modelValue.subRules ?? {})[0] ?? '';
+      return StepFactory.subRule({
+        id,
+        name: t('step.subRule'),
+        refName: firstSubRuleName,
+        assetRef: {
+          scope: 'project',
+          name: firstSubRuleName,
+        },
+        nextStepId: '',
+      });
   }
 }
 
@@ -864,7 +947,7 @@ function addNode(type: NodeCreationType) {
 }
 
 function isNodeCreationType(value: string): value is NodeCreationType {
-  return value === 'decision' || value === 'action' || value === 'terminal';
+  return value === 'decision' || value === 'action' || value === 'terminal' || value === 'sub_rule';
 }
 
 function clearNodeDragPreview() {
@@ -890,7 +973,7 @@ function updateNodeDragPreview(event: DragEvent, type: NodeCreationType) {
 }
 
 function onCanvasDragOver(event: DragEvent) {
-  if (!event.dataTransfer || props.disabled) return;
+  if (!event.dataTransfer || isCanvasReadOnly.value) return;
 
   const isToolbarNodeDrag = Array.from(event.dataTransfer.types).includes(FLOW_NODE_DRAG_TYPE);
   if (!isToolbarNodeDrag || !draggedNodeType.value) return;
@@ -922,7 +1005,7 @@ function onCanvasDragLeave(event: DragEvent) {
 }
 
 function onCanvasDrop(event: DragEvent) {
-  if (props.disabled || !event.dataTransfer) return;
+  if (isCanvasReadOnly.value || !event.dataTransfer) return;
 
   const droppedType = event.dataTransfer.getData(FLOW_NODE_DRAG_TYPE);
   const type = droppedType || draggedNodeType.value;
@@ -1082,6 +1165,14 @@ function duplicateSelectedNode() {
         name: `${originalStep.name} (copy)`,
       });
       break;
+    case 'sub_rule':
+      newStep = StepFactory.subRule({
+        ...originalStep,
+        id: newId,
+        name: `${originalStep.name} (copy)`,
+        nextStepId: '',
+      });
+      break;
     default:
       hideContextMenu();
       return;
@@ -1200,7 +1291,14 @@ function setAsStart(nodeId: string) {
     },
   }));
 
-  const newRuleset = flowToRuleset(nodes.value, edges.value, buildFlowConfig(), nodeId);
+  const newRuleset = flowToRuleset(
+    nodes.value,
+    edges.value,
+    buildFlowConfig(),
+    nodeId,
+    undefined,
+    props.modelValue.subRules
+  );
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
@@ -1343,6 +1441,7 @@ onMounted(() => {
   <div class="ordo-flow-editor" :class="{ disabled }">
     <!-- Toolbar -->
     <OrdoFlowToolbar
+      v-if="!disabled"
       :edge-style="edgeStyle"
       :layout-direction="layoutDirection"
       :has-selection="!!selectedNodeId"
@@ -1374,14 +1473,15 @@ onMounted(() => {
         :snap-to-grid="true"
         :snap-grid="[20, 20]"
         :fit-view-on-init="true"
-        :nodes-draggable="!disabled"
-        :nodes-connectable="!disabled"
-        :elements-selectable="!disabled"
-        :edges-updatable="!disabled"
+        :nodes-draggable="!isCanvasReadOnly"
+        :nodes-connectable="!isCanvasReadOnly"
+        :elements-selectable="!isCanvasReadOnly"
+        :edges-updatable="!isCanvasReadOnly"
         :selection-key-code="'Shift'"
         :multi-selection-key-code="['Meta', 'Control']"
         class="flow-canvas"
         @node-click="onNodeClick"
+        @node-double-click="onNodeDblClick"
         @pane-click="onPaneClick"
         @selection-change="onSelectionChange"
         @node-context-menu="onNodeContextMenu"
@@ -1410,7 +1510,7 @@ onMounted(() => {
 
       <!-- Context Menu -->
       <div
-        v-if="showContextMenu"
+        v-if="showContextMenu && !isCanvasReadOnly"
         class="context-menu"
         :style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
         @click.stop
@@ -1545,9 +1645,10 @@ onMounted(() => {
 
     <!-- Property Panel for Step Nodes -->
     <OrdoFlowPropertyPanel
-      v-if="selectedStepNode"
+      v-if="selectedStepNode && !isCanvasReadOnly"
       :node="selectedStepNode"
       :available-steps="modelValue.steps"
+      :available-sub-rules="modelValue.subRules ?? {}"
       :suggestions="suggestions"
       :disabled="disabled"
       @update="updateNode"
@@ -1557,7 +1658,7 @@ onMounted(() => {
     />
 
     <!-- Property Panel for Group Nodes -->
-    <div v-if="selectedGroupNode" class="group-property-panel">
+    <div v-if="selectedGroupNode && !isCanvasReadOnly" class="group-property-panel">
       <div class="panel-header">
         <div class="header-title">
           <svg
@@ -1661,6 +1762,10 @@ onMounted(() => {
   border-color: var(--ordo-node-terminal, #388a34);
 }
 
+.node-drag-preview.type-sub_rule {
+  border-color: var(--ordo-node-sub-rule, #5b708a);
+}
+
 .node-drag-preview-header {
   display: flex;
   align-items: center;
@@ -1697,6 +1802,10 @@ onMounted(() => {
 
 .node-drag-preview.type-terminal .node-drag-preview-icon {
   color: var(--ordo-node-terminal, #388a34);
+}
+
+.node-drag-preview.type-sub_rule .node-drag-preview-icon {
+  color: var(--ordo-node-sub-rule, #5b708a);
 }
 
 /* Vue Flow overrides */

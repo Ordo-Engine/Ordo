@@ -11,18 +11,18 @@ outline: [2, 3]
 
 Ordo already ships a production-grade core:
 
-| Module | Capabilities |
-|--------|-------------|
-| **Engine** | Sub-microsecond rule execution, bytecode VM + Cranelift JIT, expression optimizer |
-| **Transports** | HTTP REST, gRPC (with TLS/mTLS), Unix Domain Socket |
-| **Visual Editor** | Three editing modes (Form / Flow Graph / JSON), decision tables, execution & performance panels |
-| **CLI** | `ordo eval`, `ordo exec`, `ordo test` |
-| **WASM** | Run the engine in browsers |
-| **SDKs** | Go, Java, Python |
-| **Studio** | Org/project/member management, fact catalog, concept registry, decision contracts, version history |
-| **Multi-tenancy** | Per-tenant QPS limits, burst control, timeouts |
-| **Observability** | Prometheus metrics, OTLP tracing, JSON Lines audit log, WAL crash-safe persistence |
-| **i18n** | English, Simplified Chinese, Traditional Chinese |
+| Module            | Capabilities                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| **Engine**        | Sub-microsecond rule execution, bytecode VM + Cranelift JIT, expression optimizer                  |
+| **Transports**    | HTTP REST, gRPC (with TLS/mTLS), Unix Domain Socket                                                |
+| **Visual Editor** | Three editing modes (Form / Flow Graph / JSON), decision tables, execution & performance panels    |
+| **CLI**           | `ordo eval`, `ordo exec`, `ordo test`                                                              |
+| **WASM**          | Run the engine in browsers                                                                         |
+| **SDKs**          | Go, Java, Python                                                                                   |
+| **Studio**        | Org/project/member management, fact catalog, concept registry, decision contracts, version history |
+| **Multi-tenancy** | Per-tenant QPS limits, burst control, timeouts                                                     |
+| **Observability** | Prometheus metrics, OTLP tracing, JSON Lines audit log, WAL crash-safe persistence                 |
+| **i18n**          | English, Simplified Chinese, Traditional Chinese                                                   |
 
 ---
 
@@ -34,12 +34,12 @@ Ordo already ships a production-grade core:
 
 Pre-built industry templates — each includes a complete RuleSet, pre-defined Facts & Concepts, sample input data, and a side-by-side "from if/else to Ordo" migration guide.
 
-| Template | Scenario | Showcases |
-|----------|----------|-----------|
-| E-commerce Pricing | Discount tiers + VIP levels + time windows | Decision tables, hit policies |
-| Loan Approval | Multi-condition branches + scorecard | Decision graph, multi-step flow |
-| API Routing | Weighted routing + region + fallback | Action nodes, score aggregation |
-| Permission Check | RBAC + attribute conditions | Policy layer, DENY_OVERRIDES |
+| Template           | Scenario                                   | Showcases                       |
+| ------------------ | ------------------------------------------ | ------------------------------- |
+| E-commerce Pricing | Discount tiers + VIP levels + time windows | Decision tables, hit policies   |
+| Loan Approval      | Multi-condition branches + scorecard       | Decision graph, multi-step flow |
+| API Routing        | Weighted routing + region + fallback       | Action nodes, score aggregation |
+| Permission Check   | RBAC + attribute conditions                | Policy layer, DENY_OVERRIDES    |
 
 ### Guided Onboarding
 
@@ -124,12 +124,12 @@ Search, filter, and visualize execution traces:
 
 Configurable alerts with webhook notification:
 
-| Condition | Example |
-|-----------|---------|
-| Error rate spike | Expression evaluation failures > 1% |
-| Latency anomaly | P99 > threshold for 5 minutes |
-| Traffic drop | QPS suddenly falls (upstream issue?) |
-| Result shift | Reject rate jumps from 10% to 40% |
+| Condition        | Example                              |
+| ---------------- | ------------------------------------ |
+| Error rate spike | Expression evaluation failures > 1%  |
+| Latency anomaly  | P99 > threshold for 5 minutes        |
+| Traffic drop     | QPS suddenly falls (upstream issue?) |
+| Result shift     | Reject rate jumps from 10% to 40%    |
 
 ---
 
@@ -204,17 +204,17 @@ Interactive organization-wide graph:
 
 ### What Cloud Adds
 
-| Capability | Self-hosted (OSS) | Ordo Cloud |
-|-----------|-------------------|------------|
-| Rule editing & publishing | :white_check_mark: | :white_check_mark: |
-| Self-managed Engine | :white_check_mark: | :white_check_mark: |
-| **Hosted Engine** (shared or dedicated) | — | :white_check_mark: |
-| **Bring your own Engine** (register to Cloud) | — | :white_check_mark: |
-| **Real-time collaborative editing** | — | :white_check_mark: |
-| **SSO / SAML** | — | :white_check_mark: |
-| **Long-term metrics & custom dashboards** | — | :white_check_mark: |
-| **Compliance report export** | — | :white_check_mark: |
-| **SLA guarantee + priority support** | — | :white_check_mark: |
+| Capability                                    | Self-hosted (OSS)  | Ordo Cloud         |
+| --------------------------------------------- | ------------------ | ------------------ |
+| Rule editing & publishing                     | :white_check_mark: | :white_check_mark: |
+| Self-managed Engine                           | :white_check_mark: | :white_check_mark: |
+| **Hosted Engine** (shared or dedicated)       | —                  | :white_check_mark: |
+| **Bring your own Engine** (register to Cloud) | —                  | :white_check_mark: |
+| **Real-time collaborative editing**           | —                  | :white_check_mark: |
+| **SSO / SAML**                                | —                  | :white_check_mark: |
+| **Long-term metrics & custom dashboards**     | —                  | :white_check_mark: |
+| **Compliance report export**                  | —                  | :white_check_mark: |
+| **SLA guarantee + priority support**          | —                  | :white_check_mark: |
 
 ---
 
@@ -251,8 +251,8 @@ Timelines are directional, not commitments. Priorities may shift based on commun
 
 We'd love your input on what to prioritize:
 
-- **Feature requests & feedback**: [GitHub Issues](https://github.com/Pama-Lee/Ordo/issues)
+- **Feature requests & feedback**: [GitHub Issues](https://github.com/Ordo-Engine/Ordo/issues)
 - **Community**: [Discord](https://discord.gg/Y529FkArhh)
-- **Contribute**: Check out our [Contributing Guide](https://github.com/Pama-Lee/Ordo/blob/main/CONTRIBUTING.md)
+- **Contribute**: Check out our [Contributing Guide](https://github.com/Ordo-Engine/Ordo/blob/main/CONTRIBUTING.md)
 
 Share your use case — hearing how you're thinking about using Ordo directly shapes what we build next.

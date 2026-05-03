@@ -1,20 +1,26 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { useAuthStore } from '@/stores/auth'
-import { useOrgStore } from '@/stores/org'
-import { useProjectStore } from '@/stores/project'
-import { useCatalogStore } from '@/stores/catalog'
-import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue'
-import TestCasePanel from './TestCasePanel.vue'
-import { rulesetHistoryApi } from '@/api/platform-client'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { useOrgStore } from '@/stores/org';
+import { useProjectStore } from '@/stores/project';
+import { useCatalogStore } from '@/stores/catalog';
+import { useEnvironmentStore } from '@/stores/environment';
+import { useRbacStore } from '@/stores/rbac';
+import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue';
+import TestCasePanel from './TestCasePanel.vue';
+import { rulesetHistoryApi } from '@/api/platform-client';
+import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue';
+import { normalizeRuleset } from '@/utils/ruleset';
+import { getCurrentVersionDisplay, stripVersionSuffix } from '@/utils/ruleset-version';
 import type {
   AppendRulesetHistoryEntry,
+  DraftConflictResponse,
   RulesetHistoryEntry,
   RulesetHistorySource,
-} from '@/api/types'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+} from '@/api/types';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import {
   OrdoFormEditor,
   OrdoFlowEditor,
@@ -29,67 +35,69 @@ import {
   Step,
   type RuleSet,
   type DecisionTable,
-} from '@ordo-engine/editor-vue'
+} from '@ordo-engine/editor-vue';
 
-const route = useRoute()
-const router = useRouter()
-const auth = useAuthStore()
-const orgStore = useOrgStore()
-const projectStore = useProjectStore()
-const catalogStore = useCatalogStore()
-const { t } = useI18n()
+const route = useRoute();
+const router = useRouter();
+const auth = useAuthStore();
+const orgStore = useOrgStore();
+const projectStore = useProjectStore();
+const catalogStore = useCatalogStore();
+const environmentStore = useEnvironmentStore();
+const rbacStore = useRbacStore();
+const { t } = useI18n();
 
-const LOCAL_HISTORY_LIMIT = 120
-const HISTORY_SYNC_DELAY_MS = 700
-const EDIT_HISTORY_COMMIT_DELAY_MS = 450
+const LOCAL_HISTORY_LIMIT = 120;
+const HISTORY_SYNC_DELAY_MS = 700;
+const EDIT_HISTORY_COMMIT_DELAY_MS = 450;
 
-const orgId = computed(() => route.params.orgId as string)
-const projectId = computed(() => route.params.projectId as string)
-const rulesetNameParam = computed(() => route.params.rulesetName as string | undefined)
+const orgId = computed(() => route.params.orgId as string);
+const projectId = computed(() => route.params.projectId as string);
+const rulesetNameParam = computed(() => route.params.rulesetName as string | undefined);
 
-const projectBase = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}`)
+const projectBase = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}`);
 
 // ── Editor mode — stored per-tab so switching tabs restores correct mode ─────
-const editorMode = ref<'form' | 'flow' | 'table'>('form')
-const tabModes = new Map<string, 'form' | 'flow' | 'table'>()
-const openMenu = ref<'file' | 'edit' | 'select' | 'view' | 'window' | null>(null)
-const showHistoryPanel = ref(false)
+const editorMode = ref<'form' | 'flow' | 'table'>('form');
+const tabModes = new Map<string, 'form' | 'flow' | 'table'>();
+const openMenu = ref<'file' | 'edit' | 'select' | 'view' | 'window' | null>(null);
+const showHistoryPanel = ref(false);
 
 function switchToTab(name: string) {
   if (projectStore.activeTabName) {
-    flushPendingEditHistory(projectStore.activeTabName)
+    flushPendingEditHistory(projectStore.activeTabName);
   }
-  projectStore.activeTabName = name
-  editorMode.value = tabModes.get(name) ?? 'form'
+  projectStore.activeTabName = name;
+  editorMode.value = tabModes.get(name) ?? 'form';
 }
 
 // ── Local history (per-tab, PS-style) ────────────────────────────────────────
 interface TabHistoryState {
-  entries: RulesetHistoryEntry[]
-  currentIndex: number
-  loaded: boolean
-  loading: boolean
-  syncing: boolean
+  entries: RulesetHistoryEntry[];
+  currentIndex: number;
+  loaded: boolean;
+  loading: boolean;
+  syncing: boolean;
 }
 
-const historyStates = ref<Record<string, TabHistoryState>>({})
-const historyPanelCollapsed = ref(false)
-const pendingHistoryEntries = new Map<string, AppendRulesetHistoryEntry[]>()
-const historyFlushTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const savedRulesetSnapshots = new Map<string, string>()
-const pendingEditHistory = new Map<string, { ruleset: RuleSet; action: string }>()
-const editHistoryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const historyStates = ref<Record<string, TabHistoryState>>({});
+const historyPanelCollapsed = ref(false);
+const pendingHistoryEntries = new Map<string, AppendRulesetHistoryEntry[]>();
+const historyFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const savedRulesetSnapshots = new Map<string, string>();
+const pendingEditHistory = new Map<string, { ruleset: RuleSet; action: string }>();
+const editHistoryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function cloneRuleset(ruleset: RuleSet): RuleSet {
-  return JSON.parse(JSON.stringify(ruleset))
+  return JSON.parse(JSON.stringify(ruleset));
 }
 
 function serializeRuleset(ruleset: RuleSet): string {
-  return JSON.stringify(ruleset)
+  return JSON.stringify(ruleset);
 }
 
 function isSameRuleset(a: RuleSet, b: RuleSet): boolean {
-  return serializeRuleset(a) === serializeRuleset(b)
+  return serializeRuleset(a) === serializeRuleset(b);
 }
 
 function getHistoryState(name: string): TabHistoryState {
@@ -100,31 +108,31 @@ function getHistoryState(name: string): TabHistoryState {
       loaded: false,
       loading: false,
       syncing: false,
-    }
+    };
   }
-  return historyStates.value[name]
+  return historyStates.value[name];
 }
 
 const activeHistoryState = computed(() => {
-  const tab = projectStore.activeTab
-  if (!tab) return null
-  return getHistoryState(tab.name)
-})
+  const tab = projectStore.activeTab;
+  if (!tab) return null;
+  return getHistoryState(tab.name);
+});
 
-const activeHistoryEntries = computed(() => activeHistoryState.value?.entries ?? [])
-const activeHistoryIndex = computed(() => activeHistoryState.value?.currentIndex ?? -1)
-const canUndoHistory = computed(() => (activeHistoryState.value?.currentIndex ?? 0) > 0)
+const activeHistoryEntries = computed(() => activeHistoryState.value?.entries ?? []);
+const activeHistoryIndex = computed(() => activeHistoryState.value?.currentIndex ?? -1);
+const canUndoHistory = computed(() => (activeHistoryState.value?.currentIndex ?? 0) > 0);
 const canRedoHistory = computed(() => {
-  const state = activeHistoryState.value
-  if (!state) return false
-  return state.currentIndex < state.entries.length - 1
-})
+  const state = activeHistoryState.value;
+  if (!state) return false;
+  return state.currentIndex < state.entries.length - 1;
+});
 
 function createHistoryEntry(
   rulesetName: string,
   ruleset: RuleSet,
   action: string,
-  source: RulesetHistorySource,
+  source: RulesetHistorySource
 ): RulesetHistoryEntry {
   return {
     id: `history_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
@@ -136,143 +144,143 @@ function createHistoryEntry(
     author_email: auth.user?.email ?? '',
     author_display_name: auth.user?.display_name ?? '',
     snapshot: cloneRuleset(ruleset),
-  }
+  };
 }
 
 function syncDecisionTableFromRuleset(name: string, ruleset: RuleSet) {
-  const metaTableStr = ruleset.config.metadata?._table
+  const metaTableStr = ruleset.config.metadata?._table;
   if (metaTableStr) {
     try {
-      decisionTables.value[name] = JSON.parse(metaTableStr)
-      return
+      decisionTables.value[name] = JSON.parse(metaTableStr);
+      return;
     } catch {
       // fall through to decompile
     }
   }
 
-  const table = decompileStepsToTable(ruleset.steps, ruleset.startStepId)
+  const table = decompileStepsToTable(ruleset.steps, ruleset.startStepId);
   if (table) {
-    decisionTables.value[name] = table
+    decisionTables.value[name] = table;
   } else {
-    delete decisionTables.value[name]
+    delete decisionTables.value[name];
   }
 }
 
 function updateRulesetState(name: string, ruleset: RuleSet) {
-  const snapshot = cloneRuleset(ruleset)
-  const savedSnapshot = savedRulesetSnapshots.get(name)
-  const dirty = savedSnapshot ? savedSnapshot !== serializeRuleset(snapshot) : true
-  projectStore.setTabRuleset(name, snapshot, dirty)
-  syncDecisionTableFromRuleset(name, snapshot)
+  const snapshot = cloneRuleset(ruleset);
+  const savedSnapshot = savedRulesetSnapshots.get(name);
+  const dirty = savedSnapshot ? savedSnapshot !== serializeRuleset(snapshot) : true;
+  projectStore.setTabRuleset(name, snapshot, dirty);
+  syncDecisionTableFromRuleset(name, snapshot);
 }
 
 function buildHistoryAction(previous: RuleSet, next: RuleSet) {
   if (next.steps.length > previous.steps.length) {
-    return t('historyPanel.actionAddStep')
+    return t('historyPanel.actionAddStep');
   }
   if (next.steps.length < previous.steps.length) {
-    return t('historyPanel.actionRemoveStep')
+    return t('historyPanel.actionRemoveStep');
   }
   if (previous.startStepId !== next.startStepId) {
-    return t('historyPanel.actionSetStart')
+    return t('historyPanel.actionSetStart');
   }
   if (
     previous.config.name !== next.config.name ||
     previous.config.version !== next.config.version ||
     previous.config.description !== next.config.description
   ) {
-    return t('historyPanel.actionUpdateSettings')
+    return t('historyPanel.actionUpdateSettings');
   }
   if (editorMode.value === 'table') {
-    return t('historyPanel.actionEditTable')
+    return t('historyPanel.actionEditTable');
   }
   if (editorMode.value === 'flow') {
-    return t('historyPanel.actionEditFlow')
+    return t('historyPanel.actionEditFlow');
   }
-  return t('historyPanel.actionEditRuleset')
+  return t('historyPanel.actionEditRuleset');
 }
 
 function queueHistoryPersistence(name: string, entry: RulesetHistoryEntry) {
-  if (!canEdit.value) return
+  if (!canEdit.value) return;
 
-  const queue = pendingHistoryEntries.get(name) ?? []
+  const queue = pendingHistoryEntries.get(name) ?? [];
   queue.push({
     id: entry.id,
     action: entry.action,
     source: entry.source,
     created_at: entry.created_at,
     snapshot: cloneRuleset(entry.snapshot),
-  })
-  pendingHistoryEntries.set(name, queue)
+  });
+  pendingHistoryEntries.set(name, queue);
 
-  const timer = historyFlushTimers.get(name)
-  if (timer) clearTimeout(timer)
+  const timer = historyFlushTimers.get(name);
+  if (timer) clearTimeout(timer);
 
-  const state = getHistoryState(name)
-  state.syncing = true
+  const state = getHistoryState(name);
+  state.syncing = true;
 
   historyFlushTimers.set(
     name,
     setTimeout(() => {
-      void flushHistoryQueue(name)
-    }, HISTORY_SYNC_DELAY_MS),
-  )
+      void flushHistoryQueue(name);
+    }, HISTORY_SYNC_DELAY_MS)
+  );
 }
 
 function flushPendingEditHistory(name: string) {
-  const timer = editHistoryTimers.get(name)
+  const timer = editHistoryTimers.get(name);
   if (timer) {
-    clearTimeout(timer)
-    editHistoryTimers.delete(name)
+    clearTimeout(timer);
+    editHistoryTimers.delete(name);
   }
 
-  const pending = pendingEditHistory.get(name)
-  if (!pending) return
+  const pending = pendingEditHistory.get(name);
+  if (!pending) return;
 
-  pendingEditHistory.delete(name)
-  pushHistoryEntry(name, pending.ruleset, pending.action, 'edit')
+  pendingEditHistory.delete(name);
+  pushHistoryEntry(name, pending.ruleset, pending.action, 'edit');
 }
 
 function scheduleEditHistoryEntry(name: string, ruleset: RuleSet, action: string) {
   pendingEditHistory.set(name, {
     ruleset: cloneRuleset(ruleset),
     action,
-  })
+  });
 
-  const timer = editHistoryTimers.get(name)
-  if (timer) clearTimeout(timer)
+  const timer = editHistoryTimers.get(name);
+  if (timer) clearTimeout(timer);
 
   editHistoryTimers.set(
     name,
     setTimeout(() => {
-      flushPendingEditHistory(name)
-    }, EDIT_HISTORY_COMMIT_DELAY_MS),
-  )
+      flushPendingEditHistory(name);
+    }, EDIT_HISTORY_COMMIT_DELAY_MS)
+  );
 }
 
 async function flushHistoryQueue(name: string) {
-  const timer = historyFlushTimers.get(name)
+  const timer = historyFlushTimers.get(name);
   if (timer) {
-    clearTimeout(timer)
-    historyFlushTimers.delete(name)
+    clearTimeout(timer);
+    historyFlushTimers.delete(name);
   }
 
-  const queue = pendingHistoryEntries.get(name)
-  const state = getHistoryState(name)
+  const queue = pendingHistoryEntries.get(name);
+  const state = getHistoryState(name);
   if (!queue?.length || !auth.token || !projectStore.currentProject) {
-    state.syncing = false
-    return
+    state.syncing = false;
+    return;
   }
 
-  pendingHistoryEntries.delete(name)
+  pendingHistoryEntries.delete(name);
 
   try {
-    await rulesetHistoryApi.append(auth.token, projectStore.currentProject.id, name, queue)
-    state.syncing = false
+    await rulesetHistoryApi.append(auth.token, projectStore.currentProject.id, name, queue);
+    state.syncing = false;
   } catch (error) {
-    const retryQueue = [...queue, ...(pendingHistoryEntries.get(name) ?? [])]
-    pendingHistoryEntries.set(name, retryQueue)
-    state.syncing = true
+    const retryQueue = [...queue, ...(pendingHistoryEntries.get(name) ?? [])];
+    pendingHistoryEntries.set(name, retryQueue);
+    state.syncing = true;
   }
 }
 
@@ -281,209 +289,261 @@ function pushHistoryEntry(
   ruleset: RuleSet,
   action: string,
   source: RulesetHistorySource,
-  persist = true,
+  persist = true
 ) {
-  const state = getHistoryState(name)
-  const currentEntry = state.entries[state.currentIndex]
+  const state = getHistoryState(name);
+  const currentEntry = state.entries[state.currentIndex];
 
-  if (source === 'edit' && currentEntry?.snapshot && isSameRuleset(currentEntry.snapshot, ruleset)) {
-    return
+  if (
+    source === 'edit' &&
+    currentEntry?.snapshot &&
+    isSameRuleset(currentEntry.snapshot, ruleset)
+  ) {
+    return;
   }
 
   if (state.currentIndex < state.entries.length - 1) {
-    state.entries = state.entries.slice(0, state.currentIndex + 1)
+    state.entries = state.entries.slice(0, state.currentIndex + 1);
   }
 
-  state.entries.push(createHistoryEntry(name, ruleset, action, source))
+  state.entries.push(createHistoryEntry(name, ruleset, action, source));
   if (state.entries.length > LOCAL_HISTORY_LIMIT) {
-    state.entries = state.entries.slice(state.entries.length - LOCAL_HISTORY_LIMIT)
+    state.entries = state.entries.slice(state.entries.length - LOCAL_HISTORY_LIMIT);
   }
-  state.currentIndex = state.entries.length - 1
+  state.currentIndex = state.entries.length - 1;
 
   if (persist) {
-    queueHistoryPersistence(name, state.entries[state.currentIndex])
+    queueHistoryPersistence(name, state.entries[state.currentIndex]);
   }
 }
 
 function applyHistoryIndex(name: string, index: number) {
-  const state = getHistoryState(name)
-  const entry = state.entries[index]
-  if (!entry) return
+  const state = getHistoryState(name);
+  const entry = state.entries[index];
+  if (!entry) return;
 
-  state.currentIndex = index
-  updateRulesetState(name, entry.snapshot)
+  state.currentIndex = index;
+  updateRulesetState(name, entry.snapshot);
 }
 
 function undoHistory() {
-  const tab = projectStore.activeTab
-  if (!tab || !canUndoHistory.value) return
-  flushPendingEditHistory(tab.name)
-  applyHistoryIndex(tab.name, activeHistoryIndex.value - 1)
+  const tab = projectStore.activeTab;
+  if (!tab || !canUndoHistory.value) return;
+  flushPendingEditHistory(tab.name);
+  applyHistoryIndex(tab.name, activeHistoryIndex.value - 1);
 }
 
 function redoHistory() {
-  const tab = projectStore.activeTab
-  if (!tab || !canRedoHistory.value) return
-  flushPendingEditHistory(tab.name)
-  applyHistoryIndex(tab.name, activeHistoryIndex.value + 1)
+  const tab = projectStore.activeTab;
+  if (!tab || !canRedoHistory.value) return;
+  flushPendingEditHistory(tab.name);
+  applyHistoryIndex(tab.name, activeHistoryIndex.value + 1);
 }
 
 function restoreHistory(index: number) {
-  const tab = projectStore.activeTab
-  if (!tab) return
-  flushPendingEditHistory(tab.name)
+  const tab = projectStore.activeTab;
+  if (!tab) return;
+  flushPendingEditHistory(tab.name);
 
-  const state = getHistoryState(tab.name)
-  const entry = state.entries[index]
-  if (!entry) return
+  const state = getHistoryState(tab.name);
+  const entry = state.entries[index];
+  if (!entry) return;
 
   if (isSameRuleset(tab.ruleset, entry.snapshot)) {
-    state.currentIndex = index
-    return
+    state.currentIndex = index;
+    return;
   }
 
-  updateRulesetState(tab.name, entry.snapshot)
+  updateRulesetState(tab.name, entry.snapshot);
   pushHistoryEntry(
     tab.name,
     entry.snapshot,
     t('historyPanel.actionRestoreSnapshot', { action: entry.action }),
-    'restore',
-  )
+    'restore'
+  );
 }
 
 function resetTabHistory(name: string) {
-  const editTimer = editHistoryTimers.get(name)
+  const editTimer = editHistoryTimers.get(name);
   if (editTimer) {
-    clearTimeout(editTimer)
-    editHistoryTimers.delete(name)
+    clearTimeout(editTimer);
+    editHistoryTimers.delete(name);
   }
-  pendingEditHistory.delete(name)
+  pendingEditHistory.delete(name);
 
-  const timer = historyFlushTimers.get(name)
+  const timer = historyFlushTimers.get(name);
   if (timer) {
-    clearTimeout(timer)
-    historyFlushTimers.delete(name)
+    clearTimeout(timer);
+    historyFlushTimers.delete(name);
   }
-  pendingHistoryEntries.delete(name)
-  savedRulesetSnapshots.delete(name)
-  delete historyStates.value[name]
+  pendingHistoryEntries.delete(name);
+  savedRulesetSnapshots.delete(name);
+  delete historyStates.value[name];
 }
 
 async function disposeTabHistory(name: string) {
-  await flushHistoryQueue(name)
-  resetTabHistory(name)
+  await flushHistoryQueue(name);
+  resetTabHistory(name);
 }
 
 async function ensureHistoryLoaded(name: string, ruleset: RuleSet) {
-  const state = getHistoryState(name)
-  if (state.loaded || state.loading) return
+  const state = getHistoryState(name);
+  if (state.loaded || state.loading) return;
 
-  state.loading = true
-  const currentSnapshot = cloneRuleset(ruleset)
-  const loadedEntries: RulesetHistoryEntry[] = []
+  state.loading = true;
+  const currentSnapshot = cloneRuleset(ruleset);
+  const loadedEntries: RulesetHistoryEntry[] = [];
 
   try {
     if (auth.token && projectStore.currentProject) {
-      const response = await rulesetHistoryApi.list(auth.token, projectStore.currentProject.id, name)
+      const response = await rulesetHistoryApi.list(
+        auth.token,
+        projectStore.currentProject.id,
+        name
+      );
       loadedEntries.push(
         ...response.entries.map((entry) => ({
           ...entry,
           snapshot: cloneRuleset(entry.snapshot),
-        })),
-      )
+        }))
+      );
     }
   } catch (error) {
-    console.error('[history] failed to load ruleset history:', error)
+    console.error('[history] failed to load ruleset history:', error);
   }
 
-  if (loadedEntries.length === 0 || !isSameRuleset(loadedEntries[loadedEntries.length - 1].snapshot, currentSnapshot)) {
+  if (
+    loadedEntries.length === 0 ||
+    !isSameRuleset(loadedEntries[loadedEntries.length - 1].snapshot, currentSnapshot)
+  ) {
     loadedEntries.push(
-      createHistoryEntry(name, currentSnapshot, t('historyPanel.actionOpenCurrent'), 'sync'),
-    )
+      createHistoryEntry(name, currentSnapshot, t('historyPanel.actionOpenCurrent'), 'sync')
+    );
   }
 
-  state.entries = loadedEntries
-  state.currentIndex = loadedEntries.length - 1
-  state.loaded = true
-  state.loading = false
-  state.syncing = false
+  state.entries = loadedEntries;
+  state.currentIndex = loadedEntries.length - 1;
+  state.loaded = true;
+  state.loading = false;
+  state.syncing = false;
 
-  savedRulesetSnapshots.set(name, serializeRuleset(currentSnapshot))
+  savedRulesetSnapshots.set(name, serializeRuleset(currentSnapshot));
 }
 
 // ── Execution panel ──────────────────────────────────────────────────────────
-const showExecution = ref(false)
-const executionHeight = ref(280)
+const showExecution = ref(false);
+const executionHeight = ref(280);
 
 // ── Test case panel ───────────────────────────────────────────────────────────
-const showTests = ref(false)
-const testsHeight = ref(280)
+const showTests = ref(false);
+const testsHeight = ref(280);
 
 function toggleTests() {
-  showTests.value = !showTests.value
-  if (showTests.value) showExecution.value = false
+  showTests.value = !showTests.value;
+  if (showTests.value) showExecution.value = false;
 }
 
 function toggleExecution() {
-  showExecution.value = !showExecution.value
-  if (showExecution.value) showTests.value = false
+  showExecution.value = !showExecution.value;
+  if (showExecution.value) showTests.value = false;
 }
 
 // ── Execution trace overlay (for "show in flow") ─────────────────────────────
 const executionTrace = ref<{
-  path: string[]
-  steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>
-  resultCode: string
-  resultMessage: string
-  output?: Record<string, any>
-} | null>(null)
+  path: string[];
+  steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+  resultCode: string;
+  resultMessage: string;
+  output?: Record<string, any>;
+} | null>(null);
+const flowTraceMode = ref(false);
 
 function handleShowInFlow(trace: typeof executionTrace.value) {
   executionTrace.value = trace
-  setEditorMode('flow')
+    ? { ...trace, steps: [...trace.steps], path: [...trace.path] }
+    : null;
+  flowTraceMode.value = true;
+  setEditorMode('flow');
 }
 
 function handleClearFlowTrace() {
-  executionTrace.value = null
+  executionTrace.value = null;
+  flowTraceMode.value = false;
 }
 
 function handleShowAsFlow() {
-  setEditorMode('flow')
+  setEditorMode('flow');
 }
 
 // ── Create dialog ─────────────────────────────────────────────────────────────
-const showCreate = ref(false)
-const creating = ref(false)
-const newName = ref('')
-const newType = ref<'flow' | 'table'>('flow')
-const saving = ref(false)
+const showCreate = ref(false);
+const creating = ref(false);
+const newName = ref('');
+const newType = ref<'flow' | 'table'>('flow');
+const saving = ref(false);
+const conflictState = ref<{
+  rulesetName: string;
+  localDraft: RuleSet;
+  serverDraft: RuleSet;
+  serverSeq: number;
+} | null>(null);
 
 // ── Permissions ───────────────────────────────────────────────────────────────
 const canEdit = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canEdit(auth.user.id)
-})
+  if (!auth.user) return false;
+  return rbacStore.can('ruleset:edit') || orgStore.canEdit(auth.user.id);
+});
 
 const canAdmin = computed(() => {
-  if (!auth.user) return false
-  return orgStore.canAdmin(auth.user.id)
-})
+  if (!auth.user) return false;
+  return rbacStore.can('project:manage') || orgStore.canAdmin(auth.user.id);
+});
+
+const canPublish = computed(() => {
+  if (!auth.user) return false;
+  return rbacStore.can('ruleset:publish') || orgStore.canAdmin(auth.user.id);
+});
+
+const activeRulesetMeta = computed(() => {
+  const tab = projectStore.activeTab;
+  if (!tab) return null;
+  return projectStore.draftMetas.find((item) => item.name === tab.name) ?? null;
+});
+
+const activeDraftVersion = computed(() =>
+  stripVersionSuffix(projectStore.activeTab?.ruleset.config.version)
+);
+
+const activePublishedVersion = computed(() =>
+  stripVersionSuffix(activeRulesetMeta.value?.published_version)
+);
+
+const activeVersionDisplay = computed(() =>
+  getCurrentVersionDisplay(
+    activeHistoryEntries.value,
+    projectStore.activeTab?.ruleset.config.version
+  )
+);
+
+const requiresVersionBump = computed(
+  () => !!activePublishedVersion.value && activePublishedVersion.value === activeDraftVersion.value
+);
 
 // ── Table support ──────────────────────────────────────────────────────────────
-const decisionTables = ref<Record<string, DecisionTable>>({})
+const decisionTables = ref<Record<string, DecisionTable>>({});
 
 const activeDecisionTable = computed(() => {
-  const tab = projectStore.activeTab
-  if (!tab) return null
-  return decisionTables.value[tab.name] ?? null
-})
+  const tab = projectStore.activeTab;
+  if (!tab) return null;
+  return decisionTables.value[tab.name] ?? null;
+});
 
 function handleTableChange(table: DecisionTable) {
-  const tab = projectStore.activeTab
-  if (!tab) return
-  decisionTables.value[tab.name] = table
+  const tab = projectStore.activeTab;
+  if (!tab) return;
+  decisionTables.value[tab.name] = table;
 
-  const result = compileTableToSteps(table)
+  const result = compileTableToSteps(table);
 
   const nextRuleset: RuleSet = {
     ...tab.ruleset,
@@ -496,156 +556,250 @@ function handleTableChange(table: DecisionTable) {
         _table: JSON.stringify(table),
       },
     },
-  }
+  };
 
-  updateRulesetState(tab.name, nextRuleset)
-  scheduleEditHistoryEntry(tab.name, nextRuleset, t('historyPanel.actionEditTable'))
+  updateRulesetState(tab.name, nextRuleset);
+  scheduleEditHistoryEntry(tab.name, nextRuleset, t('historyPanel.actionEditTable'));
 }
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────────
 onMounted(async () => {
   if (!projectStore.currentProject || projectStore.currentProject.id !== projectId.value) {
-    const project = projectStore.projects.find((p) => p.id === projectId.value)
+    const project = projectStore.projects.find((p) => p.id === projectId.value);
     if (project) {
-      await projectStore.selectProject(project)
+      await projectStore.selectProject(project);
     }
   }
-  await projectStore.fetchRulesets()
+  await projectStore.fetchRulesets();
+  await rbacStore.fetchRoles(orgId.value);
+  await rbacStore.fetchMyRoles(orgId.value);
+  await environmentStore.fetchEnvironments(orgId.value, projectId.value);
 
   // Open ruleset from URL param
   if (rulesetNameParam.value) {
-    await openRuleset(rulesetNameParam.value)
+    await openRuleset(rulesetNameParam.value);
   } else if (projectStore.rulesets.length > 0 && projectStore.openTabs.length === 0) {
-    await openRuleset(projectStore.rulesets[0].name)
+    await openRuleset(projectStore.rulesets[0].name);
   }
-})
+});
 
 watch(
   () => rulesetNameParam.value,
   async (name) => {
-    if (name) await openRuleset(name)
-  },
-)
+    if (name) await openRuleset(name);
+  }
+);
 
 function onKeydown(e: KeyboardEvent) {
-  const key = e.key.toLowerCase()
-  const isPrimary = e.ctrlKey || e.metaKey
+  const key = e.key.toLowerCase();
+  const isPrimary = e.ctrlKey || e.metaKey;
 
-  if (!isPrimary) return
+  if (!isPrimary) return;
 
   if (key === 's') {
-    e.preventDefault()
-    if (projectStore.activeTab) handleSave(projectStore.activeTab.name)
-    return
+    e.preventDefault();
+    if (projectStore.activeTab) handleSave(projectStore.activeTab.name);
+    return;
   }
 
   if (key === 'z') {
-    e.preventDefault()
+    e.preventDefault();
     if (e.shiftKey) {
-      redoHistory()
+      redoHistory();
     } else {
-      undoHistory()
+      undoHistory();
     }
-    return
+    return;
   }
 
   if (key === 'y') {
-    e.preventDefault()
-    redoHistory()
+    e.preventDefault();
+    redoHistory();
   }
 }
 
 function closeMenus() {
-  openMenu.value = null
+  openMenu.value = null;
 }
 
 function toggleMenu(menu: 'file' | 'edit' | 'select' | 'view' | 'window') {
-  openMenu.value = openMenu.value === menu ? null : menu
+  openMenu.value = openMenu.value === menu ? null : menu;
 }
 
 function hoverMenu(menu: 'file' | 'edit' | 'select' | 'view' | 'window') {
   if (openMenu.value) {
-    openMenu.value = menu
+    openMenu.value = menu;
   }
 }
 
 function onDocumentPointerDown(event: MouseEvent) {
-  const target = event.target as HTMLElement | null
+  const target = event.target as HTMLElement | null;
   if (!target?.closest('.editor-menubar')) {
-    closeMenus()
+    closeMenus();
   }
 }
 
 function runMenuAction(action: () => void) {
-  closeMenus()
-  action()
+  closeMenus();
+  action();
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onUnmounted(() => document.removeEventListener('keydown', onKeydown))
-onMounted(() => document.addEventListener('mousedown', onDocumentPointerDown))
-onUnmounted(() => document.removeEventListener('mousedown', onDocumentPointerDown))
+onMounted(() => document.addEventListener('keydown', onKeydown));
+onUnmounted(() => document.removeEventListener('keydown', onKeydown));
+onMounted(() => document.addEventListener('mousedown', onDocumentPointerDown));
+onUnmounted(() => document.removeEventListener('mousedown', onDocumentPointerDown));
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 async function openRuleset(name: string) {
   try {
-    await projectStore.openRuleset(name)
-    const tab = projectStore.openTabs.find((t) => t.name === name)
+    await projectStore.openRuleset(name);
+    const tab = projectStore.openTabs.find((t) => t.name === name);
     if (tab) {
-      syncDecisionTableFromRuleset(name, tab.ruleset)
-      editorMode.value = canBeTable(tab.ruleset) ? 'table' : 'form'
-      await ensureHistoryLoaded(name, tab.ruleset)
+      syncDecisionTableFromRuleset(name, tab.ruleset);
+      editorMode.value = canBeTable(tab.ruleset) ? 'table' : 'form';
+      await ensureHistoryLoaded(name, tab.ruleset);
     }
-    tabModes.set(name, editorMode.value)
-    router.replace(`${projectBase.value}/editor/${encodeURIComponent(name)}`)
+    tabModes.set(name, editorMode.value);
+    router.replace(`${projectBase.value}/editor/${encodeURIComponent(name)}`);
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('editor.loadFailed'))
+    MessagePlugin.error(e.message || t('editor.loadFailed'));
   }
 }
 
 function canBeTable(rs: RuleSet): boolean {
   try {
-    return !!decompileStepsToTable(rs.steps, rs.startStepId)
+    return !!decompileStepsToTable(rs.steps, rs.startStepId);
   } catch {
-    return false
+    return false;
   }
 }
 
 function handleRulesetChange(ruleset: RuleSet) {
-  const tab = projectStore.activeTab
-  if (!tab) return
+  const tab = projectStore.activeTab;
+  if (!tab) return;
 
-  const action = buildHistoryAction(tab.ruleset, ruleset)
-  updateRulesetState(tab.name, ruleset)
-  scheduleEditHistoryEntry(tab.name, ruleset, action)
+  const action = buildHistoryAction(tab.ruleset, ruleset);
+  updateRulesetState(tab.name, ruleset);
+  scheduleEditHistoryEntry(tab.name, ruleset, action);
+}
+
+function handleVersionChange(event: Event) {
+  const tab = projectStore.activeTab;
+  if (!tab) return;
+
+  const target = event.target as HTMLInputElement;
+  const nextVersion = stripVersionSuffix(target.value);
+  const nextRuleset: RuleSet = {
+    ...tab.ruleset,
+    config: {
+      ...tab.ruleset.config,
+      version: nextVersion,
+    },
+  };
+
+  const action = buildHistoryAction(tab.ruleset, nextRuleset);
+  updateRulesetState(tab.name, nextRuleset);
+  scheduleEditHistoryEntry(tab.name, nextRuleset, action);
 }
 
 async function handleSave(name: string) {
   if (!canEdit.value) {
-    MessagePlugin.warning(t('editor.noPermission'))
-    return
+    MessagePlugin.warning(t('editor.noPermission'));
+    return;
   }
-  saving.value = true
+  const tab = projectStore.openTabs.find((item) => item.name === name);
+  if (!tab) return;
+
+  const nextVersion = stripVersionSuffix(tab.ruleset.config.version);
+  const meta = projectStore.draftMetas.find((item) => item.name === name) ?? null;
+  const publishedVersion = stripVersionSuffix(meta?.published_version);
+  if (!nextVersion) {
+    MessagePlugin.warning(t('editor.versionRequired'));
+    return;
+  }
+  if (publishedVersion && publishedVersion === nextVersion) {
+    MessagePlugin.warning(t('editor.versionBumpRequired', { version: publishedVersion }));
+    return;
+  }
+  saving.value = true;
   try {
-    flushPendingEditHistory(name)
-    await projectStore.saveRuleset(name)
-    const tab = projectStore.openTabs.find((item) => item.name === name)
-    if (tab) {
-      savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset))
-      projectStore.setTabRuleset(name, cloneRuleset(tab.ruleset), false)
-      pushHistoryEntry(name, tab.ruleset, t('historyPanel.actionSaveCheckpoint'), 'save')
-      await flushHistoryQueue(name)
+    flushPendingEditHistory(name);
+    const result = await projectStore.saveRuleset(name);
+    if (result?.conflict) {
+      const tab = projectStore.openTabs.find((item) => item.name === name);
+      if (!tab) {
+        MessagePlugin.error(t('editor.saveFailed'));
+        return;
+      }
+      conflictState.value = {
+        rulesetName: name,
+        localDraft: cloneRuleset(tab.ruleset),
+        serverDraft: cloneRuleset(normalizeRuleset(result.server_draft, name)),
+        serverSeq: result.server_seq,
+      };
+      return;
     }
-    MessagePlugin.success(t('editor.saveSuccess'))
+    const tab = projectStore.openTabs.find((item) => item.name === name);
+    if (tab) {
+      savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset));
+      projectStore.setTabRuleset(name, cloneRuleset(tab.ruleset), false);
+      pushHistoryEntry(name, tab.ruleset, t('historyPanel.actionSaveCheckpoint'), 'save');
+      await flushHistoryQueue(name);
+    }
+    MessagePlugin.success(t('editor.saveSuccess'));
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('editor.saveFailed'))
+    MessagePlugin.error(e.message || t('editor.saveFailed'));
   } finally {
-    saving.value = false
+    saving.value = false;
   }
 }
 
+async function resolveConflictUseServer() {
+  const conflict = conflictState.value;
+  if (!conflict) return;
+  const tab = projectStore.openTabs.find((item) => item.name === conflict.rulesetName);
+  if (!tab) {
+    conflictState.value = null;
+    return;
+  }
+
+  tab.draft_seq = conflict.serverSeq;
+  savedRulesetSnapshots.set(conflict.rulesetName, serializeRuleset(conflict.serverDraft));
+  projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.serverDraft), false);
+  syncDecisionTableFromRuleset(conflict.rulesetName, conflict.serverDraft);
+  conflictState.value = null;
+  MessagePlugin.success(t('conflict.useServerSuccess'));
+}
+
+async function resolveConflictUseLocal() {
+  const conflict = conflictState.value;
+  if (!conflict) return;
+  const tab = projectStore.openTabs.find((item) => item.name === conflict.rulesetName);
+  if (!tab) {
+    conflictState.value = null;
+    return;
+  }
+
+  tab.draft_seq = conflict.serverSeq;
+  projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.localDraft), true);
+  conflictState.value = null;
+  await handleSave(conflict.rulesetName);
+}
+
+function openReleaseCenter() {
+  if (!projectStore.activeTab) return;
+  router.push({
+    name: 'project-release-request-create',
+    params: {
+      orgId: route.params.orgId,
+      projectId: route.params.projectId,
+    },
+    query: { ruleset: projectStore.activeTab.name },
+  });
+}
+
 function handleCloseTab(name: string) {
-  const tab = projectStore.openTabs.find((t) => t.name === name)
+  const tab = projectStore.openTabs.find((t) => t.name === name);
   if (tab?.dirty) {
     const dlg = DialogPlugin.confirm({
       header: t('editor.closeConfirm'),
@@ -653,40 +807,40 @@ function handleCloseTab(name: string) {
       confirmBtn: { content: t('editor.closeConfirmBtn'), theme: 'danger' },
       cancelBtn: t('common.cancel'),
       onConfirm: async () => {
-        projectStore.closeTab(name)
-        await disposeTabHistory(name)
-        dlg.hide()
+        projectStore.closeTab(name);
+        await disposeTabHistory(name);
+        dlg.hide();
         if (!projectStore.activeTabName) {
-          router.replace(`${projectBase.value}/editor`)
+          router.replace(`${projectBase.value}/editor`);
         }
       },
-    })
+    });
   } else {
-    projectStore.closeTab(name)
-    void disposeTabHistory(name)
+    projectStore.closeTab(name);
+    void disposeTabHistory(name);
     if (!projectStore.activeTabName) {
-      router.replace(`${projectBase.value}/editor`)
+      router.replace(`${projectBase.value}/editor`);
     }
   }
 }
 
 async function handleCreateRuleset() {
   if (!newName.value.trim()) {
-    MessagePlugin.warning(t('editor.nameRequired'))
-    return
+    MessagePlugin.warning(t('editor.nameRequired'));
+    return;
   }
-  creating.value = true
+  creating.value = true;
   try {
-    let rs: RuleSet
-    const name = newName.value.trim()
+    let rs: RuleSet;
+    const name = newName.value.trim();
 
     if (newType.value === 'table') {
-      const doc = createEmptyTableDocument(name)
-      rs = documentToRuleSet(doc)
+      const doc = createEmptyTableDocument(name);
+      rs = documentToRuleSet(doc);
     } else {
       // Flow: Decision → Terminal
-      const decisionId = generateId()
-      const terminalId = generateId()
+      const decisionId = generateId();
+      const terminalId = generateId();
       rs = {
         config: { name, version: '1.0.0' },
         startStepId: decisionId,
@@ -703,20 +857,20 @@ async function handleCreateRuleset() {
             code: 'DEFAULT',
           }),
         ],
-      }
+      };
     }
 
-    await projectStore.createRuleset(rs)
-    showCreate.value = false
-    newName.value = ''
-    MessagePlugin.success(t('editor.createSuccess'))
-    await openRuleset(name)
-    pushHistoryEntry(name, rs, t('historyPanel.actionCreateRuleset'), 'create')
-    showHistoryPanel.value = true
+    await projectStore.createRuleset(rs);
+    showCreate.value = false;
+    newName.value = '';
+    MessagePlugin.success(t('editor.createSuccess'));
+    await openRuleset(name);
+    pushHistoryEntry(name, rs, t('historyPanel.actionCreateRuleset'), 'create');
+    showHistoryPanel.value = true;
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('editor.createFailed'))
+    MessagePlugin.error(e.message || t('editor.createFailed'));
   } finally {
-    creating.value = false
+    creating.value = false;
   }
 }
 
@@ -728,39 +882,39 @@ function handleDeleteRuleset(name: string) {
     cancelBtn: t('common.cancel'),
     onConfirm: async () => {
       try {
-        await projectStore.deleteRuleset(name)
-        await disposeTabHistory(name)
-        dlg.hide()
-        MessagePlugin.success(t('editor.deleteSuccess'))
+        await projectStore.deleteRuleset(name);
+        await disposeTabHistory(name);
+        dlg.hide();
+        MessagePlugin.success(t('editor.deleteSuccess'));
         if (!projectStore.activeTabName && projectStore.rulesets.length > 0) {
-          await openRuleset(projectStore.rulesets[0].name)
+          await openRuleset(projectStore.rulesets[0].name);
         }
       } catch (e: any) {
-        MessagePlugin.error(e.message)
+        MessagePlugin.error(e.message);
       }
     },
-  })
+  });
 }
 
 function setEditorMode(mode: 'form' | 'flow' | 'table') {
-  const tab = projectStore.activeTab
-  if (!tab) return
+  const tab = projectStore.activeTab;
+  if (!tab) return;
   if (mode === 'table' && !canBeTable(tab.ruleset)) {
-    MessagePlugin.warning(t('editor.tableUnsupported'))
-    return
+    MessagePlugin.warning(t('editor.tableUnsupported'));
+    return;
   }
-  editorMode.value = mode
-  tabModes.set(tab.name, mode)
+  editorMode.value = mode;
+  tabModes.set(tab.name, mode);
 }
 
 onUnmounted(() => {
   for (const name of Array.from(editHistoryTimers.keys())) {
-    flushPendingEditHistory(name)
+    flushPendingEditHistory(name);
   }
   for (const name of Array.from(historyFlushTimers.keys())) {
-    void flushHistoryQueue(name)
+    void flushHistoryQueue(name);
   }
-})
+});
 </script>
 
 <template>
@@ -796,11 +950,7 @@ onUnmounted(() => {
           @click="openRuleset(rs.name)"
           @contextmenu.prevent="() => {}"
         >
-          <t-icon
-            name="file-code"
-            size="14px"
-            class="ruleset-item__icon"
-          />
+          <t-icon name="file-code" size="14px" class="ruleset-item__icon" />
           <span class="ruleset-item__name">{{ rs.name }}</span>
           <span
             v-if="projectStore.openTabs.find((t) => t.name === rs.name)?.dirty"
@@ -822,38 +972,66 @@ onUnmounted(() => {
     <!-- ── Main area ── -->
     <div class="editor-main">
       <div class="editor-menubar" v-if="projectStore.openTabs.length > 0">
-        <div
-          class="editor-menu"
-          @mouseenter="hoverMenu('file')"
-        >
-          <button class="editor-menu__trigger" :class="{ 'is-open': openMenu === 'file' }" @click="toggleMenu('file')">
+        <div class="editor-menu" @mouseenter="hoverMenu('file')">
+          <button
+            class="editor-menu__trigger"
+            :class="{ 'is-open': openMenu === 'file' }"
+            @click="toggleMenu('file')"
+          >
             {{ t('menuBar.file') }}
           </button>
           <div v-if="openMenu === 'file'" class="editor-menu__dropdown">
-            <button class="editor-menu__item" :disabled="!canEdit" @click="runMenuAction(() => (showCreate = true))">
+            <button
+              class="editor-menu__item"
+              :disabled="!canEdit"
+              @click="runMenuAction(() => (showCreate = true))"
+            >
               <span>{{ t('menuBar.newRuleset') }}</span>
             </button>
             <button
               class="editor-menu__item"
               :disabled="!canEdit || !projectStore.activeTab"
-              @click="runMenuAction(() => projectStore.activeTab && handleSave(projectStore.activeTab.name))"
+              @click="
+                runMenuAction(
+                  () => projectStore.activeTab && handleSave(projectStore.activeTab.name)
+                )
+              "
             >
               <span>{{ t('menuBar.save') }}</span>
               <span class="editor-menu__shortcut">Ctrl+S</span>
+            </button>
+            <button
+              class="editor-menu__item"
+              :disabled="!canPublish || !projectStore.activeTab"
+              @click="runMenuAction(openReleaseCenter)"
+            >
+              <span>{{ t('releaseCenter.createRequest') }}</span>
             </button>
           </div>
         </div>
 
         <div class="editor-menu" @mouseenter="hoverMenu('edit')">
-          <button class="editor-menu__trigger" :class="{ 'is-open': openMenu === 'edit' }" @click="toggleMenu('edit')">
+          <button
+            class="editor-menu__trigger"
+            :class="{ 'is-open': openMenu === 'edit' }"
+            @click="toggleMenu('edit')"
+          >
             {{ t('menuBar.edit') }}
           </button>
           <div v-if="openMenu === 'edit'" class="editor-menu__dropdown">
-            <button class="editor-menu__item" :disabled="!canUndoHistory" @click="runMenuAction(undoHistory)">
+            <button
+              class="editor-menu__item"
+              :disabled="!canUndoHistory"
+              @click="runMenuAction(undoHistory)"
+            >
               <span>{{ t('menuBar.undo') }}</span>
               <span class="editor-menu__shortcut">Ctrl+Z</span>
             </button>
-            <button class="editor-menu__item" :disabled="!canRedoHistory" @click="runMenuAction(redoHistory)">
+            <button
+              class="editor-menu__item"
+              :disabled="!canRedoHistory"
+              @click="runMenuAction(redoHistory)"
+            >
               <span>{{ t('menuBar.redo') }}</span>
               <span class="editor-menu__shortcut">Ctrl+Shift+Z</span>
             </button>
@@ -861,7 +1039,11 @@ onUnmounted(() => {
         </div>
 
         <div class="editor-menu" @mouseenter="hoverMenu('select')">
-          <button class="editor-menu__trigger" :class="{ 'is-open': openMenu === 'select' }" @click="toggleMenu('select')">
+          <button
+            class="editor-menu__trigger"
+            :class="{ 'is-open': openMenu === 'select' }"
+            @click="toggleMenu('select')"
+          >
             {{ t('menuBar.select') }}
           </button>
           <div v-if="openMenu === 'select'" class="editor-menu__dropdown">
@@ -872,33 +1054,55 @@ onUnmounted(() => {
         </div>
 
         <div class="editor-menu" @mouseenter="hoverMenu('view')">
-          <button class="editor-menu__trigger" :class="{ 'is-open': openMenu === 'view' }" @click="toggleMenu('view')">
+          <button
+            class="editor-menu__trigger"
+            :class="{ 'is-open': openMenu === 'view' }"
+            @click="toggleMenu('view')"
+          >
             {{ t('menuBar.view') }}
           </button>
           <div v-if="openMenu === 'view'" class="editor-menu__dropdown">
-            <button class="editor-menu__item" :disabled="editorMode === 'form'" @click="runMenuAction(() => setEditorMode('form'))">
+            <button
+              class="editor-menu__item"
+              :disabled="editorMode === 'form'"
+              @click="runMenuAction(() => setEditorMode('form'))"
+            >
               <span>{{ t('editor.formMode') }}</span>
             </button>
-            <button class="editor-menu__item" :disabled="editorMode === 'flow'" @click="runMenuAction(() => setEditorMode('flow'))">
+            <button
+              class="editor-menu__item"
+              :disabled="editorMode === 'flow'"
+              @click="runMenuAction(() => setEditorMode('flow'))"
+            >
               <span>{{ t('editor.flowMode') }}</span>
             </button>
-            <button class="editor-menu__item" :disabled="editorMode === 'table'" @click="runMenuAction(() => setEditorMode('table'))">
+            <button
+              class="editor-menu__item"
+              :disabled="editorMode === 'table'"
+              @click="runMenuAction(() => setEditorMode('table'))"
+            >
               <span>{{ t('editor.tableMode') }}</span>
             </button>
           </div>
         </div>
 
         <div class="editor-menu" @mouseenter="hoverMenu('window')">
-          <button class="editor-menu__trigger" :class="{ 'is-open': openMenu === 'window' }" @click="toggleMenu('window')">
+          <button
+            class="editor-menu__trigger"
+            :class="{ 'is-open': openMenu === 'window' }"
+            @click="toggleMenu('window')"
+          >
             {{ t('menuBar.window') }}
           </button>
           <div v-if="openMenu === 'window'" class="editor-menu__dropdown">
             <button
               class="editor-menu__item"
-              @click="runMenuAction(() => {
-                showHistoryPanel = !showHistoryPanel
-                if (showHistoryPanel) historyPanelCollapsed = false
-              })"
+              @click="
+                runMenuAction(() => {
+                  showHistoryPanel = !showHistoryPanel;
+                  if (showHistoryPanel) historyPanelCollapsed = false;
+                })
+              "
             >
               <span>{{ t('menuBar.history') }}</span>
               <t-icon v-if="showHistoryPanel" name="check" size="13px" />
@@ -962,6 +1166,26 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="tab-divider" />
+          <div class="toolbar-version">
+            <label>{{ t('common.version') }}</label>
+            <input
+              :value="activeDraftVersion"
+              :disabled="!canEdit"
+              placeholder="1.0.0"
+              class="ordo-input-base toolbar-version__input"
+              @input="handleVersionChange"
+            />
+            <t-tag size="small" theme="primary" variant="light">
+              v{{ activeVersionDisplay }}
+            </t-tag>
+            <t-tag v-if="activePublishedVersion" size="small" variant="light">
+              {{ t('editor.publishedVersionTag', { version: activePublishedVersion }) }}
+            </t-tag>
+          </div>
+          <div v-if="requiresVersionBump" class="toolbar-version__warning">
+            {{ t('editor.versionBumpRequired', { version: activePublishedVersion }) }}
+          </div>
+          <div class="tab-divider" />
           <button
             class="toolbar-btn"
             :class="{ 'is-active': showExecution }"
@@ -987,6 +1211,14 @@ onUnmounted(() => {
           >
             <t-icon name="save" size="15px" />
           </button>
+          <button
+            v-if="canPublish"
+            class="toolbar-btn toolbar-btn--publish"
+            :title="t('releaseCenter.createRequest')"
+            @click="openReleaseCenter"
+          >
+            <t-icon name="upload" size="15px" />
+          </button>
         </div>
       </div>
 
@@ -1006,33 +1238,44 @@ onUnmounted(() => {
       <div v-else class="editor-body">
         <div
           class="editor-canvas"
-          :style="showExecution ? { flex: 'none', height: `calc(100% - ${executionHeight}px - 2px)` } : showTests ? { flex: 'none', height: `calc(100% - ${testsHeight}px - 2px)` } : {}"
+          :style="
+            showExecution
+              ? { flex: 'none', height: `calc(100% - ${executionHeight}px - 2px)` }
+              : showTests
+                ? { flex: 'none', height: `calc(100% - ${testsHeight}px - 2px)` }
+                : {}
+          "
         >
           <template v-if="projectStore.activeTab">
-            <!-- Form mode -->
-            <OrdoFormEditor
-              v-if="editorMode === 'form'"
-              :model-value="projectStore.activeTab.ruleset"
-              :disabled="!canEdit"
-              :input-schema="catalogStore.schemaFields.length ? catalogStore.schemaFields : undefined"
-              @update:model-value="handleRulesetChange"
-            />
-            <!-- Flow mode -->
-            <OrdoFlowEditor
-              v-else-if="editorMode === 'flow'"
-              :model-value="projectStore.activeTab.ruleset"
-              :disabled="!canEdit"
-              :execution-trace="executionTrace"
-              @update:model-value="handleRulesetChange"
-            />
-            <!-- Decision table mode -->
-            <OrdoDecisionTable
-              v-else-if="editorMode === 'table' && activeDecisionTable"
-              :model-value="activeDecisionTable"
-              :disabled="!canEdit"
-              @update:model-value="handleTableChange"
-              @show-as-flow="handleShowAsFlow"
-            />
+            <div class="editor-view-shell">
+              <!-- Form mode -->
+              <OrdoFormEditor
+                v-if="editorMode === 'form'"
+                :model-value="projectStore.activeTab.ruleset"
+                :disabled="!canEdit"
+                :input-schema="
+                  catalogStore.schemaFields.length ? catalogStore.schemaFields : undefined
+                "
+                @update:model-value="handleRulesetChange"
+              />
+              <!-- Flow mode -->
+              <OrdoFlowEditor
+                v-else-if="editorMode === 'flow'"
+                :model-value="projectStore.activeTab.ruleset"
+                :disabled="!canEdit"
+                :execution-trace="executionTrace"
+                :trace-mode="flowTraceMode"
+                @update:model-value="handleRulesetChange"
+              />
+              <!-- Decision table mode -->
+              <OrdoDecisionTable
+                v-else-if="editorMode === 'table' && activeDecisionTable"
+                :model-value="activeDecisionTable"
+                :disabled="!canEdit"
+                @update:model-value="handleTableChange"
+                @show-as-flow="handleShowAsFlow"
+              />
+            </div>
           </template>
         </div>
 
@@ -1068,7 +1311,9 @@ onUnmounted(() => {
       <div
         v-if="projectStore.activeTab && showHistoryPanel"
         class="history-panel-wrap"
-        :style="{ bottom: (showExecution ? executionHeight : showTests ? testsHeight : 0) + 20 + 'px' }"
+        :style="{
+          bottom: (showExecution ? executionHeight : showTests ? testsHeight : 0) + 20 + 'px',
+        }"
       >
         <ChangeHistoryPanel
           :entries="activeHistoryEntries"
@@ -1118,6 +1363,14 @@ onUnmounted(() => {
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <DraftConflictDialog
+      v-if="conflictState"
+      :local-draft="conflictState.localDraft"
+      :server-draft="conflictState.serverDraft"
+      @use-local="resolveConflictUseLocal"
+      @use-server="resolveConflictUseServer"
+    />
   </div>
 </template>
 
@@ -1458,6 +1711,44 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.toolbar-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-version label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ordo-text-tertiary);
+  white-space: nowrap;
+}
+
+.toolbar-version__input {
+  width: 96px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--ordo-border-color);
+  background: var(--ordo-bg-app);
+  color: var(--ordo-text-primary);
+  outline: none;
+}
+
+.toolbar-version__input:focus {
+  border-color: var(--ordo-accent);
+}
+
+.toolbar-version__warning {
+  max-width: 240px;
+  font-size: 12px;
+  color: var(--ordo-warning);
+  line-height: 1.2;
+}
+
 .mode-switch {
   display: flex;
   align-items: center;
@@ -1479,7 +1770,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .mode-btn:hover {
@@ -1510,7 +1803,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .toolbar-btn:hover {
@@ -1539,6 +1834,12 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.editor-view-shell {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .execution-panel-wrap {

@@ -1,105 +1,127 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
-import { useAuthStore } from '@/stores/auth'
-import { usePreferencesStore } from '@/stores/preferences'
-import { setLocale, LOCALE_OPTIONS, i18n, type Locale } from '@/i18n'
+import { ref, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
+import { MessagePlugin } from 'tdesign-vue-next';
+import { useAuthStore } from '@/stores/auth';
+import { usePreferencesStore } from '@/stores/preferences';
+import { useGithubStore } from '@/stores/github';
+import { setLocale, LOCALE_OPTIONS, i18n, type Locale } from '@/i18n';
 
-const { t } = useI18n()
-const router = useRouter()
-const auth = useAuthStore()
-const prefs = usePreferencesStore()
+const { t } = useI18n();
+const router = useRouter();
+const auth = useAuthStore();
+const prefs = usePreferencesStore();
 
-// Profile form
-const displayName = ref(auth.user?.display_name ?? '')
-const savingProfile = ref(false)
+const displayName = ref(auth.user?.display_name ?? '');
+const savingProfile = ref(false);
 
 async function saveProfile() {
-  if (!displayName.value.trim()) return
-  savingProfile.value = true
+  if (!displayName.value.trim()) return;
+  savingProfile.value = true;
   try {
-    await auth.updateProfile({ display_name: displayName.value.trim() })
-    MessagePlugin.success(t('settings.profileSaved'))
+    await auth.updateProfile({ display_name: displayName.value.trim() });
+    MessagePlugin.success(t('settings.profileSaved'));
   } catch {
-    MessagePlugin.error(t('settings.profileSaveFailed'))
+    MessagePlugin.error(t('settings.profileSaveFailed'));
   } finally {
-    savingProfile.value = false
+    savingProfile.value = false;
   }
 }
 
-// Password form
-const currentPassword = ref('')
-const newPassword = ref('')
-const confirmNewPassword = ref('')
-const changingPassword = ref(false)
+const currentPassword = ref('');
+const newPassword = ref('');
+const confirmNewPassword = ref('');
+const changingPassword = ref(false);
 
 async function changePassword() {
   if (newPassword.value !== confirmNewPassword.value) {
-    MessagePlugin.warning(t('settings.passwordMismatch'))
-    return
+    MessagePlugin.warning(t('settings.passwordMismatch'));
+    return;
   }
-  changingPassword.value = true
+  changingPassword.value = true;
   try {
-    await auth.changePassword(currentPassword.value, newPassword.value)
-    MessagePlugin.success(t('settings.passwordChanged'))
-    currentPassword.value = ''
-    newPassword.value = ''
-    confirmNewPassword.value = ''
+    await auth.changePassword(currentPassword.value, newPassword.value);
+    MessagePlugin.success(t('settings.passwordChanged'));
+    currentPassword.value = '';
+    newPassword.value = '';
+    confirmNewPassword.value = '';
   } catch (e: any) {
-    MessagePlugin.error(e.message || t('settings.passwordChangeFailed'))
+    MessagePlugin.error(e.message || t('settings.passwordChangeFailed'));
   } finally {
-    changingPassword.value = false
+    changingPassword.value = false;
   }
 }
 
-// Appearance
-const currentLocale = ref((i18n.global.locale as any).value as Locale)
+const currentLocale = ref((i18n.global.locale as any).value as Locale);
 
 function onLocaleChange(val: Locale) {
-  currentLocale.value = val
-  setLocale(val)
+  currentLocale.value = val;
+  setLocale(val);
 }
+
+// ── GitHub Integration ────────────────────────────────────────────────────────
+
+const githubStore = useGithubStore();
+const connectingGithub = ref(false);
+const disconnectingGithub = ref(false);
+
+async function connectGithub() {
+  connectingGithub.value = true;
+  try {
+    await githubStore.connect();
+    MessagePlugin.success(t('settings.github.connected'));
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('settings.github.connectFailed'));
+  } finally {
+    connectingGithub.value = false;
+  }
+}
+
+async function disconnectGithub() {
+  disconnectingGithub.value = true;
+  try {
+    await githubStore.disconnect();
+    MessagePlugin.success(t('settings.github.disconnected'));
+  } catch (e: any) {
+    MessagePlugin.error(e.message || t('settings.github.disconnectFailed'));
+  } finally {
+    disconnectingGithub.value = false;
+  }
+}
+
+onMounted(() => githubStore.fetchStatus());
 </script>
 
 <template>
   <div class="settings-page">
-    <!-- Breadcrumb -->
     <t-breadcrumb class="breadcrumb">
-      <t-breadcrumb-item @click="router.push('/dashboard')">{{ t('breadcrumb.home') }}</t-breadcrumb-item>
+      <t-breadcrumb-item @click="router.push('/dashboard')">{{
+        t('breadcrumb.home')
+      }}</t-breadcrumb-item>
       <t-breadcrumb-item>{{ t('settings.title') }}</t-breadcrumb-item>
     </t-breadcrumb>
 
     <h1 class="page-title">{{ t('settings.title') }}</h1>
 
     <div class="settings-layout">
-      <!-- Profile -->
       <t-card :bordered="false" class="settings-card">
         <h2 class="card-title">{{ t('settings.profile') }}</h2>
         <t-form label-align="top" :colon="false" class="settings-form">
           <t-form-item :label="t('settings.displayNameLabel')">
-            <t-input
-              v-model="displayName"
-              :placeholder="t('settings.displayNamePlaceholder')"
-            />
+            <t-input v-model="displayName" :placeholder="t('settings.displayNamePlaceholder')" />
           </t-form-item>
           <t-form-item :label="t('settings.emailLabel')">
             <t-input :value="auth.user?.email" disabled />
           </t-form-item>
           <t-form-item>
-            <t-button
-              theme="primary"
-              :loading="savingProfile"
-              @click="saveProfile"
-            >
+            <t-button theme="primary" :loading="savingProfile" @click="saveProfile">
               {{ t('settings.saveProfile') }}
             </t-button>
           </t-form-item>
         </t-form>
       </t-card>
 
-      <!-- Change password -->
       <t-card :bordered="false" class="settings-card">
         <h2 class="card-title">{{ t('settings.changePassword') }}</h2>
         <t-form label-align="top" :colon="false" class="settings-form">
@@ -137,7 +159,54 @@ function onLocaleChange(val: Locale) {
         </t-form>
       </t-card>
 
-      <!-- Appearance -->
+      <!-- GitHub Integration -->
+      <t-card :bordered="false" class="settings-card">
+        <h2 class="card-title">{{ t('settings.github.title') }}</h2>
+        <div v-if="githubStore.loading" class="github-loading">
+          <t-loading size="small" />
+        </div>
+        <template v-else>
+          <div v-if="githubStore.status.connected" class="github-connected">
+            <div class="github-account">
+              <img
+                v-if="githubStore.status.avatar_url"
+                :src="githubStore.status.avatar_url"
+                class="github-avatar"
+                alt=""
+              />
+              <t-icon v-else name="logo-github" size="36" />
+              <div class="github-account-info">
+                <strong>{{ githubStore.status.name || githubStore.status.login }}</strong>
+                <span class="github-login">@{{ githubStore.status.login }}</span>
+                <span v-if="githubStore.status.connected_at" class="github-since">
+                  {{
+                    t('settings.github.since', {
+                      date: new Date(githubStore.status.connected_at).toLocaleDateString(),
+                    })
+                  }}
+                </span>
+              </div>
+            </div>
+            <t-button
+              theme="danger"
+              variant="outline"
+              size="small"
+              :loading="disconnectingGithub"
+              @click="disconnectGithub"
+            >
+              {{ t('settings.github.disconnectBtn') }}
+            </t-button>
+          </div>
+          <div v-else class="github-disconnected">
+            <p>{{ t('settings.github.description') }}</p>
+            <t-button theme="primary" :loading="connectingGithub" @click="connectGithub">
+              <template #icon><t-icon name="logo-github" /></template>
+              {{ t('settings.github.connectBtn') }}
+            </t-button>
+          </div>
+        </template>
+      </t-card>
+
       <t-card :bordered="false" class="settings-card">
         <h2 class="card-title">{{ t('settings.appearance') }}</h2>
         <t-form label-align="top" :colon="false" class="settings-form">
@@ -209,5 +278,56 @@ function onLocaleChange(val: Locale) {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.github-loading {
+  padding: 16px 0;
+}
+
+.github-connected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.github-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.github-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.github-account-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.github-login {
+  color: var(--td-text-color-secondary);
+}
+
+.github-since {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+.github-disconnected {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.github-disconnected p {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
 }
 </style>

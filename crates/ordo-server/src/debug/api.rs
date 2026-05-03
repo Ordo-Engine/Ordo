@@ -154,6 +154,7 @@ fn build_rule_trace_with_types(
                     ordo_core::prelude::StepKind::Decision { .. } => "decision",
                     ordo_core::prelude::StepKind::Action { .. } => "action",
                     ordo_core::prelude::StepKind::Terminal { .. } => "terminal",
+                    ordo_core::prelude::StepKind::SubRule { .. } => "sub_rule",
                 })
                 .unwrap_or("unknown")
                 .to_string();

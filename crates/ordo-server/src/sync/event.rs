@@ -3,6 +3,7 @@
 //! Events are published by the writer instance after successful mutations
 //! and consumed by reader instances to update their in-memory caches.
 
+use ordo_core::prelude::CapabilityDescriptor;
 use serde::{Deserialize, Serialize};
 
 /// A sync event describing a mutation that occurred on the writer instance.
@@ -17,12 +18,53 @@ pub enum SyncEvent {
         ruleset_json: String,
         /// RuleSet config version string, used for idempotent dedup on readers.
         version: String,
+        /// Associated release execution when the message comes from rollout.
+        release_execution_id: Option<String>,
+        /// Optional target server id allow-list for batched rollout.
+        target_server_ids: Option<Vec<String>>,
     },
     /// A ruleset was deleted.
     RuleDeleted { tenant_id: String, name: String },
+    /// A tenant should be created or updated using server-local defaults.
+    TenantUpsert {
+        tenant_id: String,
+        name: String,
+        enabled: bool,
+    },
+    /// A tenant should be deleted.
+    TenantDeleted { tenant_id: String },
     /// Tenant configuration was changed (create/update/delete).
     /// Carries the full tenants map so readers can replace atomically.
     TenantConfigChanged { config_json: String },
+    /// A server instance announced or refreshed its registry metadata.
+    ServerRegistered {
+        #[serde(default)]
+        server_id: String,
+        name: String,
+        url: String,
+        token: String,
+        version: Option<String>,
+        org_id: Option<String>,
+        #[serde(default)]
+        capabilities: Vec<CapabilityDescriptor>,
+    },
+    /// A server instance sent a heartbeat.
+    ServerHeartbeat {
+        #[serde(default)]
+        server_id: String,
+    },
+    /// A server acknowledged successful release application.
+    ReleaseExecutionAck {
+        execution_id: String,
+        server_id: String,
+        message: Option<String>,
+    },
+    /// A server reported a release application failure.
+    ReleaseExecutionFailed {
+        execution_id: String,
+        server_id: String,
+        error: String,
+    },
 }
 
 impl SyncEvent {
@@ -31,7 +73,13 @@ impl SyncEvent {
         match self {
             SyncEvent::RulePut { .. } => "RulePut",
             SyncEvent::RuleDeleted { .. } => "RuleDeleted",
+            SyncEvent::TenantUpsert { .. } => "TenantUpsert",
+            SyncEvent::TenantDeleted { .. } => "TenantDeleted",
             SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
+            SyncEvent::ServerRegistered { .. } => "ServerRegistered",
+            SyncEvent::ServerHeartbeat { .. } => "ServerHeartbeat",
+            SyncEvent::ReleaseExecutionAck { .. } => "ReleaseExecutionAck",
+            SyncEvent::ReleaseExecutionFailed { .. } => "ReleaseExecutionFailed",
         }
     }
 }
@@ -71,8 +119,29 @@ impl SyncMessage {
             | SyncEvent::RuleDeleted { tenant_id, name } => {
                 format!("{}.{}.{}", prefix, tenant_id, name)
             }
+            SyncEvent::TenantUpsert { tenant_id, .. } | SyncEvent::TenantDeleted { tenant_id } => {
+                format!("{}.tenants.{}", prefix, tenant_id)
+            }
             SyncEvent::TenantConfigChanged { .. } => {
                 format!("{}.tenants", prefix)
+            }
+            SyncEvent::ServerRegistered { .. } => {
+                format!("{}.control.servers.register", prefix)
+            }
+            SyncEvent::ServerHeartbeat { .. } => {
+                format!("{}.control.servers.heartbeat", prefix)
+            }
+            SyncEvent::ReleaseExecutionAck {
+                execution_id,
+                server_id,
+                ..
+            }
+            | SyncEvent::ReleaseExecutionFailed {
+                execution_id,
+                server_id,
+                ..
+            } => {
+                format!("{}.control.releases.{}.{}", prefix, execution_id, server_id)
             }
         }
     }
@@ -89,6 +158,8 @@ mod tests {
             name: "payment-check".into(),
             ruleset_json: r#"{"config":{"name":"payment-check"}}"#.into(),
             version: "1.0.0".into(),
+            release_execution_id: None,
+            target_server_ids: None,
         };
         let json = serde_json::to_string(&event).unwrap();
         let decoded: SyncEvent = serde_json::from_str(&json).unwrap();
@@ -131,6 +202,29 @@ mod tests {
     }
 
     #[test]
+    fn test_sync_event_roundtrip_tenant_upsert() {
+        let event = SyncEvent::TenantUpsert {
+            tenant_id: "acme".into(),
+            name: "Acme".into(),
+            enabled: true,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let decoded: SyncEvent = serde_json::from_str(&json).unwrap();
+        match decoded {
+            SyncEvent::TenantUpsert {
+                tenant_id,
+                name,
+                enabled,
+            } => {
+                assert_eq!(tenant_id, "acme");
+                assert_eq!(name, "Acme");
+                assert!(enabled);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn test_sync_message_new() {
         let msg = SyncMessage::new(
             "instance-1".into(),
@@ -152,6 +246,8 @@ mod tests {
                 name: "fraud".into(),
                 ruleset_json: "{}".into(),
                 version: "1".into(),
+                release_execution_id: None,
+                target_server_ids: None,
             },
         );
         assert_eq!(msg.subject("ordo.rules"), "ordo.rules.acme.fraud");
@@ -163,6 +259,16 @@ mod tests {
             },
         );
         assert_eq!(msg2.subject("ordo.rules"), "ordo.rules.tenants");
+
+        let msg3 = SyncMessage::new(
+            "i1".into(),
+            SyncEvent::TenantUpsert {
+                tenant_id: "acme".into(),
+                name: "Acme".into(),
+                enabled: true,
+            },
+        );
+        assert_eq!(msg3.subject("ordo.rules"), "ordo.rules.tenants.acme");
     }
 
     #[test]
@@ -174,6 +280,8 @@ mod tests {
                 name: "test".into(),
                 ruleset_json: r#"{"config":{"name":"test"}}"#.into(),
                 version: "2.0".into(),
+                release_execution_id: None,
+                target_server_ids: None,
             },
         );
         let bytes = serde_json::to_vec(&msg).unwrap();

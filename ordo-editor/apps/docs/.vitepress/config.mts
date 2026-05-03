@@ -57,7 +57,7 @@ export default withMermaid(defineConfig({
           { text: 'Roadmap', link: '/en/roadmap' },
           {
             text: 'Playground',
-            link: 'https://pama-lee.github.io/Ordo/',
+            link: 'https://ordo-engine.github.io/Ordo/',
             target: '_self'
           },
         ],
@@ -77,6 +77,7 @@ export default withMermaid(defineConfig({
                 { text: 'Rule Structure', link: '/en/guide/rule-structure' },
                 { text: 'Expression Syntax', link: '/en/guide/expression-syntax' },
                 { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
+                { text: 'Execution Model', link: '/en/guide/execution-model' },
               ]
             },
             {
@@ -85,6 +86,7 @@ export default withMermaid(defineConfig({
                 { text: 'Rule Persistence', link: '/en/guide/persistence' },
                 { text: 'Version Management', link: '/en/guide/versioning' },
                 { text: 'Audit Logging', link: '/en/guide/audit-logging' },
+                { text: 'Capabilities & External Calls', link: '/en/guide/capabilities' },
                 { text: 'Rule Signing', link: '/en/guide/rule-signing' },
                 { text: 'Decision Table', link: '/en/guide/decision-table' },
                 { text: 'Editor Store & Undo/Redo', link: '/en/guide/editor-store' },
@@ -127,7 +129,7 @@ export default withMermaid(defineConfig({
           copyright: 'Copyright © 2024-present Ordo Contributors'
         },
         editLink: {
-          pattern: 'https://github.com/Pama-Lee/Ordo/edit/main/ordo-editor/apps/docs/:path',
+          pattern: 'https://github.com/Ordo-Engine/Ordo/edit/main/ordo-editor/apps/docs/:path',
           text: 'Edit this page on GitHub'
         },
         outline: {
@@ -150,7 +152,7 @@ export default withMermaid(defineConfig({
           { text: '路线图', link: '/zh/roadmap' },
           {
             text: '演练场',
-            link: 'https://pama-lee.github.io/Ordo/',
+            link: 'https://ordo-engine.github.io/Ordo/',
             target: '_self'
           },
         ],
@@ -170,6 +172,7 @@ export default withMermaid(defineConfig({
                 { text: '规则结构', link: '/zh/guide/rule-structure' },
                 { text: '表达式语法', link: '/zh/guide/expression-syntax' },
                 { text: '内置函数', link: '/zh/guide/builtin-functions' },
+                { text: '执行模型', link: '/zh/guide/execution-model' },
               ]
             },
             {
@@ -179,6 +182,7 @@ export default withMermaid(defineConfig({
                 { text: '版本管理', link: '/zh/guide/versioning' },
                 { text: '规则签名', link: '/zh/guide/rule-signing' },
                 { text: '审计日志', link: '/zh/guide/audit-logging' },
+                { text: '能力与外部调用', link: '/zh/guide/capabilities' },
                 { text: '决策表', link: '/zh/guide/decision-table' },
                 { text: '编辑器状态管理', link: '/zh/guide/editor-store' },
                 { text: '分布式部署', link: '/zh/guide/distributed-deployment' },
@@ -220,7 +224,7 @@ export default withMermaid(defineConfig({
           copyright: '版权所有 © 2024-present Ordo 贡献者'
         },
         editLink: {
-            pattern: 'https://github.com/Pama-Lee/Ordo/edit/main/ordo-editor/apps/docs/:path',
+            pattern: 'https://github.com/Ordo-Engine/Ordo/edit/main/ordo-editor/apps/docs/:path',
             text: '在 GitHub 上编辑此页'
         },
         outline: {
@@ -244,7 +248,7 @@ export default withMermaid(defineConfig({
     
     // Social links
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/Pama-Lee/Ordo' }
+      { icon: 'github', link: 'https://github.com/Ordo-Engine/Ordo' }
     ],
     
     // Search

@@ -109,6 +109,11 @@ pub async fn invite_member(
         .add_member(&org_id, member.clone())
         .await
         .map_err(PlatformError::Internal)?;
+    state
+        .store
+        .sync_member_system_role(&org_id, &member.user_id, &member.role, &claims.sub)
+        .await
+        .map_err(PlatformError::Internal)?;
 
     Ok(Json(MemberResponse::from(&member)))
 }
@@ -150,6 +155,12 @@ pub async fn update_member_role(
         return Err(PlatformError::not_found("Member not found"));
     }
 
+    state
+        .store
+        .sync_member_system_role(&org_id, &user_id, &req.role, &claims.sub)
+        .await
+        .map_err(PlatformError::Internal)?;
+
     Ok(Json(serde_json::json!({"success": true})))
 }
 
@@ -175,6 +186,12 @@ pub async fn remove_member(
     if !removed {
         return Err(PlatformError::not_found("Member not found"));
     }
+
+    state
+        .store
+        .clear_user_role_assignments(&org_id, &user_id)
+        .await
+        .map_err(PlatformError::Internal)?;
 
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

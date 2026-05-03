@@ -1,6 +1,6 @@
 {
   "name": "@ordo-engine/studio",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "private": true,
   "description": "Ordo Decision Management Platform — Studio",
   "type": "module",

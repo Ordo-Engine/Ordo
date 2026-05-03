@@ -3,38 +3,77 @@ name: ordo
 # ── Development Compose ───────────────────────────────────────────────────────
 #
 # Usage:
-#   docker compose up -d          # start backends (detached)
-#   docker compose logs -f        # follow logs
-#   docker compose down           # stop + remove containers
-#   docker compose down -v        # also wipe data volumes
-#
-# Then in a separate terminal:
-#   cd ordo-editor && pnpm dev    # start Studio on :3002
+#   docker compose up -d          # start full stack (detached)
+#   docker compose logs -f        # follow all logs
+#   docker compose down           # stop + remove containers (data preserved)
+#   docker compose down -v        # wipe all data volumes (including DB!)
 #
 # Architecture:
 #   Studio (:3002) → [Vite proxy /api] → ordo-platform (:3001)
-#                                              ↓ proxy /engine
-#                                        ordo-server (internal :8080)
+#                                                ↓ proxy /engine
+#                                          ordo-server (internal :8080)
+#                                                ↓ registers + heartbeats
+#                                          ordo-platform (:3001)
 #
-# ordo-server is NOT exposed to the host — ordo-platform is the single
-# public backend endpoint.
+# Environment (optional .env file):
+#   ORDO_JWT_SECRET   — at least 32 chars; default is a dev placeholder
+#   ORDO_DB_PASSWORD  — PostgreSQL password; default: ordo_dev_pass
+#   ORDO_SERVER_TOKEN — shared secret for ordo-server → platform auth
+#   ORDO_GITHUB_CLIENT_ID / ORDO_GITHUB_CLIENT_SECRET — GitHub OAuth App credentials
+#   ORDO_GITHUB_CALLBACK_URL — GitHub OAuth callback, e.g. http://localhost:3001/api/v1/github/callback
 
 services:
 
-  # ── Rule engine (internal) ───────────────────────────────────────────────
+  # ── NATS JetStream (platform ↔ server sync) ───────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data"]
+    volumes:
+      - ordo-nats:/data
+
+  # ── PostgreSQL (platform persistence) ────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ordo
+      POSTGRES_PASSWORD: "${ORDO_DB_PASSWORD:-ordo_dev_pass}"
+      POSTGRES_DB: ordo_platform
+    volumes:
+      - ordo-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ordo", "-d", "ordo_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ── Rule engine ───────────────────────────────────────────────────────────
   ordo-server:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    # No ports: block — ordo-server is internal only.
-    # ordo-platform reaches it via the Docker network as http://ordo-server:8080
     environment:
       ORDO_HTTP_ADDR: "0.0.0.0:8080"
       ORDO_RULES_DIR: /data/rules
+      ORDO_MULTI_TENANCY_ENABLED: "true"
       ORDO_LOG_LEVEL: info
+      ORDO_NATS_URL: "nats://nats:4222"
+      ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
+      # Platform registration — server auto-registers and sends heartbeats
+      ORDO_PLATFORM_URL: "http://ordo-platform:3001"
+      ORDO_SERVER_NAME: "ordo-server-dev"
+      ORDO_SERVER_TOKEN: "${ORDO_SERVER_TOKEN:-dev-server-token-change-in-prod}"
+      ORDO_SERVER_URL: "http://ordo-server:8080"
     volumes:
       - ordo-rules:/data/rules
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 10s
@@ -42,7 +81,7 @@ services:
       retries: 5
       start_period: 10s
 
-  # ── Platform gateway (public) ─────────────────────────────────────────────
+  # ── Platform gateway ──────────────────────────────────────────────────────
   ordo-platform:
     build:
       context: .
@@ -52,18 +91,75 @@ services:
       - "3001:3001"
     environment:
       ORDO_PLATFORM_ADDR: "0.0.0.0:3001"
-      ORDO_PLATFORM_DIR: /data/platform
+      ORDO_DATABASE_URL: "postgresql://ordo:${ORDO_DB_PASSWORD:-ordo_dev_pass}@postgres:5432/ordo_platform"
       ORDO_ENGINE_URL: "http://ordo-server:8080"
+      ORDO_NATS_URL: "nats://nats:4222"
+      ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
+      ORDO_PLATFORM_TEMPLATES_DIR: "/app/templates"
       ORDO_JWT_SECRET: "${ORDO_JWT_SECRET:-dev-secret-change-me-in-production-32c}"
       ORDO_JWT_EXPIRY_HOURS: "24"
       ORDO_PLATFORM_CORS_ORIGINS: "*"
       ORDO_LOG_LEVEL: info
-    volumes:
-      - ordo-platform:/data/platform
+      ORDO_GITHUB_CLIENT_ID: "${ORDO_GITHUB_CLIENT_ID:-}"
+      ORDO_GITHUB_CLIENT_SECRET: "${ORDO_GITHUB_CLIENT_SECRET:-}"
+      ORDO_GITHUB_CALLBACK_URL: "${ORDO_GITHUB_CALLBACK_URL:-http://localhost:3001/api/v1/github/callback}"
     depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
       ordo-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  ordo-platform-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.platform
+    restart: unless-stopped
+    entrypoint: ["/app/ordo-platform-worker"]
+    environment:
+      ORDO_DATABASE_URL: "postgresql://ordo:${ORDO_DB_PASSWORD:-ordo_dev_pass}@postgres:5432/ordo_platform"
+      ORDO_ENGINE_URL: "http://ordo-server:8080"
+      ORDO_NATS_URL: "nats://nats:4222"
+      ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
+      ORDO_PLATFORM_TEMPLATES_DIR: "/app/templates"
+      ORDO_JWT_SECRET: "${ORDO_JWT_SECRET:-dev-secret-change-me-in-production-32c}"
+      ORDO_JWT_EXPIRY_HOURS: "24"
+      ORDO_LOG_LEVEL: info
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      ordo-server:
+        condition: service_healthy
+      ordo-platform:
+        condition: service_healthy
+
+  # ── Studio frontend (hot-reload dev server) ───────────────────────────────
+  ordo-studio:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./ordo-editor:/app
+      - ordo-studio-node-modules:/app/node_modules
+    ports:
+      - "${ORDO_STUDIO_PORT:-3002}:3002"
+    environment:
+      ORDO_PLATFORM_PROXY_TARGET: "http://ordo-platform:3001"
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @ordo-engine/studio dev -- --host 0.0.0.0 --port 3002"
+    depends_on:
+      ordo-platform:
         condition: service_healthy
 
 volumes:
+  ordo-nats:
+  ordo-postgres:
   ordo-rules:
-  ordo-platform:
+  ordo-studio-node-modules:

@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::capability_registry::emit_rule_execution_audit;
 use crate::error::ApiError;
 use crate::json::SimdJson;
 use crate::metrics;
@@ -486,9 +487,14 @@ pub async fn execute_ruleset(
             // Log audit event (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
             let rule_id = format!("{}/{}", tenant.id, name);
-            state
-                .audit_logger
-                .log_execution(&rule_id, result.duration_us, &result.code, source_ip);
+            emit_rule_execution_audit(
+                state.executor.capability_invoker(),
+                &state.audit_logger,
+                &rule_id,
+                result.duration_us,
+                &result.code,
+                source_ip,
+            );
 
             result
         }
@@ -504,7 +510,9 @@ pub async fn execute_ruleset(
             // Log audit event for errors (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
             let rule_id = format!("{}/{}", tenant.id, name);
-            state.audit_logger.log_execution(
+            emit_rule_execution_audit(
+                state.executor.capability_invoker(),
+                &state.audit_logger,
                 &rule_id,
                 start.elapsed().as_micros() as u64,
                 "error",
@@ -816,6 +824,41 @@ pub async fn list_versions(
         .map_err(|e| ApiError::internal(format!("Failed to list versions: {}", e)))?;
 
     Ok(Json(versions))
+}
+
+/// Get a historical snapshot of a ruleset version.
+pub async fn get_version_snapshot(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((name, seq)): Path<(String, u32)>,
+) -> ApiResult<axum::response::Response> {
+    let store = state.store.read().await;
+
+    if !store.exists_for_tenant(&tenant.id, &name) {
+        return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
+    }
+
+    if !store.persistence_enabled() {
+        return Err(ApiError::bad_request(
+            "Version snapshots not available in memory-only mode".to_string(),
+        ));
+    }
+
+    let ruleset = store
+        .get_version_for_tenant(&tenant.id, &name, seq)
+        .map_err(|e| ApiError::internal(format!("Failed to load version: {}", e)))?
+        .ok_or_else(|| {
+            ApiError::not_found(format!("Version {} not found for rule '{}'", seq, name))
+        })?;
+
+    let body = serde_json::to_vec(&ruleset)
+        .map_err(|e| ApiError::internal(format!("Serialization error: {}", e)))?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body))
+        .unwrap())
 }
 
 /// Rollback a ruleset to a specific version
@@ -1402,6 +1445,9 @@ pub async fn execute_pipeline(
     let mut pipeline_executor =
         RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), state.metric_sink.clone());
     pipeline_executor.set_resolver(Arc::new(snapshot));
+    if let Some(capability_invoker) = state.executor.capability_invoker() {
+        pipeline_executor.set_capability_invoker(capability_invoker);
+    }
 
     let mut current_input = request.input;
     let mut stages = Vec::with_capacity(resolved.len());

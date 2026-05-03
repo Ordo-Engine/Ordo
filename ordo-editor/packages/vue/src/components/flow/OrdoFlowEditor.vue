@@ -8,7 +8,7 @@ import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { MiniMap } from '@vue-flow/minimap';
-import type { RuleSet, Step } from '@ordo-engine/editor-core';
+import type { RuleSet, Step, SubRuleGraph, SubRuleStep } from '@ordo-engine/editor-core';
 import { Step as StepFactory, generateId } from '@ordo-engine/editor-core';
 
 import {
@@ -45,17 +45,32 @@ import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
 import type { SubRuleAssetOption } from '../step/subRuleAssets';
 type NodeCreationType = 'decision' | 'action' | 'terminal' | 'sub_rule';
 
+export interface ExecutionTraceStep {
+  id: string;
+  name: string;
+  duration_us: number;
+  result?: string | null;
+  next_step?: string | null;
+  is_terminal?: boolean;
+  input_snapshot?: Record<string, any> | null;
+  variables_snapshot?: Record<string, any> | null;
+  sub_rule_ref?: string | null;
+  sub_rule_input?: Record<string, any> | null;
+  sub_rule_outputs?: Array<{
+    parent_var: string;
+    child_var: string;
+    value?: any;
+    missing?: boolean;
+  }>;
+  sub_rule_frames?: ExecutionTraceStep[];
+}
+
 /** Execution trace data for overlay */
 export interface ExecutionTraceData {
   /** Execution path as array of step IDs */
   path: string[];
   /** Step trace details */
-  steps: Array<{
-    id: string;
-    name: string;
-    duration_us: number;
-    result?: string | null;
-  }>;
+  steps: ExecutionTraceStep[];
   /** Final result code */
   resultCode: string;
   /** Final result message */
@@ -91,6 +106,8 @@ export interface Props {
   locale?: Lang;
   /** Execution trace to display as overlay */
   executionTrace?: ExecutionTraceData | null;
+  /** Executable ruleset used for trace-only expansion of hydrated sub-rules */
+  executionRuleset?: RuleSet | null;
   /** Lock the canvas into execution path mode without selection/edit interactions */
   traceMode?: boolean;
   /** Programmatic extraction request from a host shell */
@@ -102,6 +119,7 @@ const props = withDefaults(defineProps<Props>(), {
   managedSubRules: () => [],
   disabled: false,
   executionTrace: null,
+  executionRuleset: null,
   traceMode: false,
   extractSubRuleRequest: null,
 });
@@ -118,6 +136,9 @@ const FLOW_EDGE_STYLE_KEY = '_flowEdgeStyle';
 const FLOW_LAYOUT_DIRECTION_KEY = '_flowLayoutDirection';
 const FLOW_NODE_DRAG_TYPE = 'application/x-ordo-flow-node';
 const DEFAULT_NODE_DROP_OFFSET = { x: 90, y: 40 };
+const TRACE_EXPANSION_PREFIX = '__ordo_trace_subrule__';
+const TRACE_EXPANSION_GAP_X = 360;
+const TRACE_EXPANSION_GAP_Y = 56;
 
 function getStoredEdgeStyle(ruleset: RuleSet): EdgeRenderStyle {
   const stored = ruleset.config.metadata?.[FLOW_EDGE_STYLE_KEY];
@@ -324,18 +345,25 @@ function buildFlowConfig() {
   };
 }
 
+function isTraceOnlyElement(element: any): boolean {
+  return element?.data?.traceOnly === true;
+}
+
 // Sync back to ruleset
 function syncToRuleset() {
+  if (isCanvasReadOnly.value) return;
+
   // Set flag to prevent watch from re-initializing
   isInternalUpdate.value = true;
 
   // Filter out group nodes for step processing
-  const stepNodes = nodes.value.filter((n) => n.type !== 'group');
-  const currentGroupNodes = nodes.value.filter((n) => n.type === 'group');
+  const stepNodes = nodes.value.filter((n) => n.type !== 'group' && !isTraceOnlyElement(n));
+  const currentGroupNodes = nodes.value.filter((n) => n.type === 'group' && !isTraceOnlyElement(n));
+  const persistedEdges = edges.value.filter((e) => !isTraceOnlyElement(e));
 
   const newRuleset = flowToRuleset(
     stepNodes,
-    edges.value,
+    persistedEdges,
     buildFlowConfig(),
     props.modelValue.startStepId,
     currentGroupNodes,
@@ -395,10 +423,236 @@ async function scheduleTraceApply(trace: ExecutionTraceData) {
 // Execution trace overlay functionality
 // ============================================
 
+function stripTransientHighlightClasses(className: unknown): string {
+  return String(className ?? '')
+    .split(/\s+/)
+    .filter(
+      (name) =>
+        name &&
+        name !== 'execution-highlighted' &&
+        name !== 'execution-dimmed' &&
+        name !== 'path-highlighted' &&
+        name !== 'path-dimmed'
+    )
+    .join(' ');
+}
+
+function withTransientClass(className: unknown, nextClass: string | null): string {
+  const base = stripTransientHighlightClasses(className);
+  return [base, nextClass].filter(Boolean).join(' ');
+}
+
+function removeTraceExpansion() {
+  nodes.value = nodes.value.filter((node) => !isTraceOnlyElement(node));
+  edges.value = edges.value.filter((edge) => !isTraceOnlyElement(edge));
+}
+
+function safeTraceId(value: string): string {
+  return (
+    value
+      .trim()
+      .replace(/[^a-zA-Z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'value'
+  );
+}
+
+function runtimeRefSuffixForStep(stepId: string): string {
+  return `__${safeTraceId(stepId)}_terminal_return`;
+}
+
+function stripRuntimeSubRuleRef(refName: string | null | undefined, stepId: string): string | null {
+  if (!refName) return null;
+  const suffix = runtimeRefSuffixForStep(stepId);
+  return refName.endsWith(suffix) ? refName.slice(0, -suffix.length) : refName;
+}
+
+function traceChildNodeId(parentDisplayId: string, childStepId: string): string {
+  return `${TRACE_EXPANSION_PREFIX}${parentDisplayId}__${childStepId}`;
+}
+
+function traceSubRuleGraphs(): Record<string, SubRuleGraph> {
+  return {
+    ...(props.executionRuleset?.subRules ?? {}),
+    ...(props.modelValue.subRules ?? {}),
+  };
+}
+
+function resolveTraceSubRuleGraph(
+  parentNode: any,
+  traceStep: ExecutionTraceStep
+): { name: string; graph: SubRuleGraph } | null {
+  const graphs = traceSubRuleGraphs();
+  const step = parentNode?.data?.step as SubRuleStep | undefined;
+  const candidates = [
+    stripRuntimeSubRuleRef(step?.refName, traceStep.id),
+    stripRuntimeSubRuleRef(traceStep.sub_rule_ref, traceStep.id),
+    step?.refName,
+    traceStep.sub_rule_ref ?? undefined,
+  ].filter((name): name is string => !!name);
+
+  for (const name of candidates) {
+    const graph = graphs[name];
+    if (graph) return { name, graph };
+  }
+
+  return null;
+}
+
+function buildSubRuleTraceExpansion(
+  trace: ExecutionTraceData,
+  annotations: Map<string, StepTraceInfo>,
+  nodeIds: Set<string>,
+  edgeIds: Set<string>
+): { nodes: any[]; edges: any[] } {
+  const expansionNodes: any[] = [];
+  const expansionEdges: any[] = [];
+  const nodeLookup = new Map<string, any>(nodes.value.map((node) => [node.id, node]));
+
+  function addStepAnnotations(
+    steps: ExecutionTraceStep[],
+    resolveDisplayId: (stepId: string) => string,
+    orderPrefix: string,
+    resultCode?: string
+  ) {
+    steps.forEach((step, index) => {
+      const displayId = resolveDisplayId(step.id);
+      const isEntry = index === 0;
+      const isTerminal = step.is_terminal || index === steps.length - 1;
+
+      annotations.set(displayId, {
+        stepId: displayId,
+        stepName: step.name,
+        durationUs: step.duration_us,
+        order: orderPrefix ? `${orderPrefix}.${index + 1}` : index + 1,
+        isEntry,
+        isTerminal,
+        resultCode: isTerminal ? step.result ?? resultCode : undefined,
+      });
+      nodeIds.add(displayId);
+    });
+
+    const pathIds = steps.map((step) => resolveDisplayId(step.id));
+    for (let i = 0; i < pathIds.length - 1; i++) {
+      const edge = [...edges.value, ...expansionEdges].find(
+        (item) => item.source === pathIds[i] && item.target === pathIds[i + 1]
+      );
+      if (edge) edgeIds.add(edge.id);
+    }
+  }
+
+  function expandNestedSteps(
+    steps: ExecutionTraceStep[],
+    resolveDisplayId: (stepId: string) => string,
+    orderPrefix: string
+  ) {
+    steps.forEach((step, index) => {
+      if (!step.sub_rule_frames?.length) return;
+
+      const parentDisplayId = resolveDisplayId(step.id);
+      const parentNode = nodeLookup.get(parentDisplayId);
+      const resolved = resolveTraceSubRuleGraph(parentNode, step);
+      if (!parentNode || !resolved) return;
+
+      const { graph, name } = resolved;
+      const graphRuleset: RuleSet = {
+        config: {
+          ...props.modelValue.config,
+          name,
+        },
+        startStepId: graph.entryStep,
+        steps: graph.steps,
+        subRules: traceSubRuleGraphs(),
+        groups: [],
+      };
+      const flowData = rulesetToFlow(graphRuleset, edgeStyle.value);
+      const childNodes = needsAutoLayout(flowData.nodes)
+        ? applyDagreLayout(flowData.nodes, flowData.edges, { direction: layoutDirection.value })
+        : flowData.nodes;
+      if (childNodes.length === 0) return;
+
+      const minX = Math.min(...childNodes.map((node) => node.position?.x ?? 0));
+      const minY = Math.min(...childNodes.map((node) => node.position?.y ?? 0));
+      const anchor = parentNode.position ?? { x: 0, y: 0 };
+      const childId = (stepId: string) => traceChildNodeId(parentDisplayId, stepId);
+
+      for (const node of childNodes) {
+        const displayId = childId(node.id);
+        const displayNode = {
+          ...node,
+          id: displayId,
+          position: {
+            x: anchor.x + TRACE_EXPANSION_GAP_X + ((node.position?.x ?? 0) - minX),
+            y: anchor.y + TRACE_EXPANSION_GAP_Y + ((node.position?.y ?? 0) - minY) + index * 36,
+          },
+          selectable: false,
+          draggable: false,
+          connectable: false,
+          class: withTransientClass(node.class, 'trace-expanded-subrule'),
+          data: {
+            ...node.data,
+            traceOnly: true,
+            traceParentStepId: parentDisplayId,
+            traceSubRuleRef: name,
+          },
+        };
+        nodeLookup.set(displayId, displayNode);
+        expansionNodes.push(displayNode);
+      }
+
+      for (const edge of flowData.edges) {
+        expansionEdges.push({
+          ...edge,
+          id: `${TRACE_EXPANSION_PREFIX}${parentDisplayId}__edge__${edge.id}`,
+          source: childId(edge.source),
+          target: childId(edge.target),
+          selectable: false,
+          updatable: false,
+          class: withTransientClass(edge.class, 'trace-expanded-subrule-edge'),
+          data: {
+            ...edge.data,
+            traceOnly: true,
+            traceParentStepId: parentDisplayId,
+            traceSubRuleRef: name,
+          },
+        });
+      }
+
+      const entryNodeId = childId(graph.entryStep);
+      const bridgeEdge = createEdge(parentDisplayId, entryNodeId, {
+        sourceHandle: 'output',
+        targetHandle: 'input',
+        renderStyle: edgeStyle.value,
+      });
+      expansionEdges.push({
+        ...bridgeEdge,
+        id: `${TRACE_EXPANSION_PREFIX}${parentDisplayId}__bridge`,
+        selectable: false,
+        updatable: false,
+        class: withTransientClass(bridgeEdge.class, 'trace-subrule-bridge'),
+        data: {
+          ...bridgeEdge.data,
+          traceOnly: true,
+          traceParentStepId: parentDisplayId,
+          traceSubRuleRef: name,
+        },
+      });
+      edgeIds.add(`${TRACE_EXPANSION_PREFIX}${parentDisplayId}__bridge`);
+
+      const childOrderPrefix = orderPrefix ? `${orderPrefix}.${index + 1}` : `${index + 1}`;
+      addStepAnnotations(step.sub_rule_frames, childId, childOrderPrefix, trace.resultCode);
+      expandNestedSteps(step.sub_rule_frames, childId, childOrderPrefix);
+    });
+  }
+
+  expandNestedSteps(trace.steps, (stepId) => stepId, '');
+  return { nodes: expansionNodes, edges: expansionEdges };
+}
+
 /**
  * Apply execution trace overlay to the flow
  */
 function applyExecutionTrace(trace: ExecutionTraceData) {
+  removeTraceExpansion();
   showExecutionOverlay.value = true;
 
   // Build annotations map
@@ -420,8 +674,6 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
     });
   });
 
-  executionAnnotations.value = annotations;
-
   // Highlight the execution path
   const nodeIds = new Set<string>(trace.steps.map((s) => s.id));
   const edgeIds = new Set<string>();
@@ -437,6 +689,13 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
     }
   }
 
+  const expansion = buildSubRuleTraceExpansion(trace, annotations, nodeIds, edgeIds);
+  if (expansion.nodes.length > 0 || expansion.edges.length > 0) {
+    nodes.value = [...nodes.value, ...expansion.nodes];
+    edges.value = [...edges.value, ...expansion.edges];
+  }
+
+  executionAnnotations.value = annotations;
   highlightedNodeIds.value = nodeIds;
   highlightedEdgeIds.value = edgeIds;
   applyExecutionHighlightStyles();
@@ -456,6 +715,7 @@ function clearExecutionTrace() {
   executionAnnotations.value = new Map();
   highlightedNodeIds.value = new Set();
   highlightedEdgeIds.value = new Set();
+  removeTraceExpansion();
   applyHighlightStyles();
 }
 
@@ -474,7 +734,10 @@ function applyExecutionHighlightStyles() {
 
     return {
       ...node,
-      class: hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : '',
+      class: withTransientClass(
+        node.class,
+        hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : null
+      ),
       data: {
         ...node.data,
         executionAnnotation: annotation || null,
@@ -487,7 +750,10 @@ function applyExecutionHighlightStyles() {
     const isHighlighted = highlightedEdgeIds.value.has(edge.id);
     return {
       ...edge,
-      class: hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : '',
+      class: withTransientClass(
+        edge.class,
+        hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : null
+      ),
       animated: isHighlighted, // Animate executed edges
     };
   });
@@ -611,7 +877,10 @@ function applyHighlightStyles() {
     const isHighlighted = highlightedNodeIds.value.has(node.id);
     return {
       ...node,
-      class: hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : '',
+      class: withTransientClass(
+        node.class,
+        hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : null
+      ),
     };
   });
 
@@ -620,7 +889,10 @@ function applyHighlightStyles() {
     const isHighlighted = highlightedEdgeIds.value.has(edge.id);
     return {
       ...edge,
-      class: hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : '',
+      class: withTransientClass(
+        edge.class,
+        hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : null
+      ),
     };
   });
 }
@@ -2705,6 +2977,43 @@ onMounted(() => {
 :deep(.vue-flow__edge.execution-dimmed .edge-label-bg),
 :deep(.vue-flow__edge.execution-dimmed .edge-label-text) {
   opacity: 0.1;
+}
+
+/* Trace-only sub-rule expansion */
+:deep(.vue-flow__node.trace-expanded-subrule) {
+  z-index: 8 !important;
+}
+
+:deep(.vue-flow__node.trace-expanded-subrule .flow-node) {
+  border-style: dashed;
+  background: linear-gradient(180deg, rgba(91, 112, 138, 0.08), rgba(91, 112, 138, 0.02)),
+    var(--ordo-bg-item, #1e1e1e);
+}
+
+:deep(.vue-flow__node.trace-expanded-subrule::after) {
+  content: 'sub trace';
+  position: absolute;
+  top: -18px;
+  left: 8px;
+  padding: 2px 7px;
+  border: 1px solid rgba(91, 112, 138, 0.28);
+  border-radius: 999px;
+  background: var(--ordo-bg-panel, #252526);
+  color: var(--ordo-text-tertiary, #8a8f98);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+:deep(.vue-flow__edge.trace-subrule-bridge path),
+:deep(.vue-flow__edge.trace-expanded-subrule-edge path) {
+  stroke-dasharray: 7 5;
+}
+
+:deep(.vue-flow__edge.trace-subrule-bridge path) {
+  stroke: var(--ordo-node-sub-rule, #5b708a) !important;
+  stroke-width: 2.5 !important;
 }
 
 /* Entry node special styling */

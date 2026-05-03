@@ -177,6 +177,8 @@ pub struct TestFailureDetail {
     pub step_id: Option<String>,
     #[serde(default)]
     pub sub_rule_ref: Option<String>,
+    #[serde(default)]
+    pub trace_path: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

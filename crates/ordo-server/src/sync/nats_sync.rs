@@ -616,11 +616,33 @@ fn connect_options_and_addr(
     Ok((options, url.to_string()))
 }
 
-pub async fn connect(nats_url: &str) -> Result<jetstream::Context, async_nats::Error> {
+pub async fn connect_client(nats_url: &str) -> Result<async_nats::Client, async_nats::Error> {
     let (options, server_addr) = connect_options_and_addr(nats_url)?;
     let client = options.connect(server_addr.as_str()).await?;
     info!("Connected to NATS at {}", nats_url);
-    Ok(jetstream::new(client))
+    Ok(client)
+}
+
+fn rpc_prefix(subject_prefix: &str) -> String {
+    let safe_prefix = subject_prefix
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if safe_prefix.is_empty() {
+        "_ORDO_RPC.default".to_string()
+    } else {
+        format!("_ORDO_RPC.{}", safe_prefix)
+    }
+}
+
+pub fn server_rpc_wildcard_subject(subject_prefix: &str, server_id: &str) -> String {
+    format!("{}.servers.{}.*", rpc_prefix(subject_prefix), server_id)
 }
 
 pub async fn publish_immediate(
@@ -667,5 +689,13 @@ mod tests {
     #[test]
     fn test_stream_name_constant() {
         assert_eq!(STREAM_NAME, "ordo-rules");
+    }
+
+    #[test]
+    fn test_server_rpc_wildcard_uses_non_stream_prefix() {
+        assert_eq!(
+            server_rpc_wildcard_subject(DEFAULT_SUBJECT_PREFIX, "srv_abc"),
+            "_ORDO_RPC.ordo_rules.servers.srv_abc.*"
+        );
     }
 }

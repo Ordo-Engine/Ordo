@@ -5,6 +5,7 @@
 use ordo_core::expr::{BinaryOp, Expr};
 use ordo_core::prelude::*;
 use ordo_core::rule::{ActionKind, CompiledRuleExecutor, Condition, RuleSetCompiler};
+use ordo_core::trace::StepTrace;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -49,6 +50,72 @@ pub struct WasmStepTrace {
     pub duration_us: u64,
     /// Step result (for decision steps)
     pub result: Option<String>,
+    /// Next step ID when execution continues.
+    pub next_step: Option<String>,
+    /// Whether this step ended execution.
+    pub is_terminal: bool,
+    /// Input data snapshot for this step.
+    pub input_snapshot: Option<Value>,
+    /// Variable snapshot for this step.
+    pub variables_snapshot: Option<serde_json::Value>,
+    /// Referenced sub-rule name when this step invokes a sub-rule.
+    pub sub_rule_ref: Option<String>,
+    /// Input object passed into the sub-rule.
+    pub sub_rule_input: Option<Value>,
+    /// Output mappings copied from child context to parent context.
+    pub sub_rule_outputs: Vec<WasmSubRuleOutputTrace>,
+    /// Nested execution frames produced by a sub-rule invocation.
+    pub sub_rule_frames: Vec<WasmStepTrace>,
+}
+
+/// Sub-rule output mapping trace information.
+#[derive(Serialize, Deserialize)]
+pub struct WasmSubRuleOutputTrace {
+    pub parent_var: String,
+    pub child_var: String,
+    pub value: Option<Value>,
+    pub missing: bool,
+}
+
+fn map_step_trace(step: &StepTrace) -> WasmStepTrace {
+    WasmStepTrace {
+        id: step.step_id.clone(),
+        name: step.step_name.clone(),
+        duration_us: step.duration_us,
+        result: None,
+        next_step: step.next_step.clone(),
+        is_terminal: step.is_terminal,
+        input_snapshot: step.input_snapshot.clone(),
+        variables_snapshot: step
+            .variables_snapshot
+            .as_ref()
+            .and_then(|snapshot| serde_json::to_value(snapshot).ok()),
+        sub_rule_ref: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| call.ref_name.clone()),
+        sub_rule_input: step.sub_rule_call.as_ref().map(|call| call.input.clone()),
+        sub_rule_outputs: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| {
+                call.outputs
+                    .iter()
+                    .map(|output| WasmSubRuleOutputTrace {
+                        parent_var: output.parent_var.clone(),
+                        child_var: output.child_var.clone(),
+                        value: output.value.clone(),
+                        missing: output.missing,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        sub_rule_frames: step
+            .sub_rule_frames
+            .as_ref()
+            .map(|frames| frames.iter().map(map_step_trace).collect())
+            .unwrap_or_default(),
+    }
 }
 
 /// Execute a ruleset with given input
@@ -69,18 +136,6 @@ pub fn execute_ruleset(
     // Parse ruleset
     let ruleset: RuleSet = serde_json::from_str(ruleset_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse ruleset: {}", e)))?;
-
-    // Debug: log parsed ruleset structure
-    web_sys::console::log_1(
-        &format!(
-            "[WASM DEBUG] Parsed ruleset steps: {:?}",
-            ruleset.steps.keys().collect::<Vec<_>>()
-        )
-        .into(),
-    );
-    for (step_id, step) in &ruleset.steps {
-        web_sys::console::log_1(&format!("[WASM DEBUG] Step {}: {:?}", step_id, step.kind).into());
-    }
 
     // Parse input
     let input: Value = serde_json::from_str(input_json)
@@ -103,16 +158,7 @@ pub fn execute_ruleset(
     // Convert trace if present
     let trace = result.trace.as_ref().map(|t| WasmExecutionTrace {
         path: t.path_string(),
-        steps: t
-            .steps
-            .iter()
-            .map(|s| WasmStepTrace {
-                id: s.step_id.clone(),
-                name: s.step_name.clone(),
-                duration_us: s.duration_us,
-                result: None,
-            })
-            .collect(),
+        steps: t.steps.iter().map(map_step_trace).collect(),
     });
 
     // Convert output to serde_json::Value

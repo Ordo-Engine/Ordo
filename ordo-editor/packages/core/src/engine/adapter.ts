@@ -256,13 +256,7 @@ function convertValueToExprString(value: any): string {
 
   // Handle variable reference
   if (value.type === 'variable' || value.type === 'field') {
-    let path = value.path || value.name || '';
-    // Remove $. prefix - engine Context.get() uses bare paths like "order.amount"
-    // The Context stores input data at root level, not under "input." key
-    if (path.startsWith('$.')) {
-      path = path.slice(2); // $.order.amount -> order.amount
-    }
-    return path;
+    return normalizeFieldPath(value.path || value.name || '');
   }
 
   // Handle literal value
@@ -528,15 +522,7 @@ function convertToEngineExpr(value: any): any {
   if (typeof value === 'string') {
     // Check if it looks like a field reference
     if (value.startsWith('$') || value.startsWith('input.') || value.startsWith('vars.')) {
-      let path = value;
-      if (path.startsWith('$.')) {
-        path = path.slice(2); // $.order.amount -> order.amount
-      } else if (path.startsWith('input.')) {
-        path = path.slice(6); // input.order.amount -> order.amount
-      } else if (path.startsWith('$')) {
-        path = path.slice(1);
-      }
-      return { Field: path };
+      return { Field: normalizeFieldPath(value) };
     }
     // Otherwise treat as literal string
     return { Literal: value };
@@ -555,11 +541,7 @@ function convertToEngineExpr(value: any): any {
 
     // Editor variable format: { type: 'variable', path: '$.xxx' }
     if (value.type === 'variable' || value.type === 'field') {
-      let path = value.path || value.name || '';
-      if (path.startsWith('$.')) {
-        path = path.slice(2); // Remove $. prefix
-      }
-      return { Field: path };
+      return { Field: normalizeFieldPath(value.path || value.name || '') };
     }
 
     // Editor expression format: { type: 'expression', expression: '...' }
@@ -687,9 +669,6 @@ function normalizeFieldPath(path: string): string {
   if (path.startsWith('input.')) {
     return path.slice(6);
   }
-  if (path.startsWith('$')) {
-    return path.slice(1);
-  }
   return path;
 }
 
@@ -796,7 +775,11 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
 
       case 'sub_rule': {
         const subRuleStep = step as SubRuleStep;
-        if (subRuleStep.nextStepId && !stepIds.has(subRuleStep.nextStepId)) {
+        if (
+          subRuleStep.returnPolicy !== 'propagate_terminal' &&
+          subRuleStep.nextStepId &&
+          !stepIds.has(subRuleStep.nextStepId)
+        ) {
           errors.push(
             `Step '${step.id}' nextStepId references non-existent step '${subRuleStep.nextStepId}'`
           );

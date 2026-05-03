@@ -299,10 +299,13 @@ impl RuleExecutor {
                     })?;
                     let mut child_data = hashbrown::HashMap::new();
                     for (field, expr) in bindings {
-                        child_data.insert(
-                            std::sync::Arc::from(field.as_str()),
-                            self.evaluator.eval(expr, &ctx)?,
-                        );
+                        if let Some(value) = self.evaluate_sub_rule_binding(
+                            expr,
+                            &ctx,
+                            &ruleset.config.field_missing,
+                        )? {
+                            child_data.insert(std::sync::Arc::from(field.as_str()), value);
+                        }
                     }
                     let child_input = Value::object_optimized(child_data);
                     let traced_child_input = if tracing {
@@ -604,10 +607,11 @@ impl RuleExecutor {
                 })?;
                 let mut child_data = hashbrown::HashMap::new();
                 for (field, expr) in bindings {
-                    child_data.insert(
-                        std::sync::Arc::from(field.as_str()),
-                        self.evaluator.eval(expr, &ctx)?,
-                    );
+                    if let Some(value) =
+                        self.evaluate_sub_rule_binding(expr, &ctx, field_missing)?
+                    {
+                        child_data.insert(std::sync::Arc::from(field.as_str()), value);
+                    }
                 }
                 let child_input = Value::object_optimized(child_data);
                 let traced_child_input = if tracing {
@@ -743,6 +747,23 @@ impl RuleExecutor {
                 Ok(false)
             }
             Err(e) => Err(e),
+        }
+    }
+
+    fn evaluate_sub_rule_binding(
+        &self,
+        expr: &crate::expr::Expr,
+        ctx: &Context,
+        field_missing: &FieldMissingBehavior,
+    ) -> Result<Option<Value>> {
+        match self.evaluator.eval(expr, ctx) {
+            Ok(value) => Ok(Some(value)),
+            Err(OrdoError::FieldNotFound { .. })
+                if *field_missing == FieldMissingBehavior::Lenient =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -1575,6 +1596,15 @@ mod tests {
 
         // Test with score < 90 → silver
         let input: Value = serde_json::from_str(r#"{"score": 70}"#).unwrap();
+        let result = executor.execute(&ruleset, input).unwrap();
+        assert_eq!(result.code, "DONE");
+        assert_eq!(
+            result.output.get_path("tier"),
+            Some(&Value::string("silver"))
+        );
+
+        // Missing binding field should preserve lenient branch semantics.
+        let input: Value = serde_json::from_str(r#"{}"#).unwrap();
         let result = executor.execute(&ruleset, input).unwrap();
         assert_eq!(result.code, "DONE");
         assert_eq!(

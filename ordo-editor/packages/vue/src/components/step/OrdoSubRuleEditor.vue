@@ -147,7 +147,14 @@ function updateAssetScope(event: Event) {
 }
 
 function updateNextStep(event: Event) {
-  updateStep({ nextStepId: (event.target as HTMLSelectElement).value }, true);
+  const nextStepId = (event.target as HTMLSelectElement).value;
+  updateStep(
+    {
+      nextStepId,
+      returnPolicy: nextStepId ? 'continue' : 'propagate_terminal',
+    },
+    true
+  );
 }
 
 function addBinding() {
@@ -280,7 +287,7 @@ function updateExprValue(value: string): any {
             :title="t('step.openSubRuleEditor')"
             @click="emit('open-sub-rule', modelValue.refName)"
           >
-            <OrdoIcon name="arrow_right_up" :size="14" />
+            <OrdoIcon name="arrow-right" :size="14" />
           </button>
         </div>
         <datalist id="ordo-sub-rule-options">

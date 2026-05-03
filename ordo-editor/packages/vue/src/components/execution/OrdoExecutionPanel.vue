@@ -14,6 +14,26 @@ import {
 import { useI18n } from '../../locale';
 import OrdoPerformancePanel from './OrdoPerformancePanel.vue';
 
+interface FlowTraceStep {
+  id: string;
+  name: string;
+  duration_us: number;
+  result?: string | null;
+  next_step?: string | null;
+  is_terminal?: boolean;
+  input_snapshot?: Record<string, any> | null;
+  variables_snapshot?: Record<string, any> | null;
+  sub_rule_ref?: string | null;
+  sub_rule_input?: Record<string, any> | null;
+  sub_rule_outputs?: Array<{
+    parent_var: string;
+    child_var: string;
+    value?: any;
+    missing?: boolean;
+  }>;
+  sub_rule_frames?: FlowTraceStep[];
+}
+
 export interface Props {
   /** RuleSet to execute */
   ruleset: RuleSet;
@@ -37,7 +57,7 @@ const emit = defineEmits<{
   'show-in-flow': [
     trace: {
       path: string[];
-      steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+      steps: FlowTraceStep[];
       resultCode: string;
       resultMessage: string;
       output?: Record<string, any>;
@@ -226,8 +246,10 @@ function showInFlow(execResult: ExecutionResult | null) {
   if (!execResult || !execResult.trace) return;
 
   // Parse the path string into array
-  const pathStr = execResult.trace.path || '';
-  const pathArray = pathStr.split(' -> ').filter((s) => s.trim());
+  const rawPath = execResult.trace.path || '';
+  const pathArray = Array.isArray(rawPath)
+    ? rawPath
+    : rawPath.split(' -> ').filter((s) => s.trim());
 
   emit('show-in-flow', {
     path: pathArray,

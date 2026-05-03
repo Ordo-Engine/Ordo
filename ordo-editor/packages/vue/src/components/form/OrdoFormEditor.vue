@@ -14,6 +14,10 @@ import type { SubRuleAssetOption } from '../step/subRuleAssets';
 export interface Props {
   /** RuleSet data */
   modelValue: RuleSet;
+  /** Project facts/concepts exposed as input schema */
+  inputSchema?: SchemaField[];
+  /** Project facts/concepts exposed as expression suggestions */
+  suggestions?: FieldSuggestion[];
   /** Whether the editor is disabled */
   disabled?: boolean;
   /** Whether to auto-validate on change */
@@ -27,6 +31,8 @@ export interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  inputSchema: () => [],
+  suggestions: () => [],
   disabled: false,
   autoValidate: true,
   managedSubRules: () => [],
@@ -52,7 +58,16 @@ const validationResult = ref<ValidationResult | null>(null);
 
 // Convert input schema to field suggestions
 const suggestions = computed<FieldSuggestion[]>(() => {
-  if (!props.modelValue.config.inputSchema) return [];
+  const merged = new Map<string, FieldSuggestion>();
+
+  for (const suggestion of props.suggestions) {
+    merged.set(suggestion.path, suggestion);
+  }
+
+  const schemaFields = props.inputSchema.length
+    ? props.inputSchema
+    : props.modelValue.config.inputSchema ?? [];
+  if (!schemaFields.length) return Array.from(merged.values());
 
   function flattenSchema(fields: SchemaField[], prefix = ''): FieldSuggestion[] {
     const result: FieldSuggestion[] = [];
@@ -71,7 +86,11 @@ const suggestions = computed<FieldSuggestion[]>(() => {
     return result;
   }
 
-  return flattenSchema(props.modelValue.config.inputSchema);
+  for (const suggestion of flattenSchema(schemaFields)) {
+    if (!merged.has(suggestion.path)) merged.set(suggestion.path, suggestion);
+  }
+
+  return Array.from(merged.values());
 });
 
 // Update fields

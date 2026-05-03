@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY examples ./examples
 
 # Build release with NATS sync support
 RUN --mount=type=cache,id=ordo-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \

@@ -285,9 +285,10 @@ function formatOutputValue(output: OutputField): string {
 /* Input pin positioning (in header) */
 .node-header .pin-input {
   position: absolute;
-  left: -5px;
+  left: -10px;
   top: 50%;
   transform: translateY(-50%);
+  padding: 5px;
 }
 
 /* Data pins in output rows */

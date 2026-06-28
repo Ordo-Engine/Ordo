@@ -65,4 +65,7 @@ dist/
 # VitePress docs build artifacts (keep config.mts)
 **/.vitepress/cache/
 **/.vitepress/dist/
+
+# Vite optimized-deps cache (custom cacheDir variants)
+**/.vite-devcontainer/
 DESIGN.md

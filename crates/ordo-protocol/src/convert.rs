@@ -179,6 +179,7 @@ fn convert_step_kind(kind: StudioStepKind, step_id: &str) -> Result<StepKind, Co
             ref_name,
             bindings,
             outputs,
+            return_policy: _,
             next_step_id,
         } => {
             let converted_bindings: Result<Vec<(String, Expr)>, _> = bindings
@@ -400,6 +401,7 @@ mod tests {
             name: id.to_string(),
             description: None,
             position: None,
+            system_generated: None,
             kind: StudioStepKind::Terminal {
                 code: code.to_string(),
                 message: None,
@@ -418,6 +420,7 @@ mod tests {
                 name: "Done".to_string(),
                 description: None,
                 position: None,
+                system_generated: None,
                 kind: StudioStepKind::Terminal {
                     code: "OK".to_string(),
                     message: Some(StudioTerminalMessage::Expr(StudioExpr::Literal {
@@ -456,6 +459,7 @@ mod tests {
                 name: "Done".to_string(),
                 description: None,
                 position: None,
+                system_generated: None,
                 kind: StudioStepKind::Terminal {
                     code: "OK".to_string(),
                     message: Some(StudioTerminalMessage::String("plain message".to_string())),
@@ -489,6 +493,7 @@ mod tests {
                     name: "Decide".to_string(),
                     description: None,
                     position: None,
+                    system_generated: None,
                     kind: StudioStepKind::Decision {
                         branches: vec![StudioBranch {
                             id: "b1".to_string(),
@@ -548,6 +553,7 @@ mod tests {
                     name: "Act".to_string(),
                     description: None,
                     position: None,
+                    system_generated: None,
                     kind: StudioStepKind::Action {
                         assignments: vec![StudioAssignment {
                             name: "result".to_string(),

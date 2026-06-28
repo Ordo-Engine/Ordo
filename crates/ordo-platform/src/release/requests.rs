@@ -202,7 +202,10 @@ pub async fn create_release_request(
         )
         .await?
     };
-    let target_snapshot = draft.draft.clone();
+    // Inline sub-rule assets before storing the snapshot so the snapshot is self-contained.
+    let inlined =
+        inline_sub_rules_with_manifest(&state, &org_id, &project_id, draft.draft.clone()).await?;
+    let target_snapshot = inlined.draft.clone();
 
     let approver_users = {
         let mut items = Vec::new();
@@ -256,6 +259,7 @@ pub async fn create_release_request(
         rollback_policy: policy.rollback_policy.clone(),
         affected_instance_count: req.affected_instance_count.unwrap_or_default(),
         target_ruleset_snapshot: Some(target_snapshot.clone()),
+        sub_rule_dependencies: inlined.dependencies.clone(),
     };
 
     let mut create_req = req;
@@ -304,6 +308,7 @@ pub async fn create_release_request(
             "affected_instance_count": request_snapshot.affected_instance_count,
             "version_diff": version_diff,
             "content_diff": content_diff,
+            "sub_rule_dependencies": request_snapshot.sub_rule_dependencies,
         }),
     )
     .await

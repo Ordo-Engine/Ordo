@@ -9,19 +9,27 @@ import type {
   DecisionStep,
   ActionStep,
   TerminalStep,
+  SubRuleGraph,
+  SubRuleStep,
   SchemaContext,
 } from '@ordo-engine/editor-core';
 import OrdoDecisionEditor from './OrdoDecisionEditor.vue';
 import OrdoActionEditor from './OrdoActionEditor.vue';
 import OrdoTerminalEditor from './OrdoTerminalEditor.vue';
+import OrdoSubRuleEditor from './OrdoSubRuleEditor.vue';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
 import { useI18n } from '../../locale';
+import type { SubRuleAssetOption } from './subRuleAssets';
 
 export interface Props {
   /** Step data */
   modelValue: Step;
   /** Available steps to link to */
   availableSteps?: Step[];
+  /** Available inline sub-rule graphs */
+  availableSubRules?: Record<string, SubRuleGraph>;
+  /** Managed project/org sub-rule assets */
+  managedSubRules?: SubRuleAssetOption[];
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
   /** Schema context for smart editors */
@@ -34,6 +42,8 @@ export interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   availableSteps: () => [],
+  availableSubRules: () => ({}),
+  managedSubRules: () => [],
   suggestions: () => [],
   schemaContext: undefined,
   disabled: false,
@@ -44,12 +54,14 @@ const emit = defineEmits<{
   'update:modelValue': [value: Step];
   change: [value: Step];
   delete: [stepId: string];
+  'open-sub-rule': [name: string];
 }>();
 
 // Type guards
 const isDecision = computed(() => props.modelValue.type === 'decision');
 const isAction = computed(() => props.modelValue.type === 'action');
 const isTerminal = computed(() => props.modelValue.type === 'terminal');
+const isSubRule = computed(() => props.modelValue.type === 'sub_rule');
 
 // Handle updates
 function handleUpdate(step: Step) {
@@ -113,6 +125,20 @@ function handleDelete() {
       :disabled="disabled"
       @update:model-value="handleUpdate"
       @change="handleChange"
+    />
+
+    <!-- Sub-rule step -->
+    <OrdoSubRuleEditor
+      v-if="isSubRule"
+      :model-value="modelValue as SubRuleStep"
+      :available-steps="availableSteps"
+      :available-sub-rules="availableSubRules"
+      :managed-sub-rules="managedSubRules"
+      :suggestions="suggestions"
+      :disabled="disabled"
+      @update:model-value="handleUpdate"
+      @change="handleChange"
+      @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
     />
   </div>
 </template>

@@ -108,6 +108,7 @@
   --ordo-node-decision: var(--ordo-warning);
   --ordo-node-action: var(--ordo-accent);
   --ordo-node-terminal: var(--ordo-success);
+  --ordo-node-sub-rule: #5b708a;
 
   --ordo-keyword: var(--ordo-accent);
   --ordo-variable: #d4860e;
@@ -201,6 +202,7 @@
   --ordo-node-decision: var(--ordo-warning);
   --ordo-node-action: var(--ordo-accent);
   --ordo-node-terminal: var(--ordo-success);
+  --ordo-node-sub-rule: #8fa7c1;
 
   --ordo-keyword: var(--ordo-accent);
   --ordo-variable: #ffd27f;

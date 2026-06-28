@@ -8,7 +8,7 @@ import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { LayoutDirection } from './utils/layout';
 
-type NodeType = 'decision' | 'action' | 'terminal';
+type NodeType = 'decision' | 'action' | 'terminal' | 'sub_rule';
 
 export interface Props {
   edgeStyle: 'bezier' | 'step';
@@ -19,7 +19,7 @@ export interface Props {
 defineProps<Props>();
 
 const emit = defineEmits<{
-  'add-node': [type: 'decision' | 'action' | 'terminal'];
+  'add-node': [type: NodeType];
   'start-node-drag': [type: NodeType];
   'end-node-drag': [];
   'add-group': [];
@@ -86,6 +86,17 @@ function startNodeDrag(event: DragEvent, type: NodeType) {
       >
         <OrdoIcon name="terminal" :size="16" class="icon-terminal" />
         <span class="btn-text">{{ t('step.terminal') }}</span>
+      </button>
+      <button
+        class="toolbar-btn"
+        :title="t('step.subRule')"
+        draggable="true"
+        @click="emit('add-node', 'sub_rule')"
+        @dragstart="startNodeDrag($event, 'sub_rule')"
+        @dragend="emit('end-node-drag')"
+      >
+        <OrdoIcon name="sub_rule" :size="16" class="icon-sub-rule" />
+        <span class="btn-text">{{ t('step.subRule') }}</span>
       </button>
 
       <div class="toolbar-divider-v"></div>
@@ -313,6 +324,9 @@ function startNodeDrag(event: DragEvent, type: NodeType) {
 }
 .icon-terminal {
   color: var(--ordo-node-terminal);
+}
+.icon-sub-rule {
+  color: var(--ordo-node-sub-rule);
 }
 .icon-group {
   color: var(--ordo-text-tertiary);

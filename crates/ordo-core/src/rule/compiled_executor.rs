@@ -289,10 +289,11 @@ impl CompiledRuleExecutor {
         let mut child_data = std::collections::HashMap::with_capacity(bindings.len());
         for binding in bindings {
             let name = ruleset.get_string(binding.name)?;
-            child_data.insert(
-                name.to_string(),
-                self.evaluate_expr(ruleset, binding.expr, parent_ctx)?,
-            );
+            if let Some(value) =
+                self.evaluate_sub_rule_binding(ruleset, binding.expr, parent_ctx)?
+            {
+                child_data.insert(name.to_string(), value);
+            }
         }
 
         self.execute_sub_graph(
@@ -301,6 +302,23 @@ impl CompiledRuleExecutor {
             Value::object(child_data),
             remaining_call_depth - 1,
         )
+    }
+
+    fn evaluate_sub_rule_binding(
+        &self,
+        ruleset: &CompiledRuleSet,
+        expr_idx: u32,
+        ctx: &Context,
+    ) -> Result<Option<Value>> {
+        match self.evaluate_expr(ruleset, expr_idx, ctx) {
+            Ok(value) => Ok(Some(value)),
+            Err(OrdoError::FieldNotFound { .. })
+                if ruleset.metadata.field_missing == FIELD_MISSING_LENIENT =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn copy_sub_rule_outputs(
@@ -889,6 +907,92 @@ mod tests {
 
         assert_eq!(result.code, "OK");
         assert_eq!(result.output.get_path("tier"), Some(&Value::string("gold")));
+    }
+
+    #[test]
+    fn compiled_sub_rule_bindings_follow_lenient_missing_field_behavior() {
+        let mut sub_steps = hashbrown::HashMap::new();
+        sub_steps.insert(
+            "check_score".to_string(),
+            Step::decision("check_score", "Check Score")
+                .branch(
+                    crate::rule::Condition::from_string("score >= 90"),
+                    "tier_gold",
+                )
+                .default("tier_silver")
+                .build(),
+        );
+        sub_steps.insert(
+            "tier_gold".to_string(),
+            Step::action(
+                "tier_gold",
+                "Gold",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("gold"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        sub_steps.insert(
+            "tier_silver".to_string(),
+            Step::action(
+                "tier_silver",
+                "Silver",
+                vec![Action {
+                    kind: ActionKind::SetVariable {
+                        name: "tier".to_string(),
+                        value: Expr::literal("silver"),
+                    },
+                    description: String::new(),
+                }],
+                "done",
+            ),
+        );
+        sub_steps.insert(
+            "done".to_string(),
+            Step::terminal("done", "Done", TerminalResult::new("OK")),
+        );
+
+        let mut ruleset = RuleSet::new("compiled_sub_rule_lenient", "start");
+        ruleset.add_sub_rule(
+            "classify",
+            SubRuleGraph {
+                entry_step: "check_score".to_string(),
+                steps: sub_steps,
+            },
+        );
+        ruleset.add_step(Step {
+            id: "start".to_string(),
+            name: "Start".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "classify".to_string(),
+                bindings: vec![("score".to_string(), Expr::field("score"))],
+                outputs: vec![("result_tier".to_string(), "tier".to_string())],
+                next_step: "done".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("DONE").with_output("tier", Expr::field("$result_tier")),
+        ));
+
+        ruleset.validate().unwrap();
+        let compiled = RuleSetCompiler::compile(&ruleset).unwrap();
+        let executor = CompiledRuleExecutor::new();
+
+        let input = serde_json::from_str(r#"{}"#).unwrap();
+        let result = executor.execute(&compiled, input).unwrap();
+
+        assert_eq!(result.code, "DONE");
+        assert_eq!(
+            result.output.get_path("tier"),
+            Some(&Value::string("silver"))
+        );
     }
 
     #[test]

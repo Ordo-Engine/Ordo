@@ -16,7 +16,8 @@ use crate::{
     error::{ApiResult, PlatformError},
     models::{
         Claims, ProjectTestRunResult, Role, RulesetTestSummary, TestCase, TestExecutionTrace,
-        TestExecutionTraceStep, TestExpectation, TestRunResult,
+        TestExecutionTraceStep, TestExpectation, TestFailureDetail, TestFailureKind, TestRunResult,
+        TestSubRuleOutputTrace,
     },
     AppState,
 };
@@ -29,7 +30,7 @@ use chrono::Utc;
 use ordo_core::{
     context::Value as CoreValue,
     rule::{ExecutionOptions, RuleExecutor, RuleSet},
-    trace::ExecutionTrace,
+    trace::{ExecutionTrace, StepTrace, TraceConfig},
 };
 use ordo_protocol::StudioRuleSet;
 use serde::{Deserialize, Serialize};
@@ -78,6 +79,30 @@ pub struct ProjectTestRunRequest {
 
 fn default_include_trace() -> bool {
     true
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdHocTestRunRequest {
+    pub ruleset: JsonValue,
+    #[serde(default = "default_ad_hoc_test_name")]
+    pub name: String,
+    pub input: JsonValue,
+    #[serde(default = "default_expectation")]
+    pub expect: TestExpectation,
+    #[serde(default = "default_include_trace")]
+    pub include_trace: bool,
+}
+
+fn default_ad_hoc_test_name() -> String {
+    "Ad-hoc test".to_string()
+}
+
+fn default_expectation() -> TestExpectation {
+    TestExpectation {
+        code: None,
+        message: None,
+        output: None,
+    }
 }
 
 // ── ordo-cli compatible export format ────────────────────────────────────────
@@ -305,6 +330,39 @@ pub async fn run_one_test(
     Ok(Json(results.remove(0)))
 }
 
+/// POST /api/v1/projects/:pid/tests/run-ad-hoc
+pub async fn run_ad_hoc_test(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(project_id): Path<String>,
+    Json(req): Json<AdHocTestRunRequest>,
+) -> ApiResult<Json<TestRunResult>> {
+    let (_org_id, _role) = resolve_project(&state, &project_id, &claims.sub, None).await?;
+    let now = Utc::now();
+    let tc = TestCase {
+        id: Uuid::new_v4().to_string(),
+        name: req.name,
+        description: None,
+        input: req.input,
+        expect: req.expect,
+        tags: vec!["ad-hoc".to_string()],
+        created_at: now,
+        updated_at: now,
+        created_by: claims.sub,
+    };
+
+    let mut results = execute_tests(
+        &state,
+        &project_id,
+        "__ad_hoc__",
+        std::slice::from_ref(&tc),
+        Some(&req.ruleset),
+        req.include_trace,
+    )
+    .await?;
+    Ok(Json(results.remove(0)))
+}
+
 /// GET /api/v1/projects/:pid/tests/run
 pub async fn run_project_tests(
     State(state): State<AppState>,
@@ -345,13 +403,15 @@ pub async fn run_project_tests(
         )
         .await
         .unwrap_or_else(|err| {
+            let message = err.to_string();
             tests
                 .iter()
                 .map(|t| TestRunResult {
                     test_id: t.id.clone(),
                     test_name: t.name.clone(),
                     passed: false,
-                    failures: vec![err.to_string()],
+                    failures: vec![message.clone()],
+                    failure_details: vec![failure_detail(&message, None)],
                     duration_us: 0,
                     actual_code: None,
                     actual_message: None,
@@ -473,7 +533,11 @@ async fn execute_tests(
             e
         ))
     })?;
-    let executor = RuleExecutor::new();
+    let executor = if include_trace {
+        RuleExecutor::with_trace(TraceConfig::full())
+    } else {
+        RuleExecutor::new()
+    };
     let mut results = Vec::with_capacity(tests.len());
 
     for tc in tests {
@@ -481,11 +545,13 @@ async fn execute_tests(
         let input: CoreValue = match serde_json::from_value(tc.input.clone()) {
             Ok(input) => input,
             Err(e) => {
+                let message = format!("Invalid test input: {}", e);
                 results.push(TestRunResult {
                     test_id: tc.id.clone(),
                     test_name: tc.name.clone(),
                     passed: false,
-                    failures: vec![format!("Invalid test input: {}", e)],
+                    failures: vec![message.clone()],
+                    failure_details: vec![failure_detail(&message, None)],
                     duration_us: start.elapsed().as_micros() as u64,
                     actual_code: None,
                     actual_message: None,
@@ -506,18 +572,26 @@ async fn execute_tests(
                 let actual_message = Some(result.message.clone());
                 let actual_output = serde_json::to_value(&result.output).ok();
                 let trace = result.trace.as_ref().map(map_trace);
-                let failures = compare_expectation(
-                    &tc.expect,
-                    actual_code.as_deref(),
-                    actual_message.as_deref(),
-                    actual_output.as_ref(),
+                let failure_details = attach_trace_target(
+                    compare_expectation(
+                        &tc.expect,
+                        actual_code.as_deref(),
+                        actual_message.as_deref(),
+                        actual_output.as_ref(),
+                    ),
+                    trace.as_ref(),
                 );
+                let failures = failure_details
+                    .iter()
+                    .map(|detail| detail.message.clone())
+                    .collect();
 
                 TestRunResult {
                     test_id: tc.id.clone(),
                     test_name: tc.name.clone(),
-                    passed: failures.is_empty(),
+                    passed: failure_details.is_empty(),
                     failures,
+                    failure_details,
                     duration_us: elapsed_us.max(result.duration_us),
                     actual_code,
                     actual_message,
@@ -525,17 +599,21 @@ async fn execute_tests(
                     trace,
                 }
             }
-            Err(e) => TestRunResult {
-                test_id: tc.id.clone(),
-                test_name: tc.name.clone(),
-                passed: false,
-                failures: vec![format!("Execution failed: {}", e)],
-                duration_us: elapsed_us,
-                actual_code: None,
-                actual_message: None,
-                actual_output: None,
-                trace: None,
-            },
+            Err(e) => {
+                let message = format!("Execution failed: {}", e);
+                TestRunResult {
+                    test_id: tc.id.clone(),
+                    test_name: tc.name.clone(),
+                    passed: false,
+                    failures: vec![message.clone()],
+                    failure_details: vec![failure_detail(&message, None)],
+                    duration_us: elapsed_us,
+                    actual_code: None,
+                    actual_message: None,
+                    actual_output: None,
+                    trace: None,
+                }
+            }
         };
 
         results.push(run_result);
@@ -614,35 +692,171 @@ fn compile_ruleset(ruleset: &JsonValue) -> anyhow::Result<RuleSet> {
     RuleSet::from_json_compiled(&ruleset_json).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
+fn failure_detail(message: &str, step_id: Option<String>) -> TestFailureDetail {
+    TestFailureDetail {
+        message: message.to_string(),
+        kind: classify_failure(message),
+        step_id,
+        sub_rule_ref: extract_sub_rule_ref(message),
+        trace_path: Vec::new(),
+    }
+}
+
+fn classify_failure(message: &str) -> TestFailureKind {
+    let lower = message.to_lowercase();
+    if lower.contains("sub-rule") && lower.contains("not found") {
+        TestFailureKind::Reference
+    } else if lower.contains("contract") || lower.contains("schema") {
+        TestFailureKind::Contract
+    } else if lower.contains("field not found") || lower.contains("evaluation error") {
+        TestFailureKind::Binding
+    } else if lower.contains("output") || lower.contains("write") {
+        TestFailureKind::Output
+    } else if lower.contains("subrule") || lower.contains("sub-rule") {
+        TestFailureKind::SubRule
+    } else if lower.contains("execution failed") || lower.contains("invalid test input") {
+        TestFailureKind::Execution
+    } else {
+        TestFailureKind::Assertion
+    }
+}
+
+fn extract_sub_rule_ref(message: &str) -> Option<String> {
+    let marker = "Sub-rule '";
+    let start = message.find(marker)? + marker.len();
+    let rest = &message[start..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_string())
+}
+
+fn attach_trace_target(
+    mut failures: Vec<TestFailureDetail>,
+    trace: Option<&TestExecutionTrace>,
+) -> Vec<TestFailureDetail> {
+    for failure in &mut failures {
+        if let Some(trace) = trace {
+            if let Some(target) = locate_failure_trace_target(trace, failure) {
+                failure.step_id = Some(target.step_id);
+                failure.trace_path = target.path;
+                if failure.sub_rule_ref.is_none() {
+                    failure.sub_rule_ref = target.sub_rule_ref;
+                }
+                continue;
+            }
+            if failure.step_id.is_none() {
+                failure.step_id = trace.steps.last().map(|step| step.id.clone());
+            }
+            if failure.trace_path.is_empty() {
+                failure.trace_path = trace.path.clone();
+            }
+        }
+    }
+    failures
+}
+
+#[derive(Debug, Clone)]
+struct FailureTraceTarget {
+    step_id: String,
+    path: Vec<String>,
+    sub_rule_ref: Option<String>,
+}
+
+fn locate_failure_trace_target(
+    trace: &TestExecutionTrace,
+    failure: &TestFailureDetail,
+) -> Option<FailureTraceTarget> {
+    if let Some(step_id) = failure.step_id.as_deref() {
+        return find_trace_target_by_step_id(&trace.steps, step_id, &[]);
+    }
+
+    if matches!(
+        failure.kind,
+        TestFailureKind::Binding | TestFailureKind::Output | TestFailureKind::SubRule
+    ) {
+        return find_deepest_trace_target(&trace.steps, &[]);
+    }
+
+    None
+}
+
+fn find_trace_target_by_step_id(
+    steps: &[TestExecutionTraceStep],
+    step_id: &str,
+    path_prefix: &[String],
+) -> Option<FailureTraceTarget> {
+    for step in steps {
+        let mut path = path_prefix.to_vec();
+        path.push(step.id.clone());
+
+        if step.id == step_id {
+            return Some(FailureTraceTarget {
+                step_id: step.id.clone(),
+                path,
+                sub_rule_ref: step.sub_rule_ref.clone(),
+            });
+        }
+
+        if let Some(found) = find_trace_target_by_step_id(&step.sub_rule_frames, step_id, &path) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_deepest_trace_target(
+    steps: &[TestExecutionTraceStep],
+    path_prefix: &[String],
+) -> Option<FailureTraceTarget> {
+    let step = steps.last()?;
+    let mut path = path_prefix.to_vec();
+    path.push(step.id.clone());
+
+    if let Some(found) = find_deepest_trace_target(&step.sub_rule_frames, &path) {
+        return Some(found);
+    }
+
+    Some(FailureTraceTarget {
+        step_id: step.id.clone(),
+        path,
+        sub_rule_ref: step.sub_rule_ref.clone(),
+    })
+}
+
 fn compare_expectation(
     expect: &TestExpectation,
     actual_code: Option<&str>,
     actual_message: Option<&str>,
     actual_output: Option<&JsonValue>,
-) -> Vec<String> {
+) -> Vec<TestFailureDetail> {
     let mut failures = Vec::new();
 
     if let Some(expected_code) = &expect.code {
         match actual_code {
             Some(actual) if actual == expected_code => {}
-            Some(actual) => failures.push(format!(
-                "code: expected \"{}\", got \"{}\"",
-                expected_code, actual
+            Some(actual) => failures.push(failure_detail(
+                &format!("code: expected \"{}\", got \"{}\"", expected_code, actual),
+                None,
             )),
-            None => failures.push(format!("code: expected \"{}\", got none", expected_code)),
+            None => failures.push(failure_detail(
+                &format!("code: expected \"{}\", got none", expected_code),
+                None,
+            )),
         }
     }
 
     if let Some(expected_message) = &expect.message {
         match actual_message {
             Some(actual) if actual == expected_message => {}
-            Some(actual) => failures.push(format!(
-                "message: expected \"{}\", got \"{}\"",
-                expected_message, actual
+            Some(actual) => failures.push(failure_detail(
+                &format!(
+                    "message: expected \"{}\", got \"{}\"",
+                    expected_message, actual
+                ),
+                None,
             )),
-            None => failures.push(format!(
-                "message: expected \"{}\", got none",
-                expected_message
+            None => failures.push(failure_detail(
+                &format!("message: expected \"{}\", got none", expected_message),
+                None,
             )),
         }
     }
@@ -656,30 +870,42 @@ fn compare_expectation(
                 for (key, expected_val) in expected_fields {
                     match actual_fields.get(key) {
                         Some(actual) if actual == expected_val => {}
-                        Some(actual) => failures.push(format!(
-                            "output.{}: expected {}, got {}",
-                            key,
-                            json_string(expected_val),
-                            json_string(actual)
+                        Some(actual) => failures.push(failure_detail(
+                            &format!(
+                                "output.{}: expected {}, got {}",
+                                key,
+                                json_string(expected_val),
+                                json_string(actual)
+                            ),
+                            None,
                         )),
-                        None => failures.push(format!(
-                            "output.{}: expected {}, got missing",
-                            key,
-                            json_string(expected_val)
+                        None => failures.push(failure_detail(
+                            &format!(
+                                "output.{}: expected {}, got missing",
+                                key,
+                                json_string(expected_val)
+                            ),
+                            None,
                         )),
                     }
                 }
             }
             _ => match actual_output {
                 Some(actual) if actual == expected_output => {}
-                Some(actual) => failures.push(format!(
-                    "output: expected {}, got {}",
-                    json_string(expected_output),
-                    json_string(actual)
+                Some(actual) => failures.push(failure_detail(
+                    &format!(
+                        "output: expected {}, got {}",
+                        json_string(expected_output),
+                        json_string(actual)
+                    ),
+                    None,
                 )),
-                None => failures.push(format!(
-                    "output: expected {}, got none",
-                    json_string(expected_output)
+                None => failures.push(failure_detail(
+                    &format!(
+                        "output: expected {}, got none",
+                        json_string(expected_output)
+                    ),
+                    None,
                 )),
             },
         }
@@ -704,24 +930,139 @@ fn map_trace(trace: &ExecutionTrace) -> TestExecutionTrace {
         result_code: trace.result_code.clone(),
         total_duration_us: trace.total_duration_us,
         error: trace.error.clone(),
-        steps: trace
-            .steps
-            .iter()
-            .map(|step| TestExecutionTraceStep {
-                id: step.step_id.clone(),
-                name: step.step_name.clone(),
-                duration_us: step.duration_us,
-                next_step: step.next_step.clone(),
-                is_terminal: step.is_terminal,
-                input_snapshot: step
-                    .input_snapshot
-                    .as_ref()
-                    .and_then(|value| serde_json::to_value(value).ok()),
-                variables_snapshot: step
-                    .variables_snapshot
-                    .as_ref()
-                    .and_then(|value| serde_json::to_value(value).ok()),
+        steps: trace.steps.iter().map(map_trace_step).collect(),
+    }
+}
+
+fn map_trace_step(step: &StepTrace) -> TestExecutionTraceStep {
+    TestExecutionTraceStep {
+        id: step.step_id.clone(),
+        name: step.step_name.clone(),
+        duration_us: step.duration_us,
+        next_step: step.next_step.clone(),
+        is_terminal: step.is_terminal,
+        input_snapshot: step
+            .input_snapshot
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
+        variables_snapshot: step
+            .variables_snapshot
+            .as_ref()
+            .and_then(|value| serde_json::to_value(value).ok()),
+        sub_rule_ref: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| call.ref_name.clone()),
+        sub_rule_input: step
+            .sub_rule_call
+            .as_ref()
+            .and_then(|call| serde_json::to_value(&call.input).ok()),
+        sub_rule_outputs: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| {
+                call.outputs
+                    .iter()
+                    .map(|output| TestSubRuleOutputTrace {
+                        parent_var: output.parent_var.clone(),
+                        child_var: output.child_var.clone(),
+                        value: output
+                            .value
+                            .as_ref()
+                            .and_then(|value| serde_json::to_value(value).ok()),
+                        missing: output.missing,
+                    })
+                    .collect()
             })
-            .collect(),
+            .unwrap_or_default(),
+        sub_rule_frames: step
+            .sub_rule_frames
+            .as_ref()
+            .map(|frames| frames.iter().map(map_trace_step).collect())
+            .unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ordo_core::trace::{SubRuleCallTrace, SubRuleOutputTrace};
+
+    #[test]
+    fn map_trace_preserves_parent_sub_rule_call_details() {
+        let child_output: CoreValue = serde_json::from_value(serde_json::json!("gold")).unwrap();
+        let child_input: CoreValue =
+            serde_json::from_value(serde_json::json!({ "score": 95 })).unwrap();
+
+        let child_terminal = StepTrace::terminal("grade_gold", "Grade gold", 7);
+        let mut parent_call =
+            StepTrace::continued("call_classifier", "Call classifier", 21, "finish");
+        parent_call.sub_rule_call = Some(SubRuleCallTrace {
+            ref_name: "classify_score".to_string(),
+            input: child_input,
+            outputs: vec![SubRuleOutputTrace {
+                parent_var: "customer_tier".to_string(),
+                child_var: "tier".to_string(),
+                value: Some(child_output),
+                missing: false,
+            }],
+        });
+        parent_call.sub_rule_frames = Some(vec![child_terminal]);
+
+        let mut trace = ExecutionTrace::new("checkout_policy");
+        trace.add_step(parent_call);
+        trace.set_result("APPROVED", 32);
+
+        let mapped = map_trace(&trace);
+        assert_eq!(mapped.path, vec!["call_classifier"]);
+        assert_eq!(mapped.result_code, "APPROVED");
+
+        let step = &mapped.steps[0];
+        assert_eq!(step.sub_rule_ref.as_deref(), Some("classify_score"));
+        assert_eq!(step.sub_rule_input.as_ref().unwrap()["score"], 95);
+        assert_eq!(step.sub_rule_outputs.len(), 1);
+        assert_eq!(step.sub_rule_outputs[0].parent_var, "customer_tier");
+        assert_eq!(step.sub_rule_outputs[0].child_var, "tier");
+        assert_eq!(
+            step.sub_rule_outputs[0].value.as_ref().unwrap(),
+            &serde_json::json!("gold")
+        );
+        assert!(!step.sub_rule_outputs[0].missing);
+
+        assert_eq!(step.sub_rule_frames.len(), 1);
+        assert_eq!(step.sub_rule_frames[0].id, "grade_gold");
+        assert!(step.sub_rule_frames[0].is_terminal);
+    }
+
+    #[test]
+    fn attach_trace_target_prefers_deepest_sub_rule_frame() {
+        let mut top = StepTrace::continued("check_parent", "Check parent", 12, "finish");
+        top.sub_rule_call = Some(SubRuleCallTrace {
+            ref_name: "child_rule".to_string(),
+            input: serde_json::from_value(serde_json::json!({ "score": 95 })).unwrap(),
+            outputs: Vec::new(),
+        });
+
+        let child_terminal = StepTrace::terminal("child_terminal", "Child terminal", 4);
+        top.sub_rule_frames = Some(vec![child_terminal]);
+
+        let mut trace = ExecutionTrace::new("parent_rule");
+        trace.add_step(top);
+        trace.set_result("NO_COUPON", 18);
+        let mapped = map_trace(&trace);
+
+        let failures = attach_trace_target(
+            vec![failure_detail(
+                "Execution failed: Field not found: score",
+                None,
+            )],
+            Some(&mapped),
+        );
+
+        assert_eq!(failures[0].step_id.as_deref(), Some("child_terminal"));
+        assert_eq!(
+            failures[0].trace_path,
+            vec!["check_parent".to_string(), "child_terminal".to_string()]
+        );
     }
 }

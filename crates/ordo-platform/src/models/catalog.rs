@@ -156,6 +156,8 @@ pub struct TestRunResult {
     pub passed: bool,
     #[serde(default)]
     pub failures: Vec<String>,
+    #[serde(default)]
+    pub failure_details: Vec<TestFailureDetail>,
     pub duration_us: u64,
     #[serde(default)]
     pub actual_code: Option<String>,
@@ -165,6 +167,30 @@ pub struct TestRunResult {
     pub actual_output: Option<JsonValue>,
     #[serde(default)]
     pub trace: Option<TestExecutionTrace>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestFailureDetail {
+    pub message: String,
+    pub kind: TestFailureKind,
+    #[serde(default)]
+    pub step_id: Option<String>,
+    #[serde(default)]
+    pub sub_rule_ref: Option<String>,
+    #[serde(default)]
+    pub trace_path: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestFailureKind {
+    Reference,
+    Contract,
+    Binding,
+    SubRule,
+    Output,
+    Assertion,
+    Execution,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +218,24 @@ pub struct TestExecutionTraceStep {
     pub input_snapshot: Option<JsonValue>,
     #[serde(default)]
     pub variables_snapshot: Option<JsonValue>,
+    #[serde(default)]
+    pub sub_rule_ref: Option<String>,
+    #[serde(default)]
+    pub sub_rule_input: Option<JsonValue>,
+    #[serde(default)]
+    pub sub_rule_outputs: Vec<TestSubRuleOutputTrace>,
+    #[serde(default)]
+    pub sub_rule_frames: Vec<TestExecutionTraceStep>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSubRuleOutputTrace {
+    pub parent_var: String,
+    pub child_var: String,
+    #[serde(default)]
+    pub value: Option<JsonValue>,
+    #[serde(default)]
+    pub missing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

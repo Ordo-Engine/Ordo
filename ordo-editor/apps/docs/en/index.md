@@ -4,7 +4,7 @@ layout: home
 hero:
   name: 'Ordo'
   text: 'Open-Source Decision Platform'
-  tagline: Author, test, and govern business rules — with Studio, platform governance, and a fast engine under the hood.
+  tagline: A unified decision infrastructure — Studio for authoring, Platform for governance, Engine for execution. Three layers, clean separation of concerns.
   image:
     src: /logo.png
     alt: Ordo
@@ -13,32 +13,64 @@ hero:
       text: Get Started
       link: /en/guide/getting-started
     - theme: alt
-      text: Try Playground
-      link: https://ordo-engine.github.io/Ordo/
+      text: Platform Docs
+      link: /en/platform/overview
     - theme: alt
-      text: View on GitHub
+      text: Engine Docs
+      link: /en/guide/what-is-ordo
+    - theme: alt
+      text: GitHub
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - icon: 🏛️
-    title: Decision Platform
-    details: Org & project management, fact catalog, typed decision contracts, and full version history. Own your decision logic — don't scatter it across codebases and spreadsheets.
-  - icon: 🎨
-    title: Studio
-    details: Drag-and-drop flow editor, decision tables, one-click template instantiation, and test case management. Author rules without friction.
-  - icon: 🧪
-    title: Test Management
-    details: Create, run, and export test suites per ruleset. CI-compatible YAML. Know your rules work before they ship.
-  - icon: ⚡
-    title: Fast Engine
-    details: Sub-microsecond execution with Cranelift JIT. Runs as HTTP · gRPC · WASM · CLI or embedded in any Rust application.
-  - icon: 🛡️
-    title: Governance
-    details: Typed input/output contracts, audit logging, Ed25519 rule signing, and rollback. Traceable and compliant by default.
-  - icon: 🔌
-    title: Runs Everywhere
-    details: Single binary server, browser via WebAssembly, embedded in Rust apps. One engine across every deployment target.
+  - title: Decision Platform
+    details: Organizations, projects, members & RBAC, fact catalog, concept registry, typed contracts, approval & release pipelines, multi-environment rollouts and rollback — built for team-scale decision governance.
+    link: /en/platform/overview
+    linkText: Platform overview
+  - title: Studio Editor
+    details: Three authoring modes (flow / form / JSON), decision tables, sub-rules, template instantiation, test suite management, and execution trace panels.
+    link: /en/platform/studio
+    linkText: Studio guide
+  - title: Releases & Environments
+    details: Draft → review → release → canary → rollback. Configurable approval policies, change diffs, per-environment delivery, every action recorded in the audit log.
+    link: /en/platform/releases
+    linkText: Release pipeline
+  - title: High-Performance Engine
+    details: Sub-microsecond rule execution. Bytecode VM plus Cranelift JIT, expression optimizer. Reach it over HTTP, gRPC, Unix Socket, or WASM.
+    link: /en/guide/execution-model
+    linkText: Execution model
+  - title: Types & Contracts
+    details: Project-scoped fact catalog, reusable concepts, typed input/output contracts. Studio and CLI consume the same contract definitions.
+    link: /en/platform/catalog
+    linkText: Facts & contracts
+  - title: Multi-Region Deployment
+    details: Central platform governance plus regional engine clusters. Server registry, health checks, per-project execution proxy. Single-binary or containerized deployment.
+    link: /en/platform/server-registry
+    linkText: Server registry
 ---
+
+## Architecture
+
+```mermaid
+flowchart TB
+  Studio["Studio (browser)"]
+  CLI["ordo-cli"]
+  SDK["SDK / business app"]
+  Platform["ordo-platform<br/>governance · drafts · review · release"]
+  Server["ordo-server cluster<br/>HTTP · gRPC · UDS"]
+  Core["ordo-core engine<br/>VM + JIT + sub-rules + trace"]
+
+  Studio --> Platform
+  CLI --> Platform
+  SDK --> Server
+  Platform -- "release events (NATS / direct sync)" --> Server
+  Server --> Core
+```
+
+The documentation is organized into two tracks:
+
+- **Platform** — for teams using Ordo Platform / Studio to govern decisions: organization modeling, contracts, release flow, test management.
+- **Engine** — for developers integrating ordo-core / ordo-server directly: rule structure, expression syntax, HTTP / gRPC / WASM APIs.
 
 ## Quick Example
 

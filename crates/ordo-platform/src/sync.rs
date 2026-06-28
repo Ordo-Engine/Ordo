@@ -177,6 +177,38 @@ pub async fn connect(nats_url: &str) -> Result<jetstream::Context, async_nats::E
     Ok(jetstream::new(client))
 }
 
+pub async fn connect_client(nats_url: &str) -> Result<async_nats::Client, async_nats::Error> {
+    let (options, server_addr) = connect_options_and_addr(nats_url)?;
+    Ok(options.connect(server_addr.as_str()).await?)
+}
+
+fn rpc_prefix(subject_prefix: &str) -> String {
+    let safe_prefix = subject_prefix
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if safe_prefix.is_empty() {
+        "_ORDO_RPC.default".to_string()
+    } else {
+        format!("_ORDO_RPC.{}", safe_prefix)
+    }
+}
+
+pub fn server_rpc_subject(subject_prefix: &str, server_id: &str, endpoint: &str) -> String {
+    format!(
+        "{}.servers.{}.{}",
+        rpc_prefix(subject_prefix),
+        server_id,
+        endpoint
+    )
+}
+
 pub async fn ensure_stream(
     jetstream: &jetstream::Context,
     subject_prefix: &str,
@@ -303,14 +335,11 @@ pub fn start_registry_subscriber(
                                     let existing = store.get_server(&effective_server_id).await;
                                     match existing {
                                         Ok(existing_opt) => {
-                                            let preserved_token = if token.is_empty() {
-                                                existing_opt
-                                                    .as_ref()
-                                                    .map(|s| s.token.clone())
-                                                    .unwrap_or_default()
-                                            } else {
-                                                token
-                                            };
+                                            let preserved_token = resolve_server_registry_token(
+                                                token,
+                                                existing_opt.as_ref().map(|s| s.token.as_str()),
+                                                &effective_server_id,
+                                            );
                                             // Reject if a different server already owns this token
                                             if !preserved_token.is_empty() {
                                                 match store
@@ -568,4 +597,47 @@ pub fn start_registry_subscriber(
             }
         }
     })
+}
+
+fn resolve_server_registry_token(
+    incoming_token: String,
+    existing_token: Option<&str>,
+    server_id: &str,
+) -> String {
+    if !incoming_token.is_empty() {
+        incoming_token
+    } else if let Some(existing_token) = existing_token.filter(|token| !token.is_empty()) {
+        existing_token.to_string()
+    } else {
+        format!("nats:{}", server_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_rpc_subject_uses_non_stream_prefix() {
+        assert_eq!(
+            server_rpc_subject("ordo.rules", "srv_abc", "health"),
+            "_ORDO_RPC.ordo_rules.servers.srv_abc.health"
+        );
+    }
+
+    #[test]
+    fn nats_server_registration_gets_stable_synthetic_token() {
+        assert_eq!(
+            resolve_server_registry_token(String::new(), None, "srv_abc"),
+            "nats:srv_abc"
+        );
+        assert_eq!(
+            resolve_server_registry_token(String::new(), Some("existing"), "srv_abc"),
+            "existing"
+        );
+        assert_eq!(
+            resolve_server_registry_token("incoming".to_string(), Some("existing"), "srv_abc"),
+            "incoming"
+        );
+    }
 }

@@ -17,6 +17,7 @@ use crate::{
         PERM_RELEASE_REQUEST_CREATE, PERM_RELEASE_REQUEST_REJECT, PERM_RELEASE_REQUEST_VIEW,
         PERM_RELEASE_RESUME, PERM_RELEASE_ROLLBACK,
     },
+    ruleset_draft::inline_sub_rules_with_manifest,
     sync::SyncEvent,
     AppState,
 };
@@ -42,6 +43,7 @@ mod requests;
 #[path = "release/reviews.rs"]
 mod reviews;
 
+pub(crate) use diff::hash_json_value;
 use diff::*;
 
 pub(crate) fn user_history_actor(claims: &Claims, user: Option<&User>) -> ReleaseHistoryActor {

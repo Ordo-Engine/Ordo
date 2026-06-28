@@ -4,16 +4,19 @@
  * 选中节点的属性面板
  */
 import { computed } from 'vue';
-import type { Step, SchemaContext } from '@ordo-engine/editor-core';
+import type { Step, SchemaContext, SubRuleGraph } from '@ordo-engine/editor-core';
 import OrdoStepEditor from '../step/OrdoStepEditor.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { FlowNode } from './utils/converter';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
+import type { SubRuleAssetOption } from '../step/subRuleAssets';
 
 export interface Props {
   node: FlowNode;
   availableSteps: Step[];
+  availableSubRules?: Record<string, SubRuleGraph>;
+  managedSubRules?: SubRuleAssetOption[];
   suggestions?: FieldSuggestion[];
   schemaContext?: SchemaContext;
   disabled?: boolean;
@@ -21,6 +24,8 @@ export interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
+  availableSubRules: () => ({}),
+  managedSubRules: () => [],
   schemaContext: undefined,
   disabled: false,
 });
@@ -30,6 +35,7 @@ const emit = defineEmits<{
   'set-start': [nodeId: string];
   delete: [];
   close: [];
+  'open-sub-rule': [name: string];
 }>();
 
 const { t } = useI18n();
@@ -45,6 +51,8 @@ const nodeTypeLabel = computed(() => {
       return t('step.action');
     case 'terminal':
       return t('step.terminal');
+    case 'sub_rule':
+      return t('step.subRule');
     default:
       return t('common.unknown');
   }
@@ -58,6 +66,8 @@ const nodeTypeColor = computed(() => {
       return 'var(--ordo-node-action)';
     case 'terminal':
       return 'var(--ordo-node-terminal)';
+    case 'sub_rule':
+      return 'var(--ordo-node-sub-rule)';
     default:
       return 'var(--ordo-text-tertiary)';
   }
@@ -113,12 +123,15 @@ function handleStepChange(updatedStep: Step) {
       <OrdoStepEditor
         :model-value="step"
         :available-steps="availableSteps"
+        :available-sub-rules="availableSubRules"
+        :managed-sub-rules="managedSubRules"
         :suggestions="suggestions"
         :schema-context="schemaContext"
         :disabled="disabled"
         :show-delete="false"
         @update:model-value="handleStepUpdate"
         @change="handleStepChange"
+        @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
       />
     </div>
   </div>

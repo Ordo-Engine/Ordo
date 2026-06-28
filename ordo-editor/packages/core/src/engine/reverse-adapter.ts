@@ -41,6 +41,8 @@ interface EngineRuleSet {
 interface EngineSubRuleGraph {
   entry_step: string;
   steps: Record<string, EngineStep>;
+  input_schema?: any;
+  output_schema?: any;
 }
 
 interface EngineStep {
@@ -100,6 +102,8 @@ export function convertFromEngineFormat(engine: EngineRuleSet): RuleSet {
       subRules[name] = {
         entryStep: graph.entry_step,
         steps: Object.values(graph.steps).map(convertEngineStep),
+        ...(graph.input_schema && { inputSchema: graph.input_schema }),
+        ...(graph.output_schema && { outputSchema: graph.output_schema }),
       };
     }
   }
@@ -338,6 +342,7 @@ function convertEngineSubRuleStep(step: EngineStep): SubRuleStep {
       expr: convertFromEngineExpr(expr),
     })),
     outputs: (step.outputs ?? []).map(([parentVar, childVar]) => ({ parentVar, childVar })),
+    returnPolicy: step.next_step ? 'continue' : 'propagate_terminal',
     nextStepId: step.next_step ?? '',
   };
 }

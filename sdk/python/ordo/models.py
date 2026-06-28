@@ -27,6 +27,9 @@ class ExecuteResult:
     output: Any = None
     duration_us: int = 0
     trace: Optional[ExecutionTrace] = None
+    #: True when served from the local snapshot cache or a fallback because the
+    #: engine was unreachable (see ordo.degrade). Always False for fresh results.
+    stale: bool = False
 
 
 @dataclass
@@ -100,6 +103,9 @@ class RollbackResult:
 class EvalResult:
     result: Any = None
     parsed: str = ""
+    #: True when served from the local snapshot cache or a fallback because the
+    #: engine was unreachable (see ordo.degrade).
+    stale: bool = False
 
 
 @dataclass

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .batch import execute_batch_parallel
+from .degrade import DegradationConfig, Degrader
 from .errors import ConfigError
 from .http_client import HttpClient
 from .models import (
@@ -37,6 +38,8 @@ class OrdoClient:
         timeout: HTTP request timeout in seconds.
         retry: Retry configuration (None to disable).
         batch_concurrency: Max concurrent client-side batch executions.
+        degradation: Optional local-snapshot / fail-open degradation config.
+            None (default) preserves current behavior: failures are raised.
     """
 
     def __init__(
@@ -51,6 +54,7 @@ class OrdoClient:
         timeout: float = 30.0,
         retry: RetryConfig | None = None,
         batch_concurrency: int = 10,
+        degradation: DegradationConfig | None = None,
     ):
         if http_only and grpc_only:
             raise ConfigError("Cannot set both http_only and grpc_only")
@@ -62,6 +66,7 @@ class OrdoClient:
         self._grpc_only = grpc_only
         self._retry = retry
         self._batch_concurrency = batch_concurrency
+        self._degrade = Degrader(degradation) if degradation is not None else None
 
         # Initialize HTTP client
         self._http: HttpClient | None = None
@@ -104,10 +109,28 @@ class OrdoClient:
     # --- Execution ---
 
     def execute(self, name: str, input_data: Any, include_trace: bool = False) -> ExecuteResult:
-        """Execute a ruleset with given input."""
+        """Execute a ruleset with given input.
+
+        When a degradation policy is configured, a failure that survives retries
+        may be served from the local snapshot cache (STALE) or a fallback
+        (FAIL_OPEN); such results carry ``stale=True``.
+        """
         if self._use_grpc():
-            return self._with_retry(lambda: self._grpc.execute(name, input_data, include_trace))  # type: ignore[union-attr]
-        return self._with_retry(lambda: self._http.execute(name, input_data, include_trace))  # type: ignore[union-attr]
+            call = lambda: self._grpc.execute(name, input_data, include_trace)  # type: ignore[union-attr]  # noqa: E731
+        else:
+            call = lambda: self._http.execute(name, input_data, include_trace)  # type: ignore[union-attr]  # noqa: E731
+
+        if self._degrade is None:
+            return self._with_retry(call)
+        try:
+            result = self._with_retry(call)
+        except Exception:
+            degraded = self._degrade.on_execute_failure(name, input_data)
+            if degraded is not None:
+                return degraded
+            raise
+        self._degrade.store_execute(name, input_data, result)
+        return result
 
     def execute_batch(
         self,
@@ -181,10 +204,26 @@ class OrdoClient:
     # --- Eval ---
 
     def eval(self, expression: str, context: Any = None) -> EvalResult:
-        """Evaluate an expression."""
+        """Evaluate an expression.
+
+        Honors the configured degradation policy on failure (see :meth:`execute`).
+        """
         if self._use_grpc():
-            return self._with_retry(lambda: self._grpc.eval(expression, context))  # type: ignore[union-attr]
-        return self._with_retry(lambda: self._http.eval(expression, context))  # type: ignore[union-attr]
+            call = lambda: self._grpc.eval(expression, context)  # type: ignore[union-attr]  # noqa: E731
+        else:
+            call = lambda: self._http.eval(expression, context)  # type: ignore[union-attr]  # noqa: E731
+
+        if self._degrade is None:
+            return self._with_retry(call)
+        try:
+            result = self._with_retry(call)
+        except Exception:
+            degraded = self._degrade.on_eval_failure(expression, context)
+            if degraded is not None:
+                return degraded
+            raise
+        self._degrade.store_eval(expression, context, result)
+        return result
 
     # --- Health ---
 

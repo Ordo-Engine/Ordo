@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ordo-platform-worker — background processor for release events.
+#
+# Same image as ordo-platform but launched via the /app/ordo-platform-worker
+# binary. It consumes release/sync events from NATS JetStream and writes results
+# to Postgres, so it shares the platform ConfigMap + Secret. It serves no HTTP
+# traffic (no Service, no port), hence command-based liveness only.
+#
+# Keep this at a SINGLE replica unless the worker is known to be
+# idempotent/partitioned for concurrent consumers.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ordo-platform-worker
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-platform-worker
+    app.kubernetes.io/part-of: ordo
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ordo-platform-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ordo-platform-worker
+        app.kubernetes.io/part-of: ordo
+        app.kubernetes.io/component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: ordo-platform-worker
+          image: ghcr.io/pama-lee/ordo-platform:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/app/ordo-platform-worker"]
+          envFrom:
+            - configMapRef:
+                name: ordo-platform
+            - secretRef:
+                name: ordo-platform
+          # No HTTP server and no extra tooling (procps) in the runtime image, so
+          # there is no probe target. The worker binary runs as PID 1: if it
+          # crashes the container exits and Kubernetes restarts it via the default
+          # restartPolicy. Add an exec/HTTP liveness probe once the worker exposes
+          # a health signal.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

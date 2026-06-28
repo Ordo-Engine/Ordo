@@ -15,12 +15,32 @@ name: ordo
 #                                                ↓ registers + heartbeats
 #                                          ordo-platform (:3001)
 #
-# Environment (optional .env file):
+# Environment (optional .env file — copy .env.example to .env):
 #   ORDO_JWT_SECRET   — at least 32 chars; default is a dev placeholder
 #   ORDO_DB_PASSWORD  — PostgreSQL password; default: ordo_dev_pass
 #   ORDO_SERVER_TOKEN — shared secret for ordo-server → platform auth
 #   ORDO_GITHUB_CLIENT_ID / ORDO_GITHUB_CLIENT_SECRET — GitHub OAuth App credentials
 #   ORDO_GITHUB_CALLBACK_URL — GitHub OAuth callback, e.g. http://localhost:3001/api/v1/github/callback
+#
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  !!  SECURITY — THIS FILE IS FOR LOCAL DEVELOPMENT ONLY  !!                 ║
+# ║                                                                            ║
+# ║  The secrets below fall back to INSECURE dev placeholders so a plain       ║
+# ║  `docker compose up` works out of the box. They are NOT safe for any       ║
+# ║  shared / staging / production environment:                                ║
+# ║    • ORDO_JWT_SECRET   — forgeable auth tokens for EVERY tenant            ║
+# ║    • ORDO_DB_PASSWORD  — full access to the platform Postgres database     ║
+# ║    • ORDO_SERVER_TOKEN — server <-> platform registration trust            ║
+# ║    • CORS "*"          — wide-open cross-origin access to the platform     ║
+# ║                                                                            ║
+# ║  Before running anywhere real:                                             ║
+# ║    1. cp .env.example .env  and set strong, random values, OR              ║
+# ║    2. make them REQUIRED by dropping the `:-default`, e.g.                 ║
+# ║         ORDO_JWT_SECRET: "${ORDO_JWT_SECRET:?set a 32+ char secret}"       ║
+# ║       so compose refuses to start without an explicit value.              ║
+# ║    3. Set ORDO_PLATFORM_CORS_ORIGINS to real origins (never "*").          ║
+# ║  For Kubernetes, use deploy/k8s/ (real Secrets) — not this file.           ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 
 services:
 
@@ -38,6 +58,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ordo
+      # CHANGE IN PRODUCTION — insecure dev default. Set ORDO_DB_PASSWORD in .env.
       POSTGRES_PASSWORD: "${ORDO_DB_PASSWORD:-ordo_dev_pass}"
       POSTGRES_DB: ordo_platform
     volumes:
@@ -65,6 +86,7 @@ services:
       # Platform registration — server auto-registers and sends heartbeats
       ORDO_PLATFORM_URL: "http://ordo-platform:3001"
       ORDO_SERVER_NAME: "ordo-server-dev"
+      # CHANGE IN PRODUCTION — insecure dev default. Set ORDO_SERVER_TOKEN in .env.
       ORDO_SERVER_TOKEN: "${ORDO_SERVER_TOKEN:-dev-server-token-change-in-prod}"
       ORDO_SERVER_URL: "http://ordo-server:8080"
     volumes:
@@ -96,9 +118,13 @@ services:
       ORDO_NATS_URL: "nats://nats:4222"
       ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
       ORDO_PLATFORM_TEMPLATES_DIR: "/app/templates"
+      # CHANGE IN PRODUCTION — insecure dev default (anyone with this can forge
+      # auth tokens for every tenant). Set ORDO_JWT_SECRET in .env (>= 32 chars).
       ORDO_JWT_SECRET: "${ORDO_JWT_SECRET:-dev-secret-change-me-in-production-32c}"
       ORDO_JWT_EXPIRY_HOURS: "24"
-      ORDO_PLATFORM_CORS_ORIGINS: "*"
+      # CHANGE IN PRODUCTION — "*" allows any origin. Scope to real origins,
+      # e.g. ORDO_PLATFORM_CORS_ORIGINS: "https://studio.example.com".
+      ORDO_PLATFORM_CORS_ORIGINS: "${ORDO_PLATFORM_CORS_ORIGINS:-*}"
       ORDO_LOG_LEVEL: info
       ORDO_GITHUB_CLIENT_ID: "${ORDO_GITHUB_CLIENT_ID:-}"
       ORDO_GITHUB_CLIENT_SECRET: "${ORDO_GITHUB_CLIENT_SECRET:-}"
@@ -129,6 +155,7 @@ services:
       ORDO_NATS_URL: "nats://nats:4222"
       ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
       ORDO_PLATFORM_TEMPLATES_DIR: "/app/templates"
+      # CHANGE IN PRODUCTION — must match the platform's ORDO_JWT_SECRET.
       ORDO_JWT_SECRET: "${ORDO_JWT_SECRET:-dev-secret-change-me-in-production-32c}"
       ORDO_JWT_EXPIRY_HOURS: "24"
       ORDO_LOG_LEVEL: info

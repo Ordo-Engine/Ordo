@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: 'High-Performance Rule Engine'
-  tagline: Sub-microsecond latency, 500K+ QPS, with visual editor
+  text: 'Open-Source Decision Platform'
+  tagline: A unified decision infrastructure — Studio for authoring, Platform for governance, Engine for execution. Three layers, clean separation of concerns.
   image:
     src: /logo.png
     alt: Ordo
@@ -13,32 +13,64 @@ hero:
       text: Get Started
       link: /en/guide/getting-started
     - theme: alt
-      text: Try Playground
-      link: https://pama-lee.github.io/Ordo/
+      text: Platform Docs
+      link: /en/platform/overview
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/Pama-Lee/Ordo
+      text: Engine Docs
+      link: /en/guide/what-is-ordo
+    - theme: alt
+      text: GitHub
+      link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - icon: ⚡
-    title: Blazing Fast
-    details: 1.63µs average execution time (50-80ns with JIT). 600x faster than 1ms target. Zero-allocation hot path.
-  - icon: 🎨
-    title: Visual Editor
-    details: Design complex rules with drag-and-drop flow editor. Real-time execution with WASM. Import/export .ordo files.
-  - icon: 🔧
-    title: Flexible Rules
-    details: Step flow model, rich expressions, built-in functions, and field coalescing. Compiled binary format for rule protection.
-  - icon: 🛡️
-    title: Production Ready
-    details: Deterministic execution, full tracing, hot reload, Ed25519 rule signing, audit logging, and multi-tenancy support.
-  - icon: 🔌
-    title: Easy Integration
-    details: HTTP REST API, gRPC support, WebAssembly for browser, and npm packages (@ordo/editor-vue, @ordo/editor-core).
-  - icon: 📊
-    title: Observable
-    details: Prometheus metrics, health checks, structured audit logs, and rule versioning with rollback.
+  - title: Decision Platform
+    details: Organizations, projects, members & RBAC, fact catalog, concept registry, typed contracts, approval & release pipelines, multi-environment rollouts and rollback — built for team-scale decision governance.
+    link: /en/platform/overview
+    linkText: Platform overview
+  - title: Studio Editor
+    details: Three authoring modes (flow / form / JSON), decision tables, sub-rules, template instantiation, test suite management, and execution trace panels.
+    link: /en/platform/studio
+    linkText: Studio guide
+  - title: Releases & Environments
+    details: Draft → review → release → canary → rollback. Configurable approval policies, change diffs, per-environment delivery, every action recorded in the audit log.
+    link: /en/platform/releases
+    linkText: Release pipeline
+  - title: High-Performance Engine
+    details: Sub-microsecond rule execution. Bytecode VM plus Cranelift JIT, expression optimizer. Reach it over HTTP, gRPC, Unix Socket, or WASM.
+    link: /en/guide/execution-model
+    linkText: Execution model
+  - title: Types & Contracts
+    details: Project-scoped fact catalog, reusable concepts, typed input/output contracts. Studio and CLI consume the same contract definitions.
+    link: /en/platform/catalog
+    linkText: Facts & contracts
+  - title: Multi-Region Deployment
+    details: Central platform governance plus regional engine clusters. Server registry, health checks, per-project execution proxy. Single-binary or containerized deployment.
+    link: /en/platform/server-registry
+    linkText: Server registry
 ---
+
+## Architecture
+
+```mermaid
+flowchart TB
+  Studio["Studio (browser)"]
+  CLI["ordo-cli"]
+  SDK["SDK / business app"]
+  Platform["ordo-platform<br/>governance · drafts · review · release"]
+  Server["ordo-server cluster<br/>HTTP · gRPC · UDS"]
+  Core["ordo-core engine<br/>VM + JIT + sub-rules + trace"]
+
+  Studio --> Platform
+  CLI --> Platform
+  SDK --> Server
+  Platform -- "release events (NATS / direct sync)" --> Server
+  Server --> Core
+```
+
+The documentation is organized into two tracks:
+
+- **Platform** — for teams using Ordo Platform / Studio to govern decisions: organization modeling, contracts, release flow, test management.
+- **Engine** — for developers integrating ordo-core / ordo-server directly: rule structure, expression syntax, HTTP / gRPC / WASM APIs.
 
 ## Quick Example
 
@@ -70,13 +102,3 @@ features:
   }
 }
 ```
-
-## Performance
-
-| Metric                              | Result           |
-| ----------------------------------- | ---------------- |
-| Single rule execution (interpreter) | **1.63 µs**      |
-| Single rule execution (JIT)         | **50-80 ns**     |
-| Expression evaluation               | **79-211 ns**    |
-| HTTP API throughput                 | **54,000 QPS**   |
-| Projected multi-thread              | **500,000+ QPS** |

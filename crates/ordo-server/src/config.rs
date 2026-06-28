@@ -37,11 +37,24 @@
 //! | `ORDO_SHUTDOWN_TIMEOUT_SECS` | Graceful shutdown timeout | `30` |
 //! | `ORDO_MAX_REQUEST_BODY_BYTES` | Max HTTP request body size | `10485760` (10MB) |
 //! | `ORDO_REQUEST_TIMEOUT_SECS` | HTTP request timeout | `30` |
+//! | `ORDO_MAX_RULES_PER_TENANT` | Max rulesets per tenant | unlimited |
+//! | `ORDO_MAX_TOTAL_RULES` | Max rulesets across all tenants | unlimited |
+//! | `ORDO_GRPC_TLS_ENABLED` | Enable TLS for gRPC | `false` |
+//! | `ORDO_GRPC_TLS_CERT` | Server certificate PEM path | - |
+//! | `ORDO_GRPC_TLS_KEY` | Server private key PEM path | - |
+//! | `ORDO_GRPC_MTLS_ENABLED` | Enable mutual TLS for gRPC | `false` |
+//! | `ORDO_GRPC_TLS_CLIENT_CA` | Client CA certificate PEM path | - |
+//! | `ORDO_WAL_DIR` | WAL directory override | `{rules-dir}/wal/` |
+//! | `ORDO_WAL_DISABLED` | Disable WAL (not recommended) | `false` |
+//! | `ORDO_WAL_MAX_SEGMENT_BYTES` | Max bytes per WAL segment | `67108864` (64MiB) |
+//! | `ORDO_WAL_MAX_CLOSED_SEGMENTS` | Closed WAL segments to retain | `3` |
 
 use clap::Parser;
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use url::Url;
 
 /// Instance role in a distributed deployment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -263,6 +276,102 @@ pub struct ServerConfig {
     /// Requests exceeding this duration are terminated with 408 Request Timeout.
     #[arg(long, default_value = "30", env = "ORDO_REQUEST_TIMEOUT_SECS")]
     pub request_timeout_secs: u64,
+
+    /// Maximum number of rulesets per tenant (optional, unlimited by default).
+    /// When this limit is reached, new PUT requests are rejected with 422.
+    #[arg(long, env = "ORDO_MAX_RULES_PER_TENANT")]
+    pub max_rules_per_tenant: Option<usize>,
+
+    /// Maximum total number of rulesets across all tenants (optional, unlimited by default).
+    /// When this limit is reached, new PUT requests are rejected with 422.
+    #[arg(long, env = "ORDO_MAX_TOTAL_RULES")]
+    pub max_total_rules: Option<usize>,
+
+    // ── WAL ───────────────────────────────────────────────────────────
+    /// Override the Write-Ahead Log directory.
+    /// Defaults to `{rules-dir}/wal/` when --rules-dir is set.
+    /// Has no effect when --rules-dir is not configured.
+    #[arg(long, env = "ORDO_WAL_DIR")]
+    pub wal_dir: Option<PathBuf>,
+
+    /// Disable the Write-Ahead Log.
+    /// Not recommended for production; crash-safe persistence is not guaranteed
+    /// when the WAL is disabled.
+    #[arg(long, default_value = "false", env = "ORDO_WAL_DISABLED")]
+    pub wal_disabled: bool,
+
+    /// Maximum size of a single WAL segment file before rotation (bytes).
+    /// Default: 64 MiB.
+    #[arg(long, default_value = "67108864", env = "ORDO_WAL_MAX_SEGMENT_BYTES")]
+    pub wal_max_segment_bytes: u64,
+
+    /// Number of fully-committed closed WAL segments to retain after rotation.
+    /// Older segments are deleted automatically.
+    #[arg(long, default_value = "3", env = "ORDO_WAL_MAX_CLOSED_SEGMENTS")]
+    pub wal_max_closed_segments: usize,
+
+    // ── CORS ──────────────────────────────────────────────────────────
+    /// Allowed CORS origins (comma-separated). Only applies when debug mode is disabled.
+    /// Use `*` to allow all origins, or specify domains like `https://studio.example.com`.
+    /// If not set, cross-origin requests are rejected in non-debug mode.
+    #[arg(long, env = "ORDO_CORS_ORIGINS", value_delimiter = ',')]
+    pub cors_allowed_origins: Vec<String>,
+
+    // ── gRPC TLS ──────────────────────────────────────────────────────
+    /// Enable TLS for the gRPC server.
+    /// Requires --grpc-tls-cert and --grpc-tls-key.
+    #[arg(long, default_value = "false", env = "ORDO_GRPC_TLS_ENABLED")]
+    pub grpc_tls_enabled: bool,
+
+    /// Path to the PEM-encoded server certificate for gRPC TLS.
+    #[arg(long, env = "ORDO_GRPC_TLS_CERT")]
+    pub grpc_tls_cert: Option<PathBuf>,
+
+    /// Path to the PEM-encoded private key (PKCS8) for gRPC TLS.
+    #[arg(long, env = "ORDO_GRPC_TLS_KEY")]
+    pub grpc_tls_key: Option<PathBuf>,
+
+    /// Enable mutual TLS (mTLS) for the gRPC server.
+    /// Clients must present a certificate signed by the CA specified in --grpc-tls-client-ca.
+    /// Implies --grpc-tls-enabled.
+    #[arg(long, default_value = "false", env = "ORDO_GRPC_MTLS_ENABLED")]
+    pub grpc_mtls_enabled: bool,
+
+    /// Path to the PEM-encoded CA certificate for verifying client certificates (mTLS).
+    #[arg(long, env = "ORDO_GRPC_TLS_CLIENT_CA")]
+    pub grpc_tls_client_ca: Option<PathBuf>,
+
+    // ── Platform Registration ──────────────────────────────────────────────
+    /// ordo-platform URL to register this server with (e.g. http://ordo-platform:3001).
+    /// When set together with --server-token, the server registers on startup and
+    /// sends heartbeats every 30 s so the platform can track health and metrics.
+    #[arg(long = "platform-url", env = "ORDO_PLATFORM_URL")]
+    pub platform_url: Option<String>,
+
+    /// Human-readable name for this server in the platform registry.
+    #[arg(
+        long = "server-name",
+        default_value = "ordo-server",
+        env = "ORDO_SERVER_NAME"
+    )]
+    pub server_name: String,
+
+    /// Shared secret token for platform registration (must be unique per server).
+    #[arg(long = "server-token", env = "ORDO_SERVER_TOKEN")]
+    pub server_token: Option<String>,
+
+    /// Platform-wide registration secret required by the platform's internal register endpoint.
+    /// Must match `ORDO_PLATFORM_REGISTRATION_SECRET` on the platform side.
+    #[arg(
+        long = "platform-registration-secret",
+        env = "ORDO_PLATFORM_REGISTRATION_SECRET"
+    )]
+    pub platform_registration_secret: Option<String>,
+
+    /// Public HTTP URL of this server as reachable by the platform.
+    /// Defaults to http://<http-addr> when not set.
+    #[arg(long = "server-url", env = "ORDO_SERVER_URL")]
+    pub server_url: Option<String>,
 }
 
 impl ServerConfig {
@@ -288,6 +397,41 @@ impl ServerConfig {
             return format!("0.0.0.0:{}", port).parse().unwrap();
         }
         "0.0.0.0:50051".parse().unwrap()
+    }
+
+    pub fn resolved_server_url(&self) -> String {
+        self.server_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}", self.http_addr()))
+    }
+
+    pub fn normalized_server_url(&self) -> anyhow::Result<String> {
+        let server_url = self.resolved_server_url();
+        let parsed = Url::parse(server_url.trim())
+            .map_err(|e| anyhow::anyhow!("invalid server url '{}': {}", server_url, e))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("server url '{}' is missing a host", server_url))?
+            .to_ascii_lowercase();
+        let port = parsed.port_or_known_default().ok_or_else(|| {
+            anyhow::anyhow!(
+                "server url '{}' is missing an explicit or default port",
+                server_url
+            )
+        })?;
+        let scheme = parsed.scheme().to_ascii_lowercase();
+        let authority = if host.contains(':') {
+            format!("[{}]:{}", host, port)
+        } else {
+            format!("{}:{}", host, port)
+        };
+        Ok(format!("{}://{}", scheme, authority))
+    }
+
+    pub fn resolve_server_id(&self) -> anyhow::Result<String> {
+        let normalized = self.normalized_server_url()?;
+        let digest = Sha256::digest(normalized.as_bytes());
+        Ok(format!("srv_{}", &hex::encode(digest)[..32]))
     }
 
     /// Check if HTTP server is enabled
@@ -379,6 +523,18 @@ impl ServerConfig {
             tracing::warn!("--watch-rules has no effect without --rules-dir");
         }
 
+        // WAL disabled with persistence: warn about reduced crash safety
+        if self.wal_disabled && self.rules_dir.is_some() {
+            tracing::warn!(
+                "--wal-disabled: Write-Ahead Log is off. Crash-safe persistence is not guaranteed."
+            );
+        }
+
+        // WAL dir override without rules-dir
+        if self.wal_dir.is_some() && self.rules_dir.is_none() {
+            tracing::warn!("--wal-dir has no effect without --rules-dir");
+        }
+
         // max-versions without rules-dir
         if self.max_versions != 10 && self.rules_dir.is_none() {
             tracing::warn!("--max-versions has no effect without --rules-dir");
@@ -397,7 +553,22 @@ impl ServerConfig {
             tracing::warn!("--signature-require has no effect without --signature-enabled");
         }
 
+        // gRPC TLS validation
+        if (self.grpc_tls_enabled || self.grpc_mtls_enabled)
+            && (self.grpc_tls_cert.is_none() || self.grpc_tls_key.is_none())
+        {
+            return Err("gRPC TLS requires both --grpc-tls-cert and --grpc-tls-key".to_string());
+        }
+        if self.grpc_mtls_enabled && self.grpc_tls_client_ca.is_none() {
+            return Err("gRPC mTLS requires --grpc-tls-client-ca".to_string());
+        }
+
         Ok(())
+    }
+
+    /// Returns true when gRPC TLS should be enabled (explicit flag or implied by mTLS).
+    pub fn grpc_tls_active(&self) -> bool {
+        self.grpc_tls_enabled || self.grpc_mtls_enabled
     }
 }
 
@@ -439,6 +610,23 @@ impl Default for ServerConfig {
             shutdown_timeout_secs: 30,
             max_request_body_bytes: 10 * 1024 * 1024,
             request_timeout_secs: 30,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
+            grpc_tls_enabled: false,
+            grpc_tls_cert: None,
+            grpc_tls_key: None,
+            grpc_mtls_enabled: false,
+            grpc_tls_client_ca: None,
+            wal_dir: None,
+            wal_disabled: false,
+            wal_max_segment_bytes: 67108864,
+            wal_max_closed_segments: 3,
+            cors_allowed_origins: Vec::new(),
+            platform_url: None,
+            server_name: "ordo-server".to_string(),
+            server_token: None,
+            server_url: None,
+            platform_registration_secret: None,
         }
     }
 }
@@ -562,5 +750,68 @@ mod tests {
             InstanceRole::Reader
         );
         assert!("invalid".parse::<InstanceRole>().is_err());
+    }
+
+    #[test]
+    fn test_grpc_tls_defaults_disabled() {
+        let config = ServerConfig::default();
+        assert!(!config.grpc_tls_enabled);
+        assert!(!config.grpc_mtls_enabled);
+        assert!(!config.grpc_tls_active());
+    }
+
+    #[test]
+    fn test_grpc_tls_active_implied_by_mtls() {
+        let config = ServerConfig {
+            grpc_mtls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            grpc_tls_client_ca: Some(PathBuf::from("/tmp/ca.pem")),
+            ..Default::default()
+        };
+        assert!(config.grpc_tls_active());
+    }
+
+    #[test]
+    fn test_grpc_tls_validate_missing_cert() {
+        let config = ServerConfig {
+            grpc_tls_enabled: true,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_grpc_mtls_validate_missing_ca() {
+        let config = ServerConfig {
+            grpc_mtls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_grpc_tls_validate_ok() {
+        let config = ServerConfig {
+            grpc_tls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_grpc_mtls_validate_ok() {
+        let config = ServerConfig {
+            grpc_mtls_enabled: true,
+            grpc_tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            grpc_tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            grpc_tls_client_ca: Some(PathBuf::from("/tmp/ca.pem")),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
     }
 }

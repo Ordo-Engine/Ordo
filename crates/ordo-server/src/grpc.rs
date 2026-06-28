@@ -178,8 +178,8 @@ impl OrdoService for OrdoGrpcService {
 
         let req = request.into_inner();
 
-        // Parse input JSON
-        let input: Value = serde_json::from_str(&req.input_json)
+        // Parse input JSON (simd-json for speed)
+        let input: Value = simd_json::from_slice(&mut req.input_json.into_bytes())
             .map_err(|e| Status::invalid_argument(format!("Invalid input JSON: {}", e)))?;
 
         // Get ruleset for the tenant
@@ -299,8 +299,8 @@ impl OrdoService for OrdoGrpcService {
                 tokio::task::spawn_blocking(move || {
                     let start_one = Instant::now();
 
-                    // Parse input
-                    let input: Value = match serde_json::from_str(&input_json) {
+                    // Parse input (simd-json for speed)
+                    let input: Value = match simd_json::from_slice(&mut input_json.into_bytes()) {
                         Ok(v) => v,
                         Err(e) => {
                             return BatchExecuteResultItem {
@@ -363,8 +363,8 @@ impl OrdoService for OrdoGrpcService {
                 .map(|input_json| {
                     let start_one = Instant::now();
 
-                    // Parse input
-                    let input: Value = match serde_json::from_str(&input_json) {
+                    // Parse input (simd-json for speed)
+                    let input: Value = match simd_json::from_slice(&mut input_json.into_bytes()) {
                         Ok(v) => v,
                         Err(e) => {
                             return BatchExecuteResultItem {
@@ -524,11 +524,11 @@ impl OrdoService for OrdoGrpcService {
         let expr = ExprParser::parse(&req.expression)
             .map_err(|e| Status::invalid_argument(format!("Invalid expression: {}", e)))?;
 
-        // Parse context
+        // Parse context (simd-json for speed)
         let context_value: Value = if req.context_json.is_empty() {
             Value::object(std::collections::HashMap::new())
         } else {
-            serde_json::from_str(&req.context_json)
+            simd_json::from_slice(&mut req.context_json.into_bytes())
                 .map_err(|e| Status::invalid_argument(format!("Invalid context JSON: {}", e)))?
         };
 
@@ -582,12 +582,17 @@ impl OrdoService for OrdoGrpcService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::AuditLogger;
+    use crate::capability_registry::build_server_executor;
+    use crate::metrics::PrometheusMetricSink;
     use crate::rate_limiter::RateLimiter;
     use crate::tenant::{TenantDefaults, TenantManager};
 
     async fn create_test_service() -> OrdoGrpcService {
         let store = Arc::new(RwLock::new(RuleStore::new()));
-        let executor = Arc::new(RuleExecutor::new());
+        let metric_sink = Arc::new(PrometheusMetricSink::new());
+        let audit_logger = Arc::new(AuditLogger::new(None, 0));
+        let executor = build_server_executor(metric_sink, Some(audit_logger));
         let defaults = TenantDefaults {
             default_qps_limit: Some(1000),
             default_burst_limit: Some(100),

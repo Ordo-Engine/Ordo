@@ -8,6 +8,7 @@ import type {
   RuleSet,
   Step,
   DecisionStep,
+  SubRuleStep,
   RuleSetConfig,
   StepGroup,
 } from '@ordo-engine/editor-core';
@@ -19,10 +20,11 @@ import {
 import { EDGE_COLORS } from '../types';
 
 /** Node types for Vue Flow */
-export type FlowNodeType = 'decision' | 'action' | 'terminal' | 'group';
+export type FlowNodeType = 'decision' | 'action' | 'terminal' | 'sub_rule' | 'group';
 
 /** Edge types */
 export type FlowEdgeType = 'exec' | 'exec-branch' | 'data';
+export type EdgeRenderStyle = 'bezier' | 'step';
 
 /** Custom node data for step nodes */
 export interface FlowNodeData {
@@ -53,6 +55,7 @@ export interface FlowEdgeData {
   isDefault?: boolean;
   edgeType: FlowEdgeType;
   condition?: string; // Full condition expression for tooltip
+  renderStyle?: EdgeRenderStyle;
 }
 
 /** Flow edge with typed data */
@@ -85,7 +88,7 @@ export function getEdgeStyle(edgeType: FlowEdgeType): { stroke: string; strokeWi
  * Convert RuleSet to Vue Flow nodes and edges
  * 将 RuleSet 转换为 Vue Flow 节点和边
  */
-export function rulesetToFlow(ruleset: RuleSet): FlowData {
+export function rulesetToFlow(ruleset: RuleSet, renderStyle: EdgeRenderStyle = 'bezier'): FlowData {
   const nodes: FlowNode[] = [];
   const edges: FlowEdge[] = [];
   const groups: FlowGroupNode[] = [];
@@ -129,6 +132,7 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
                 isDefault: false,
                 edgeType: 'exec-branch',
                 condition: conditionStr,
+                renderStyle,
               },
             });
           }
@@ -148,6 +152,7 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
             data: {
               isDefault: true,
               edgeType: 'exec',
+              renderStyle,
             },
           });
         }
@@ -166,6 +171,27 @@ export function rulesetToFlow(ruleset: RuleSet): FlowData {
             style: edgeStyle,
             data: {
               edgeType: 'exec',
+              renderStyle,
+            },
+          });
+        }
+        break;
+      }
+
+      case 'sub_rule': {
+        const subRuleStep = step as SubRuleStep;
+        if (subRuleStep.nextStepId) {
+          const edgeStyle = getEdgeStyle('exec');
+          edges.push({
+            id: `${step.id}-next`,
+            source: step.id,
+            target: subRuleStep.nextStepId,
+            sourceHandle: 'output',
+            targetHandle: 'input',
+            style: edgeStyle,
+            data: {
+              edgeType: 'exec',
+              renderStyle,
             },
           });
         }
@@ -224,7 +250,8 @@ export function flowToRuleset(
   edges: FlowEdge[],
   config: RuleSetConfig,
   startStepId: string,
-  groupNodes?: FlowGroupNode[]
+  groupNodes?: FlowGroupNode[],
+  subRules?: RuleSet['subRules']
 ): RuleSet {
   const steps: Step[] = [];
   const groups: StepGroup[] = [];
@@ -297,10 +324,16 @@ export function flowToRuleset(
       }
 
       case 'action': {
-        const outgoingEdge = edges.find((e) => e.source === node.id);
-        if (outgoingEdge) {
-          step.nextStepId = outgoingEdge.target;
-        }
+        const outgoingEdge = findLinearExecutionEdge(edges, node.id);
+        step.nextStepId = outgoingEdge?.target ?? '';
+        break;
+      }
+
+      case 'sub_rule': {
+        const subRuleStep = step as SubRuleStep;
+        const outgoingEdge = findLinearExecutionEdge(edges, node.id);
+        subRuleStep.nextStepId = outgoingEdge?.target ?? '';
+        subRuleStep.returnPolicy = outgoingEdge?.target ? 'continue' : 'propagate_terminal';
         break;
       }
 
@@ -316,11 +349,23 @@ export function flowToRuleset(
     config,
     startStepId,
     steps,
+    ...(subRules && { subRules }),
     groups: groups.length > 0 ? groups : undefined,
     metadata: {
       updatedAt: new Date().toISOString(),
     },
   };
+}
+
+function findLinearExecutionEdge(edges: FlowEdge[], sourceId: string): FlowEdge | undefined {
+  return edges.find(
+    (edge) =>
+      edge.source === sourceId &&
+      edge.sourceHandle === 'output' &&
+      edge.data?.edgeType === 'exec' &&
+      !edge.data?.branchId &&
+      !edge.data?.isDefault
+  );
 }
 
 /**
@@ -420,6 +465,7 @@ export function createEdge(
     sourceHandle?: string;
     targetHandle?: string;
     condition?: string;
+    renderStyle?: EdgeRenderStyle;
   }
 ): FlowEdge {
   const edgeId = options?.branchId
@@ -447,6 +493,7 @@ export function createEdge(
       isDefault: options?.isDefault,
       edgeType,
       condition: options?.condition,
+      renderStyle: options?.renderStyle ?? 'bezier',
     },
   };
 }

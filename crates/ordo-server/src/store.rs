@@ -6,8 +6,10 @@
 
 use crate::metrics;
 use crate::sync::event::SyncEvent;
+use crate::sync::file_watcher::RecentWrites;
+use crate::wal::{WalManager, WalOpKind};
 use once_cell::sync::Lazy;
-use ordo_core::prelude::{MetricSink, RuleExecutor, RuleSet, TraceConfig};
+use ordo_core::prelude::{CapabilityInvoker, MetricSink, RuleExecutor, RuleSet, TraceConfig};
 use ordo_core::signature::{strip_signature, RuleVerifier};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -76,6 +78,17 @@ pub struct RuleStore {
     /// `put_for_tenant` / `delete_for_tenant` send events here; the NATS
     /// publisher task consumes them.
     sync_tx: Option<mpsc::UnboundedSender<SyncEvent>>,
+    /// Maximum number of rulesets per tenant (None = unlimited).
+    max_rules_per_tenant: Option<usize>,
+    /// Maximum total number of rulesets across all tenants (None = unlimited).
+    max_total_rules: Option<usize>,
+    /// External reference data store (keyed by tenant:name)
+    data: HashMap<String, Arc<ordo_core::context::Value>>,
+    /// Self-write tracker — paths written by this process are recorded here
+    /// so the file watcher can skip redundant reloads.
+    recent_writes: Option<Arc<RecentWrites>>,
+    /// Write-Ahead Log manager (None = WAL disabled or no rules_dir).
+    wal: Option<Arc<WalManager>>,
 }
 
 /// Version information for a rule
@@ -101,11 +114,27 @@ pub struct VersionListResponse {
 }
 
 impl RuleStore {
+    fn build_executor(
+        metric_sink: Option<Arc<dyn MetricSink>>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> RuleExecutor {
+        let mut executor = match metric_sink {
+            Some(metric_sink) => {
+                RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink)
+            }
+            None => RuleExecutor::with_trace(TraceConfig::minimal()),
+        };
+        if let Some(capability_invoker) = capability_invoker {
+            executor.set_capability_invoker(capability_invoker);
+        }
+        executor
+    }
+
     /// Create a new in-memory store (no persistence)
     pub fn new() -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace(TraceConfig::minimal()),
+            executor: Self::build_executor(None, None),
             rules_dir: None,
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -114,14 +143,26 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
+            data: HashMap::new(),
+            recent_writes: None,
+            wal: None,
         }
     }
 
     /// Create a new in-memory store with a custom metric sink
     pub fn new_with_metrics(metric_sink: Arc<dyn MetricSink>) -> Self {
+        Self::new_with_metrics_and_capabilities(metric_sink, None)
+    }
+
+    pub fn new_with_metrics_and_capabilities(
+        metric_sink: Arc<dyn MetricSink>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
+            executor: Self::build_executor(Some(metric_sink), capability_invoker),
             rules_dir: None,
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -130,6 +171,11 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
+            data: HashMap::new(),
+            recent_writes: None,
+            wal: None,
         }
     }
 
@@ -143,7 +189,7 @@ impl RuleStore {
     pub fn new_with_persistence_and_versions(rules_dir: PathBuf, max_versions: usize) -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace(TraceConfig::minimal()),
+            executor: Self::build_executor(None, None),
             rules_dir: Some(rules_dir),
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -152,6 +198,11 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
+            data: HashMap::new(),
+            recent_writes: None,
+            wal: None,
         }
     }
 
@@ -161,9 +212,23 @@ impl RuleStore {
         max_versions: usize,
         metric_sink: Arc<dyn MetricSink>,
     ) -> Self {
+        Self::new_with_persistence_and_metrics_and_capabilities(
+            rules_dir,
+            max_versions,
+            metric_sink,
+            None,
+        )
+    }
+
+    pub fn new_with_persistence_and_metrics_and_capabilities(
+        rules_dir: PathBuf,
+        max_versions: usize,
+        metric_sink: Arc<dyn MetricSink>,
+        capability_invoker: Option<Arc<dyn CapabilityInvoker>>,
+    ) -> Self {
         Self {
             rulesets: HashMap::new(),
-            executor: RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), metric_sink),
+            executor: Self::build_executor(Some(metric_sink), capability_invoker),
             rules_dir: Some(rules_dir),
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),
@@ -172,6 +237,11 @@ impl RuleStore {
             signature_verifier: None,
             allow_unsigned_local: true,
             sync_tx: None,
+            max_rules_per_tenant: None,
+            max_total_rules: None,
+            data: HashMap::new(),
+            recent_writes: None,
+            wal: None,
         }
     }
 
@@ -187,10 +257,48 @@ impl RuleStore {
         self.max_versions = max_versions;
     }
 
+    /// Set store resource limits.
+    ///
+    /// - `max_rules_per_tenant`: maximum rulesets a single tenant may own (`None` = unlimited).
+    /// - `max_total_rules`: maximum rulesets across all tenants combined (`None` = unlimited).
+    pub fn set_resource_limits(
+        &mut self,
+        max_rules_per_tenant: Option<usize>,
+        max_total_rules: Option<usize>,
+    ) {
+        self.max_rules_per_tenant = max_rules_per_tenant;
+        self.max_total_rules = max_total_rules;
+    }
+
+    /// Count rulesets owned by a specific tenant.
+    fn count_for_tenant(&self, tenant_id: &str) -> usize {
+        if self.multi_tenancy_enabled {
+            let prefix = format!("{}/", tenant_id);
+            self.rulesets
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .count()
+        } else {
+            self.rulesets.len()
+        }
+    }
+
     /// Configure signature verification for local rule loading
     pub fn set_signature_verifier(&mut self, verifier: RuleVerifier, allow_unsigned_local: bool) {
         self.signature_verifier = Some(verifier);
         self.allow_unsigned_local = allow_unsigned_local;
+    }
+
+    /// Set the self-write tracker so that file watcher can skip reloads
+    /// for files this process just persisted.
+    pub fn set_recent_writes(&mut self, recent_writes: Arc<RecentWrites>) {
+        self.recent_writes = Some(recent_writes);
+    }
+
+    /// Attach a WAL manager.  After this call, every `put_for_tenant` and
+    /// `delete_for_tenant` will record a prepare/commit entry in the WAL.
+    pub fn set_wal(&mut self, wal: Arc<WalManager>) {
+        self.wal = Some(wal);
     }
 
     /// Check if persistence is enabled
@@ -265,10 +373,8 @@ impl RuleStore {
                 .collect();
 
             let mut entries: Vec<_> = entries.into_iter().map(|e| e.path()).collect();
-            entries.sort_by(|a, b| {
-                let a_is_json = a.extension().map(|e| e == "json").unwrap_or(false);
-                let b_is_json = b.extension().map(|e| e == "json").unwrap_or(false);
-                b_is_json.cmp(&a_is_json)
+            entries.sort_by_key(|a| {
+                std::cmp::Reverse(a.extension().map(|e| e == "json").unwrap_or(false))
             });
 
             for path in entries {
@@ -321,39 +427,219 @@ impl RuleStore {
         Ok(loaded)
     }
 
+    /// Full sync from disk: loads/updates all rules AND removes rules that no
+    /// longer exist on disk. Returns `(loaded, removed)`.
+    ///
+    /// Unlike `load_from_dir` (which only inserts/updates), this method
+    /// compares the set of keys found on disk with the in-memory set and
+    /// removes stale entries so memory always mirrors the directory contents.
+    pub fn sync_from_dir(&mut self) -> io::Result<(usize, usize)> {
+        let existing_keys: Vec<String> = self.rulesets.keys().cloned().collect();
+        let loaded = self.load_from_dir()?;
+
+        // `load_from_dir` inserts every key it finds on disk. Any key that was
+        // in memory before but was NOT re-inserted is stale (deleted from disk).
+        // We detect this by comparing the old key set with the current one:
+        // keys present before but no longer matching a file on disk should be
+        // removed. Since `load_from_dir` unconditionally inserts for every file
+        // it finds, the simplest approach is to collect the disk keys during load.
+        // However, to avoid changing `load_from_dir`'s signature, we use a
+        // different strategy: collect the set of keys that *should* exist by
+        // scanning the dir again (cheaply, just file stems — no parsing).
+        let disk_keys = self.collect_disk_rule_keys();
+        let mut removed = 0;
+        for key in &existing_keys {
+            if !disk_keys.contains(key) {
+                self.rulesets.remove(key);
+                removed += 1;
+                info!("Removed stale rule '{}' (deleted from disk)", key);
+            }
+        }
+
+        if removed > 0 {
+            info!("Sync removed {} stale rules", removed);
+        }
+        Ok((loaded, removed))
+    }
+
+    /// Scan the rules directory and return the set of keys that correspond to
+    /// rule files on disk, without actually parsing them. This is used by
+    /// `sync_from_dir` to detect stale in-memory entries.
+    fn collect_disk_rule_keys(&self) -> std::collections::HashSet<String> {
+        let mut keys = std::collections::HashSet::new();
+        let rules_dir = match &self.rules_dir {
+            Some(dir) if dir.exists() => dir.clone(),
+            _ => return keys,
+        };
+
+        let tenant_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
+            fs::read_dir(&rules_dir)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    (name, e.path())
+                })
+                .collect()
+        } else {
+            vec![(self.default_tenant.clone(), rules_dir)]
+        };
+
+        for (tenant_id, tenant_dir) in tenant_dirs {
+            let entries = match fs::read_dir(&tenant_dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if !path.is_file() || FileFormat::from_path(&path).is_none() {
+                    continue;
+                }
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    if Self::is_version_file(stem) {
+                        continue;
+                    }
+                    keys.insert(self.make_key(&tenant_id, stem));
+                }
+            }
+        }
+
+        keys
+    }
+
+    /// Full sync of external data from disk: loads/updates all data AND removes
+    /// entries that no longer exist on disk. Returns `(loaded, removed)`.
+    pub fn sync_data_from_dir(&mut self) -> io::Result<(usize, usize)> {
+        let existing_keys: Vec<String> = self.data.keys().cloned().collect();
+        let loaded = self.load_data_from_dir()?;
+
+        let disk_keys = self.collect_disk_data_keys();
+        let mut removed = 0;
+        for key in &existing_keys {
+            if !disk_keys.contains(key) {
+                self.data.remove(key);
+                removed += 1;
+                info!("Removed stale data '{}' (deleted from disk)", key);
+            }
+        }
+
+        if removed > 0 {
+            info!("Sync removed {} stale data entries", removed);
+        }
+        Ok((loaded, removed))
+    }
+
+    /// Scan data directories and return the set of data keys on disk.
+    fn collect_disk_data_keys(&self) -> std::collections::HashSet<String> {
+        let mut keys = std::collections::HashSet::new();
+        let rules_dir = match &self.rules_dir {
+            Some(dir) => dir.clone(),
+            None => return keys,
+        };
+
+        let tenant_data_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
+            let tenants_dir = rules_dir.join("tenants");
+            if !tenants_dir.exists() {
+                return keys;
+            }
+            fs::read_dir(&tenants_dir)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let tenant_id = e.file_name().to_string_lossy().to_string();
+                    let data_dir = e.path().join("data");
+                    if data_dir.exists() {
+                        Some((tenant_id, data_dir))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            let data_dir = rules_dir.join("data");
+            if data_dir.exists() {
+                vec![(self.default_tenant.clone(), data_dir)]
+            } else {
+                vec![]
+            }
+        };
+
+        for (tenant_id, data_dir) in tenant_data_dirs {
+            let entries = match fs::read_dir(&data_dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let ext = path.extension().and_then(|e| e.to_str());
+                if ext != Some("json") && ext != Some("yaml") && ext != Some("yml") {
+                    continue;
+                }
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    keys.insert(self.make_data_key(&tenant_id, name));
+                }
+            }
+        }
+
+        keys
+    }
+
     /// Load a single ruleset from a file
+    ///
+    /// When signature verification is not needed, deserializes directly to RuleSet
+    /// (skipping the intermediate serde_json::Value step) for better performance.
     fn load_ruleset_file(&self, path: &Path) -> io::Result<RuleSet> {
         let format = FileFormat::from_path(path)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Unknown file format"))?;
 
         let content = fs::read_to_string(path)?;
 
-        let mut json_value: serde_json::Value = match format {
-            FileFormat::Json => serde_json::from_str(&content)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-            FileFormat::Yaml => serde_yaml::from_str(&content)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        };
+        let needs_signature_check = self.signature_verifier.is_some();
 
-        let signature = strip_signature(&mut json_value)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let mut ruleset: RuleSet = if needs_signature_check {
+            // Signature verification requires intermediate serde_json::Value
+            let mut json_value: serde_json::Value = match format {
+                FileFormat::Json => serde_json::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+                FileFormat::Yaml => serde_yaml::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+            };
 
-        if let Some(verifier) = &self.signature_verifier {
-            let should_verify = signature.is_some() || !self.allow_unsigned_local;
-            if should_verify {
-                verifier
-                    .verify_json_value(&json_value, signature.as_ref())
-                    .map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Signature verification failed: {}", e),
-                        )
-                    })?;
+            let signature = strip_signature(&mut json_value)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+            if let Some(verifier) = &self.signature_verifier {
+                let should_verify = signature.is_some() || !self.allow_unsigned_local;
+                if should_verify {
+                    verifier
+                        .verify_json_value(&json_value, signature.as_ref())
+                        .map_err(|e| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                format!("Signature verification failed: {}", e),
+                            )
+                        })?;
+                }
             }
-        }
 
-        let mut ruleset: RuleSet = serde_json::from_value(json_value)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            serde_json::from_value(json_value)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        } else {
+            // Fast path: deserialize directly to RuleSet (no intermediate Value)
+            match format {
+                FileFormat::Json => serde_json::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+                FileFormat::Yaml => serde_yaml::from_str(&content)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+            }
+        };
 
         // Validate the loaded ruleset
         ruleset.validate().map_err(|errors| {
@@ -375,7 +661,12 @@ impl RuleStore {
     }
 
     /// Persist a ruleset to disk
-    fn persist_ruleset(&self, tenant_id: &str, name: &str, ruleset: &RuleSet) -> io::Result<()> {
+    pub(crate) fn persist_ruleset(
+        &self,
+        tenant_id: &str,
+        name: &str,
+        ruleset: &RuleSet,
+    ) -> io::Result<()> {
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -401,12 +692,17 @@ impl RuleStore {
         fs::write(&temp_path, &content)?;
         fs::rename(&temp_path, &path)?;
 
+        // Record self-write so file watcher doesn't trigger a redundant reload
+        if let Some(ref rw) = self.recent_writes {
+            rw.record(path.clone());
+        }
+
         debug!("Persisted rule '{}' to {:?}", name, path);
         Ok(())
     }
 
     /// Delete a ruleset file from disk
-    fn delete_file(&self, tenant_id: &str, name: &str) -> io::Result<()> {
+    pub(crate) fn delete_file(&self, tenant_id: &str, name: &str) -> io::Result<()> {
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -418,6 +714,9 @@ impl RuleStore {
             let path = rules_dir.join(&filename);
             if path.exists() {
                 fs::remove_file(&path)?;
+                if let Some(ref rw) = self.recent_writes {
+                    rw.record(path.clone());
+                }
                 debug!("Deleted rule file {:?}", path);
             }
         }
@@ -426,6 +725,9 @@ impl RuleStore {
         let yml_path = rules_dir.join(format!("{}.yml", name));
         if yml_path.exists() {
             fs::remove_file(&yml_path)?;
+            if let Some(ref rw) = self.recent_writes {
+                rw.record(yml_path.clone());
+            }
             debug!("Deleted rule file {:?}", yml_path);
         }
 
@@ -496,7 +798,7 @@ impl RuleStore {
         }
 
         // Sort by seq descending (newest first)
-        versions.sort_by(|a, b| b.0.cmp(&a.0));
+        versions.sort_by_key(|v| std::cmp::Reverse(v.0));
         Ok(versions)
     }
 
@@ -669,6 +971,11 @@ impl RuleStore {
             .map(|r| r.config.version.clone())
             .unwrap_or_default();
         let to_version = version_ruleset.config.version.clone();
+        let sync_json = if self.sync_tx.is_some() {
+            serde_json::to_string(&version_ruleset).ok()
+        } else {
+            None
+        };
 
         // Backup current version first
         self.backup_current_version(tenant_id, name)?;
@@ -687,6 +994,17 @@ impl RuleStore {
             "Rolled back '{}' for tenant '{}' from {} to {} (seq {})",
             name, tenant_id, from_version, to_version, seq
         );
+
+        if let (Some(tx), Some(json)) = (&self.sync_tx, sync_json) {
+            let _ = tx.send(SyncEvent::RulePut {
+                tenant_id: tenant_id.to_string(),
+                name: name.to_string(),
+                ruleset_json: json,
+                version: to_version.clone(),
+                release_execution_id: None,
+                target_server_ids: None,
+            });
+        }
 
         Ok(Some((from_version, to_version)))
     }
@@ -728,6 +1046,53 @@ impl RuleStore {
         let name = ruleset.config.name.clone();
         ruleset.config.tenant_id = Some(tenant_id.to_string());
 
+        // Enforce resource limits for new rules only (updates are always allowed)
+        let is_new = !self.exists_for_tenant(tenant_id, &name);
+        if is_new {
+            if let Some(max_per_tenant) = self.max_rules_per_tenant {
+                if self.count_for_tenant(tenant_id) >= max_per_tenant {
+                    return Err(vec![format!(
+                        "Resource limit exceeded: tenant '{}' already has {} rulesets (max {})",
+                        tenant_id,
+                        self.count_for_tenant(tenant_id),
+                        max_per_tenant
+                    )]);
+                }
+            }
+            if let Some(max_total) = self.max_total_rules {
+                if self.rulesets.len() >= max_total {
+                    return Err(vec![format!(
+                        "Resource limit exceeded: store already contains {} rulesets (max {})",
+                        self.rulesets.len(),
+                        max_total
+                    )]);
+                }
+            }
+        }
+
+        // ── WAL: record intent before any disk mutation ──────────────
+        let wal_seq: Option<u64> = if let Some(ref wal) = self.wal {
+            if self.rules_dir.is_some() {
+                match serde_json::to_string(&ruleset) {
+                    Ok(json) => match wal.prepare(WalOpKind::Put, tenant_id, &name, Some(&json)) {
+                        Ok(seq) => Some(seq),
+                        Err(e) => {
+                            error!("WAL prepare failed for '{}': {}", name, e);
+                            return Err(vec![format!("WAL prepare error: {}", e)]);
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to serialize ruleset '{}' for WAL: {}", name, e);
+                        return Err(vec![format!("Serialization error: {}", e)]);
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Backup current version if it exists (for version history)
         if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
             if let Err(e) = self.backup_current_version(tenant_id, &name) {
@@ -740,6 +1105,15 @@ impl RuleStore {
         if let Err(e) = self.persist_ruleset(tenant_id, &name, &ruleset) {
             error!("Failed to persist rule '{}': {}", name, e);
             return Err(vec![format!("Persistence error: {}", e)]);
+        }
+
+        // ── WAL: mark committed after successful disk write ───────────
+        if let (Some(ref wal), Some(seq)) = (&self.wal, wal_seq) {
+            if let Err(e) = wal.commit(seq, &WalOpKind::Put, tenant_id, &name) {
+                // Non-fatal: the rename already succeeded.  On next startup the
+                // uncommitted prepare entry will be replayed, which is idempotent.
+                warn!("WAL commit failed for '{}' (non-fatal): {}", name, e);
+            }
         }
 
         // Cleanup old versions beyond the limit
@@ -770,6 +1144,8 @@ impl RuleStore {
                 name,
                 ruleset_json: json,
                 version,
+                release_execution_id: None,
+                target_server_ids: None,
             });
         }
 
@@ -803,6 +1179,23 @@ impl RuleStore {
             // Record store operation metric
             metrics::record_store_operation("delete");
 
+            // ── WAL: record delete intent before removing files ───────
+            let wal_seq: Option<u64> = if let Some(ref wal) = self.wal {
+                if self.rules_dir.is_some() {
+                    match wal.prepare(WalOpKind::Delete, tenant_id, name, None) {
+                        Ok(seq) => Some(seq),
+                        Err(e) => {
+                            warn!("WAL prepare for delete of '{}' failed: {}", name, e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             // Delete current file
             if let Err(e) = self.delete_file(tenant_id, name) {
                 error!("Failed to delete rule file for '{}': {}", name, e);
@@ -811,6 +1204,16 @@ impl RuleStore {
             // Delete all version files
             if let Err(e) = self.delete_all_versions(tenant_id, name) {
                 error!("Failed to delete version files for '{}': {}", name, e);
+            }
+
+            // ── WAL: commit after successful file deletion ────────────
+            if let (Some(ref wal), Some(seq)) = (&self.wal, wal_seq) {
+                if let Err(e) = wal.commit(seq, &WalOpKind::Delete, tenant_id, name) {
+                    warn!(
+                        "WAL commit for delete of '{}' failed (non-fatal): {}",
+                        name, e
+                    );
+                }
             }
 
             // Publish sync event (non-blocking, best-effort)
@@ -870,11 +1273,11 @@ impl RuleStore {
         self.sync_tx = Some(tx);
     }
 
-    /// Apply a rule put received via NATS sync (reader side).
+    /// Apply a rule put received via NATS sync.
     ///
     /// Deserializes the ruleset JSON, compiles expressions, and inserts into
-    /// the in-memory store. Does **not** persist to disk or publish further
-    /// sync events.
+    /// the in-memory store. Persists to disk when persistence is enabled, but
+    /// does **not** publish further sync events.
     pub fn apply_sync_put(&mut self, tenant_id: &str, ruleset_json: &str) -> io::Result<()> {
         let mut ruleset: RuleSet = serde_json::from_str(ruleset_json)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -886,11 +1289,90 @@ impl RuleStore {
         ruleset.config.tenant_id = Some(tenant_id.to_string());
 
         let name = ruleset.config.name.clone();
+        if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
+            if let Err(e) = self.backup_current_version(tenant_id, &name) {
+                warn!(
+                    "Failed to backup current version of '{}' during sync apply: {}",
+                    name, e
+                );
+            }
+        }
+        if let Err(e) = self.persist_ruleset(tenant_id, &name, &ruleset) {
+            return Err(io::Error::other(format!(
+                "Failed to persist synced ruleset '{}': {}",
+                name, e
+            )));
+        }
+        if self.rules_dir.is_some() {
+            if let Err(e) = self.cleanup_old_versions(tenant_id, &name) {
+                warn!("Failed to cleanup synced versions of '{}': {}", name, e);
+            }
+        }
         let key = self.make_key(tenant_id, &name);
         self.rulesets.insert(key, Arc::new(ruleset));
         metrics::set_rules_count(self.rulesets.len() as i64);
+        metrics::set_tenant_rules_count(tenant_id, self.list_for_tenant(tenant_id).len() as i64);
 
         Ok(())
+    }
+
+    /// Apply a rule delete received via NATS sync without publishing another event.
+    pub fn apply_sync_delete(&mut self, tenant_id: &str, name: &str) -> io::Result<bool> {
+        let key = self.make_key(tenant_id, name);
+        let existed = self.rulesets.remove(&key).is_some();
+
+        if existed {
+            if let Err(e) = self.delete_file(tenant_id, name) {
+                warn!(
+                    "Failed to delete synced rule file for '{}' (tenant '{}'): {}",
+                    name, tenant_id, e
+                );
+            }
+            if let Err(e) = self.delete_all_versions(tenant_id, name) {
+                warn!(
+                    "Failed to delete synced version files for '{}' (tenant '{}'): {}",
+                    name, tenant_id, e
+                );
+            }
+            metrics::set_rules_count(self.rulesets.len() as i64);
+            metrics::set_tenant_rules_count(
+                tenant_id,
+                self.list_for_tenant(tenant_id).len() as i64,
+            );
+        }
+
+        Ok(existed)
+    }
+
+    /// Delete every ruleset for a tenant without republishing sync events.
+    pub fn apply_sync_delete_tenant(&mut self, tenant_id: &str) -> io::Result<usize> {
+        let names: Vec<String> = self
+            .list_for_tenant(tenant_id)
+            .into_iter()
+            .map(|info| info.name)
+            .collect();
+
+        let mut removed = 0usize;
+        for name in names {
+            if self.apply_sync_delete(tenant_id, &name)? {
+                removed += 1;
+            }
+        }
+
+        if removed > 0 {
+            if let Some(dir) = self.tenant_rules_dir(tenant_id) {
+                if let Err(e) = fs::remove_dir(&dir) {
+                    if e.kind() != io::ErrorKind::NotFound {
+                        debug!(
+                            "Tenant rules directory cleanup skipped for '{}' at {:?}: {}",
+                            tenant_id, dir, e
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(removed)
     }
 
     /// Get executor reference
@@ -995,6 +1477,182 @@ impl RuleStore {
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.rulesets.is_empty()
+    }
+
+    // ==================== External Data Store ====================
+
+    fn make_data_key(&self, tenant_id: &str, name: &str) -> String {
+        format!("{}:{}", tenant_id, name)
+    }
+
+    /// Get the data directory path for a tenant
+    fn data_dir_for_tenant(&self, tenant_id: &str) -> Option<PathBuf> {
+        self.rules_dir.as_ref().map(|dir| {
+            if self.multi_tenancy_enabled {
+                dir.join(tenant_id).join("data")
+            } else {
+                dir.join("data")
+            }
+        })
+    }
+
+    /// Put external reference data for a tenant
+    pub fn put_data_for_tenant(
+        &mut self,
+        tenant_id: &str,
+        name: &str,
+        value: ordo_core::context::Value,
+    ) -> io::Result<()> {
+        let key = self.make_data_key(tenant_id, name);
+
+        // Persist to disk first, so a failed write doesn't leave stale in-memory data
+        if let Some(data_dir) = self.data_dir_for_tenant(tenant_id) {
+            fs::create_dir_all(&data_dir)?;
+            let path = data_dir.join(format!("{}.json", name));
+            let json = serde_json::to_string_pretty(&value)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            fs::write(&path, json)?;
+            info!(
+                "Persisted data '{}' for tenant '{}' to {:?}",
+                name, tenant_id, path
+            );
+        }
+
+        self.data.insert(key, Arc::new(value));
+
+        Ok(())
+    }
+
+    /// Get external reference data for a tenant
+    pub fn get_data_for_tenant(
+        &self,
+        tenant_id: &str,
+        name: &str,
+    ) -> Option<Arc<ordo_core::context::Value>> {
+        let key = self.make_data_key(tenant_id, name);
+        self.data.get(&key).cloned()
+    }
+
+    /// Delete external reference data for a tenant
+    pub fn delete_data_for_tenant(&mut self, tenant_id: &str, name: &str) -> bool {
+        let key = self.make_data_key(tenant_id, name);
+        let existed = self.data.remove(&key).is_some();
+
+        if existed {
+            if let Some(data_dir) = self.data_dir_for_tenant(tenant_id) {
+                let path = data_dir.join(format!("{}.json", name));
+                if path.exists() {
+                    if let Err(e) = fs::remove_file(&path) {
+                        warn!("Failed to delete data file {:?}: {}", path, e);
+                    }
+                }
+            }
+        }
+
+        existed
+    }
+
+    /// List all external reference data names for a tenant
+    pub fn list_data_for_tenant(&self, tenant_id: &str) -> Vec<String> {
+        let prefix = format!("{}:", tenant_id);
+        self.data
+            .keys()
+            .filter_map(|k| k.strip_prefix(&prefix).map(|name| name.to_string()))
+            .collect()
+    }
+
+    /// Get all data for a tenant merged into a single Value::Object
+    pub fn get_all_data_for_tenant(&self, tenant_id: &str) -> ordo_core::context::Value {
+        use ordo_core::context::Value;
+        let prefix = format!("{}:", tenant_id);
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in &self.data {
+            if let Some(name) = k.strip_prefix(&prefix) {
+                map.insert(name.to_string(), v.as_ref().clone());
+            }
+        }
+        if map.is_empty() {
+            Value::Null
+        } else {
+            Value::object(map)
+        }
+    }
+
+    /// Load external data from the data directory during startup
+    pub fn load_data_from_dir(&mut self) -> io::Result<usize> {
+        let rules_dir = match &self.rules_dir {
+            Some(dir) => dir.clone(),
+            None => return Ok(0),
+        };
+
+        let mut loaded = 0;
+
+        let tenant_data_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
+            let tenants_dir = rules_dir.join("tenants");
+            if !tenants_dir.exists() {
+                return Ok(0);
+            }
+            fs::read_dir(&tenants_dir)?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let tenant_id = e.file_name().to_string_lossy().to_string();
+                    let data_dir = e.path().join("data");
+                    if data_dir.exists() {
+                        Some((tenant_id, data_dir))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            let data_dir = rules_dir.join("data");
+            if data_dir.exists() {
+                vec![(self.default_tenant.clone(), data_dir)]
+            } else {
+                vec![]
+            }
+        };
+
+        for (tenant_id, data_dir) in tenant_data_dirs {
+            let entries = fs::read_dir(&data_dir)?;
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let ext = path.extension().and_then(|e| e.to_str());
+                if ext != Some("json") && ext != Some("yaml") && ext != Some("yml") {
+                    continue;
+                }
+                let name = match path.file_stem().and_then(|s| s.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+
+                let content = fs::read_to_string(&path)?;
+                let value: ordo_core::context::Value = if ext == Some("json") {
+                    serde_json::from_str(&content)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                } else {
+                    serde_yaml::from_str(&content)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+                };
+
+                let key = self.make_data_key(&tenant_id, &name);
+                self.data.insert(key, Arc::new(value));
+                loaded += 1;
+                info!(
+                    "Loaded data '{}' for tenant '{}' from {:?}",
+                    name, tenant_id, path
+                );
+            }
+        }
+
+        if loaded > 0 {
+            info!("Loaded {} external data entries", loaded);
+        }
+        Ok(loaded)
     }
 }
 
@@ -1252,6 +1910,66 @@ steps:
     }
 
     #[test]
+    fn test_rollback_publishes_sync_event() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        store.set_sync_tx(tx);
+
+        for i in 1..=3 {
+            let ruleset = create_test_ruleset_with_version("rollback-sync", &format!("{}.0.0", i));
+            store.put(ruleset).unwrap();
+        }
+
+        while rx.try_recv().is_ok() {}
+
+        let result = store.rollback_to_version("rollback-sync", 1).unwrap();
+        assert!(result.is_some());
+
+        match rx.try_recv().unwrap() {
+            SyncEvent::RulePut {
+                tenant_id,
+                name,
+                version,
+                ..
+            } => {
+                assert_eq!(tenant_id, "default");
+                assert_eq!(name, "rollback-sync");
+                assert_eq!(version, "1.0.0");
+            }
+            other => panic!("unexpected sync event after rollback: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_apply_sync_delete_tenant_removes_rules() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().to_path_buf();
+
+        let mut store = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        store.enable_multi_tenancy("default".to_string());
+
+        let mut alpha = create_test_ruleset_with_version("fraud", "1.0.0");
+        alpha.config.tenant_id = Some("tenant-a".to_string());
+        store.put(alpha).unwrap();
+
+        let mut beta = create_test_ruleset_with_version("risk", "1.0.0");
+        beta.config.tenant_id = Some("tenant-a".to_string());
+        store.put(beta).unwrap();
+
+        let mut other = create_test_ruleset_with_version("shared", "1.0.0");
+        other.config.tenant_id = Some("tenant-b".to_string());
+        store.put(other).unwrap();
+
+        let removed = store.apply_sync_delete_tenant("tenant-a").unwrap();
+        assert_eq!(removed, 2);
+        assert!(store.list_for_tenant("tenant-a").is_empty());
+        assert_eq!(store.list_for_tenant("tenant-b").len(), 1);
+    }
+
+    #[test]
     fn test_version_cleanup() {
         let temp_dir = TempDir::new().unwrap();
         let rules_dir = temp_dir.path().to_path_buf();
@@ -1448,5 +2166,70 @@ steps:
         // Verify tenant isolation after reload
         assert_eq!(store2.list_for_tenant("tenant-a").len(), 1);
         assert_eq!(store2.list_for_tenant("tenant-b").len(), 1);
+    }
+
+    #[test]
+    fn test_max_total_rules_limit() {
+        let mut store = RuleStore::new();
+        store.set_resource_limits(None, Some(2));
+
+        store.put(create_test_ruleset("rule-1")).unwrap();
+        store.put(create_test_ruleset("rule-2")).unwrap();
+
+        // Third new rule must be rejected
+        let err = store.put(create_test_ruleset("rule-3")).unwrap_err();
+        assert!(err[0].contains("Resource limit exceeded"));
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn test_max_total_rules_update_allowed() {
+        let mut store = RuleStore::new();
+        store.set_resource_limits(None, Some(1));
+
+        store.put(create_test_ruleset("rule-1")).unwrap();
+
+        // Updating the same rule must succeed even at the limit
+        store.put(create_test_ruleset("rule-1")).unwrap();
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn test_max_rules_per_tenant_limit() {
+        let mut store = RuleStore::new();
+        store.enable_multi_tenancy("default".to_string());
+        store.set_resource_limits(Some(2), None);
+
+        store
+            .put_for_tenant("tenant-a", create_test_ruleset("rule-1"))
+            .unwrap();
+        store
+            .put_for_tenant("tenant-a", create_test_ruleset("rule-2"))
+            .unwrap();
+
+        // tenant-a is now at the limit
+        let err = store
+            .put_for_tenant("tenant-a", create_test_ruleset("rule-3"))
+            .unwrap_err();
+        assert!(err[0].contains("Resource limit exceeded"));
+
+        // tenant-b is independent — must still be allowed
+        store
+            .put_for_tenant("tenant-b", create_test_ruleset("rule-1"))
+            .unwrap();
+    }
+
+    #[test]
+    fn test_resource_limits_none_is_unlimited() {
+        let mut store = RuleStore::new();
+        store.set_resource_limits(None, None);
+
+        // Should be able to add many rules without hitting a limit
+        for i in 0..50 {
+            store
+                .put(create_test_ruleset(&format!("rule-{}", i)))
+                .unwrap();
+        }
+        assert_eq!(store.len(), 50);
     }
 }

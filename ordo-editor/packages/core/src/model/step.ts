@@ -7,7 +7,7 @@ import { Condition } from './condition';
 import { Expr } from './expr';
 
 /** Step types */
-export type StepType = 'decision' | 'action' | 'terminal';
+export type StepType = 'decision' | 'action' | 'terminal' | 'sub_rule';
 
 /** Base step interface */
 export interface BaseStep {
@@ -24,6 +24,8 @@ export interface BaseStep {
     x: number;
     y: number;
   };
+  /** Internal runtime marker; generated steps should not surface as authoring suggestions. */
+  systemGenerated?: 'sub_rule_runtime' | 'concept_runtime';
 }
 
 /** Branch definition for decision steps */
@@ -113,8 +115,47 @@ export interface TerminalStep extends BaseStep {
   output?: OutputField[];
 }
 
+/** Input binding for a sub-rule: inject a parent-context expression into a named input field */
+export interface SubRuleBinding {
+  /** Field name in the child context */
+  field: string;
+  /** Expression evaluated in the parent context */
+  expr: Expr;
+}
+
+/** Output mapping for a sub-rule: copy a child variable back to a parent variable */
+export interface SubRuleOutput {
+  /** Variable name in the parent context (without $ prefix) */
+  parentVar: string;
+  /** Variable name in the child context (without $ prefix) */
+  childVar: string;
+}
+
+/** Managed SubRule asset reference. Sub-rules are snapshotted inline when the parent is published. */
+export interface SubRuleAssetRef {
+  scope: 'project' | 'org';
+  name: string;
+}
+
+/** Sub-rule step - executes a managed SubRule asset and returns control to the parent */
+export interface SubRuleStep extends BaseStep {
+  type: 'sub_rule';
+  /** Legacy/engine-compatible reference name. Prefer assetRef for Studio assets. */
+  refName: string;
+  /** Managed SubRule asset reference used by Studio and platform resolution. */
+  assetRef?: SubRuleAssetRef;
+  /** Input bindings: expressions from the parent context injected into the child context */
+  bindings?: SubRuleBinding[];
+  /** Output mappings: variables from the child context written back to the parent context */
+  outputs?: SubRuleOutput[];
+  /** Authoring-level return semantics. Execution lowering materializes runtime control flow. */
+  returnPolicy?: 'continue' | 'propagate_terminal';
+  /** Next step ID after the sub-rule completes. Empty means the child terminal result ends the parent flow. */
+  nextStepId: string;
+}
+
 /** Step union type */
-export type StepUnion = DecisionStep | ActionStep | TerminalStep;
+export type StepUnion = DecisionStep | ActionStep | TerminalStep | SubRuleStep;
 
 // ============================================================================
 // Step builder helpers
@@ -147,6 +188,7 @@ export const Step = {
     branches?: Branch[];
     defaultNextStepId: string;
     position?: { x: number; y: number };
+    systemGenerated?: BaseStep['systemGenerated'];
   }): DecisionStep {
     return {
       id: options.id || generateStepId(),
@@ -156,6 +198,7 @@ export const Step = {
       branches: options.branches || [],
       defaultNextStepId: options.defaultNextStepId,
       position: options.position,
+      systemGenerated: options.systemGenerated,
     };
   },
 
@@ -169,6 +212,7 @@ export const Step = {
     logging?: ActionStep['logging'];
     nextStepId: string;
     position?: { x: number; y: number };
+    systemGenerated?: BaseStep['systemGenerated'];
   }): ActionStep {
     return {
       id: options.id || generateStepId(),
@@ -180,6 +224,7 @@ export const Step = {
       logging: options.logging,
       nextStepId: options.nextStepId,
       position: options.position,
+      systemGenerated: options.systemGenerated,
     };
   },
 
@@ -192,6 +237,7 @@ export const Step = {
     message?: Expr;
     output?: OutputField[];
     position?: { x: number; y: number };
+    systemGenerated?: BaseStep['systemGenerated'];
   }): TerminalStep {
     return {
       id: options.id || generateStepId(),
@@ -202,6 +248,7 @@ export const Step = {
       message: options.message,
       output: options.output,
       position: options.position,
+      systemGenerated: options.systemGenerated,
     };
   },
 
@@ -217,6 +264,36 @@ export const Step = {
       label: options.label,
       condition: options.condition,
       nextStepId: options.nextStepId,
+    };
+  },
+
+  /** Create a sub-rule step */
+  subRule(options: {
+    id?: string;
+    name: string;
+    description?: string;
+    refName: string;
+    assetRef?: SubRuleAssetRef;
+    bindings?: SubRuleBinding[];
+    outputs?: SubRuleOutput[];
+    returnPolicy?: SubRuleStep['returnPolicy'];
+    nextStepId: string;
+    position?: { x: number; y: number };
+    systemGenerated?: BaseStep['systemGenerated'];
+  }): SubRuleStep {
+    return {
+      id: options.id || generateStepId(),
+      name: options.name,
+      description: options.description,
+      type: 'sub_rule',
+      refName: options.refName,
+      assetRef: options.assetRef,
+      bindings: options.bindings,
+      outputs: options.outputs,
+      returnPolicy: options.nextStepId ? options.returnPolicy ?? 'continue' : 'propagate_terminal',
+      nextStepId: options.nextStepId,
+      position: options.position,
+      systemGenerated: options.systemGenerated,
     };
   },
 
@@ -246,6 +323,11 @@ export function isTerminalStep(step: Step): step is TerminalStep {
   return step.type === 'terminal';
 }
 
+/** Check if a step is a sub-rule step */
+export function isSubRuleStep(step: Step): step is SubRuleStep {
+  return step.type === 'sub_rule';
+}
+
 /** Get the next step IDs from a step */
 export function getNextStepIds(step: Step): string[] {
   switch (step.type) {
@@ -259,5 +341,8 @@ export function getNextStepIds(step: Step): string[] {
 
     case 'terminal':
       return [];
+
+    case 'sub_rule':
+      return step.nextStepId ? [step.nextStepId] : [];
   }
 }

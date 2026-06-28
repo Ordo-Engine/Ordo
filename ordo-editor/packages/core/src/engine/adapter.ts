@@ -15,6 +15,7 @@ import type {
   DecisionStep,
   ActionStep,
   TerminalStep,
+  SubRuleStep,
   Branch as EditorBranch,
 } from '../model';
 
@@ -34,6 +35,14 @@ interface EngineRuleSet {
     metadata: Record<string, string>;
   };
   steps: Record<string, EngineStep>;
+  sub_rules?: Record<string, EngineSubRuleGraph>;
+}
+
+interface EngineSubRuleGraph {
+  entry_step: string;
+  steps: Record<string, EngineStep>;
+  input_schema?: any;
+  output_schema?: any;
 }
 
 /**
@@ -43,7 +52,7 @@ interface EngineStep {
   id: string;
   name: string;
   // Flattened StepKind fields - one of these will be present based on "type"
-  type: 'decision' | 'action' | 'terminal';
+  type: 'decision' | 'action' | 'terminal' | 'sub_rule';
   // Decision fields
   branches?: EngineBranch[];
   default_next?: string | null;
@@ -52,6 +61,10 @@ interface EngineStep {
   next_step?: string;
   // Terminal fields
   result?: EngineTerminalResult;
+  // SubRule fields
+  ref_name?: string;
+  bindings?: Array<[string, any]>; // Vec<(String, Expr)>
+  outputs?: Array<[string, string]>; // Vec<(String, String)>
 }
 
 interface EngineBranch {
@@ -61,13 +74,19 @@ interface EngineBranch {
 }
 
 interface EngineAction {
-  action: 'set_variable' | 'log' | 'metric';
+  action: 'set_variable' | 'log' | 'metric' | 'external_call';
   // set_variable fields
   name?: string;
   value?: any; // Expr
   // log fields
   message?: string;
   level?: 'debug' | 'info' | 'warn' | 'error';
+  // external_call fields
+  service?: string;
+  method?: string;
+  params?: Array<[string, any]>;
+  result_variable?: string;
+  timeout_ms?: number;
   description?: string;
 }
 
@@ -89,6 +108,23 @@ export function convertToEngineFormat(editorRuleset: RuleSet): EngineRuleSet {
     stepsMap[step.id] = convertStep(step);
   }
 
+  // Build sub_rules map
+  const subRulesMap: Record<string, EngineSubRuleGraph> = {};
+  if (editorRuleset.subRules) {
+    for (const [name, graph] of Object.entries(editorRuleset.subRules)) {
+      const graphSteps: Record<string, EngineStep> = {};
+      for (const step of graph.steps) {
+        graphSteps[step.id] = convertStep(step);
+      }
+      subRulesMap[name] = {
+        entry_step: graph.entryStep,
+        steps: graphSteps,
+        ...(graph.inputSchema && { input_schema: graph.inputSchema }),
+        ...(graph.outputSchema && { output_schema: graph.outputSchema }),
+      };
+    }
+  }
+
   // Build config
   const config = {
     name: editorRuleset.config.name || 'unnamed',
@@ -99,12 +135,13 @@ export function convertToEngineFormat(editorRuleset: RuleSet): EngineRuleSet {
     max_depth: 100,
     timeout_ms: editorRuleset.config.timeout || 0,
     enable_trace: editorRuleset.config.enableTrace ?? true,
-    metadata: {},
+    metadata: editorRuleset.config.metadata ?? {},
   };
 
   return {
     config,
     steps: stepsMap,
+    ...(Object.keys(subRulesMap).length > 0 && { sub_rules: subRulesMap }),
   };
 }
 
@@ -119,6 +156,8 @@ function convertStep(step: Step): EngineStep {
       return convertActionStep(step as ActionStep);
     case 'terminal':
       return convertTerminalStep(step as TerminalStep);
+    case 'sub_rule':
+      return convertSubRuleStep(step as SubRuleStep);
     default:
       throw new Error(`Unknown step type: ${(step as any).type}`);
   }
@@ -185,6 +224,16 @@ function convertConditionToString(condition: any): string {
     return `(${conditions.join(joinOp)})`;
   }
 
+  // Reverse adapter emits logical conditions in the editor-native shape.
+  if (condition.type === 'logical') {
+    const operator = condition.operator || 'and';
+    const conditions = (condition.conditions || []).map(convertConditionToString);
+    if (conditions.length === 0) return 'true';
+    if (conditions.length === 1) return conditions[0];
+    const joinOp = operator === 'or' ? ' || ' : ' && ';
+    return `(${conditions.join(joinOp)})`;
+  }
+
   // Handle expression type
   if (condition.type === 'expression' && condition.expression) {
     return condition.expression;
@@ -207,15 +256,7 @@ function convertValueToExprString(value: any): string {
 
   // Handle variable reference
   if (value.type === 'variable' || value.type === 'field') {
-    let path = value.path || value.name || '';
-    // Remove $. prefix - engine Context.get() uses bare paths like "order.amount"
-    // The Context stores input data at root level, not under "input." key
-    if (path.startsWith('$.')) {
-      path = path.slice(2); // $.order.amount -> order.amount
-    } else if (path.startsWith('$')) {
-      path = path.slice(1);
-    }
-    return path;
+    return normalizeFieldPath(value.path || value.name || '');
   }
 
   // Handle literal value
@@ -278,21 +319,31 @@ function convertActionStep(step: ActionStep): EngineStep {
     }
   }
 
+  // Convert external calls
+  if (step.externalCalls) {
+    for (const externalCall of step.externalCalls) {
+      actions.push(convertExternalCall(externalCall));
+    }
+  }
+
   // Convert logging
   if (step.logging) {
     // Extract message string from logging object
-    let message = step.logging.message;
-    if (typeof message === 'object' && message !== null) {
-      if (message.type === 'literal') {
-        message = String(message.value);
+    const msg = step.logging.message;
+    let messageStr: string;
+    if (typeof msg === 'object' && msg !== null) {
+      if (msg.type === 'literal') {
+        messageStr = String((msg as any).value);
       } else {
-        message = JSON.stringify(message);
+        messageStr = JSON.stringify(msg);
       }
+    } else {
+      messageStr = String(msg);
     }
 
     actions.push({
       action: 'log',
-      message: message,
+      message: messageStr,
       level: (step.logging.level as any) || 'info',
       description: '',
     });
@@ -305,6 +356,94 @@ function convertActionStep(step: ActionStep): EngineStep {
     actions,
     next_step: step.nextStepId || '',
   };
+}
+
+function convertExternalCall(call: NonNullable<ActionStep['externalCalls']>[number]): EngineAction {
+  const timeoutMs = call.timeout && call.timeout > 0 ? call.timeout : 0;
+
+  if (call.type === 'http') {
+    const { method, url } = parseHttpTarget(call.target);
+    const params: Array<[string, any]> = [['url', { Literal: url }]];
+
+    if (call.params && Object.keys(call.params).length > 0) {
+      params.push([
+        'json_body',
+        {
+          Object: Object.entries(call.params).map(([name, value]) => [
+            name,
+            convertToEngineExpr(value),
+          ]),
+        },
+      ]);
+    }
+
+    return {
+      action: 'external_call',
+      service: 'network.http',
+      method,
+      params,
+      result_variable: call.resultVariable,
+      timeout_ms: timeoutMs,
+      description: '',
+    };
+  }
+
+  const { service, method } = parseCapabilityTarget(call.target, call.type);
+
+  return {
+    action: 'external_call',
+    service,
+    method,
+    params: Object.entries(call.params || {}).map(([name, value]) => [
+      name,
+      convertToEngineExpr(value),
+    ]),
+    result_variable: call.resultVariable,
+    timeout_ms: timeoutMs,
+    description: '',
+  };
+}
+
+function parseHttpTarget(target: string): { method: string; url: string } {
+  const trimmed = target.trim();
+  const match = trimmed.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(.+)$/i);
+  if (match) {
+    return {
+      method: match[1].toLowerCase(),
+      url: match[2].trim(),
+    };
+  }
+
+  return {
+    method: 'post',
+    url: trimmed,
+  };
+}
+
+function parseCapabilityTarget(
+  target: string,
+  type: 'grpc' | 'function'
+): { service: string; method: string } {
+  const trimmed = target.trim();
+
+  for (const separator of ['#', '::']) {
+    const index = trimmed.indexOf(separator);
+    if (index > 0) {
+      return {
+        service: trimmed.slice(0, index).trim(),
+        method: trimmed.slice(index + separator.length).trim() || defaultCapabilityMethod(type),
+      };
+    }
+  }
+
+  return {
+    service: trimmed,
+    method: defaultCapabilityMethod(type),
+  };
+}
+
+function defaultCapabilityMethod(type: 'grpc' | 'function'): string {
+  return type === 'grpc' ? 'call' : 'invoke';
 }
 
 /**
@@ -341,6 +480,29 @@ function convertTerminalStep(step: TerminalStep): EngineStep {
 }
 
 /**
+ * Convert sub-rule step to engine format
+ */
+function convertSubRuleStep(step: SubRuleStep): EngineStep {
+  const bindings: Array<[string, any]> = (step.bindings || []).map((b) => [
+    b.field,
+    convertToEngineExpr(b.expr),
+  ]);
+  const outputs: Array<[string, string]> = (step.outputs || []).map((o) => [
+    o.parentVar,
+    o.childVar,
+  ]);
+  return {
+    id: step.id,
+    name: step.name,
+    type: 'sub_rule',
+    ref_name: step.refName,
+    bindings,
+    outputs,
+    next_step: step.nextStepId,
+  };
+}
+
+/**
  * Convert editor value to engine Expr format
  * The engine expects Expr which is a Rust enum serialized as:
  * - { "Literal": <value> }  -- NOT { "Literal": { "value": ... } }
@@ -360,15 +522,7 @@ function convertToEngineExpr(value: any): any {
   if (typeof value === 'string') {
     // Check if it looks like a field reference
     if (value.startsWith('$') || value.startsWith('input.') || value.startsWith('vars.')) {
-      let path = value;
-      if (path.startsWith('$.')) {
-        path = path.slice(2); // $.order.amount -> order.amount
-      } else if (path.startsWith('input.')) {
-        path = path.slice(6); // input.order.amount -> order.amount
-      } else if (path.startsWith('$')) {
-        path = path.slice(1);
-      }
-      return { Field: path };
+      return { Field: normalizeFieldPath(value) };
     }
     // Otherwise treat as literal string
     return { Literal: value };
@@ -387,19 +541,73 @@ function convertToEngineExpr(value: any): any {
 
     // Editor variable format: { type: 'variable', path: '$.xxx' }
     if (value.type === 'variable' || value.type === 'field') {
-      let path = value.path || value.name || '';
-      if (path.startsWith('$.')) {
-        path = path.slice(2); // Remove $. prefix
-      } else if (path.startsWith('$')) {
-        path = path.slice(1);
-      }
-      return { Field: path };
+      return { Field: normalizeFieldPath(value.path || value.name || '') };
     }
 
     // Editor expression format: { type: 'expression', expression: '...' }
     if (value.type === 'expression' && value.expression) {
       // For expressions, we need to parse them - for now just wrap as literal
       return { Literal: value.expression };
+    }
+
+    if (value.type === 'binary') {
+      return {
+        Binary: {
+          op: convertBinaryOp(value.op),
+          left: convertToEngineExpr(value.left),
+          right: convertToEngineExpr(value.right),
+        },
+      };
+    }
+
+    if (value.type === 'unary') {
+      return {
+        Unary: {
+          op: convertUnaryOp(value.op),
+          operand: convertToEngineExpr(value.operand),
+        },
+      };
+    }
+
+    if (value.type === 'function') {
+      return {
+        Call: {
+          name: value.name,
+          args: (value.args || []).map(convertToEngineExpr),
+        },
+      };
+    }
+
+    if (value.type === 'conditional') {
+      return {
+        Conditional: {
+          condition: convertToEngineExpr(value.condition),
+          then_branch: convertToEngineExpr(value.thenExpr),
+          else_branch: convertToEngineExpr(value.elseExpr),
+        },
+      };
+    }
+
+    if (value.type === 'array') {
+      return {
+        Array: (value.elements || []).map(convertToEngineExpr),
+      };
+    }
+
+    if (value.type === 'object') {
+      return {
+        Object: Object.entries(value.properties || {}).map(([name, expr]) => [
+          name,
+          convertToEngineExpr(expr),
+        ]),
+      };
+    }
+
+    if (value.type === 'member') {
+      const path = toEngineFieldPath(value);
+      if (path) {
+        return { Field: path };
+      }
     }
 
     // Check if it's already in Expr format (but with wrong nesting)
@@ -432,6 +640,69 @@ function convertToEngineExpr(value: any): any {
   }
 
   return { Literal: value };
+}
+
+function toEngineFieldPath(value: any): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  if (value.type === 'variable' || value.type === 'field') {
+    return normalizeFieldPath(value.path || value.name || '');
+  }
+
+  if (value.type === 'member' && !value.computed && typeof value.property === 'string') {
+    const base = toEngineFieldPath(value.object);
+    if (!base) {
+      return null;
+    }
+    return `${base}.${value.property}`;
+  }
+
+  return null;
+}
+
+function normalizeFieldPath(path: string): string {
+  if (path.startsWith('$.')) {
+    return path.slice(2);
+  }
+  if (path.startsWith('input.')) {
+    return path.slice(6);
+  }
+  return path;
+}
+
+function convertBinaryOp(op: string): string {
+  const operatorMap: Record<string, string> = {
+    eq: 'Eq',
+    ne: 'Ne',
+    gt: 'Gt',
+    gte: 'Ge',
+    ge: 'Ge',
+    lt: 'Lt',
+    lte: 'Le',
+    le: 'Le',
+    and: 'And',
+    or: 'Or',
+    add: 'Add',
+    sub: 'Sub',
+    mul: 'Mul',
+    div: 'Div',
+    mod: 'Mod',
+    in: 'In',
+    contains: 'Contains',
+  };
+
+  return operatorMap[op] || op;
+}
+
+function convertUnaryOp(op: string): string {
+  const operatorMap: Record<string, string> = {
+    not: 'Not',
+    neg: 'Neg',
+  };
+
+  return operatorMap[op] || op;
 }
 
 /**
@@ -502,8 +773,27 @@ export function validateEngineCompatibility(ruleset: RuleSet): string[] {
         // Terminal steps don't reference other steps
         break;
 
+      case 'sub_rule': {
+        const subRuleStep = step as SubRuleStep;
+        if (
+          subRuleStep.returnPolicy !== 'propagate_terminal' &&
+          subRuleStep.nextStepId &&
+          !stepIds.has(subRuleStep.nextStepId)
+        ) {
+          errors.push(
+            `Step '${step.id}' nextStepId references non-existent step '${subRuleStep.nextStepId}'`
+          );
+        }
+        if (ruleset.subRules && !ruleset.subRules[subRuleStep.refName]) {
+          errors.push(
+            `Step '${step.id}' references non-existent sub-rule '${subRuleStep.refName}'`
+          );
+        }
+        break;
+      }
+
       default:
-        errors.push(`Step '${step.id}' has unknown type: ${(step as any).type}`);
+        errors.push(`Step '${(step as Step).id}' has unknown type: ${(step as any).type}`);
     }
   }
 

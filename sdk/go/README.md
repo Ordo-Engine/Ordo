@@ -1,6 +1,6 @@
 # Ordo Go SDK
 
-Official Go SDK for [Ordo](https://github.com/Pama-Lee/Ordo) - A high-performance rule engine with visual editor.
+Official Go SDK for [Ordo](https://github.com/Ordo-Engine/Ordo) - A high-performance rule engine with visual editor.
 
 [![Go Version](https://img.shields.io/badge/go-1.22%2B-blue.svg)](https://golang.org/dl/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
@@ -390,7 +390,7 @@ go run examples/retry/main.go
 
 ## Contributing
 
-Contributions are welcome! Please see the main [Ordo repository](https://github.com/Pama-Lee/Ordo) for contribution guidelines.
+Contributions are welcome! Please see the main [Ordo repository](https://github.com/Ordo-Engine/Ordo) for contribution guidelines.
 
 ## License
 
@@ -398,6 +398,6 @@ MIT License - see [LICENSE](../../LICENSE) for details.
 
 ## Links
 
-- [Ordo Main Repository](https://github.com/Pama-Lee/Ordo)
-- [Ordo Documentation](https://pama-lee.github.io/Ordo/)
-- [Live Playground](https://pama-lee.github.io/Ordo/)
+- [Ordo Main Repository](https://github.com/Ordo-Engine/Ordo)
+- [Ordo Documentation](https://ordo-engine.github.io/Ordo/)
+- [Live Playground](https://ordo-engine.github.io/Ordo/)

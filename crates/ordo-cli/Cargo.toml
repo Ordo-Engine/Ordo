@@ -1,0 +1,22 @@
+[package]
+name = "ordo-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI tool for the Ordo rule engine"
+publish = false
+
+[[bin]]
+name = "ordo"
+path = "src/main.rs"
+
+[dependencies]
+ordo-core = { path = "../ordo-core" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+colored = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+hashbrown = { workspace = true }

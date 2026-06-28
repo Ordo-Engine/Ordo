@@ -5,6 +5,7 @@
 use ordo_core::expr::{BinaryOp, Expr};
 use ordo_core::prelude::*;
 use ordo_core::rule::{ActionKind, CompiledRuleExecutor, Condition, RuleSetCompiler};
+use ordo_core::trace::StepTrace;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -49,6 +50,72 @@ pub struct WasmStepTrace {
     pub duration_us: u64,
     /// Step result (for decision steps)
     pub result: Option<String>,
+    /// Next step ID when execution continues.
+    pub next_step: Option<String>,
+    /// Whether this step ended execution.
+    pub is_terminal: bool,
+    /// Input data snapshot for this step.
+    pub input_snapshot: Option<Value>,
+    /// Variable snapshot for this step.
+    pub variables_snapshot: Option<serde_json::Value>,
+    /// Referenced sub-rule name when this step invokes a sub-rule.
+    pub sub_rule_ref: Option<String>,
+    /// Input object passed into the sub-rule.
+    pub sub_rule_input: Option<Value>,
+    /// Output mappings copied from child context to parent context.
+    pub sub_rule_outputs: Vec<WasmSubRuleOutputTrace>,
+    /// Nested execution frames produced by a sub-rule invocation.
+    pub sub_rule_frames: Vec<WasmStepTrace>,
+}
+
+/// Sub-rule output mapping trace information.
+#[derive(Serialize, Deserialize)]
+pub struct WasmSubRuleOutputTrace {
+    pub parent_var: String,
+    pub child_var: String,
+    pub value: Option<Value>,
+    pub missing: bool,
+}
+
+fn map_step_trace(step: &StepTrace) -> WasmStepTrace {
+    WasmStepTrace {
+        id: step.step_id.clone(),
+        name: step.step_name.clone(),
+        duration_us: step.duration_us,
+        result: None,
+        next_step: step.next_step.clone(),
+        is_terminal: step.is_terminal,
+        input_snapshot: step.input_snapshot.clone(),
+        variables_snapshot: step
+            .variables_snapshot
+            .as_ref()
+            .and_then(|snapshot| serde_json::to_value(snapshot).ok()),
+        sub_rule_ref: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| call.ref_name.clone()),
+        sub_rule_input: step.sub_rule_call.as_ref().map(|call| call.input.clone()),
+        sub_rule_outputs: step
+            .sub_rule_call
+            .as_ref()
+            .map(|call| {
+                call.outputs
+                    .iter()
+                    .map(|output| WasmSubRuleOutputTrace {
+                        parent_var: output.parent_var.clone(),
+                        child_var: output.child_var.clone(),
+                        value: output.value.clone(),
+                        missing: output.missing,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        sub_rule_frames: step
+            .sub_rule_frames
+            .as_ref()
+            .map(|frames| frames.iter().map(map_step_trace).collect())
+            .unwrap_or_default(),
+    }
 }
 
 /// Execute a ruleset with given input
@@ -69,18 +136,6 @@ pub fn execute_ruleset(
     // Parse ruleset
     let ruleset: RuleSet = serde_json::from_str(ruleset_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse ruleset: {}", e)))?;
-
-    // Debug: log parsed ruleset structure
-    web_sys::console::log_1(
-        &format!(
-            "[WASM DEBUG] Parsed ruleset steps: {:?}",
-            ruleset.steps.keys().collect::<Vec<_>>()
-        )
-        .into(),
-    );
-    for (step_id, step) in &ruleset.steps {
-        web_sys::console::log_1(&format!("[WASM DEBUG] Step {}: {:?}", step_id, step.kind).into());
-    }
 
     // Parse input
     let input: Value = serde_json::from_str(input_json)
@@ -103,16 +158,7 @@ pub fn execute_ruleset(
     // Convert trace if present
     let trace = result.trace.as_ref().map(|t| WasmExecutionTrace {
         path: t.path_string(),
-        steps: t
-            .steps
-            .iter()
-            .map(|s| WasmStepTrace {
-                id: s.step_id.clone(),
-                name: s.step_name.clone(),
-                duration_us: s.duration_us,
-                result: None,
-            })
-            .collect(),
+        steps: t.steps.iter().map(map_step_trace).collect(),
     });
 
     // Convert output to serde_json::Value
@@ -517,83 +563,166 @@ fn analyze_ruleset_jit_compatibility(ruleset: &RuleSet) -> JITRulesetAnalysis {
     let mut incompatible_count = 0;
     let mut all_fields: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
+    let mut visited_sub_rules = std::collections::HashSet::new();
 
-    // Analyze each step
-    for (step_id, step) in &ruleset.steps {
-        match &step.kind {
-            StepKind::Decision { branches, .. } => {
-                for (branch_idx, branch) in branches.iter().enumerate() {
-                    // Analyze the condition
-                    let (expr_opt, expr_str) = match &branch.condition {
-                        Condition::Always => (None, "true".to_string()),
-                        Condition::Expression(expr) => (Some(expr.clone()), format!("{:?}", expr)),
-                        Condition::ExpressionString(s) => match ExprParser::parse(s) {
-                            Ok(expr) => (Some(expr), s.clone()),
-                            Err(_) => (None, s.clone()),
-                        },
-                    };
+    #[allow(clippy::too_many_arguments)]
+    fn record_analysis(
+        expressions: &mut Vec<JITExpressionEntry>,
+        compatible_count: &mut usize,
+        incompatible_count: &mut usize,
+        all_fields: &mut std::collections::HashMap<String, Vec<String>>,
+        step_id: &str,
+        step_name: &str,
+        location: String,
+        expression: String,
+        analysis: JITExprAnalysis,
+    ) {
+        for field in &analysis.accessed_fields {
+            all_fields
+                .entry(field.clone())
+                .or_default()
+                .push(step_id.to_string());
+        }
 
-                    if let Some(expr) = expr_opt {
-                        let analysis = analyze_expr_jit_compatibility(&expr);
+        if analysis.jit_compatible {
+            *compatible_count += 1;
+        } else {
+            *incompatible_count += 1;
+        }
 
-                        // Track fields
-                        for field in &analysis.accessed_fields {
-                            all_fields
-                                .entry(field.clone())
-                                .or_default()
-                                .push(step_id.clone());
+        expressions.push(JITExpressionEntry {
+            step_id: step_id.to_string(),
+            step_name: step_name.to_string(),
+            location,
+            expression,
+            analysis,
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn analyze_step_collection(
+        steps: Vec<(&String, &Step)>,
+        ruleset: &RuleSet,
+        namespace: Option<&str>,
+        expressions: &mut Vec<JITExpressionEntry>,
+        compatible_count: &mut usize,
+        incompatible_count: &mut usize,
+        all_fields: &mut std::collections::HashMap<String, Vec<String>>,
+        visited_sub_rules: &mut std::collections::HashSet<String>,
+    ) {
+        for (step_id, step) in steps {
+            let scoped_step_id = namespace
+                .map(|ns| format!("{ns}::{step_id}"))
+                .unwrap_or_else(|| step_id.to_string());
+
+            match &step.kind {
+                StepKind::Decision { branches, .. } => {
+                    for (branch_idx, branch) in branches.iter().enumerate() {
+                        let (expr_opt, expr_str) = match &branch.condition {
+                            Condition::Always => (None, "true".to_string()),
+                            Condition::Expression(expr) => {
+                                (Some(expr.clone()), format!("{:?}", expr))
+                            }
+                            Condition::ExpressionString(s) => match ExprParser::parse(s) {
+                                Ok(expr) => (Some(expr), s.clone()),
+                                Err(_) => (None, s.clone()),
+                            },
+                        };
+
+                        if let Some(expr) = expr_opt {
+                            let analysis = analyze_expr_jit_compatibility(&expr);
+                            record_analysis(
+                                expressions,
+                                compatible_count,
+                                incompatible_count,
+                                all_fields,
+                                &scoped_step_id,
+                                &step.name,
+                                format!("branch:{branch_idx}"),
+                                expr_str,
+                                analysis,
+                            );
                         }
-
-                        if analysis.jit_compatible {
-                            compatible_count += 1;
-                        } else {
-                            incompatible_count += 1;
-                        }
-
-                        expressions.push(JITExpressionEntry {
-                            step_id: step_id.clone(),
-                            step_name: step.name.clone(),
-                            location: format!("branch:{}", branch_idx),
-                            expression: expr_str,
-                            analysis,
-                        });
                     }
                 }
-            }
-            StepKind::Action { actions, .. } => {
-                for action in actions {
-                    if let ActionKind::SetVariable { name: _, value } = &action.kind {
-                        // value is an Expr, analyze it directly
-                        let analysis = analyze_expr_jit_compatibility(value);
-
-                        for field in &analysis.accessed_fields {
-                            all_fields
-                                .entry(field.clone())
-                                .or_default()
-                                .push(step_id.clone());
+                StepKind::Action { actions, .. } => {
+                    for action in actions {
+                        if let ActionKind::SetVariable { name: _, value } = &action.kind {
+                            let analysis = analyze_expr_jit_compatibility(value);
+                            record_analysis(
+                                expressions,
+                                compatible_count,
+                                incompatible_count,
+                                all_fields,
+                                &scoped_step_id,
+                                &step.name,
+                                "assignment".to_string(),
+                                format!("{:?}", value),
+                                analysis,
+                            );
                         }
-
-                        if analysis.jit_compatible {
-                            compatible_count += 1;
-                        } else {
-                            incompatible_count += 1;
-                        }
-
-                        expressions.push(JITExpressionEntry {
-                            step_id: step_id.clone(),
-                            step_name: step.name.clone(),
-                            location: "assignment".to_string(),
-                            expression: format!("{:?}", value),
-                            analysis,
-                        });
                     }
                 }
-            }
-            StepKind::Terminal { .. } => {
-                // Terminal steps typically don't have complex expressions to analyze
+                StepKind::Terminal { .. } => {
+                    // Terminal steps typically don't have complex expressions to analyze.
+                }
+                StepKind::SubRule {
+                    ref_name, bindings, ..
+                } => {
+                    for (binding_name, expr) in bindings {
+                        let mut analysis = analyze_expr_jit_compatibility(expr);
+                        if !analysis
+                            .unsupported_features
+                            .contains(&"sub_rule_binding".to_string())
+                        {
+                            analysis
+                                .unsupported_features
+                                .push("sub_rule_binding".to_string());
+                            analysis.jit_compatible = false;
+                        }
+
+                        record_analysis(
+                            expressions,
+                            compatible_count,
+                            incompatible_count,
+                            all_fields,
+                            &scoped_step_id,
+                            &step.name,
+                            format!("sub_rule_binding:{binding_name}"),
+                            format!("{:?}", expr),
+                            analysis,
+                        );
+                    }
+
+                    if visited_sub_rules.insert(ref_name.clone()) {
+                        if let Some(graph) = ruleset.sub_rules.get(ref_name.as_str()) {
+                            analyze_step_collection(
+                                graph.steps.iter().collect(),
+                                ruleset,
+                                Some(ref_name.as_str()),
+                                expressions,
+                                compatible_count,
+                                incompatible_count,
+                                all_fields,
+                                visited_sub_rules,
+                            );
+                        }
+                    }
+                }
             }
         }
     }
+
+    analyze_step_collection(
+        ruleset.steps.iter().collect(),
+        ruleset,
+        None,
+        &mut expressions,
+        &mut compatible_count,
+        &mut incompatible_count,
+        &mut all_fields,
+        &mut visited_sub_rules,
+    );
 
     let total = compatible_count + incompatible_count;
     let overall_compatible = incompatible_count == 0 && total > 0;
@@ -778,5 +907,87 @@ mod tests {
         let result_str = result.unwrap();
         let result_obj: WasmExecutionResult = serde_json::from_str(&result_str).unwrap();
         assert_eq!(result_obj.code, "SUCCESS");
+    }
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+    use ordo_core::context::Value;
+    use ordo_core::expr::{BinaryOp, Expr};
+    use ordo_core::rule::{Branch, Step, StepKind, SubRuleGraph, TerminalResult};
+
+    #[test]
+    fn jit_analysis_includes_sub_rule_bindings_and_nested_steps() {
+        let mut ruleset = RuleSet::new("sub-rule-jit", "start");
+        ruleset.add_step(Step {
+            id: "start".to_string(),
+            name: "Start".to_string(),
+            kind: StepKind::SubRule {
+                ref_name: "eligibility".to_string(),
+                bindings: vec![(
+                    "amount".to_string(),
+                    Expr::Binary {
+                        left: Box::new(Expr::Field("input.amount".to_string())),
+                        right: Box::new(Expr::Literal(Value::int(10))),
+                        op: BinaryOp::Add,
+                    },
+                )],
+                outputs: vec![("approved".to_string(), "approved".to_string())],
+                next_step: "done".to_string(),
+            },
+        });
+        ruleset.add_step(Step::terminal(
+            "done",
+            "Done",
+            TerminalResult::new("SUCCESS")
+                .with_output("approved", Expr::Field("approved".to_string())),
+        ));
+        ruleset.add_sub_rule(
+            "eligibility",
+            SubRuleGraph {
+                entry_step: "check".to_string(),
+                steps: [
+                    (
+                        "check".to_string(),
+                        Step {
+                            id: "check".to_string(),
+                            name: "Check".to_string(),
+                            kind: StepKind::Decision {
+                                branches: vec![Branch {
+                                    condition: Condition::Expression(Expr::Binary {
+                                        left: Box::new(Expr::Field("amount".to_string())),
+                                        right: Box::new(Expr::Literal(Value::int(100))),
+                                        op: BinaryOp::Gt,
+                                    }),
+                                    next_step: "accept".to_string(),
+                                    actions: vec![],
+                                }],
+                                default_next: Some("accept".to_string()),
+                            },
+                        },
+                    ),
+                    (
+                        "accept".to_string(),
+                        Step::terminal("accept", "Accept", TerminalResult::new("SUCCESS")),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            },
+        );
+
+        let analysis = analyze_ruleset_jit_compatibility(&ruleset);
+
+        assert!(analysis
+            .expressions
+            .iter()
+            .any(|entry| entry.location == "sub_rule_binding:amount"));
+        assert!(analysis
+            .expressions
+            .iter()
+            .any(|entry| entry.step_id == "eligibility::check"));
+        assert_eq!(analysis.total_expressions, 2);
+        assert_eq!(analysis.incompatible_count, 1);
     }
 }

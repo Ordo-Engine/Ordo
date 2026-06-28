@@ -6,7 +6,6 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use futures::future::join_all;
 use ordo_core::prelude::*;
 use ordo_core::rule::ExecutionOptions;
 use ordo_core::signature::{strip_signature, SignatureAlgorithm, SignatureConfig};
@@ -15,7 +14,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::capability_registry::emit_rule_execution_audit;
 use crate::error::ApiError;
+use crate::json::SimdJson;
 use crate::metrics;
 use crate::middleware::tenant::TenantContext;
 use crate::AppState;
@@ -259,18 +260,32 @@ pub async fn list_rulesets(
 }
 
 /// Get a ruleset by name
+///
+/// Clones the Arc (cheap refcount bump) and releases the read lock
+/// before serialization, so writers are not blocked during JSON encoding.
 pub async fn get_ruleset(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(name): Path<String>,
-) -> ApiResult<Json<RuleSet>> {
-    let store = state.store.read().await;
-    let ruleset = store
-        .get_for_tenant(&tenant.id, &name)
-        .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+) -> ApiResult<axum::response::Response> {
+    // Clone Arc and release lock immediately
+    let ruleset = {
+        let store = state.store.read().await;
+        store
+            .get_for_tenant(&tenant.id, &name)
+            .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
+        // read lock drops here
+    };
 
-    // Clone to return
-    Ok(Json((*ruleset).clone()))
+    // Serialize outside the lock — no deep RuleSet clone needed, just the Arc
+    let body = serde_json::to_vec(&*ruleset)
+        .map_err(|e| ApiError::internal(format!("Serialization error: {}", e)))?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body))
+        .unwrap())
 }
 
 /// Create or update a ruleset
@@ -286,18 +301,20 @@ pub async fn create_ruleset(
         strip_signature(&mut payload).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let signature = resolve_signature(header_signature, body_signature)?;
 
-    let mut ruleset: RuleSet = serde_json::from_value(payload.clone())?;
-
-    let mut store = state.store.write().await;
-    let name = ruleset.config.name.clone();
-    let new_version = ruleset.config.version.clone();
-    let exists = store.exists_for_tenant(&tenant.id, &name);
-
+    // Verify signature BEFORE consuming the payload to avoid cloning
     if let Some(verifier) = &state.signature_verifier {
         verifier
             .verify_json_value(&payload, signature.as_ref())
             .map_err(|e| ApiError::forbidden(format!("Signature verification failed: {}", e)))?;
     }
+
+    // Now we can consume the payload without cloning
+    let mut ruleset: RuleSet = serde_json::from_value(payload)?;
+
+    let mut store = state.store.write().await;
+    let name = ruleset.config.name.clone();
+    let new_version = ruleset.config.version.clone();
+    let exists = store.exists_for_tenant(&tenant.id, &name);
 
     if let Some(config_tenant) = ruleset.config.tenant_id.as_deref() {
         if config_tenant != tenant.id {
@@ -324,21 +341,42 @@ pub async fn create_ruleset(
 
     metrics::set_tenant_rules_count(&tenant.id, store.list_for_tenant(&tenant.id).len() as i64);
 
-    // Log audit event
+    // Log audit event + fire webhook
     let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
     if exists {
         let rule_id = format!("{}/{}", tenant.id, name);
-        state.audit_logger.log_rule_updated(
-            &rule_id,
-            &old_version.unwrap_or_default(),
-            &new_version,
-            source_ip,
-        );
+        let from_ver = old_version.unwrap_or_default();
+        state
+            .audit_logger
+            .log_rule_updated(&rule_id, &from_ver, &new_version, source_ip);
+        state
+            .webhook_manager
+            .fire(
+                crate::webhook::WebhookEvent::RuleUpdated,
+                Some(tenant.id.clone()),
+                serde_json::json!({
+                    "name": name,
+                    "from_version": from_ver,
+                    "to_version": new_version,
+                }),
+            )
+            .await;
     } else {
         let rule_id = format!("{}/{}", tenant.id, name);
         state
             .audit_logger
             .log_rule_created(&rule_id, &new_version, source_ip);
+        state
+            .webhook_manager
+            .fire(
+                crate::webhook::WebhookEvent::RuleCreated,
+                Some(tenant.id.clone()),
+                serde_json::json!({
+                    "name": name,
+                    "version": new_version,
+                }),
+            )
+            .await;
     }
 
     let status = if exists {
@@ -370,6 +408,14 @@ pub async fn delete_ruleset(
         let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
         let rule_id = format!("{}/{}", tenant.id, name);
         state.audit_logger.log_rule_deleted(&rule_id, source_ip);
+        state
+            .webhook_manager
+            .fire(
+                crate::webhook::WebhookEvent::RuleDeleted,
+                Some(tenant.id.clone()),
+                serde_json::json!({ "name": name }),
+            )
+            .await;
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::not_found(format!("RuleSet '{}' not found", name)))
@@ -382,23 +428,32 @@ pub async fn execute_ruleset(
     Extension(tenant): Extension<TenantContext>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
     Path(name): Path<String>,
-    Json(request): Json<ExecuteRequest>,
+    SimdJson(request): SimdJson<ExecuteRequest>,
 ) -> ApiResult<Json<ExecuteResponse>> {
     let start = Instant::now();
 
     // Track active executions
     metrics::inc_active_executions();
 
-    // Get ruleset with minimal lock hold time
-    // We get Arc<RuleSet> and immediately release the lock
-    let ruleset = {
+    // Get ruleset and external data with minimal lock hold time
+    let (ruleset, external_data) = {
         let store = state.store.read().await;
-        store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
+        let rs = store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
             metrics::dec_active_executions();
             ApiError::not_found(format!("RuleSet '{}' not found", name))
-        })?
+        })?;
+        let data = store.get_all_data_for_tenant(&tenant.id);
+        (rs, data)
         // Lock is released here when store goes out of scope
     };
+
+    // Inject external data as $data field in input
+    let mut input = request.input;
+    if !external_data.is_null() {
+        if let ordo_core::context::Value::Object(ref mut obj) = input {
+            obj.insert(std::sync::Arc::from("$data"), external_data);
+        }
+    }
 
     // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
     let exec_options = if tenant.config.execution_timeout_ms > 0 || request.trace {
@@ -416,61 +471,78 @@ pub async fn execute_ruleset(
     };
 
     // Execute without holding the lock and without cloning RuleSet
-    let result =
-        match state
-            .executor
-            .execute_with_options(&ruleset, request.input, exec_options.as_ref())
-        {
-            Ok(result) => {
-                // Record success metrics
-                let duration_secs = start.elapsed().as_secs_f64();
-                metrics::record_execution_success(&name, duration_secs);
-                metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
+    let result = match state
+        .executor
+        .execute_with_options(&ruleset, input, exec_options.as_ref())
+    {
+        Ok(result) => {
+            // Record success metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_success(&name, duration_secs);
+            metrics::record_tenant_execution_success(&tenant.id, &name, duration_secs);
 
-                // Record terminal result distribution
-                metrics::record_terminal_result(&name, &result.code);
+            // Record terminal result distribution
+            metrics::record_terminal_result(&name, &result.code);
 
-                // Log audit event (with sampling)
-                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-                let rule_id = format!("{}/{}", tenant.id, name);
-                state.audit_logger.log_execution(
-                    &rule_id,
-                    result.duration_us,
-                    &result.code,
-                    source_ip,
-                );
+            // Log audit event (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            let rule_id = format!("{}/{}", tenant.id, name);
+            emit_rule_execution_audit(
+                state.executor.capability_invoker(),
+                &state.audit_logger,
+                &rule_id,
+                result.duration_us,
+                &result.code,
+                source_ip,
+            );
 
-                result
-            }
-            Err(e) => {
-                // Record error metrics
-                let duration_secs = start.elapsed().as_secs_f64();
-                metrics::record_execution_error(&name, duration_secs);
-                metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
+            result
+        }
+        Err(e) => {
+            // Record error metrics
+            let duration_secs = start.elapsed().as_secs_f64();
+            metrics::record_execution_error(&name, duration_secs);
+            metrics::record_tenant_execution_error(&tenant.id, &name, duration_secs);
 
-                // Record terminal result for errors
-                metrics::record_terminal_result(&name, "error");
+            // Record terminal result for errors
+            metrics::record_terminal_result(&name, "error");
 
-                // Log audit event for errors (with sampling)
-                let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
-                let rule_id = format!("{}/{}", tenant.id, name);
-                state.audit_logger.log_execution(
-                    &rule_id,
-                    start.elapsed().as_micros() as u64,
-                    "error",
-                    source_ip,
-                );
+            // Log audit event for errors (with sampling)
+            let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
+            let rule_id = format!("{}/{}", tenant.id, name);
+            emit_rule_execution_audit(
+                state.executor.capability_invoker(),
+                &state.audit_logger,
+                &rule_id,
+                start.elapsed().as_micros() as u64,
+                "error",
+                source_ip,
+            );
 
-                metrics::dec_active_executions();
-                return Err(e.into());
-            }
-        };
+            metrics::dec_active_executions();
+            return Err(e.into());
+        }
+    };
 
     // Decrement active executions
     metrics::dec_active_executions();
 
     // Build response using helper function
     let trace = build_trace_info(result.trace.as_ref(), request.trace);
+
+    // Fire webhook (non-blocking)
+    state
+        .webhook_manager
+        .fire(
+            crate::webhook::WebhookEvent::RuleExecuted,
+            Some(tenant.id.clone()),
+            serde_json::json!({
+                "name": name,
+                "code": &result.code,
+                "duration_us": result.duration_us,
+            }),
+        )
+        .await;
 
     Ok(Json(ExecuteResponse {
         code: result.code,
@@ -492,7 +564,7 @@ pub async fn execute_ruleset_batch(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(name): Path<String>,
-    Json(request): Json<BatchExecuteRequest>,
+    SimdJson(request): SimdJson<BatchExecuteRequest>,
 ) -> ApiResult<Json<BatchExecuteResponse>> {
     let start = Instant::now();
 
@@ -569,51 +641,58 @@ pub async fn execute_ruleset_batch(
     };
 
     let results: Vec<BatchExecuteResultItem> = if request.options.parallel {
-        let futures = request.inputs.into_iter().map(|input| {
-            let ruleset = Arc::clone(&ruleset);
-            let executor = executor.clone();
-            let exec_options = Arc::clone(&exec_options);
-            tokio::task::spawn_blocking(move || {
-                let start_one = Instant::now();
-                match executor.execute_with_options(&ruleset, input, Some(&exec_options)) {
-                    Ok(result) => {
-                        let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
-                        BatchExecuteResultItem {
-                            code: result.code,
-                            message: result.message,
-                            output: result.output,
-                            duration_us: result.duration_us,
-                            trace,
-                            error: None,
+        // Use a single spawn_blocking + rayon par_iter instead of N spawn_blocking tasks.
+        // This avoids 1000 task allocations for a 1000-item batch and uses rayon's
+        // work-stealing thread pool for efficient CPU utilization.
+        let inputs = request.inputs;
+        let par_executor = executor.clone();
+        let par_ruleset = Arc::clone(&ruleset);
+        let par_exec_options = Arc::clone(&exec_options);
+        tokio::task::spawn_blocking(move || {
+            use rayon::prelude::*;
+            inputs
+                .into_par_iter()
+                .map(|input| {
+                    let start_one = Instant::now();
+                    match par_executor.execute_with_options(
+                        &par_ruleset,
+                        input,
+                        Some(&par_exec_options),
+                    ) {
+                        Ok(result) => {
+                            let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
+                            BatchExecuteResultItem {
+                                code: result.code,
+                                message: result.message,
+                                output: result.output,
+                                duration_us: result.duration_us,
+                                trace,
+                                error: None,
+                            }
                         }
+                        Err(err) => BatchExecuteResultItem {
+                            code: "error".to_string(),
+                            message: err.to_string(),
+                            output: Value::Null,
+                            duration_us: start_one.elapsed().as_micros() as u64,
+                            trace: None,
+                            error: Some(err.to_string()),
+                        },
                     }
-                    Err(err) => BatchExecuteResultItem {
-                        code: "error".to_string(),
-                        message: err.to_string(),
-                        output: Value::Null,
-                        duration_us: start_one.elapsed().as_micros() as u64,
-                        trace: None,
-                        error: Some(err.to_string()),
-                    },
-                }
-            })
-        });
-
-        join_all(futures)
-            .await
-            .into_iter()
-            .map(|result| match result {
-                Ok(item) => item,
-                Err(err) => BatchExecuteResultItem {
-                    code: "error".to_string(),
-                    message: "batch task failed".to_string(),
-                    output: Value::Null,
-                    duration_us: 0,
-                    trace: None,
-                    error: Some(err.to_string()),
-                },
-            })
-            .collect()
+                })
+                .collect()
+        })
+        .await
+        .unwrap_or_else(|err| {
+            vec![BatchExecuteResultItem {
+                code: "error".to_string(),
+                message: "batch task failed".to_string(),
+                output: Value::Null,
+                duration_us: 0,
+                trace: None,
+                error: Some(err.to_string()),
+            }]
+        })
     } else {
         request
             .inputs
@@ -653,7 +732,9 @@ pub async fn execute_ruleset_batch(
     }))
 }
 /// Evaluate an expression (debug endpoint)
-pub async fn eval_expression(Json(request): Json<EvalRequest>) -> ApiResult<Json<EvalResponse>> {
+pub async fn eval_expression(
+    SimdJson(request): SimdJson<EvalRequest>,
+) -> ApiResult<Json<EvalResponse>> {
     let start = Instant::now();
 
     // Parse expression
@@ -745,6 +826,41 @@ pub async fn list_versions(
     Ok(Json(versions))
 }
 
+/// Get a historical snapshot of a ruleset version.
+pub async fn get_version_snapshot(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((name, seq)): Path<(String, u32)>,
+) -> ApiResult<axum::response::Response> {
+    let store = state.store.read().await;
+
+    if !store.exists_for_tenant(&tenant.id, &name) {
+        return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
+    }
+
+    if !store.persistence_enabled() {
+        return Err(ApiError::bad_request(
+            "Version snapshots not available in memory-only mode".to_string(),
+        ));
+    }
+
+    let ruleset = store
+        .get_version_for_tenant(&tenant.id, &name, seq)
+        .map_err(|e| ApiError::internal(format!("Failed to load version: {}", e)))?
+        .ok_or_else(|| {
+            ApiError::not_found(format!("Version {} not found for rule '{}'", seq, name))
+        })?;
+
+    let body = serde_json::to_vec(&ruleset)
+        .map_err(|e| ApiError::internal(format!("Serialization error: {}", e)))?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body))
+        .unwrap())
+}
+
 /// Rollback a ruleset to a specific version
 pub async fn rollback_ruleset(
     State(state): State<AppState>,
@@ -780,6 +896,19 @@ pub async fn rollback_ruleset(
                 request.seq,
                 source_ip,
             );
+            state
+                .webhook_manager
+                .fire(
+                    crate::webhook::WebhookEvent::RuleRollback,
+                    Some(tenant.id.clone()),
+                    serde_json::json!({
+                        "name": &name,
+                        "from_version": &from_version,
+                        "to_version": &to_version,
+                        "seq": request.seq,
+                    }),
+                )
+                .await;
 
             Ok(Json(RollbackResponse {
                 status: "rolled_back".to_string(),
@@ -1103,4 +1232,478 @@ pub async fn delete_tenant(
             tenant_id
         )))
     }
+}
+
+// ==================== Data Filter API ====================
+
+/// Filter request (forwarded from ordo-core)
+#[derive(Deserialize)]
+pub struct FilterRequest {
+    pub known_input: Value,
+    pub target_results: Vec<String>,
+    #[serde(default)]
+    pub format: ordo_core::filter::FilterFormat,
+    #[serde(default)]
+    pub field_mapping: std::collections::HashMap<String, String>,
+    #[serde(default = "default_max_paths")]
+    pub max_paths: usize,
+}
+
+fn default_max_paths() -> usize {
+    100
+}
+
+/// Filter response
+#[derive(Serialize)]
+pub struct FilterResponse {
+    pub format: ordo_core::filter::FilterFormat,
+    pub filter: serde_json::Value,
+    pub always_matches: bool,
+    pub never_matches: bool,
+    pub unknown_fields: Vec<String>,
+}
+
+// ==================== External Data API ====================
+
+/// List all external data names for a tenant
+pub async fn list_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+) -> ApiResult<Json<Vec<String>>> {
+    let store = state.store.read().await;
+    Ok(Json(store.list_data_for_tenant(&tenant.id)))
+}
+
+/// Get external data by name
+pub async fn get_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+) -> ApiResult<Json<ordo_core::context::Value>> {
+    let store = state.store.read().await;
+    let data = store
+        .get_data_for_tenant(&tenant.id, &name)
+        .ok_or_else(|| ApiError::not_found(format!("Data '{}' not found", name)))?;
+    Ok(Json(data.as_ref().clone()))
+}
+
+/// Put (create/update) external data
+pub async fn put_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    SimdJson(value): SimdJson<ordo_core::context::Value>,
+) -> ApiResult<StatusCode> {
+    let mut store = state.store.write().await;
+    store
+        .put_data_for_tenant(&tenant.id, &name, value)
+        .map_err(|e| ApiError::internal(format!("Failed to store data: {}", e)))?;
+    Ok(StatusCode::OK)
+}
+
+/// Delete external data
+pub async fn delete_data(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+) -> ApiResult<StatusCode> {
+    let mut store = state.store.write().await;
+    if store.delete_data_for_tenant(&tenant.id, &name) {
+        Ok(StatusCode::OK)
+    } else {
+        Err(ApiError::not_found(format!("Data '{}' not found", name)))
+    }
+}
+
+/// Generate a database filter from a ruleset via partial evaluation.
+pub async fn compile_filter(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    SimdJson(request): SimdJson<FilterRequest>,
+) -> ApiResult<Json<FilterResponse>> {
+    if request.target_results.is_empty() {
+        return Err(ApiError::bad_request(
+            "target_results cannot be empty".to_string(),
+        ));
+    }
+
+    let ruleset = {
+        let store = state.store.read().await;
+        store
+            .get_for_tenant(&tenant.id, &name)
+            .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
+    };
+
+    let core_request = ordo_core::filter::FilterRequest {
+        known_input: request.known_input,
+        target_results: request.target_results,
+        format: request.format,
+        field_mapping: request.field_mapping,
+        max_paths: request.max_paths,
+    };
+
+    let compiler = ordo_core::filter::FilterCompiler::new();
+    let result = compiler
+        .compile(&ruleset, core_request)
+        .map_err(|e| ApiError::internal(format!("Filter compilation failed: {}", e)))?;
+
+    Ok(Json(FilterResponse {
+        format: result.format,
+        filter: result.filter,
+        always_matches: result.always_matches,
+        never_matches: result.never_matches,
+        unknown_fields: result.unknown_fields,
+    }))
+}
+
+// ==================== Rule Composition / Pipeline API ====================
+
+/// Resolver backed by an in-memory snapshot of rulesets for a given tenant.
+/// Used with CallRuleSet actions in the rule executor.
+struct SnapshotResolver {
+    rulesets: std::collections::HashMap<String, Arc<RuleSet>>,
+}
+
+impl RuleSetResolver for SnapshotResolver {
+    fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
+        self.rulesets.get(name).cloned()
+    }
+}
+
+/// Pipeline execution request
+#[derive(Deserialize)]
+pub struct PipelineRequest {
+    /// Ordered list of ruleset names to execute
+    pub rulesets: Vec<String>,
+    /// Initial input
+    pub input: ordo_core::context::Value,
+    /// Enable trace
+    #[serde(default)]
+    pub trace: bool,
+}
+
+/// Pipeline execution response
+#[derive(Serialize)]
+pub struct PipelineResponse {
+    /// Results from each stage
+    pub stages: Vec<PipelineStageResult>,
+    /// Final merged output
+    pub output: ordo_core::context::Value,
+    /// Total duration in microseconds
+    pub duration_us: u64,
+}
+
+/// Result of a single pipeline stage
+#[derive(Serialize)]
+pub struct PipelineStageResult {
+    pub ruleset: String,
+    pub code: String,
+    pub message: String,
+    pub output: ordo_core::context::Value,
+    pub duration_us: u64,
+}
+
+/// Execute a pipeline of rulesets sequentially
+pub async fn execute_pipeline(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    SimdJson(request): SimdJson<PipelineRequest>,
+) -> ApiResult<Json<PipelineResponse>> {
+    let start = Instant::now();
+
+    if request.rulesets.is_empty() {
+        return Err(ApiError::bad_request("rulesets list cannot be empty"));
+    }
+    if request.rulesets.len() > 20 {
+        return Err(ApiError::bad_request("pipeline limited to 20 stages"));
+    }
+
+    // Resolve all rulesets upfront (single lock acquisition)
+    let resolved: Vec<(String, Arc<RuleSet>)> = {
+        let store = state.store.read().await;
+        let mut result = Vec::with_capacity(request.rulesets.len());
+        for name in &request.rulesets {
+            let rs = store
+                .get_for_tenant(&tenant.id, name)
+                .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+            result.push((name.clone(), rs));
+        }
+        result
+    };
+
+    let exec_options = if request.trace {
+        Some(ExecutionOptions::default().trace(true))
+    } else {
+        None
+    };
+
+    // Build a resolver from the resolved rulesets so CallRuleSet works within pipeline stages
+    let snapshot = SnapshotResolver {
+        rulesets: resolved.iter().cloned().collect(),
+    };
+    let mut pipeline_executor =
+        RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), state.metric_sink.clone());
+    pipeline_executor.set_resolver(Arc::new(snapshot));
+    if let Some(capability_invoker) = state.executor.capability_invoker() {
+        pipeline_executor.set_capability_invoker(capability_invoker);
+    }
+
+    let mut current_input = request.input;
+    let mut stages = Vec::with_capacity(resolved.len());
+
+    for (name, ruleset) in &resolved {
+        let result = pipeline_executor
+            .execute_with_options(ruleset, current_input.clone(), exec_options.as_ref())
+            .map_err(|e| ApiError::internal(format!("Pipeline stage '{}' failed: {}", name, e)))?;
+
+        stages.push(PipelineStageResult {
+            ruleset: name.clone(),
+            code: result.code.clone(),
+            message: result.message.clone(),
+            output: result.output.clone(),
+            duration_us: result.duration_us,
+        });
+
+        // Merge output into input for next stage
+        if let ordo_core::context::Value::Object(ref output_map) = result.output {
+            if let ordo_core::context::Value::Object(ref mut input_map) = current_input {
+                for (k, v) in output_map {
+                    input_map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+
+    // Build final merged output from all stages
+    let mut final_output = std::collections::HashMap::new();
+    for stage in &stages {
+        if let ordo_core::context::Value::Object(ref map) = stage.output {
+            for (k, v) in map {
+                final_output.insert(k.as_ref().to_string(), v.clone());
+            }
+        }
+    }
+
+    Ok(Json(PipelineResponse {
+        stages,
+        output: ordo_core::context::Value::object(final_output),
+        duration_us: start.elapsed().as_micros() as u64,
+    }))
+}
+
+// ==================== Webhook Management ====================
+
+/// Create webhook request
+#[derive(Deserialize)]
+pub struct CreateWebhookRequest {
+    /// Target URL
+    pub url: String,
+    /// Events to listen for (empty = all)
+    #[serde(default)]
+    pub events: Vec<crate::webhook::WebhookEvent>,
+    /// HMAC secret for signature verification
+    #[serde(default)]
+    pub secret: Option<String>,
+    /// Optional description
+    #[serde(default)]
+    pub description: String,
+    /// Max retries (default: 3)
+    #[serde(default = "default_webhook_retries")]
+    pub max_retries: u8,
+}
+
+fn default_webhook_retries() -> u8 {
+    3
+}
+
+/// Update webhook request
+#[derive(Deserialize)]
+pub struct UpdateWebhookRequest {
+    /// Target URL
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Events to listen for
+    #[serde(default)]
+    pub events: Option<Vec<crate::webhook::WebhookEvent>>,
+    /// HMAC secret
+    #[serde(default)]
+    pub secret: Option<Option<String>>,
+    /// Active flag
+    #[serde(default)]
+    pub active: Option<bool>,
+    /// Description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Max retries
+    #[serde(default)]
+    pub max_retries: Option<u8>,
+}
+
+/// List all webhooks
+pub async fn list_webhooks(
+    State(state): State<AppState>,
+) -> Json<Vec<crate::webhook::WebhookConfig>> {
+    Json(state.webhook_manager.list().await)
+}
+
+/// Get a webhook by ID
+pub async fn get_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<crate::webhook::WebhookConfig>> {
+    state
+        .webhook_manager
+        .get(&id)
+        .await
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found(format!("Webhook '{}' not found", id)))
+}
+
+/// Create a new webhook
+pub async fn create_webhook(
+    State(state): State<AppState>,
+    Json(request): Json<CreateWebhookRequest>,
+) -> ApiResult<(StatusCode, Json<crate::webhook::WebhookConfig>)> {
+    if request.url.is_empty() {
+        return Err(ApiError::bad_request("url cannot be empty"));
+    }
+
+    let config = crate::webhook::WebhookConfig {
+        id: String::new(), // auto-generated
+        url: request.url,
+        events: request.events,
+        secret: request.secret,
+        active: true,
+        max_retries: request.max_retries,
+        description: request.description,
+    };
+
+    let id = state.webhook_manager.register(config.clone()).await;
+
+    // Return the config with the assigned ID
+    let registered = state.webhook_manager.get(&id).await.unwrap();
+    Ok((StatusCode::CREATED, Json(registered)))
+}
+
+/// Update a webhook
+pub async fn update_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateWebhookRequest>,
+) -> ApiResult<Json<crate::webhook::WebhookConfig>> {
+    let mut config = state
+        .webhook_manager
+        .get(&id)
+        .await
+        .ok_or_else(|| ApiError::not_found(format!("Webhook '{}' not found", id)))?;
+
+    if let Some(url) = request.url {
+        config.url = url;
+    }
+    if let Some(events) = request.events {
+        config.events = events;
+    }
+    if let Some(secret) = request.secret {
+        config.secret = secret;
+    }
+    if let Some(active) = request.active {
+        config.active = active;
+    }
+    if let Some(description) = request.description {
+        config.description = description;
+    }
+    if let Some(max_retries) = request.max_retries {
+        config.max_retries = max_retries;
+    }
+
+    state.webhook_manager.update(config.clone()).await;
+
+    Ok(Json(config))
+}
+
+/// Delete a webhook
+pub async fn delete_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    if state.webhook_manager.unregister(&id).await {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found(format!("Webhook '{}' not found", id)))
+    }
+}
+
+// ==================== Admin API ====================
+
+/// Manually trigger a full reload of all rules from disk.
+///
+/// This is useful when files are deployed externally (e.g. via CI/CD or
+/// config management) and you want immediate reload without waiting for
+/// the file watcher debounce or polling interval.
+pub async fn admin_reload(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
+    let start = Instant::now();
+
+    if state.config.rules_dir.is_none() {
+        return Err(ApiError::bad_request(
+            "Reload requires --rules-dir to be configured".to_string(),
+        ));
+    }
+
+    let mut store = state.store.write().await;
+
+    // Full sync: load/update rules from disk AND remove rules deleted from disk.
+    let (rules_loaded, rules_removed) = store.sync_from_dir().map_err(|e| {
+        metrics::record_hot_reload("admin_full", false);
+        ApiError::internal(format!("Reload failed: {}", e))
+    })?;
+
+    // Full sync for external data as well.
+    let (data_loaded, data_removed) = store.sync_data_from_dir().unwrap_or((0, 0));
+
+    drop(store);
+
+    // Reload tenant config
+    if let Err(e) = state.tenant_manager.reload().await {
+        tracing::warn!("Tenant config reload failed during admin reload: {}", e);
+    }
+
+    metrics::record_hot_reload("admin_full", true);
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    tracing::info!(
+        rules_loaded,
+        rules_removed,
+        data_loaded,
+        data_removed,
+        duration_ms = duration_ms,
+        "Admin reload completed"
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "reloaded",
+        "rules_loaded": rules_loaded,
+        "rules_removed": rules_removed,
+        "data_loaded": data_loaded,
+        "data_removed": data_removed,
+        "duration_ms": duration_ms,
+    })))
+}
+
+// ==================== Rule Testing API ====================
+
+/// Run a test suite against a named ruleset.
+pub async fn test_ruleset(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(name): Path<String>,
+    Json(suite): Json<ordo_core::testing::TestSuite>,
+) -> ApiResult<Json<ordo_core::testing::TestSuiteResult>> {
+    let store = state.store.read().await;
+    let ruleset = store
+        .get_for_tenant(&tenant.id, &name)
+        .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
+
+    let result = ordo_core::testing::run_test_suite(&state.executor, &ruleset, &suite);
+    Ok(Json(result))
 }

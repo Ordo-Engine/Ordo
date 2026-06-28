@@ -4,7 +4,7 @@
  */
 
 import type { RuleSet, JITSchema, JITRulesetAnalysis } from '../model';
-import type { ExecutionResult, ValidationResult, EvalResult } from './types';
+import type { ExecutionResult, EngineValidationResult, EvalResult } from './types';
 import { convertToEngineFormat, validateEngineCompatibility } from './adapter';
 
 /** Execution options */
@@ -278,7 +278,7 @@ export class RuleExecutor {
   async validate(
     ruleset: RuleSet,
     options: Pick<ExecutionOptions, 'mode' | 'httpEndpoint'> = {}
-  ): Promise<ValidationResult> {
+  ): Promise<EngineValidationResult> {
     // First check client-side compatibility
     const compatErrors = validateEngineCompatibility(ruleset);
     if (compatErrors.length > 0) {
@@ -303,7 +303,7 @@ export class RuleExecutor {
   /**
    * Validate via WASM
    */
-  private async validateViaWasm(ruleset: any): Promise<ValidationResult> {
+  private async validateViaWasm(ruleset: any): Promise<EngineValidationResult> {
     await this.initWasm();
 
     if (!this.wasmModule) {
@@ -327,7 +327,7 @@ export class RuleExecutor {
   private async validateViaHttp(
     ruleset: any,
     options: Pick<ExecutionOptions, 'httpEndpoint'>
-  ): Promise<ValidationResult> {
+  ): Promise<EngineValidationResult> {
     const endpoint = options.httpEndpoint || 'http://localhost:8080';
 
     try {

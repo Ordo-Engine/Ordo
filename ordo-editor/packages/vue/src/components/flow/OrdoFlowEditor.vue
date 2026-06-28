@@ -3,16 +3,24 @@
  * OrdoFlowEditor - Flow-based ruleset editor
  * 流程图模式规则集编辑器
  */
-import { ref, computed, watch, onMounted, markRaw, provide } from 'vue';
+import { ref, computed, inject, watch, onMounted, markRaw, provide, nextTick } from 'vue';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { MiniMap } from '@vue-flow/minimap';
-import type { RuleSet, Step } from '@ordo-engine/editor-core';
+import type { RuleSet, Step, SubRuleGraph, SubRuleStep } from '@ordo-engine/editor-core';
 import { Step as StepFactory, generateId } from '@ordo-engine/editor-core';
 
-import { DecisionNode, ActionNode, TerminalNode, GroupNode, type StepTraceInfo } from './nodes';
+import {
+  DecisionNode,
+  ActionNode,
+  TerminalNode,
+  SubRuleNode,
+  GroupNode,
+  type StepTraceInfo,
+} from './nodes';
 import { OrdoEdge } from './edges';
+import OrdoIcon from '../icons/OrdoIcon.vue';
 import OrdoFlowToolbar from './OrdoFlowToolbar.vue';
 import OrdoFlowPropertyPanel from './OrdoFlowPropertyPanel.vue';
 import {
@@ -20,6 +28,9 @@ import {
   flowToRuleset,
   createNodeFromStep,
   createEdge,
+  type EdgeRenderStyle,
+  type FlowEdge,
+  type FlowNode,
   createGroupNode,
 } from './utils/converter';
 import {
@@ -31,18 +42,35 @@ import {
 } from './utils/layout';
 import { useI18n, LOCALE_KEY, type Lang } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
+import type { SubRuleAssetOption } from '../step/subRuleAssets';
+type NodeCreationType = 'decision' | 'action' | 'terminal' | 'sub_rule';
+
+export interface ExecutionTraceStep {
+  id: string;
+  name: string;
+  duration_us: number;
+  result?: string | null;
+  next_step?: string | null;
+  is_terminal?: boolean;
+  input_snapshot?: Record<string, any> | null;
+  variables_snapshot?: Record<string, any> | null;
+  sub_rule_ref?: string | null;
+  sub_rule_input?: Record<string, any> | null;
+  sub_rule_outputs?: Array<{
+    parent_var: string;
+    child_var: string;
+    value?: any;
+    missing?: boolean;
+  }>;
+  sub_rule_frames?: ExecutionTraceStep[];
+}
 
 /** Execution trace data for overlay */
 export interface ExecutionTraceData {
   /** Execution path as array of step IDs */
   path: string[];
   /** Step trace details */
-  steps: Array<{
-    id: string;
-    name: string;
-    duration_us: number;
-    result?: string | null;
-  }>;
+  steps: ExecutionTraceStep[];
   /** Final result code */
   resultCode: string;
   /** Final result message */
@@ -51,39 +79,80 @@ export interface ExecutionTraceData {
   output?: Record<string, any>;
 }
 
+export interface ExtractSubRulePayload {
+  suggestedName: string;
+  displayName: string;
+  subRuleStepId: string;
+  selectedStepCount: number;
+  draft: RuleSet;
+  parentRuleset: RuleSet;
+}
+
+export interface ExtractSubRuleRequest {
+  id: number;
+  stepIds: string[];
+}
+
 export interface Props {
   /** RuleSet data */
   modelValue: RuleSet;
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Managed project/org sub-rule assets */
+  managedSubRules?: SubRuleAssetOption[];
   /** Whether the editor is disabled */
   disabled?: boolean;
   /** Locale */
   locale?: Lang;
   /** Execution trace to display as overlay */
   executionTrace?: ExecutionTraceData | null;
+  /** Executable ruleset used for trace-only expansion of hydrated sub-rules */
+  executionRuleset?: RuleSet | null;
+  /** Lock the canvas into execution path mode without selection/edit interactions */
+  traceMode?: boolean;
+  /** Programmatic extraction request from a host shell */
+  extractSubRuleRequest?: ExtractSubRuleRequest | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
+  managedSubRules: () => [],
   disabled: false,
-  locale: 'en',
   executionTrace: null,
+  executionRuleset: null,
+  traceMode: false,
+  extractSubRuleRequest: null,
 });
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
   change: [value: RuleSet];
+  'open-sub-rule': [name: string];
+  'extract-sub-rule': [payload: ExtractSubRulePayload];
+  'extract-sub-rule-invalid': [reason: string];
 }>();
 
-// Provide locale using the shared key
-const currentLocale = ref<Lang>(props.locale);
-watch(
-  () => props.locale,
-  (val) => {
-    currentLocale.value = val;
-  }
-);
+const FLOW_EDGE_STYLE_KEY = '_flowEdgeStyle';
+const FLOW_LAYOUT_DIRECTION_KEY = '_flowLayoutDirection';
+const FLOW_NODE_DRAG_TYPE = 'application/x-ordo-flow-node';
+const DEFAULT_NODE_DROP_OFFSET = { x: 90, y: 40 };
+const TRACE_EXPANSION_PREFIX = '__ordo_trace_subrule__';
+const TRACE_EXPANSION_GAP_X = 360;
+const TRACE_EXPANSION_GAP_Y = 56;
+
+function getStoredEdgeStyle(ruleset: RuleSet): EdgeRenderStyle {
+  const stored = ruleset.config.metadata?.[FLOW_EDGE_STYLE_KEY];
+  return stored === 'step' ? 'step' : 'bezier';
+}
+
+function getStoredLayoutDirection(ruleset: RuleSet): LayoutDirection {
+  const stored = ruleset.config.metadata?.[FLOW_LAYOUT_DIRECTION_KEY];
+  return stored === 'TB' || stored === 'RL' || stored === 'BT' ? stored : 'LR';
+}
+
+// Inherit locale from parent provider unless the caller explicitly overrides it.
+const inheritedLocale = inject(LOCALE_KEY, ref<Lang>('en'));
+const currentLocale = computed<Lang>(() => props.locale ?? inheritedLocale.value);
 provide(LOCALE_KEY, currentLocale);
 
 const { t } = useI18n();
@@ -103,6 +172,7 @@ const {
   updateEdge,
   removeEdges,
   addEdges,
+  screenToFlowCoordinate,
 } = useVueFlow();
 
 // Edge update state
@@ -120,6 +190,7 @@ const nodeTypes: Record<string, any> = {
   decision: markRaw(DecisionNode),
   action: markRaw(ActionNode),
   terminal: markRaw(TerminalNode),
+  sub_rule: markRaw(SubRuleNode),
   group: markRaw(GroupNode),
 };
 
@@ -135,12 +206,19 @@ const groupNodes = ref<any[]>([]);
 const selectedNodeId = ref<string | null>(null);
 const selectedNodeIds = ref<string[]>([]); // For multi-select
 const selectedEdgeId = ref<string | null>(null); // For edge context menu
-const edgeStyle = ref<'bezier' | 'step'>('bezier');
-const layoutDirection = ref<LayoutDirection>('LR');
+const edgeStyle = ref<EdgeRenderStyle>(getStoredEdgeStyle(props.modelValue));
+const layoutDirection = ref<LayoutDirection>(getStoredLayoutDirection(props.modelValue));
 
 // Context menu state
 const showContextMenu = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
+const flowCanvasContainer = ref<HTMLElement | null>(null);
+const draggedNodeType = ref<NodeCreationType | null>(null);
+const nodeDragPreview = ref<{
+  type: NodeCreationType;
+  x: number;
+  y: number;
+} | null>(null);
 
 // Flag to prevent re-initialization during internal updates
 const isInternalUpdate = ref(false);
@@ -152,6 +230,10 @@ const highlightedEdgeIds = ref<Set<string>>(new Set());
 // Execution trace overlay state
 const showExecutionOverlay = ref(false);
 const executionAnnotations = ref<Map<string, StepTraceInfo>>(new Map());
+let pendingTraceApplyToken = 0;
+let lastHandledExtractSubRuleRequestId: number | null = null;
+
+const isCanvasReadOnly = computed(() => props.disabled || props.traceMode);
 
 // Selected node data
 const selectedNode = computed(() => {
@@ -173,9 +255,55 @@ const selectedGroupNode = computed(() => {
   return node;
 });
 
+interface ExtractSubRuleEligibility {
+  valid: boolean;
+  reason?: string;
+  entryId?: string;
+  exitTargetId?: string;
+  selectedNodes: FlowNode[];
+  internalEdges: FlowEdge[];
+  externalIncomingEdges: FlowEdge[];
+  externalOutgoingEdges: FlowEdge[];
+}
+
+const extractSubRuleEligibility = computed(() => getExtractSubRuleEligibility());
+
+const nodeDragPreviewLabel = computed(() => {
+  if (!nodeDragPreview.value) return '';
+
+  switch (nodeDragPreview.value.type) {
+    case 'decision':
+      return t('step.decision');
+    case 'action':
+      return t('step.action');
+    case 'terminal':
+      return t('step.terminal');
+    case 'sub_rule':
+      return t('step.subRule');
+  }
+});
+
+const nodeDragPreviewTypeLabel = computed(() => {
+  if (!nodeDragPreview.value) return '';
+
+  switch (nodeDragPreview.value.type) {
+    case 'decision':
+      return t('step.typeDecision');
+    case 'action':
+      return t('step.typeAction');
+    case 'terminal':
+      return t('step.typeTerminal');
+    case 'sub_rule':
+      return t('step.typeSubRule');
+  }
+});
+
 // Initialize from ruleset
 function initFromRuleset(forceLayout = false) {
-  const flowData = rulesetToFlow(props.modelValue);
+  edgeStyle.value = getStoredEdgeStyle(props.modelValue);
+  layoutDirection.value = getStoredLayoutDirection(props.modelValue);
+
+  const flowData = rulesetToFlow(props.modelValue, edgeStyle.value);
 
   // Add zIndex to group nodes to keep them at bottom
   // NOTE: Do NOT set draggable here - let it inherit from VueFlow's nodes-draggable prop
@@ -200,23 +328,46 @@ function initFromRuleset(forceLayout = false) {
       autoLayout();
     }, 10);
   }
+
+  if (props.executionTrace) {
+    void scheduleTraceApply(props.executionTrace);
+  }
+}
+
+function buildFlowConfig() {
+  return {
+    ...props.modelValue.config,
+    metadata: {
+      ...(props.modelValue.config.metadata ?? {}),
+      [FLOW_EDGE_STYLE_KEY]: edgeStyle.value,
+      [FLOW_LAYOUT_DIRECTION_KEY]: layoutDirection.value,
+    },
+  };
+}
+
+function isTraceOnlyElement(element: any): boolean {
+  return element?.data?.traceOnly === true;
 }
 
 // Sync back to ruleset
 function syncToRuleset() {
+  if (isCanvasReadOnly.value) return;
+
   // Set flag to prevent watch from re-initializing
   isInternalUpdate.value = true;
 
   // Filter out group nodes for step processing
-  const stepNodes = nodes.value.filter((n) => n.type !== 'group');
-  const currentGroupNodes = nodes.value.filter((n) => n.type === 'group');
+  const stepNodes = nodes.value.filter((n) => n.type !== 'group' && !isTraceOnlyElement(n));
+  const currentGroupNodes = nodes.value.filter((n) => n.type === 'group' && !isTraceOnlyElement(n));
+  const persistedEdges = edges.value.filter((e) => !isTraceOnlyElement(e));
 
   const newRuleset = flowToRuleset(
     stepNodes,
-    edges.value,
-    props.modelValue.config,
+    persistedEdges,
+    buildFlowConfig(),
     props.modelValue.startStepId,
-    currentGroupNodes
+    currentGroupNodes,
+    props.modelValue.subRules
   );
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
@@ -242,7 +393,7 @@ watch(
   () => props.executionTrace,
   (trace) => {
     if (trace) {
-      applyExecutionTrace(trace);
+      void scheduleTraceApply(trace);
     } else {
       clearExecutionTrace();
     }
@@ -250,14 +401,258 @@ watch(
   { immediate: true }
 );
 
+watch(
+  () => props.extractSubRuleRequest?.id,
+  () => {
+    if (props.extractSubRuleRequest) {
+      void applyExtractSubRuleRequest(props.extractSubRuleRequest);
+    }
+  }
+);
+
+async function scheduleTraceApply(trace: ExecutionTraceData) {
+  const token = ++pendingTraceApplyToken;
+  await nextTick();
+  setTimeout(() => {
+    if (token !== pendingTraceApplyToken) return;
+    applyExecutionTrace(trace);
+  }, 120);
+}
+
 // ============================================
 // Execution trace overlay functionality
 // ============================================
+
+function stripTransientHighlightClasses(className: unknown): string {
+  return String(className ?? '')
+    .split(/\s+/)
+    .filter(
+      (name) =>
+        name &&
+        name !== 'execution-highlighted' &&
+        name !== 'execution-dimmed' &&
+        name !== 'path-highlighted' &&
+        name !== 'path-dimmed'
+    )
+    .join(' ');
+}
+
+function withTransientClass(className: unknown, nextClass: string | null): string {
+  const base = stripTransientHighlightClasses(className);
+  return [base, nextClass].filter(Boolean).join(' ');
+}
+
+function removeTraceExpansion() {
+  nodes.value = nodes.value.filter((node) => !isTraceOnlyElement(node));
+  edges.value = edges.value.filter((edge) => !isTraceOnlyElement(edge));
+}
+
+function safeTraceId(value: string): string {
+  return (
+    value
+      .trim()
+      .replace(/[^a-zA-Z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'value'
+  );
+}
+
+function runtimeRefSuffixForStep(stepId: string): string {
+  return `__${safeTraceId(stepId)}_terminal_return`;
+}
+
+function stripRuntimeSubRuleRef(refName: string | null | undefined, stepId: string): string | null {
+  if (!refName) return null;
+  const suffix = runtimeRefSuffixForStep(stepId);
+  return refName.endsWith(suffix) ? refName.slice(0, -suffix.length) : refName;
+}
+
+function traceChildNodeId(parentDisplayId: string, childStepId: string): string {
+  return `${TRACE_EXPANSION_PREFIX}${parentDisplayId}__${childStepId}`;
+}
+
+function traceSubRuleGraphs(): Record<string, SubRuleGraph> {
+  return {
+    ...(props.executionRuleset?.subRules ?? {}),
+    ...(props.modelValue.subRules ?? {}),
+  };
+}
+
+function resolveTraceSubRuleGraph(
+  parentNode: any,
+  traceStep: ExecutionTraceStep
+): { name: string; graph: SubRuleGraph } | null {
+  const graphs = traceSubRuleGraphs();
+  const step = parentNode?.data?.step as SubRuleStep | undefined;
+  const candidates = [
+    stripRuntimeSubRuleRef(step?.refName, traceStep.id),
+    stripRuntimeSubRuleRef(traceStep.sub_rule_ref, traceStep.id),
+    step?.refName,
+    traceStep.sub_rule_ref ?? undefined,
+  ].filter((name): name is string => !!name);
+
+  for (const name of candidates) {
+    const graph = graphs[name];
+    if (graph) return { name, graph };
+  }
+
+  return null;
+}
+
+function buildSubRuleTraceExpansion(
+  trace: ExecutionTraceData,
+  annotations: Map<string, StepTraceInfo>,
+  nodeIds: Set<string>,
+  edgeIds: Set<string>
+): { nodes: any[]; edges: any[] } {
+  const expansionNodes: any[] = [];
+  const expansionEdges: any[] = [];
+  const nodeLookup = new Map<string, any>(nodes.value.map((node) => [node.id, node]));
+
+  function addStepAnnotations(
+    steps: ExecutionTraceStep[],
+    resolveDisplayId: (stepId: string) => string,
+    orderPrefix: string,
+    resultCode?: string
+  ) {
+    steps.forEach((step, index) => {
+      const displayId = resolveDisplayId(step.id);
+      const isEntry = index === 0;
+      const isTerminal = step.is_terminal || index === steps.length - 1;
+
+      annotations.set(displayId, {
+        stepId: displayId,
+        stepName: step.name,
+        durationUs: step.duration_us,
+        order: orderPrefix ? `${orderPrefix}.${index + 1}` : index + 1,
+        isEntry,
+        isTerminal,
+        resultCode: isTerminal ? step.result ?? resultCode : undefined,
+      });
+      nodeIds.add(displayId);
+    });
+
+    const pathIds = steps.map((step) => resolveDisplayId(step.id));
+    for (let i = 0; i < pathIds.length - 1; i++) {
+      const edge = [...edges.value, ...expansionEdges].find(
+        (item) => item.source === pathIds[i] && item.target === pathIds[i + 1]
+      );
+      if (edge) edgeIds.add(edge.id);
+    }
+  }
+
+  function expandNestedSteps(
+    steps: ExecutionTraceStep[],
+    resolveDisplayId: (stepId: string) => string,
+    orderPrefix: string
+  ) {
+    steps.forEach((step, index) => {
+      if (!step.sub_rule_frames?.length) return;
+
+      const parentDisplayId = resolveDisplayId(step.id);
+      const parentNode = nodeLookup.get(parentDisplayId);
+      const resolved = resolveTraceSubRuleGraph(parentNode, step);
+      if (!parentNode || !resolved) return;
+
+      const { graph, name } = resolved;
+      const graphRuleset: RuleSet = {
+        config: {
+          ...props.modelValue.config,
+          name,
+        },
+        startStepId: graph.entryStep,
+        steps: graph.steps,
+        subRules: traceSubRuleGraphs(),
+        groups: [],
+      };
+      const flowData = rulesetToFlow(graphRuleset, edgeStyle.value);
+      const childNodes = needsAutoLayout(flowData.nodes)
+        ? applyDagreLayout(flowData.nodes, flowData.edges, { direction: layoutDirection.value })
+        : flowData.nodes;
+      if (childNodes.length === 0) return;
+
+      const minX = Math.min(...childNodes.map((node) => node.position?.x ?? 0));
+      const minY = Math.min(...childNodes.map((node) => node.position?.y ?? 0));
+      const anchor = parentNode.position ?? { x: 0, y: 0 };
+      const childId = (stepId: string) => traceChildNodeId(parentDisplayId, stepId);
+
+      for (const node of childNodes) {
+        const displayId = childId(node.id);
+        const displayNode = {
+          ...node,
+          id: displayId,
+          position: {
+            x: anchor.x + TRACE_EXPANSION_GAP_X + ((node.position?.x ?? 0) - minX),
+            y: anchor.y + TRACE_EXPANSION_GAP_Y + ((node.position?.y ?? 0) - minY) + index * 36,
+          },
+          selectable: false,
+          draggable: false,
+          connectable: false,
+          class: withTransientClass(node.class, 'trace-expanded-subrule'),
+          data: {
+            ...node.data,
+            traceOnly: true,
+            traceParentStepId: parentDisplayId,
+            traceSubRuleRef: name,
+          },
+        };
+        nodeLookup.set(displayId, displayNode);
+        expansionNodes.push(displayNode);
+      }
+
+      for (const edge of flowData.edges) {
+        expansionEdges.push({
+          ...edge,
+          id: `${TRACE_EXPANSION_PREFIX}${parentDisplayId}__edge__${edge.id}`,
+          source: childId(edge.source),
+          target: childId(edge.target),
+          selectable: false,
+          updatable: false,
+          class: withTransientClass(edge.class, 'trace-expanded-subrule-edge'),
+          data: {
+            ...edge.data,
+            traceOnly: true,
+            traceParentStepId: parentDisplayId,
+            traceSubRuleRef: name,
+          },
+        });
+      }
+
+      const entryNodeId = childId(graph.entryStep);
+      const bridgeEdge = createEdge(parentDisplayId, entryNodeId, {
+        sourceHandle: 'output',
+        targetHandle: 'input',
+        renderStyle: edgeStyle.value,
+      });
+      expansionEdges.push({
+        ...bridgeEdge,
+        id: `${TRACE_EXPANSION_PREFIX}${parentDisplayId}__bridge`,
+        selectable: false,
+        updatable: false,
+        class: withTransientClass(bridgeEdge.class, 'trace-subrule-bridge'),
+        data: {
+          ...bridgeEdge.data,
+          traceOnly: true,
+          traceParentStepId: parentDisplayId,
+          traceSubRuleRef: name,
+        },
+      });
+      edgeIds.add(`${TRACE_EXPANSION_PREFIX}${parentDisplayId}__bridge`);
+
+      const childOrderPrefix = orderPrefix ? `${orderPrefix}.${index + 1}` : `${index + 1}`;
+      addStepAnnotations(step.sub_rule_frames, childId, childOrderPrefix, trace.resultCode);
+      expandNestedSteps(step.sub_rule_frames, childId, childOrderPrefix);
+    });
+  }
+
+  expandNestedSteps(trace.steps, (stepId) => stepId, '');
+  return { nodes: expansionNodes, edges: expansionEdges };
+}
 
 /**
  * Apply execution trace overlay to the flow
  */
 function applyExecutionTrace(trace: ExecutionTraceData) {
+  removeTraceExpansion();
   showExecutionOverlay.value = true;
 
   // Build annotations map
@@ -279,8 +674,6 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
     });
   });
 
-  executionAnnotations.value = annotations;
-
   // Highlight the execution path
   const nodeIds = new Set<string>(trace.steps.map((s) => s.id));
   const edgeIds = new Set<string>();
@@ -296,6 +689,13 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
     }
   }
 
+  const expansion = buildSubRuleTraceExpansion(trace, annotations, nodeIds, edgeIds);
+  if (expansion.nodes.length > 0 || expansion.edges.length > 0) {
+    nodes.value = [...nodes.value, ...expansion.nodes];
+    edges.value = [...edges.value, ...expansion.edges];
+  }
+
+  executionAnnotations.value = annotations;
   highlightedNodeIds.value = nodeIds;
   highlightedEdgeIds.value = edgeIds;
   applyExecutionHighlightStyles();
@@ -310,10 +710,12 @@ function applyExecutionTrace(trace: ExecutionTraceData) {
  * Clear execution trace overlay
  */
 function clearExecutionTrace() {
+  pendingTraceApplyToken++;
   showExecutionOverlay.value = false;
   executionAnnotations.value = new Map();
   highlightedNodeIds.value = new Set();
   highlightedEdgeIds.value = new Set();
+  removeTraceExpansion();
   applyHighlightStyles();
 }
 
@@ -332,7 +734,10 @@ function applyExecutionHighlightStyles() {
 
     return {
       ...node,
-      class: hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : '',
+      class: withTransientClass(
+        node.class,
+        hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : null
+      ),
       data: {
         ...node.data,
         executionAnnotation: annotation || null,
@@ -345,7 +750,10 @@ function applyExecutionHighlightStyles() {
     const isHighlighted = highlightedEdgeIds.value.has(edge.id);
     return {
       ...edge,
-      class: hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : '',
+      class: withTransientClass(
+        edge.class,
+        hasHighlight ? (isHighlighted ? 'execution-highlighted' : 'execution-dimmed') : null
+      ),
       animated: isHighlighted, // Animate executed edges
     };
   });
@@ -469,7 +877,10 @@ function applyHighlightStyles() {
     const isHighlighted = highlightedNodeIds.value.has(node.id);
     return {
       ...node,
-      class: hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : '',
+      class: withTransientClass(
+        node.class,
+        hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : null
+      ),
     };
   });
 
@@ -478,7 +889,10 @@ function applyHighlightStyles() {
     const isHighlighted = highlightedEdgeIds.value.has(edge.id);
     return {
       ...edge,
-      class: hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : '',
+      class: withTransientClass(
+        edge.class,
+        hasHighlight ? (isHighlighted ? 'path-highlighted' : 'path-dimmed') : null
+      ),
     };
   });
 }
@@ -489,6 +903,10 @@ function applyHighlightStyles() {
 
 // Handle node selection
 function onNodeClick(event: any) {
+  if (isCanvasReadOnly.value) {
+    hideContextMenu();
+    return;
+  }
   const nodeId = event.node?.id;
   if (!nodeId) return;
 
@@ -517,14 +935,26 @@ function onNodeClick(event: any) {
 }
 
 function onPaneClick() {
+  if (isCanvasReadOnly.value) {
+    hideContextMenu();
+    return;
+  }
   selectedNodeId.value = null;
   selectedNodeIds.value = [];
   updateHighlightedPath(null); // Clear highlight
   hideContextMenu();
 }
 
+function onNodeDblClick(event: any) {
+  const step = event.node?.data?.step;
+  if (step?.type === 'sub_rule' && step.refName) {
+    emit('open-sub-rule', step.refName);
+  }
+}
+
 // Handle right-click on pane
 function onPaneContextMenu(event: MouseEvent) {
+  if (isCanvasReadOnly.value) return;
   event.preventDefault();
   selectedEdgeId.value = null; // Clear edge selection
   // Only show context menu if there are selected nodes
@@ -535,6 +965,7 @@ function onPaneContextMenu(event: MouseEvent) {
 
 // Handle right-click on node
 function onNodeContextMenu(event: any) {
+  if (isCanvasReadOnly.value) return;
   const nodeEvent = event.event as MouseEvent;
   nodeEvent.preventDefault();
   nodeEvent.stopPropagation();
@@ -554,6 +985,7 @@ function onNodeContextMenu(event: any) {
 
 // Handle right-click on edge
 function onEdgeContextMenu(event: any) {
+  if (isCanvasReadOnly.value) return;
   const edgeEvent = event.event as MouseEvent;
   edgeEvent.preventDefault();
   edgeEvent.stopPropagation();
@@ -570,6 +1002,7 @@ function onEdgeContextMenu(event: any) {
 
 // Handle selection change from Vue Flow
 function onSelectionChange(params: any) {
+  if (isCanvasReadOnly.value) return;
   const nodeIds = params.nodes?.map((n: any) => n.id) || [];
   selectedNodeIds.value = nodeIds;
   if (nodeIds.length === 1) {
@@ -608,8 +1041,27 @@ onConnect((params) => {
   const newEdge = createEdge(params.source, params.target, {
     sourceHandle: params.sourceHandle || undefined,
     targetHandle: params.targetHandle || undefined,
+    renderStyle: edgeStyle.value,
   });
-  edges.value.push(newEdge);
+
+  // For action/sub_rule nodes, an output handle can only have one outgoing exec edge.
+  // Replace any existing outgoing exec edge from the same source+handle to avoid
+  // findLinearExecutionEdge picking up the stale edge and silently discarding the new one.
+  const isLinearExecEdge =
+    !newEdge.data?.branchId && !newEdge.data?.isDefault && newEdge.data?.edgeType === 'exec';
+  const filtered = isLinearExecEdge
+    ? edges.value.filter(
+        (e) =>
+          !(
+            e.source === newEdge.source &&
+            e.data?.edgeType === 'exec' &&
+            !e.data?.branchId &&
+            !e.data?.isDefault
+          )
+      )
+    : edges.value;
+
+  edges.value = [...filtered, newEdge];
   syncToRuleset();
 });
 
@@ -744,42 +1196,158 @@ onNodeDragStop(({ node }) => {
   }
 });
 
-// Add new node
-function addNode(type: 'decision' | 'action' | 'terminal') {
-  const id = generateId('step');
-  let step: Step;
-
+function createStep(type: NodeCreationType, id: string): Step {
   switch (type) {
     case 'decision':
-      step = StepFactory.decision({
+      return StepFactory.decision({
         id,
         name: t('step.decision'),
         branches: [],
         defaultNextStepId: '',
       });
-      break;
     case 'action':
-      step = StepFactory.action({
+      return StepFactory.action({
         id,
         name: t('step.action'),
         nextStepId: '',
       });
-      break;
     case 'terminal':
-      step = StepFactory.terminal({
+      return StepFactory.terminal({
         id,
         name: t('step.terminal'),
         code: 'RESULT',
       });
-      break;
+    case 'sub_rule':
+      const firstAsset =
+        props.managedSubRules.find((asset) => asset.scope === 'project') ??
+        props.managedSubRules[0];
+      const firstSubRuleName =
+        firstAsset?.name ?? Object.keys(props.modelValue.subRules ?? {})[0] ?? '';
+      return StepFactory.subRule({
+        id,
+        name: t('step.subRule'),
+        refName: firstSubRuleName,
+        assetRef: {
+          scope: firstAsset?.scope ?? 'project',
+          name: firstSubRuleName,
+        },
+        nextStepId: '',
+      });
   }
+}
 
-  const position = getSuggestedPosition(nodes.value, selectedNodeId.value || undefined);
+function addNodeAtPosition(type: NodeCreationType, position: { x: number; y: number }) {
+  const id = generateId('step');
+  const step = createStep(type, id);
   const newNode = createNodeFromStep(step, position, nodes.value.length === 0);
 
   nodes.value.push(newNode);
   selectedNodeId.value = id;
+  selectedNodeIds.value = [id];
+  selectedEdgeId.value = null;
   syncToRuleset();
+}
+
+function getVisibleCanvasCenterPosition() {
+  if (!flowCanvasContainer.value) {
+    return getSuggestedPosition(nodes.value, selectedNodeId.value || undefined);
+  }
+
+  const rect = flowCanvasContainer.value.getBoundingClientRect();
+  const centerPosition = screenToFlowCoordinate({
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  });
+
+  return {
+    x: centerPosition.x - DEFAULT_NODE_DROP_OFFSET.x,
+    y: centerPosition.y - DEFAULT_NODE_DROP_OFFSET.y,
+  };
+}
+
+// Add new node
+function addNode(type: NodeCreationType) {
+  const position = getVisibleCanvasCenterPosition();
+  addNodeAtPosition(type, position);
+}
+
+function isNodeCreationType(value: string): value is NodeCreationType {
+  return value === 'decision' || value === 'action' || value === 'terminal' || value === 'sub_rule';
+}
+
+function clearNodeDragPreview() {
+  nodeDragPreview.value = null;
+}
+
+function endNodeDrag() {
+  draggedNodeType.value = null;
+  clearNodeDragPreview();
+}
+
+function updateNodeDragPreview(event: DragEvent, type: NodeCreationType) {
+  const container = event.currentTarget as HTMLElement | null;
+  if (!container) return;
+
+  const rect = container.getBoundingClientRect();
+
+  nodeDragPreview.value = {
+    type,
+    x: event.clientX - rect.left - DEFAULT_NODE_DROP_OFFSET.x,
+    y: event.clientY - rect.top - DEFAULT_NODE_DROP_OFFSET.y,
+  };
+}
+
+function onCanvasDragOver(event: DragEvent) {
+  if (!event.dataTransfer || isCanvasReadOnly.value) return;
+
+  const isToolbarNodeDrag = Array.from(event.dataTransfer.types).includes(FLOW_NODE_DRAG_TYPE);
+  if (!isToolbarNodeDrag || !draggedNodeType.value) return;
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  updateNodeDragPreview(event, draggedNodeType.value);
+}
+
+function onCanvasDragLeave(event: DragEvent) {
+  if (!nodeDragPreview.value) return;
+
+  const container = event.currentTarget as HTMLElement | null;
+  if (!container) {
+    clearNodeDragPreview();
+    return;
+  }
+
+  const rect = container.getBoundingClientRect();
+  const hasLeftContainer =
+    event.clientX <= rect.left ||
+    event.clientX >= rect.right ||
+    event.clientY <= rect.top ||
+    event.clientY >= rect.bottom;
+
+  if (hasLeftContainer) {
+    clearNodeDragPreview();
+  }
+}
+
+function onCanvasDrop(event: DragEvent) {
+  if (isCanvasReadOnly.value || !event.dataTransfer) return;
+
+  const droppedType = event.dataTransfer.getData(FLOW_NODE_DRAG_TYPE);
+  const type = droppedType || draggedNodeType.value;
+  if (!type || !isNodeCreationType(type)) return;
+
+  event.preventDefault();
+  clearNodeDragPreview();
+
+  const flowPosition = screenToFlowCoordinate({
+    x: event.clientX,
+    y: event.clientY,
+  });
+
+  addNodeAtPosition(type, {
+    x: flowPosition.x - DEFAULT_NODE_DROP_OFFSET.x,
+    y: flowPosition.y - DEFAULT_NODE_DROP_OFFSET.y,
+  });
 }
 
 // Delete selected node
@@ -849,7 +1417,7 @@ function addGroup() {
     size = { width: 300, height: 200 };
   }
 
-  const newGroup = createGroupNode('New Group', position, size);
+  const newGroup = createGroupNode(t('flow.newGroup'), position, size);
 
   // Add zIndex to keep at bottom
   const groupWithZIndex = {
@@ -870,6 +1438,411 @@ function addGroup() {
 function createGroupFromSelection() {
   if (selectedNodeIds.value.length === 0) return;
   addGroup();
+  hideContextMenu();
+}
+
+function isStepFlowNode(node: any): node is FlowNode {
+  return node?.type !== 'group' && !!node?.data?.step;
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getExecutableEdges(): FlowEdge[] {
+  return edges.value.filter(
+    (edge) => edge.data?.edgeType === 'exec' || edge.data?.edgeType === 'exec-branch'
+  );
+}
+
+function getExtractSubRuleEligibility(): ExtractSubRuleEligibility {
+  const selectedIds = new Set(selectedNodeIds.value);
+  const selectedNodes = nodes.value.filter(
+    (node): node is FlowNode => selectedIds.has(node.id) && isStepFlowNode(node)
+  );
+  const empty: ExtractSubRuleEligibility = {
+    valid: false,
+    selectedNodes,
+    internalEdges: [],
+    externalIncomingEdges: [],
+    externalOutgoingEdges: [],
+  };
+
+  if (selectedIds.size === 0) {
+    return { ...empty, reason: t('flow.extractSubRuleSelectNodes') };
+  }
+
+  if (selectedNodes.length !== selectedIds.size) {
+    return { ...empty, reason: t('flow.extractSubRuleNoGroups') };
+  }
+
+  const selectedStepIds = new Set(selectedNodes.map((node) => node.id));
+  const executableEdges = getExecutableEdges();
+  const internalEdges = executableEdges.filter(
+    (edge) => selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalIncomingEdges = executableEdges.filter(
+    (edge) => !selectedStepIds.has(edge.source) && selectedStepIds.has(edge.target)
+  );
+  const externalOutgoingEdges = executableEdges.filter(
+    (edge) => selectedStepIds.has(edge.source) && !selectedStepIds.has(edge.target)
+  );
+
+  const incomingTargets = new Set(externalIncomingEdges.map((edge) => edge.target));
+  if (incomingTargets.size > 1) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleSingleEntry'),
+    };
+  }
+
+  const internalIncomingTargets = new Set(internalEdges.map((edge) => edge.target));
+  let entryId: string | undefined;
+  if (incomingTargets.size === 1) {
+    entryId = [...incomingTargets][0];
+  } else if (selectedStepIds.has(props.modelValue.startStepId)) {
+    entryId = props.modelValue.startStepId;
+  } else {
+    const rootNodes = selectedNodes.filter((node) => !internalIncomingTargets.has(node.id));
+    if (rootNodes.length !== 1) {
+      return {
+        ...empty,
+        internalEdges,
+        externalIncomingEdges,
+        externalOutgoingEdges,
+        reason: t('flow.extractSubRuleSingleEntry'),
+      };
+    }
+    entryId = rootNodes[0].id;
+  }
+
+  const reachable = new Set<string>();
+  const stack = [entryId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (reachable.has(current)) continue;
+    reachable.add(current);
+    for (const edge of internalEdges) {
+      if (edge.source === current && !reachable.has(edge.target)) {
+        stack.push(edge.target);
+      }
+    }
+  }
+
+  if (reachable.size !== selectedNodes.length) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleConnected'),
+    };
+  }
+
+  const exitTargets = new Set(externalOutgoingEdges.map((edge) => edge.target));
+  if (exitTargets.size > 1) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleSingleExit'),
+    };
+  }
+
+  const hasTerminal = selectedNodes.some((node) => node.data?.step?.type === 'terminal');
+  if (hasTerminal && externalOutgoingEdges.length > 0) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleNoMixedExit'),
+    };
+  }
+
+  if (!hasTerminal && externalOutgoingEdges.length === 0) {
+    return {
+      ...empty,
+      internalEdges,
+      externalIncomingEdges,
+      externalOutgoingEdges,
+      reason: t('flow.extractSubRuleNeedsExit'),
+    };
+  }
+
+  return {
+    valid: true,
+    entryId,
+    exitTargetId: exitTargets.size === 1 ? [...exitTargets][0] : undefined,
+    selectedNodes,
+    internalEdges,
+    externalIncomingEdges,
+    externalOutgoingEdges,
+  };
+}
+
+function sanitizeSubRuleName(name: string) {
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'sub_rule'
+  );
+}
+
+function buildExtractSubRuleName(entryNode: FlowNode) {
+  const rulesetName = sanitizeSubRuleName(props.modelValue.config.name || 'ruleset');
+  const entryName = sanitizeSubRuleName(entryNode.data?.step?.name || entryNode.id);
+  return `${rulesetName}_${entryName}`;
+}
+
+async function applyExtractSubRuleRequest(request: ExtractSubRuleRequest) {
+  if (lastHandledExtractSubRuleRequestId === request.id) return;
+  lastHandledExtractSubRuleRequestId = request.id;
+
+  if (isCanvasReadOnly.value) {
+    emit('extract-sub-rule-invalid', t('flow.extractSubRuleReadOnly'));
+    return;
+  }
+
+  await nextTick();
+  if (nodes.value.length === 0) {
+    await nextTick();
+  }
+
+  const requestedIds = request.stepIds.filter((id) =>
+    nodes.value.some((node) => node.id === id && isStepFlowNode(node))
+  );
+  if (requestedIds.length === 0) {
+    emit('extract-sub-rule-invalid', t('flow.extractSubRuleSelectNodes'));
+    return;
+  }
+
+  const requestedIdSet = new Set(requestedIds);
+  selectedNodeIds.value = requestedIds;
+  selectedNodeId.value = requestedIds[0] ?? null;
+  selectedEdgeId.value = null;
+  highlightedNodeIds.value = requestedIdSet;
+  highlightedEdgeIds.value = new Set(
+    getExecutableEdges()
+      .filter((edge) => requestedIdSet.has(edge.source) && requestedIdSet.has(edge.target))
+      .map((edge) => edge.id)
+  );
+  applyHighlightStyles();
+
+  await nextTick();
+  extractSubRuleFromSelection({ reportInvalid: true });
+}
+
+function cloneEdgeForChild(edge: FlowEdge, targetOverride?: string): FlowEdge {
+  return createEdge(edge.source, targetOverride ?? edge.target, {
+    branchId: edge.data?.branchId,
+    isDefault: edge.data?.isDefault,
+    sourceHandle: edge.sourceHandle || undefined,
+    targetHandle: 'input',
+    condition: edge.data?.condition,
+    renderStyle: edgeStyle.value,
+  });
+}
+
+function buildChildFlowNodes(
+  selectedNodes: FlowNode[],
+  entryId: string,
+  returnStep?: Step
+): FlowNode[] {
+  const minX = Math.min(...selectedNodes.map((node) => node.position.x));
+  const minY = Math.min(...selectedNodes.map((node) => node.position.y));
+  const childNodes = selectedNodes.map((node) => {
+    const step = cloneJson(node.data!.step);
+    const position = {
+      x: node.position.x - minX + 120,
+      y: node.position.y - minY + 120,
+    };
+    step.position = position;
+    return createNodeFromStep(step, position, node.id === entryId);
+  });
+
+  if (returnStep) {
+    const maxX = Math.max(...selectedNodes.map((node) => node.position.x));
+    const averageY =
+      selectedNodes.reduce((sum, node) => sum + node.position.y, 0) / selectedNodes.length;
+    const position = {
+      x: maxX - minX + 360,
+      y: averageY - minY + 120,
+    };
+    returnStep.position = position;
+    childNodes.push(createNodeFromStep(returnStep, position, false));
+  }
+
+  return childNodes;
+}
+
+function updateGroupNodesAfterExtraction(selectedStepIds: Set<string>, subRuleStepId: string) {
+  const groupNodes = nodes.value.filter((node) => node.type === 'group');
+  const containingGroups = groupNodes.filter(
+    (node) => node.data?.stepIds?.some((stepId: string) => selectedStepIds.has(stepId))
+  );
+
+  return groupNodes.map((node) => {
+    if (!node.data?.group) return node;
+
+    const originalStepIds = node.data.stepIds ?? node.data.group.stepIds ?? [];
+    const selectedInGroup = originalStepIds.filter((stepId: string) => selectedStepIds.has(stepId));
+    if (selectedInGroup.length === 0) return node;
+
+    const nextStepIds = originalStepIds.filter((stepId: string) => !selectedStepIds.has(stepId));
+    if (containingGroups.length === 1) {
+      const insertAt = originalStepIds.findIndex((stepId: string) => selectedStepIds.has(stepId));
+      nextStepIds.splice(Math.max(insertAt, 0), 0, subRuleStepId);
+    }
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        stepIds: nextStepIds,
+        group: {
+          ...node.data.group,
+          stepIds: nextStepIds,
+        },
+      },
+    };
+  });
+}
+
+function extractSubRuleFromSelection(options?: { reportInvalid?: boolean }) {
+  const eligibility = extractSubRuleEligibility.value;
+  if (!eligibility.valid || !eligibility.entryId) {
+    if (options?.reportInvalid && eligibility.reason) {
+      emit('extract-sub-rule-invalid', eligibility.reason);
+    }
+    hideContextMenu();
+    return;
+  }
+
+  const selectedStepIds = new Set(eligibility.selectedNodes.map((node) => node.id));
+  const entryNode = eligibility.selectedNodes.find((node) => node.id === eligibility.entryId);
+  if (!entryNode) {
+    hideContextMenu();
+    return;
+  }
+
+  const suggestedName = buildExtractSubRuleName(entryNode);
+  const displayName = entryNode.data?.step?.name || t('step.subRule');
+  const subRuleStepId = generateId('step');
+  const returnStep =
+    eligibility.externalOutgoingEdges.length > 0
+      ? StepFactory.terminal({
+          id: generateId('return'),
+          name: t('flow.subRuleReturn'),
+          code: 'OK',
+        })
+      : undefined;
+  const returnStepId = returnStep?.id;
+
+  const childNodes = buildChildFlowNodes(
+    eligibility.selectedNodes,
+    eligibility.entryId,
+    returnStep
+  );
+  const childEdges = [
+    ...eligibility.internalEdges.map((edge) => cloneEdgeForChild(edge)),
+    ...eligibility.externalOutgoingEdges.map((edge) => cloneEdgeForChild(edge, returnStepId)),
+  ];
+  const childRuleset = flowToRuleset(
+    childNodes,
+    childEdges,
+    {
+      ...props.modelValue.config,
+      name: suggestedName,
+      version: '0.1.0',
+      description: t('flow.extractedSubRuleDescription'),
+      metadata: {
+        ...(props.modelValue.config.metadata ?? {}),
+        extractedFrom: props.modelValue.config.name,
+        extractedAt: new Date().toISOString(),
+      },
+    },
+    eligibility.entryId,
+    undefined,
+    props.modelValue.subRules
+  );
+
+  const minX = Math.min(...eligibility.selectedNodes.map((node) => node.position.x));
+  const minY = Math.min(...eligibility.selectedNodes.map((node) => node.position.y));
+  const subRuleStep = StepFactory.subRule({
+    id: subRuleStepId,
+    name: displayName,
+    refName: suggestedName,
+    assetRef: {
+      scope: 'project',
+      name: suggestedName,
+    },
+    nextStepId: eligibility.exitTargetId ?? '',
+    position: { x: minX, y: minY },
+  });
+  const subRuleNode = createNodeFromStep(
+    subRuleStep,
+    { x: minX, y: minY },
+    selectedStepIds.has(props.modelValue.startStepId)
+  );
+
+  const parentStepNodes = [
+    ...nodes.value.filter((node) => isStepFlowNode(node) && !selectedStepIds.has(node.id)),
+    subRuleNode,
+  ];
+  const parentGroupNodes = updateGroupNodesAfterExtraction(selectedStepIds, subRuleStepId);
+  const parentEdges = [
+    ...edges.value.filter(
+      (edge) => !selectedStepIds.has(edge.source) && !selectedStepIds.has(edge.target)
+    ),
+    ...eligibility.externalIncomingEdges.map((edge) =>
+      createEdge(edge.source, subRuleStepId, {
+        branchId: edge.data?.branchId,
+        isDefault: edge.data?.isDefault,
+        sourceHandle: edge.sourceHandle || undefined,
+        targetHandle: 'input',
+        condition: edge.data?.condition,
+        renderStyle: edgeStyle.value,
+      })
+    ),
+  ];
+
+  if (eligibility.exitTargetId) {
+    parentEdges.push(
+      createEdge(subRuleStepId, eligibility.exitTargetId, {
+        sourceHandle: 'output',
+        targetHandle: 'input',
+        renderStyle: edgeStyle.value,
+      })
+    );
+  }
+
+  const parentStartStepId = selectedStepIds.has(props.modelValue.startStepId)
+    ? subRuleStepId
+    : props.modelValue.startStepId;
+  const parentRuleset = flowToRuleset(
+    parentStepNodes,
+    parentEdges,
+    buildFlowConfig(),
+    parentStartStepId,
+    parentGroupNodes,
+    props.modelValue.subRules
+  );
+
+  emit('extract-sub-rule', {
+    suggestedName,
+    displayName,
+    subRuleStepId,
+    selectedStepCount: eligibility.selectedNodes.length,
+    draft: childRuleset,
+    parentRuleset,
+  });
   hideContextMenu();
 }
 
@@ -922,6 +1895,14 @@ function duplicateSelectedNode() {
         name: `${originalStep.name} (copy)`,
       });
       break;
+    case 'sub_rule':
+      newStep = StepFactory.subRule({
+        ...originalStep,
+        id: newId,
+        name: `${originalStep.name} (copy)`,
+        nextStepId: '',
+      });
+      break;
     default:
       hideContextMenu();
       return;
@@ -970,6 +1951,7 @@ function reverseSelectedEdge() {
   const newEdge = createEdge(edge.target, edge.source, {
     sourceHandle: edge.targetHandle || undefined,
     targetHandle: edge.sourceHandle || undefined,
+    renderStyle: edgeStyle.value,
   });
 
   // Remove old edge and add new edge using Vue Flow methods
@@ -1039,7 +2021,14 @@ function setAsStart(nodeId: string) {
     },
   }));
 
-  const newRuleset = flowToRuleset(nodes.value, edges.value, props.modelValue.config, nodeId);
+  const newRuleset = flowToRuleset(
+    nodes.value,
+    edges.value,
+    buildFlowConfig(),
+    nodeId,
+    undefined,
+    props.modelValue.subRules
+  );
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
@@ -1078,6 +2067,7 @@ function autoLayout() {
 
       const newRuleset = {
         ...props.modelValue,
+        config: buildFlowConfig(),
         groups: updatedGroups,
       };
       emit('update:modelValue', newRuleset);
@@ -1140,9 +2130,24 @@ function updateGroupName(newName: string) {
   syncToRuleset();
 }
 
-// Toggle edge style
-function toggleEdgeStyle() {
-  edgeStyle.value = edgeStyle.value === 'bezier' ? 'step' : 'bezier';
+function setEdgeStyle(style: EdgeRenderStyle) {
+  if (edgeStyle.value === style) return;
+
+  edgeStyle.value = style;
+  edges.value = edges.value.map((edge) => ({
+    ...edge,
+    data: {
+      ...edge.data,
+      renderStyle: style,
+    },
+  }));
+  syncToRuleset();
+}
+
+function setLayoutDirectionAndPersist(direction: LayoutDirection) {
+  if (layoutDirection.value === direction) return;
+  layoutDirection.value = direction;
+  syncToRuleset();
 }
 
 // Computed edge type for Vue Flow
@@ -1159,6 +2164,9 @@ onMounted(() => {
   // Force layout on first initialization
   initFromRuleset(isFirstInit.value);
   isFirstInit.value = false;
+  if (props.extractSubRuleRequest) {
+    void applyExtractSubRuleRequest(props.extractSubRuleRequest);
+  }
 });
 </script>
 
@@ -1166,19 +2174,29 @@ onMounted(() => {
   <div class="ordo-flow-editor" :class="{ disabled }">
     <!-- Toolbar -->
     <OrdoFlowToolbar
+      v-if="!disabled"
       :edge-style="edgeStyle"
       :layout-direction="layoutDirection"
       :has-selection="!!selectedNodeId"
       @add-node="addNode"
+      @start-node-drag="draggedNodeType = $event"
+      @end-node-drag="endNodeDrag"
       @add-group="addGroup"
       @delete-node="deleteSelectedNode"
       @auto-layout="autoLayout"
-      @toggle-edge-style="toggleEdgeStyle"
-      @set-layout-direction="layoutDirection = $event"
+      @set-edge-style="setEdgeStyle"
+      @set-layout-direction="setLayoutDirectionAndPersist"
     />
 
     <!-- Main Canvas -->
-    <div class="flow-canvas-container" @contextmenu="onPaneContextMenu">
+    <div
+      ref="flowCanvasContainer"
+      class="flow-canvas-container"
+      @contextmenu="onPaneContextMenu"
+      @dragover="onCanvasDragOver"
+      @dragleave="onCanvasDragLeave"
+      @drop="onCanvasDrop"
+    >
       <VueFlow
         v-model:nodes="nodes"
         v-model:edges="edges"
@@ -1188,14 +2206,15 @@ onMounted(() => {
         :snap-to-grid="true"
         :snap-grid="[20, 20]"
         :fit-view-on-init="true"
-        :nodes-draggable="!disabled"
-        :nodes-connectable="!disabled"
-        :elements-selectable="!disabled"
-        :edges-updatable="!disabled"
+        :nodes-draggable="!isCanvasReadOnly"
+        :nodes-connectable="!isCanvasReadOnly"
+        :elements-selectable="!isCanvasReadOnly"
+        :edges-updatable="!isCanvasReadOnly"
         :selection-key-code="'Shift'"
         :multi-selection-key-code="['Meta', 'Control']"
         class="flow-canvas"
         @node-click="onNodeClick"
+        @node-double-click="onNodeDblClick"
         @pane-click="onPaneClick"
         @selection-change="onSelectionChange"
         @node-context-menu="onNodeContextMenu"
@@ -1207,14 +2226,57 @@ onMounted(() => {
         <MiniMap />
       </VueFlow>
 
+      <div
+        v-if="nodeDragPreview"
+        class="node-drag-preview"
+        :class="`type-${nodeDragPreview.type}`"
+        :style="{
+          transform: `translate(${nodeDragPreview.x}px, ${nodeDragPreview.y}px)`,
+        }"
+      >
+        <div class="node-drag-preview-header">
+          <OrdoIcon :name="nodeDragPreview.type" :size="14" class="node-drag-preview-icon" />
+          <span class="node-drag-preview-title">{{ nodeDragPreviewLabel }}</span>
+          <span class="node-drag-preview-badge">{{ nodeDragPreviewTypeLabel }}</span>
+        </div>
+      </div>
+
       <!-- Context Menu -->
       <div
-        v-if="showContextMenu"
+        v-if="showContextMenu && !isCanvasReadOnly"
         class="context-menu"
         :style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
         @click.stop
         @mousedown.stop
       >
+        <!-- Extract sub-rule -->
+        <div
+          v-if="selectedNodeIds.length > 0"
+          class="context-menu-item"
+          :class="{ 'is-disabled': !extractSubRuleEligibility.valid }"
+          :title="extractSubRuleEligibility.reason"
+          @click="extractSubRuleFromSelection()"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M6 4h12v6H6z" />
+            <path d="M6 14h12v6H6z" />
+            <path d="M12 10v4" />
+          </svg>
+          <span>{{ t('flow.extractSubRule') }}</span>
+          <span class="shortcut" v-if="extractSubRuleEligibility.valid">{{
+            extractSubRuleEligibility.selectedNodes.length
+          }}</span>
+        </div>
+
+        <div class="context-menu-divider" v-if="selectedNodeIds.length > 0"></div>
+
         <!-- Group creation (only when multiple nodes selected) -->
         <div
           v-if="selectedNodeIds.length > 1"
@@ -1344,19 +2406,22 @@ onMounted(() => {
 
     <!-- Property Panel for Step Nodes -->
     <OrdoFlowPropertyPanel
-      v-if="selectedStepNode"
+      v-if="selectedStepNode && !isCanvasReadOnly"
       :node="selectedStepNode"
       :available-steps="modelValue.steps"
+      :available-sub-rules="modelValue.subRules ?? {}"
+      :managed-sub-rules="managedSubRules"
       :suggestions="suggestions"
       :disabled="disabled"
       @update="updateNode"
       @set-start="setAsStart"
       @delete="deleteSelectedNode"
       @close="selectedNodeId = null"
+      @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
     />
 
     <!-- Property Panel for Group Nodes -->
-    <div v-if="selectedGroupNode" class="group-property-panel">
+    <div v-if="selectedGroupNode && !isCanvasReadOnly" class="group-property-panel">
       <div class="panel-header">
         <div class="header-title">
           <svg
@@ -1430,6 +2495,80 @@ onMounted(() => {
 .flow-canvas {
   width: 100%;
   height: 100%;
+}
+
+.node-drag-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 180px;
+  max-width: 220px;
+  border: 2px dashed var(--ordo-border-color);
+  border-top-width: 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ordo-bg-item) 88%, transparent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  z-index: 20;
+  opacity: 0.95;
+}
+
+.node-drag-preview.type-decision {
+  border-color: var(--ordo-node-decision, #b76e00);
+}
+
+.node-drag-preview.type-action {
+  border-color: var(--ordo-node-action, #0066b8);
+}
+
+.node-drag-preview.type-terminal {
+  border-color: var(--ordo-node-terminal, #388a34);
+}
+
+.node-drag-preview.type-sub_rule {
+  border-color: var(--ordo-node-sub-rule, #5b708a);
+}
+
+.node-drag-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.node-drag-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-primary);
+  flex: 1;
+}
+
+.node-drag-preview-badge {
+  font-size: 9px;
+  color: var(--ordo-text-tertiary);
+  background: var(--ordo-bg-panel);
+  padding: 2px 5px;
+  border-radius: 999px;
+}
+
+.node-drag-preview-icon {
+  flex-shrink: 0;
+}
+
+.node-drag-preview.type-decision .node-drag-preview-icon {
+  color: var(--ordo-node-decision, #b76e00);
+}
+
+.node-drag-preview.type-action .node-drag-preview-icon {
+  color: var(--ordo-node-action, #0066b8);
+}
+
+.node-drag-preview.type-terminal .node-drag-preview-icon {
+  color: var(--ordo-node-terminal, #388a34);
+}
+
+.node-drag-preview.type-sub_rule .node-drag-preview-icon {
+  color: var(--ordo-node-sub-rule, #5b708a);
 }
 
 /* Vue Flow overrides */
@@ -1620,6 +2759,16 @@ onMounted(() => {
 .context-menu-item:hover {
   background: var(--ordo-bg-item-hover);
   color: var(--ordo-text-primary);
+}
+
+.context-menu-item.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.context-menu-item.is-disabled:hover {
+  background: transparent;
+  color: var(--ordo-text-secondary);
 }
 
 .context-menu-item svg {
@@ -1828,6 +2977,43 @@ onMounted(() => {
 :deep(.vue-flow__edge.execution-dimmed .edge-label-bg),
 :deep(.vue-flow__edge.execution-dimmed .edge-label-text) {
   opacity: 0.1;
+}
+
+/* Trace-only sub-rule expansion */
+:deep(.vue-flow__node.trace-expanded-subrule) {
+  z-index: 8 !important;
+}
+
+:deep(.vue-flow__node.trace-expanded-subrule .flow-node) {
+  border-style: dashed;
+  background: linear-gradient(180deg, rgba(91, 112, 138, 0.08), rgba(91, 112, 138, 0.02)),
+    var(--ordo-bg-item, #1e1e1e);
+}
+
+:deep(.vue-flow__node.trace-expanded-subrule::after) {
+  content: 'sub trace';
+  position: absolute;
+  top: -18px;
+  left: 8px;
+  padding: 2px 7px;
+  border: 1px solid rgba(91, 112, 138, 0.28);
+  border-radius: 999px;
+  background: var(--ordo-bg-panel, #252526);
+  color: var(--ordo-text-tertiary, #8a8f98);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+:deep(.vue-flow__edge.trace-subrule-bridge path),
+:deep(.vue-flow__edge.trace-expanded-subrule-edge path) {
+  stroke-dasharray: 7 5;
+}
+
+:deep(.vue-flow__edge.trace-subrule-bridge path) {
+  stroke: var(--ordo-node-sub-rule, #5b708a) !important;
+  stroke-width: 2.5 !important;
 }
 
 /* Entry node special styling */

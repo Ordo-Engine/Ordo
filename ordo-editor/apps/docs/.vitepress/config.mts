@@ -51,16 +51,51 @@ export default withMermaid(defineConfig({
       link: '/en/',
       themeConfig: {
         nav: [
-          { text: 'Guide', link: '/en/guide/getting-started' },
+          { text: 'Platform', link: '/en/platform/overview' },
+          { text: 'Engine', link: '/en/guide/what-is-ordo' },
           { text: 'API', link: '/en/api/http-api' },
           { text: 'Reference', link: '/en/reference/cli' },
-          { 
-            text: 'Playground', 
-            link: 'https://pama-lee.github.io/Ordo/',
+          { text: 'Roadmap', link: '/en/roadmap' },
+          {
+            text: 'Playground',
+            link: 'https://ordo-engine.github.io/Ordo/',
             target: '_self'
           },
         ],
         sidebar: {
+          '/en/platform/': [
+            {
+              text: 'Platform',
+              items: [
+                { text: 'Overview', link: '/en/platform/overview' },
+                { text: 'Organizations & Projects', link: '/en/platform/organizations' },
+                { text: 'Studio Editor', link: '/en/platform/studio' },
+              ]
+            },
+            {
+              text: 'Modeling',
+              items: [
+                { text: 'Fact Catalog', link: '/en/platform/catalog' },
+                { text: 'Decision Contracts', link: '/en/platform/contracts' },
+                { text: 'Sub-Rule Assets', link: '/en/platform/sub-rules' },
+              ]
+            },
+            {
+              text: 'Delivery',
+              items: [
+                { text: 'Rule Drafts', link: '/en/platform/drafts' },
+                { text: 'Release Pipeline', link: '/en/platform/releases' },
+                { text: 'Test Management', link: '/en/platform/testing' },
+              ]
+            },
+            {
+              text: 'Operations',
+              items: [
+                { text: 'Server Registry', link: '/en/platform/server-registry' },
+                { text: 'GitHub Integration', link: '/en/platform/github' },
+              ]
+            }
+          ],
           '/en/guide/': [
             {
               text: 'Introduction',
@@ -76,6 +111,7 @@ export default withMermaid(defineConfig({
                 { text: 'Rule Structure', link: '/en/guide/rule-structure' },
                 { text: 'Expression Syntax', link: '/en/guide/expression-syntax' },
                 { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
+                { text: 'Execution Model', link: '/en/guide/execution-model' },
               ]
             },
             {
@@ -84,6 +120,7 @@ export default withMermaid(defineConfig({
                 { text: 'Rule Persistence', link: '/en/guide/persistence' },
                 { text: 'Version Management', link: '/en/guide/versioning' },
                 { text: 'Audit Logging', link: '/en/guide/audit-logging' },
+                { text: 'Capabilities & External Calls', link: '/en/guide/capabilities' },
                 { text: 'Rule Signing', link: '/en/guide/rule-signing' },
                 { text: 'Decision Table', link: '/en/guide/decision-table' },
                 { text: 'Editor Store & Undo/Redo', link: '/en/guide/editor-store' },
@@ -105,6 +142,7 @@ export default withMermaid(defineConfig({
                 { text: 'HTTP REST API', link: '/en/api/http-api' },
                 { text: 'gRPC API', link: '/en/api/grpc-api' },
                 { text: 'WebAssembly', link: '/en/api/wasm' },
+                { text: 'Data Filter API', link: '/en/api/filter-api' },
               ]
             }
           ],
@@ -125,7 +163,7 @@ export default withMermaid(defineConfig({
           copyright: 'Copyright © 2024-present Ordo Contributors'
         },
         editLink: {
-          pattern: 'https://github.com/Pama-Lee/Ordo/edit/main/ordo-editor/apps/docs/:path',
+          pattern: 'https://github.com/Ordo-Engine/Ordo/edit/main/ordo-editor/apps/docs/:path',
           text: 'Edit this page on GitHub'
         },
         outline: {
@@ -142,16 +180,51 @@ export default withMermaid(defineConfig({
       description: "高性能规则引擎与可视化编辑器",
       themeConfig: {
         nav: [
-          { text: '指南', link: '/zh/guide/getting-started' },
+          { text: '平台', link: '/zh/platform/overview' },
+          { text: '引擎', link: '/zh/guide/what-is-ordo' },
           { text: 'API', link: '/zh/api/http-api' },
           { text: '参考', link: '/zh/reference/cli' },
-          { 
-            text: '演练场', 
-            link: 'https://pama-lee.github.io/Ordo/',
+          { text: '路线图', link: '/zh/roadmap' },
+          {
+            text: '演练场',
+            link: 'https://ordo-engine.github.io/Ordo/',
             target: '_self'
           },
         ],
         sidebar: {
+          '/zh/platform/': [
+            {
+              text: '平台',
+              items: [
+                { text: '概览', link: '/zh/platform/overview' },
+                { text: '组织与项目', link: '/zh/platform/organizations' },
+                { text: 'Studio 编辑器', link: '/zh/platform/studio' },
+              ]
+            },
+            {
+              text: '建模',
+              items: [
+                { text: '事实目录', link: '/zh/platform/catalog' },
+                { text: '决策契约', link: '/zh/platform/contracts' },
+                { text: '子规则资产', link: '/zh/platform/sub-rules' },
+              ]
+            },
+            {
+              text: '交付',
+              items: [
+                { text: '规则草稿', link: '/zh/platform/drafts' },
+                { text: '发布流程', link: '/zh/platform/releases' },
+                { text: '测试管理', link: '/zh/platform/testing' },
+              ]
+            },
+            {
+              text: '运维',
+              items: [
+                { text: '服务器注册', link: '/zh/platform/server-registry' },
+                { text: 'GitHub 集成', link: '/zh/platform/github' },
+              ]
+            }
+          ],
           '/zh/guide/': [
             {
               text: '介绍',
@@ -167,6 +240,7 @@ export default withMermaid(defineConfig({
                 { text: '规则结构', link: '/zh/guide/rule-structure' },
                 { text: '表达式语法', link: '/zh/guide/expression-syntax' },
                 { text: '内置函数', link: '/zh/guide/builtin-functions' },
+                { text: '执行模型', link: '/zh/guide/execution-model' },
               ]
             },
             {
@@ -176,6 +250,7 @@ export default withMermaid(defineConfig({
                 { text: '版本管理', link: '/zh/guide/versioning' },
                 { text: '规则签名', link: '/zh/guide/rule-signing' },
                 { text: '审计日志', link: '/zh/guide/audit-logging' },
+                { text: '能力与外部调用', link: '/zh/guide/capabilities' },
                 { text: '决策表', link: '/zh/guide/decision-table' },
                 { text: '编辑器状态管理', link: '/zh/guide/editor-store' },
                 { text: '分布式部署', link: '/zh/guide/distributed-deployment' },
@@ -196,6 +271,7 @@ export default withMermaid(defineConfig({
                 { text: 'HTTP REST API', link: '/zh/api/http-api' },
                 { text: 'gRPC API', link: '/zh/api/grpc-api' },
                 { text: 'WebAssembly', link: '/zh/api/wasm' },
+                { text: '数据过滤 API', link: '/zh/api/filter-api' },
               ]
             }
           ],
@@ -216,7 +292,7 @@ export default withMermaid(defineConfig({
           copyright: '版权所有 © 2024-present Ordo 贡献者'
         },
         editLink: {
-            pattern: 'https://github.com/Pama-Lee/Ordo/edit/main/ordo-editor/apps/docs/:path',
+            pattern: 'https://github.com/Ordo-Engine/Ordo/edit/main/ordo-editor/apps/docs/:path',
             text: '在 GitHub 上编辑此页'
         },
         outline: {
@@ -240,7 +316,7 @@ export default withMermaid(defineConfig({
     
     // Social links
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/Pama-Lee/Ordo' }
+      { icon: 'github', link: 'https://github.com/Ordo-Engine/Ordo' }
     ],
     
     // Search

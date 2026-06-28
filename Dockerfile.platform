@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.7
+
+# ── Build stage ──────────────────────────────────────────────────────────────
+FROM rust:1.88-slim-bookworm AS builder
+
+WORKDIR /app
+
+# System deps (protoc needed by ordo-proto which is a workspace dep)
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependency cache layer — copy manifests only, then build deps
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Build release binaries (HTTP API + background worker; other crates build as deps)
+RUN --mount=type=cache,id=ordo-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=ordo-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=ordo-rust-target-platform,target=/app/target,sharing=locked \
+    cargo build --release --package ordo-platform \
+    && cp /app/target/release/ordo-platform /tmp/ordo-platform \
+    && cp /app/target/release/ordo-platform-worker /tmp/ordo-platform-worker
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -r -s /bin/false ordo
+
+COPY --from=builder /tmp/ordo-platform /app/ordo-platform
+COPY --from=builder /tmp/ordo-platform-worker /app/ordo-platform-worker
+COPY crates/ordo-platform/templates /app/templates
+
+USER ordo
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=15s --retries=5 \
+    CMD curl -sf http://localhost:3001/health || exit 1
+
+ENTRYPOINT ["/app/ordo-platform"]
+CMD ["--addr", "0.0.0.0:3001"]

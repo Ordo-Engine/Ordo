@@ -55,6 +55,8 @@ fn is_write_request(method: &Method, path: &str) -> bool {
         "rulesets" => true,
         "tenants" => true,
         "config" => true,
+        "webhooks" => true,
+        "admin" => true,
         "execute" => false,
         "eval" => false,
         "debug" => false,
@@ -119,10 +121,23 @@ mod tests {
     }
 
     #[test]
+    fn test_webhook_write_is_blocked() {
+        assert!(is_write_request(&Method::POST, "/api/v1/webhooks"));
+        assert!(is_write_request(&Method::PUT, "/api/v1/webhooks/wh_123"));
+        assert!(is_write_request(&Method::DELETE, "/api/v1/webhooks/wh_123"));
+        assert!(!is_write_request(&Method::GET, "/api/v1/webhooks"));
+    }
+
+    #[test]
     fn test_config_write_is_blocked() {
         assert!(is_write_request(
             &Method::PUT,
             "/api/v1/config/audit-sample-rate"
         ));
+    }
+
+    #[test]
+    fn test_admin_reload_is_blocked() {
+        assert!(is_write_request(&Method::POST, "/api/v1/admin/reload"));
     }
 }

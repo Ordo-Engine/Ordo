@@ -54,6 +54,24 @@ pub enum OrdoError {
     #[error("RuleSet not found: {name}")]
     RuleSetNotFound { name: String },
 
+    /// Capability not found
+    #[error("Capability not found: {capability}")]
+    CapabilityNotFound { capability: String },
+
+    /// Capability circuit breaker is open
+    #[error("Capability circuit open: {capability}")]
+    CircuitOpen {
+        capability: String,
+        retry_after_ms: Option<u64>,
+    },
+
+    /// Capability invocation failed
+    #[error("Capability invocation failed for {capability}: {message}")]
+    CapabilityInvocation {
+        capability: String,
+        message: Cow<'static, str>,
+    },
+
     /// Step not found
     #[error("Step not found: {step_id}")]
     StepNotFound { step_id: String },
@@ -167,6 +185,17 @@ impl OrdoError {
     /// Create a config error
     pub fn config_error(message: impl Into<Cow<'static, str>>) -> Self {
         Self::ConfigError {
+            message: message.into(),
+        }
+    }
+
+    /// Create a capability invocation error
+    pub fn capability_invocation(
+        capability: impl Into<String>,
+        message: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        Self::CapabilityInvocation {
+            capability: capability.into(),
             message: message.into(),
         }
     }

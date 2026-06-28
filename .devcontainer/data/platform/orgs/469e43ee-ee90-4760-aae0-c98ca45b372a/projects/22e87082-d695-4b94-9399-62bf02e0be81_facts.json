@@ -1,0 +1,57 @@
+[
+  {
+    "name": "user_id",
+    "data_type": "string",
+    "source": "下单服务",
+    "latency_ms": 1,
+    "null_policy": "error",
+    "description": "购物用户的唯一标识。",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "user_vip_level",
+    "data_type": "number",
+    "source": "下单服务",
+    "latency_ms": 5,
+    "null_policy": "default",
+    "description": "VIP 等级，0（普通）到 5（钻石）。",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "cart_amount",
+    "data_type": "number",
+    "source": "下单服务",
+    "latency_ms": 1,
+    "null_policy": "error",
+    "description": "购物车合计金额，单位为最小货币单位。",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "cart_items_count",
+    "data_type": "number",
+    "source": "下单服务",
+    "latency_ms": 1,
+    "null_policy": "default",
+    "description": "购物车中不同 SKU 的数量。",
+    "owner": "checkout-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "promotion_active",
+    "data_type": "boolean",
+    "source": "下单服务",
+    "latency_ms": 1,
+    "null_policy": "default",
+    "description": "当前是否处于促销窗口（由营销侧任务控制）。",
+    "owner": "marketing-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  }
+]

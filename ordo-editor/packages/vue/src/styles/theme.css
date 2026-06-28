@@ -38,6 +38,7 @@
   --ordo-node-decision: #b76e00;
   --ordo-node-action: #0066b8;
   --ordo-node-terminal: #388a34;
+  --ordo-node-sub-rule: #5b708a;
 
   /* Backgrounds */
   --ordo-bg-app: #ffffff;
@@ -115,6 +116,7 @@
   --ordo-node-decision: #cca700;
   --ordo-node-action: #3794ff;
   --ordo-node-terminal: #89d185;
+  --ordo-node-sub-rule: #8fa7c1;
 
   --ordo-bg-app: #1e1e1e;
   --ordo-bg-panel: #252526;

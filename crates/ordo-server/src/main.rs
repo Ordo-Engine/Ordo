@@ -49,10 +49,12 @@ use tracing::{info, warn};
 
 mod api;
 mod audit;
+mod capability_registry;
 mod config;
 pub mod debug;
 mod error;
 mod grpc;
+mod json;
 mod metrics;
 mod middleware;
 mod rate_limiter;
@@ -62,12 +64,15 @@ mod telemetry;
 mod tenant;
 #[cfg(unix)]
 mod uds;
+pub mod wal;
+pub mod webhook;
 
 use audit::AuditLogger;
+use capability_registry::{build_rule_executor, build_server_capability_invoker, invoke_http_json};
 use config::ServerConfig;
 use grpc::OrdoGrpcService;
 use metrics::PrometheusMetricSink;
-use ordo_core::prelude::{RuleExecutor, TraceConfig};
+use ordo_core::prelude::RuleExecutor;
 use ordo_core::signature::ed25519::decode_public_key;
 use ordo_core::signature::RuleVerifier;
 use rate_limiter::RateLimiter;
@@ -75,6 +80,7 @@ use std::fs;
 use store::RuleStore;
 use sync::file_watcher::RecentWrites;
 use tenant::{default_tenant_store_path, TenantDefaults, TenantManager, TenantStore};
+use wal::WalManager;
 
 /// Application state shared between HTTP handlers
 #[derive(Clone)]
@@ -94,6 +100,8 @@ pub struct AppState {
     pub tenant_manager: Arc<TenantManager>,
     /// Tenant rate limiter
     pub rate_limiter: Arc<RateLimiter>,
+    /// Webhook manager
+    pub webhook_manager: Arc<webhook::WebhookManager>,
 }
 
 fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<RuleVerifier>> {
@@ -119,6 +127,49 @@ fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<Rule
     }
 
     Ok(Some(RuleVerifier::new(keys, config.signature_require)))
+}
+
+/// Build TLS config for the gRPC server from CLI/env settings.
+fn build_grpc_tls_config(
+    config: &ServerConfig,
+) -> anyhow::Result<Option<tonic::transport::ServerTlsConfig>> {
+    if !config.grpc_tls_active() {
+        return Ok(None);
+    }
+
+    let cert_path = config
+        .grpc_tls_cert
+        .as_ref()
+        .expect("validated by ServerConfig::validate");
+    let key_path = config
+        .grpc_tls_key
+        .as_ref()
+        .expect("validated by ServerConfig::validate");
+
+    let cert_pem = std::fs::read(cert_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read gRPC TLS cert {:?}: {}", cert_path, e))?;
+    let key_pem = std::fs::read(key_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read gRPC TLS key {:?}: {}", key_path, e))?;
+
+    let identity = tonic::transport::Identity::from_pem(cert_pem, key_pem);
+    let mut tls = tonic::transport::ServerTlsConfig::new().identity(identity);
+
+    if config.grpc_mtls_enabled {
+        let ca_path = config
+            .grpc_tls_client_ca
+            .as_ref()
+            .expect("validated by ServerConfig::validate");
+        let ca_pem = std::fs::read(ca_path).map_err(|e| {
+            anyhow::anyhow!("Failed to read gRPC client CA cert {:?}: {}", ca_path, e)
+        })?;
+        let ca_cert = tonic::transport::Certificate::from_pem(ca_pem);
+        tls = tls.client_ca_root(ca_cert);
+        info!("gRPC mTLS enabled (client certificate required)");
+    } else {
+        info!("gRPC TLS enabled");
+    }
+
+    Ok(Some(tls))
 }
 
 #[tokio::main]
@@ -176,13 +227,29 @@ async fn main() -> anyhow::Result<()> {
     let metric_sink = Arc::new(PrometheusMetricSink::new());
     info!("Initialized Prometheus metric sink for custom rule metrics");
 
-    // Initialize shared executor (moved out of RuleStore for lock-free execution)
-    let executor = Arc::new(RuleExecutor::with_trace_and_metrics(
-        TraceConfig::minimal(),
-        metric_sink.clone(),
+    let signature_verifier = build_signature_verifier(&config)?;
+
+    // Initialize audit logger
+    let audit_logger = Arc::new(AuditLogger::new(
+        config.audit_dir.clone(),
+        config.audit_sample_rate,
     ));
 
-    let signature_verifier = build_signature_verifier(&config)?;
+    // Log audit configuration
+    if config.audit_dir.is_some() {
+        info!(
+            "Audit logging enabled: dir={:?}, sample_rate={}%",
+            config.audit_dir, config.audit_sample_rate
+        );
+    } else {
+        info!(
+            "Audit logging to stdout only, sample_rate={}%",
+            config.audit_sample_rate
+        );
+    }
+
+    let capability_invoker =
+        build_server_capability_invoker(metric_sink.clone(), Some(audit_logger.clone()));
 
     // Initialize shared store (with or without persistence)
     let store = if let Some(ref rules_dir) = config.rules_dir {
@@ -195,10 +262,11 @@ async fn main() -> anyhow::Result<()> {
             "Initializing store with persistence at {:?} (max {} versions)",
             store_dir, config.max_versions
         );
-        let mut store = RuleStore::new_with_persistence_and_metrics(
+        let mut store = RuleStore::new_with_persistence_and_metrics_and_capabilities(
             store_dir,
             config.max_versions,
             metric_sink.clone(),
+            Some(capability_invoker.clone()),
         );
         if let Some(verifier) = signature_verifier.clone() {
             store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
@@ -206,6 +274,43 @@ async fn main() -> anyhow::Result<()> {
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
         }
+        store.set_resource_limits(config.max_rules_per_tenant, config.max_total_rules);
+
+        // ── WAL: open, replay uncommitted entries, then load rules ───
+        let store_dir_for_wal = if config.multi_tenancy_enabled {
+            rules_dir.join("tenants")
+        } else {
+            rules_dir.clone()
+        };
+        let wal_opt: Option<Arc<WalManager>> = if !config.wal_disabled {
+            let wal_dir = config
+                .wal_dir
+                .clone()
+                .unwrap_or_else(|| store_dir_for_wal.join("wal"));
+            match WalManager::open(
+                wal_dir.clone(),
+                config.wal_max_segment_bytes,
+                config.wal_max_closed_segments,
+            ) {
+                Ok(wal) => {
+                    info!("WAL opened at {:?}", wal_dir);
+                    let wal = Arc::new(wal);
+                    // Replay any uncommitted entries before loading rules from disk
+                    replay_wal(&mut store, &wal);
+                    Some(wal)
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Failed to open WAL at {:?}: {}",
+                        wal_dir,
+                        e
+                    ));
+                }
+            }
+        } else {
+            warn!("WAL is disabled; crash-safe persistence is not guaranteed");
+            None
+        };
 
         // Load existing rules from directory
         match store.load_from_dir() {
@@ -228,16 +333,38 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        // Load external data from data/ subdirectory
+        match store.load_data_from_dir() {
+            Ok(count) => {
+                if count > 0 {
+                    info!("Loaded {} external data entries", count);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to load external data: {}", e);
+            }
+        }
+
+        // Attach WAL for ongoing writes (after load_from_dir so replay is clean)
+        if let Some(ref wal) = wal_opt {
+            store.set_wal(wal.clone());
+            info!("WAL attached; crash-safe persistence enabled");
+        }
+
         Arc::new(RwLock::new(store))
     } else {
         info!("Initializing in-memory store (no persistence)");
-        let mut store = RuleStore::new_with_metrics(metric_sink.clone());
+        let mut store = RuleStore::new_with_metrics_and_capabilities(
+            metric_sink.clone(),
+            Some(capability_invoker.clone()),
+        );
         if let Some(verifier) = signature_verifier.clone() {
             store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
         }
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
         }
+        store.set_resource_limits(config.max_rules_per_tenant, config.max_total_rules);
         Arc::new(RwLock::new(store))
     };
 
@@ -252,24 +379,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Initialize audit logger
-    let audit_logger = Arc::new(AuditLogger::new(
-        config.audit_dir.clone(),
-        config.audit_sample_rate,
+    // Initialize shared executor (moved out of RuleStore for lock-free execution)
+    let metric_sink_trait: Arc<dyn ordo_core::prelude::MetricSink> = metric_sink.clone();
+    let executor = Arc::new(build_rule_executor(
+        metric_sink_trait,
+        Some(capability_invoker.clone()),
     ));
-
-    // Log audit configuration
-    if config.audit_dir.is_some() {
-        info!(
-            "Audit logging enabled: dir={:?}, sample_rate={}%",
-            config.audit_dir, config.audit_sample_rate
-        );
-    } else {
-        info!(
-            "Audit logging to stdout only, sample_rate={}%",
-            config.audit_sample_rate
-        );
-    }
 
     // Initialize debug session manager
     let debug_sessions = Arc::new(debug::DebugSessionManager::new());
@@ -294,8 +409,19 @@ async fn main() -> anyhow::Result<()> {
     let rate_limiter = Arc::new(RateLimiter::new());
     let recent_writes = Arc::new(RecentWrites::new());
 
+    // Wire up self-write suppression so file watcher skips files this process persisted
+    {
+        let mut store_guard = store.write().await;
+        store_guard.set_recent_writes(recent_writes.clone());
+    }
+
     // Shutdown broadcast channel — signal handlers and servers share this.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let webhook_manager = webhook::WebhookManager::new_with_capabilities(
+        shutdown_rx.clone(),
+        Some(capability_invoker.clone()),
+    );
 
     // Log server started event
     {
@@ -317,6 +443,7 @@ async fn main() -> anyhow::Result<()> {
         let http_debug_sessions = debug_sessions.clone();
         let http_tenant_manager = tenant_manager.clone();
         let http_rate_limiter = rate_limiter.clone();
+        let http_webhook_manager = webhook_manager.clone();
         let http_addr = config.http_addr();
         let http_shutdown_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
@@ -331,6 +458,7 @@ async fn main() -> anyhow::Result<()> {
                 http_debug_sessions,
                 http_tenant_manager,
                 http_rate_limiter,
+                http_webhook_manager,
                 http_shutdown_rx,
             )
             .await
@@ -339,6 +467,7 @@ async fn main() -> anyhow::Result<()> {
 
     // gRPC Server
     if config.grpc_enabled() {
+        let grpc_tls_config = build_grpc_tls_config(&config)?;
         let grpc_store = store.clone();
         let grpc_executor = executor.clone();
         let grpc_addr = config.grpc_addr();
@@ -362,6 +491,7 @@ async fn main() -> anyhow::Result<()> {
                 grpc_max_body,
                 grpc_role,
                 grpc_writer_addr,
+                grpc_tls_config,
                 grpc_shutdown_rx,
             )
             .await
@@ -425,15 +555,21 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "nats-sync")]
     let mut nats_subscriber_handle: Option<tokio::task::JoinHandle<()>> = None;
     #[cfg(feature = "nats-sync")]
+    let mut nats_rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+    #[cfg(feature = "nats-sync")]
+    let mut nats_jetstream: Option<async_nats::jetstream::Context> = None;
+    #[cfg(feature = "nats-sync")]
     if let Some(ref nats_url) = config.nats_url {
         let instance_id = config.resolve_instance_id();
+        let server_id = config.resolve_server_id()?;
         info!(
             "Initializing NATS sync (url={}, instance={}, prefix={})",
             nats_url, instance_id, config.nats_subject_prefix
         );
 
-        match sync::nats_sync::connect(nats_url).await {
-            Ok(jetstream) => {
+        match sync::nats_sync::connect_client(nats_url).await {
+            Ok(nats_client) => {
+                let jetstream = async_nats::jetstream::new(nats_client.clone());
                 if let Err(e) =
                     sync::nats_sync::ensure_stream(&jetstream, &config.nats_subject_prefix).await
                 {
@@ -455,25 +591,67 @@ async fn main() -> anyhow::Result<()> {
                         info!("NATS publisher started (writer mode)");
                     }
 
-                    // Reader (and writer for echo-suppressed fallback): set up subscriber
-                    if config.is_read_only() {
-                        match sync::nats_sync::create_consumer(&jetstream, &instance_id).await {
-                            Ok(consumer) => {
-                                let subscriber = sync::nats_sync::NatsSubscriber::new(
-                                    consumer,
-                                    instance_id.clone(),
-                                    store.clone(),
-                                    tenant_manager.clone(),
-                                );
-                                nats_subscriber_handle =
-                                    Some(subscriber.start(shutdown_rx.clone()));
-                                info!("NATS subscriber started (reader mode)");
-                            }
-                            Err(e) => {
-                                warn!("Failed to create NATS consumer: {} — reader will rely on file watcher only", e);
-                            }
+                    // All NATS-enabled instances subscribe so platform-published
+                    // events reach standalone, writer, and reader nodes uniformly.
+                    match sync::nats_sync::create_consumer(
+                        &jetstream,
+                        &instance_id,
+                        &config.nats_subject_prefix,
+                    )
+                    .await
+                    {
+                        Ok(consumer) => {
+                            let subscriber = sync::nats_sync::NatsSubscriber::new(
+                                consumer,
+                                jetstream.clone(),
+                                config.nats_subject_prefix.clone(),
+                                instance_id.clone(),
+                                server_id.clone(),
+                                store.clone(),
+                                tenant_manager.clone(),
+                            );
+                            nats_subscriber_handle = Some(subscriber.start(shutdown_rx.clone()));
+                            info!("NATS subscriber started");
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to create NATS consumer: {} — sync subscriber disabled",
+                                e
+                            );
                         }
                     }
+
+                    let rpc_state = AppState {
+                        store: store.clone(),
+                        audit_logger: audit_logger.clone(),
+                        metric_sink: metric_sink.clone(),
+                        executor: executor.clone(),
+                        config: config.clone(),
+                        signature_verifier: signature_verifier.clone(),
+                        debug_sessions: debug_sessions.clone(),
+                        tenant_manager: tenant_manager.clone(),
+                        rate_limiter: rate_limiter.clone(),
+                        webhook_manager: webhook_manager.clone(),
+                    };
+                    match start_server_control_rpc_responder(
+                        nats_client.clone(),
+                        config.nats_subject_prefix.clone(),
+                        server_id.clone(),
+                        rpc_state,
+                        shutdown_rx.clone(),
+                    )
+                    .await
+                    {
+                        Ok(handle) => {
+                            nats_rpc_handle = Some(handle);
+                            info!("NATS server control RPC responder started");
+                        }
+                        Err(e) => {
+                            warn!("Failed to start NATS server control RPC responder: {}", e);
+                        }
+                    }
+
+                    nats_jetstream = Some(jetstream.clone());
                 }
             }
             Err(e) => {
@@ -485,49 +663,208 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Signal handler: wait for SIGTERM/Ctrl-C, then begin graceful shutdown.
-    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
-    let shutdown_audit_logger = audit_logger.clone();
-    tokio::spawn(async move {
-        let ctrl_c = tokio::signal::ctrl_c();
-        #[cfg(unix)]
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+    // Platform/server registry announcements.
+    if let Some(token) = config.server_token.clone() {
+        let server_id = config.resolve_server_id()?;
+        let server_name = config.server_name.clone();
+        let server_url = config.resolved_server_url();
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let reg_secret = config.platform_registration_secret.clone();
 
-        #[cfg(unix)]
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = sigterm.recv() => {},
+        if let Some(platform_url) = config.platform_url.clone() {
+            let http_server_id = server_id.clone();
+            let http_server_name = server_name.clone();
+            let http_server_url = server_url.clone();
+            let http_version = version.clone();
+            let http_token = token.clone();
+            let http_reg_secret = reg_secret.clone();
+            let http_capability_invoker = capability_invoker.clone();
+            let log_url = platform_url.clone();
+            let log_name = http_server_name.clone();
+
+            let http_capabilities_json =
+                serde_json::to_value(http_capability_invoker.list_capabilities())
+                    .unwrap_or(serde_json::json!([]));
+
+            tokio::spawn(async move {
+                let client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(5))
+                    .build()
+                    .unwrap_or_default();
+
+                let reg_url = format!("{}/api/v1/internal/register", platform_url);
+                let hb_url = format!("{}/api/v1/internal/heartbeat", platform_url);
+                let payload = serde_json::json!({
+                    "server_id": http_server_id,
+                    "name": http_server_name,
+                    "url": http_server_url,
+                    "token": http_token,
+                    "version": http_version,
+                    "capabilities": http_capabilities_json,
+                });
+                let hb_payload = serde_json::json!({ "server_id": http_server_id });
+
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                loop {
+                    let mut headers = std::collections::HashMap::new();
+                    if let Some(ref secret) = http_reg_secret {
+                        headers.insert("x-registration-secret".to_string(), secret.to_string());
+                    }
+                    match invoke_http_json(
+                        Some(http_capability_invoker.clone()),
+                        "post",
+                        &reg_url,
+                        headers.clone(),
+                        &payload,
+                        Some(5_000),
+                    ) {
+                        Ok(Some(_)) => {}
+                        Ok(None) | Err(_) => {
+                            let mut r = client.post(&reg_url).json(&payload);
+                            if let Some(ref secret) = http_reg_secret {
+                                r = r.header("x-registration-secret", secret.as_str());
+                            }
+                            let _ = r.send().await;
+                        }
+                    }
+                    interval.tick().await;
+                    match invoke_http_json(
+                        Some(http_capability_invoker.clone()),
+                        "post",
+                        &hb_url,
+                        headers.clone(),
+                        &hb_payload,
+                        Some(5_000),
+                    ) {
+                        Ok(Some(_)) => {}
+                        Ok(None) | Err(_) => {
+                            let mut r = client.post(&hb_url).json(&hb_payload);
+                            if let Some(ref secret) = http_reg_secret {
+                                r = r.header("x-registration-secret", secret.as_str());
+                            }
+                            let _ = r.send().await;
+                        }
+                    }
+                }
+            });
+
+            info!(platform_url = %log_url, server_name = %log_name, "HTTP-based platform registration enabled");
         }
 
-        #[cfg(not(unix))]
-        ctrl_c.await.ok();
+        #[cfg(feature = "nats-sync")]
+        if let Some(jetstream) = nats_jetstream.clone() {
+            let subject_prefix = config.nats_subject_prefix.clone();
+            let instance_id = config.resolve_instance_id();
+            let nats_server_id = server_id.clone();
+            let nats_server_name = server_name.clone();
+            let nats_server_url = server_url.clone();
+            let nats_version = version.clone();
+            let nats_capabilities = capability_invoker.list_capabilities();
+            let log_name2 = nats_server_name.clone();
+            let log_url2 = nats_server_url.clone();
 
-        let uptime = metrics::START_TIME.elapsed().as_secs();
-        shutdown_audit_logger.log_server_stopped(uptime);
-        info!(
-            uptime_secs = uptime,
-            timeout_secs = shutdown_timeout.as_secs(),
-            "Shutdown signal received — draining connections"
-        );
+            tokio::spawn(async move {
+                // Announce presence without token — token is delivered via HTTP only.
+                let presence = sync::event::SyncEvent::ServerRegistered {
+                    server_id: nats_server_id.clone(),
+                    name: nats_server_name.clone(),
+                    url: nats_server_url.clone(),
+                    token: String::new(),
+                    version: Some(nats_version.clone()),
+                    org_id: None,
+                    capabilities: nats_capabilities,
+                };
 
-        // Notify all servers to begin graceful shutdown.
-        shutdown_tx.send(true).ok();
-    });
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    // Wait for all servers to finish (graceful drain or unrecoverable error).
+                loop {
+                    let _ = sync::nats_sync::publish_immediate(
+                        &jetstream,
+                        &subject_prefix,
+                        &instance_id,
+                        presence.clone(),
+                    )
+                    .await;
+
+                    interval.tick().await;
+
+                    let _ = sync::nats_sync::publish_immediate(
+                        &jetstream,
+                        &subject_prefix,
+                        &instance_id,
+                        sync::event::SyncEvent::ServerHeartbeat {
+                            server_id: nats_server_id.clone(),
+                        },
+                    )
+                    .await;
+                }
+            });
+
+            info!(server_name = %log_name2, server_url = %log_url2, "NATS-based server presence enabled (token registered via HTTP)");
+        }
+    }
+
+    // Wait for shutdown signal or unexpected server exit, then drain gracefully.
+    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
+
     if !tasks.is_empty() {
-        match tokio::time::timeout(shutdown_timeout, futures::future::join_all(tasks)).await {
-            Ok(results) => {
+        // Build the shutdown signal future.
+        let shutdown_signal = async {
+            let ctrl_c = tokio::signal::ctrl_c();
+            #[cfg(unix)]
+            {
+                let mut sigterm =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .unwrap();
+                tokio::select! {
+                    _ = ctrl_c => {},
+                    _ = sigterm.recv() => {},
+                }
+            }
+            #[cfg(not(unix))]
+            ctrl_c.await.ok();
+        };
+
+        let all_tasks = futures::future::join_all(tasks);
+        tokio::pin!(all_tasks);
+
+        // Phase 1: Run until a signal arrives OR all servers exit on their own.
+        tokio::select! {
+            _ = shutdown_signal => {
+                let uptime = metrics::START_TIME.elapsed().as_secs();
+                audit_logger.log_server_stopped(uptime);
+                info!(
+                    uptime_secs = uptime,
+                    timeout_secs = shutdown_timeout.as_secs(),
+                    "Shutdown signal received — draining connections"
+                );
+
+                // Notify all servers to begin graceful shutdown.
+                shutdown_tx.send(true).ok();
+
+                // Phase 2: Wait for servers to finish, with a timeout.
+                match tokio::time::timeout(shutdown_timeout, &mut all_tasks).await {
+                    Ok(results) => {
+                        for r in results {
+                            r??;
+                        }
+                    }
+                    Err(_) => {
+                        warn!(
+                            timeout_secs = shutdown_timeout.as_secs(),
+                            "Graceful shutdown timed out — forcing exit"
+                        );
+                    }
+                }
+            }
+            results = &mut all_tasks => {
+                // Servers exited on their own (crash or error).
                 for r in results {
                     r??;
                 }
-            }
-            Err(_) => {
-                warn!(
-                    timeout_secs = shutdown_timeout.as_secs(),
-                    "Graceful shutdown timed out — forcing exit"
-                );
             }
         }
     } else {
@@ -543,6 +880,12 @@ async fn main() -> anyhow::Result<()> {
     // Stop the NATS subscriber.
     #[cfg(feature = "nats-sync")]
     if let Some(handle) = nats_subscriber_handle {
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    #[cfg(feature = "nats-sync")]
+    if let Some(handle) = nats_rpc_handle {
         handle.abort();
         let _ = handle.await;
     }
@@ -568,6 +911,7 @@ async fn start_http_server(
     debug_sessions: Arc<debug::DebugSessionManager>,
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
+    webhook_manager: Arc<webhook::WebhookManager>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
@@ -582,6 +926,7 @@ async fn start_http_server(
         debug_sessions,
         tenant_manager,
         rate_limiter,
+        webhook_manager,
     };
 
     // Build base router
@@ -605,6 +950,10 @@ async fn start_http_server(
             get(api::list_versions),
         )
         .route(
+            "/api/v1/rulesets/:name/versions/:seq",
+            get(api::get_version_snapshot),
+        )
+        .route(
             "/api/v1/rulesets/:name/rollback",
             post(api::rollback_ruleset),
         )
@@ -615,6 +964,18 @@ async fn start_http_server(
             "/api/v1/execute/:name/batch",
             post(api::execute_ruleset_batch),
         )
+        // Pipeline execution (rule composition)
+        .route("/api/v1/execute-pipeline", post(api::execute_pipeline))
+        // Data Filter API (partial evaluation → SQL/JSON predicate)
+        .route(
+            "/api/v1/rulesets/:name/filter",
+            post(api::compile_filter),
+        )
+        // Rule testing
+        .route(
+            "/api/v1/rulesets/:name/test",
+            post(api::test_ruleset),
+        )
         // Expression evaluation (debug)
         .route("/api/v1/eval", post(api::eval_expression))
         // Audit configuration
@@ -622,6 +983,27 @@ async fn start_http_server(
             "/api/v1/config/audit-sample-rate",
             get(api::get_audit_sample_rate).put(api::set_audit_sample_rate),
         )
+        // External data management
+        .route("/api/v1/data", get(api::list_data))
+        .route(
+            "/api/v1/data/:name",
+            get(api::get_data)
+                .put(api::put_data)
+                .delete(api::delete_data),
+        )
+        // Webhook management
+        .route(
+            "/api/v1/webhooks",
+            get(api::list_webhooks).post(api::create_webhook),
+        )
+        .route(
+            "/api/v1/webhooks/:id",
+            get(api::get_webhook)
+                .put(api::update_webhook)
+                .delete(api::delete_webhook),
+        )
+        // Admin API
+        .route("/api/v1/admin/reload", post(api::admin_reload))
         // Metrics
         .route("/metrics", get(prometheus_metrics))
         // Tenant management
@@ -673,21 +1055,44 @@ async fn start_http_server(
             );
     }
 
-    // CORS configuration - permissive for debug mode, restrictive otherwise
+    // CORS configuration - permissive for debug mode, configurable otherwise
     let cors = if debug_enabled {
         CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
     } else {
-        CorsLayer::new()
-            .allow_methods([
-                axum::http::Method::GET,
-                axum::http::Method::POST,
-                axum::http::Method::PUT,
-                axum::http::Method::DELETE,
-            ])
-            .allow_headers([axum::http::header::CONTENT_TYPE])
+        let allow_headers = [
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-tenant-id"),
+            axum::http::HeaderName::from_static("x-ordo-signature"),
+            axum::http::HeaderName::from_static("x-ordo-public-key"),
+        ];
+        let methods = [
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+        ];
+        let origins = &state.config.cors_allowed_origins;
+        if origins.iter().any(|o| o == "*") {
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(methods)
+                .allow_headers(allow_headers)
+        } else if !origins.is_empty() {
+            let parsed: Vec<axum::http::HeaderValue> =
+                origins.iter().filter_map(|o| o.parse().ok()).collect();
+            CorsLayer::new()
+                .allow_origin(parsed)
+                .allow_methods(methods)
+                .allow_headers(allow_headers)
+        } else {
+            CorsLayer::new()
+                .allow_methods(methods)
+                .allow_headers([axum::http::header::CONTENT_TYPE])
+        }
     };
 
     let request_timeout = Duration::from_secs(state.config.request_timeout_secs);
@@ -736,6 +1141,7 @@ async fn start_grpc_server(
     max_request_body_bytes: usize,
     role: config::InstanceRole,
     writer_addr: Option<String>,
+    tls_config: Option<tonic::transport::ServerTlsConfig>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let grpc_service = OrdoGrpcService::new(
@@ -748,12 +1154,19 @@ async fn start_grpc_server(
     )
     .with_role(role, writer_addr);
 
-    info!("gRPC server listening on {}", addr);
-
-    TonicServer::builder()
+    let mut builder = TonicServer::builder()
         .tcp_keepalive(Some(Duration::from_secs(60)))
         .http2_keepalive_interval(Some(Duration::from_secs(30)))
-        .http2_keepalive_timeout(Some(Duration::from_secs(20)))
+        .http2_keepalive_timeout(Some(Duration::from_secs(20)));
+
+    if let Some(tls) = tls_config {
+        builder = builder.tls_config(tls)?;
+        info!("gRPC server listening on {} (TLS)", addr);
+    } else {
+        info!("gRPC server listening on {}", addr);
+    }
+
+    builder
         .add_service(
             OrdoServiceServer::new(grpc_service).max_decoding_message_size(max_request_body_bytes),
         )
@@ -766,6 +1179,92 @@ async fn start_grpc_server(
     info!("gRPC server stopped");
     Ok(())
 }
+
+#[cfg(feature = "nats-sync")]
+#[derive(serde::Serialize)]
+struct ServerControlRpcResponse {
+    status: u16,
+    content_type: &'static str,
+    body: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[cfg(feature = "nats-sync")]
+async fn start_server_control_rpc_responder(
+    client: async_nats::Client,
+    subject_prefix: String,
+    server_id: String,
+    state: AppState,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+    let subject = sync::nats_sync::server_rpc_wildcard_subject(&subject_prefix, &server_id);
+    let mut subscriber = client.subscribe(subject.clone()).await?;
+    Ok(tokio::spawn(async move {
+        use futures::StreamExt;
+
+        info!(
+            subject = %subject,
+            "NATS server control RPC responder listening"
+        );
+
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    info!("NATS server control RPC responder: shutdown signal received");
+                    break;
+                }
+                message = subscriber.next() => {
+                    let Some(message) = message else {
+                        warn!("NATS server control RPC responder subscription ended");
+                        break;
+                    };
+                    let Some(reply) = message.reply else {
+                        continue;
+                    };
+
+                    let endpoint = message.subject.as_str().rsplit('.').next().unwrap_or("");
+                    let rpc_response = match endpoint {
+                        "health" => {
+                            let (status_code, body) = build_readiness_payload(&state).await;
+                            ServerControlRpcResponse {
+                                status: status_code.as_u16(),
+                                content_type: "application/json",
+                                body,
+                                error: None,
+                            }
+                        }
+                        "metrics" => ServerControlRpcResponse {
+                            status: axum::http::StatusCode::OK.as_u16(),
+                            content_type: PROMETHEUS_CONTENT_TYPE,
+                            body: serde_json::Value::String(build_prometheus_metrics_text(&state).await),
+                            error: None,
+                        },
+                        other => ServerControlRpcResponse {
+                            status: axum::http::StatusCode::NOT_FOUND.as_u16(),
+                            content_type: "text/plain; charset=utf-8",
+                            body: serde_json::Value::String(String::new()),
+                            error: Some(format!("unknown server control RPC endpoint: {}", other)),
+                        },
+                    };
+
+                    match serde_json::to_vec(&rpc_response) {
+                        Ok(payload) => {
+                            if let Err(e) = client.publish(reply, payload.into()).await {
+                                warn!("Failed to publish NATS server control RPC response: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to serialize NATS server control RPC response: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }))
+}
+
+const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
 /// Liveness probe — confirms the process is running.
 /// Always returns 200; use for Kubernetes liveness probes.
@@ -782,6 +1281,11 @@ async fn liveness_check() -> impl IntoResponse {
 /// Returns 503 if any check fails. Use for Kubernetes readiness probes
 /// and load balancer health checks.
 async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
+    let (status_code, payload) = build_readiness_payload(&state).await;
+    (status_code, Json(payload))
+}
+
+async fn build_readiness_payload(state: &AppState) -> (axum::http::StatusCode, serde_json::Value) {
     let store_result = tokio::time::timeout(Duration::from_secs(2), state.store.read()).await;
 
     let (store_lock_ok, rules_count, storage_mode) = match store_result {
@@ -819,7 +1323,7 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
 
     (
         status_code,
-        Json(serde_json::json!({
+        serde_json::json!({
             "status": if is_ready { "ready" } else { "not_ready" },
             "version": ordo_core::VERSION,
             "role": state.config.role.to_string(),
@@ -835,14 +1339,23 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
             "sync": {
                 "nats_configured": state.config.nats_enabled(),
                 "watch_rules": state.config.watch_rules,
+                "last_reload_timestamp": metrics::LAST_RELOAD_TIMESTAMP.get(),
             },
             "debug_mode": state.config.debug_enabled()
-        })),
+        }),
     )
 }
 
 /// Prometheus metrics endpoint
 async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let metrics = build_prometheus_metrics_text(&state).await;
+    (
+        [(axum::http::header::CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
+        metrics,
+    )
+}
+
+async fn build_prometheus_metrics_text(state: &AppState) -> String {
     // Update rules count before encoding
     let store = state.store.read().await;
     metrics::set_rules_count(store.len() as i64);
@@ -852,14 +1365,108 @@ async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse 
     let standard_metrics = metrics::encode_metrics();
     let custom_metrics = state.metric_sink.encode_custom_metrics();
 
-    // Return Prometheus text format
-    (
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; version=0.0.4; charset=utf-8",
-        )],
-        format!("{}\n{}", standard_metrics, custom_metrics),
-    )
+    format!("{}\n{}", standard_metrics, custom_metrics)
+}
+
+/// Replay uncommitted WAL entries into the store before `load_from_dir`.
+///
+/// For each `Prepared` entry without a matching `Committed`:
+/// - **Put**: verify CRC32, deserialize RuleSet, re-run `persist_ruleset`.
+/// - **Delete**: re-run `delete_file` (idempotent — no error if already gone).
+///
+/// After replaying, a `Committed` marker is written so the entry is not
+/// replayed again on the next startup.
+fn replay_wal(store: &mut store::RuleStore, wal_mgr: &WalManager) {
+    use ordo_core::prelude::RuleSet;
+
+    let pending = match wal::scan_pending(wal_mgr) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to scan WAL for pending entries: {}", e);
+            return;
+        }
+    };
+
+    if pending.puts.is_empty() && pending.deletes.is_empty() {
+        tracing::debug!("WAL: no uncommitted entries to replay");
+        return;
+    }
+
+    tracing::info!(
+        puts = pending.puts.len(),
+        deletes = pending.deletes.len(),
+        "WAL: replaying uncommitted entries"
+    );
+
+    for put in pending.puts {
+        // Verify CRC32 before applying
+        let actual_crc = wal::crc32(put.ruleset_json.as_bytes());
+        if actual_crc != put.crc32 {
+            tracing::warn!(
+                seq = put.seq,
+                tenant_id = %put.tenant_id,
+                name = %put.name,
+                "WAL replay: CRC32 mismatch — skipping corrupted entry"
+            );
+            metrics::record_wal_replay("put", "error");
+            continue;
+        }
+
+        match serde_json::from_str::<RuleSet>(&put.ruleset_json) {
+            Ok(ruleset) => match store.persist_ruleset(&put.tenant_id, &put.name, &ruleset) {
+                Ok(()) => {
+                    tracing::info!(
+                        seq = put.seq,
+                        tenant_id = %put.tenant_id,
+                        name = %put.name,
+                        "WAL replay: recovered uncommitted put"
+                    );
+                    metrics::record_wal_replay("put", "recovered");
+                    if let Err(e) =
+                        wal_mgr.commit(put.seq, &wal::WalOpKind::Put, &put.tenant_id, &put.name)
+                    {
+                        tracing::warn!(seq = put.seq, error = %e, "WAL: failed to write commit marker after replay");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        seq = put.seq,
+                        tenant_id = %put.tenant_id,
+                        name = %put.name,
+                        error = %e,
+                        "WAL replay: failed to re-persist rule"
+                    );
+                    metrics::record_wal_replay("put", "error");
+                }
+            },
+            Err(e) => {
+                tracing::error!(
+                    seq = put.seq,
+                    tenant_id = %put.tenant_id,
+                    name = %put.name,
+                    error = %e,
+                    "WAL replay: failed to deserialize ruleset JSON"
+                );
+                metrics::record_wal_replay("put", "error");
+            }
+        }
+    }
+
+    for del in pending.deletes {
+        // delete_file is idempotent — ignore "not found" errors
+        let _ = store.delete_file(&del.tenant_id, &del.name);
+        tracing::info!(
+            seq = del.seq,
+            tenant_id = %del.tenant_id,
+            name = %del.name,
+            "WAL replay: recovered uncommitted delete"
+        );
+        metrics::record_wal_replay("delete", "recovered");
+        if let Err(e) = wal_mgr.commit(del.seq, &wal::WalOpKind::Delete, &del.tenant_id, &del.name)
+        {
+            tracing::warn!(seq = del.seq, error = %e, "WAL: failed to write commit marker after replay");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -878,3 +1485,6 @@ mod tests {
 
 #[cfg(test)]
 mod api_tests;
+
+#[cfg(test)]
+mod api_integration_tests;

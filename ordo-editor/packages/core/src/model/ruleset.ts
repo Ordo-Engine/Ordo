@@ -268,9 +268,23 @@ export interface RuleSetConfig {
   enableTrace?: boolean;
   /** Timeout in milliseconds */
   timeout?: number;
+  /** Arbitrary string metadata (persisted via engine config.metadata) */
+  metadata?: Record<string, string>;
 }
 
 /** RuleSet - the main rule definition */
+/** Inline sub-rule graph embedded in a RuleSet */
+export interface SubRuleGraph {
+  /** Entry step ID within this sub-graph */
+  entryStep: string;
+  /** All steps in the sub-graph */
+  steps: Step[];
+  /** Expected input fields for static binding validation */
+  inputSchema?: SchemaField[];
+  /** Variables expected to be exported by the sub-rule */
+  outputSchema?: SchemaField[];
+}
+
 export interface RuleSet {
   /** Configuration */
   config: RuleSetConfig;
@@ -278,6 +292,8 @@ export interface RuleSet {
   startStepId: string;
   /** All steps in the ruleset */
   steps: Step[];
+  /** Named inline sub-rule graphs referenced by SubRuleStep.refName */
+  subRules?: Record<string, SubRuleGraph>;
   /** Step groups for visual organization */
   groups?: StepGroup[];
   /** Metadata */
@@ -306,6 +322,7 @@ export const RuleSet = {
     timeout?: number;
     startStepId: string;
     steps: Step[];
+    subRules?: Record<string, SubRuleGraph>;
   }): RuleSet {
     return {
       config: {
@@ -320,6 +337,7 @@ export const RuleSet = {
       },
       startStepId: options.startStepId,
       steps: options.steps,
+      subRules: options.subRules,
       metadata: {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

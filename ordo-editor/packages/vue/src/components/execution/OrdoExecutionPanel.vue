@@ -4,7 +4,7 @@
  * 规则执行底部面板（类似终端）
  */
 import { ref, computed, watch } from 'vue';
-import type { RuleSet, JITSchema, JITRulesetAnalysis } from '@ordo-engine/editor-core';
+import type { RuleSet, JITRulesetAnalysis } from '@ordo-engine/editor-core';
 import {
   RuleExecutor,
   type ExecutionResult,
@@ -13,6 +13,26 @@ import {
 } from '@ordo-engine/editor-core';
 import { useI18n } from '../../locale';
 import OrdoPerformancePanel from './OrdoPerformancePanel.vue';
+
+interface FlowTraceStep {
+  id: string;
+  name: string;
+  duration_us: number;
+  result?: string | null;
+  next_step?: string | null;
+  is_terminal?: boolean;
+  input_snapshot?: Record<string, any> | null;
+  variables_snapshot?: Record<string, any> | null;
+  sub_rule_ref?: string | null;
+  sub_rule_input?: Record<string, any> | null;
+  sub_rule_outputs?: Array<{
+    parent_var: string;
+    child_var: string;
+    value?: any;
+    missing?: boolean;
+  }>;
+  sub_rule_frames?: FlowTraceStep[];
+}
 
 export interface Props {
   /** RuleSet to execute */
@@ -37,7 +57,7 @@ const emit = defineEmits<{
   'show-in-flow': [
     trace: {
       path: string[];
-      steps: Array<{ id: string; name: string; duration_us: number; result?: string | null }>;
+      steps: FlowTraceStep[];
       resultCode: string;
       resultMessage: string;
       output?: Record<string, any>;
@@ -97,6 +117,15 @@ watch(
   (newVal) => {
     if (newVal && inputJson.value === '{\n  \n}' && props.sampleInput) {
       inputJson.value = props.sampleInput;
+    }
+  }
+);
+
+watch(
+  () => props.height,
+  (newVal) => {
+    if (typeof newVal === 'number' && !isResizing.value) {
+      panelHeight.value = newVal;
     }
   }
 );
@@ -217,8 +246,10 @@ function showInFlow(execResult: ExecutionResult | null) {
   if (!execResult || !execResult.trace) return;
 
   // Parse the path string into array
-  const pathStr = execResult.trace.path || '';
-  const pathArray = pathStr.split(' -> ').filter((s) => s.trim());
+  const rawPath = execResult.trace.path || '';
+  const pathArray = Array.isArray(rawPath)
+    ? rawPath
+    : rawPath.split(' -> ').filter((s) => s.trim());
 
   emit('show-in-flow', {
     path: pathArray,
@@ -432,7 +463,7 @@ function stopResize() {
           <select v-model="executionMode" class="mode-select" :title="t('execution.mode')">
             <option value="wasm">WASM</option>
             <option value="http">HTTP</option>
-            <option value="jit" :disabled="jitAnalysis && !jitAnalysis.overallCompatible">
+            <option value="jit" :disabled="!!(jitAnalysis && !jitAnalysis.overallCompatible)">
               JIT
             </option>
           </select>

@@ -1,0 +1,90 @@
+{
+  "config": {
+    "name": "ecommerce_coupon",
+    "version": "1.0.0",
+    "description": "i18n:template.ecommerce-coupon.description",
+    "entry_step": "check_eligibility"
+  },
+  "steps": {
+    "check_eligibility": {
+      "id": "check_eligibility",
+      "name": "i18n:template.ecommerce-coupon.step.check-eligibility",
+      "type": "decision",
+      "branches": [
+        {
+          "condition": "promotion_active == false",
+          "next_step": "terminal_not_eligible"
+        }
+      ],
+      "default_next": "check_user_type"
+    },
+    "check_user_type": {
+      "id": "check_user_type",
+      "name": "i18n:template.ecommerce-coupon.step.check-user-type",
+      "type": "decision",
+      "branches": [
+        {
+          "condition": "user_vip_level >= 2 && cart_amount >= 200",
+          "next_step": "terminal_vip_grant"
+        },
+        {
+          "condition": "user_vip_level < 2 && cart_amount >= 500",
+          "next_step": "terminal_normal_grant"
+        }
+      ],
+      "default_next": "terminal_no_coupon"
+    },
+    "terminal_vip_grant": {
+      "id": "terminal_vip_grant",
+      "name": "i18n:template.ecommerce-coupon.step.terminal-vip-grant",
+      "type": "terminal",
+      "result": {
+        "code": "GRANTED",
+        "message": "i18n:template.ecommerce-coupon.msg.vip-granted",
+        "output": [
+          ["coupon_type", {"Literal": "vip"}],
+          ["discount_rate", {"Literal": 0.2}],
+          ["original_amount", {"Field": "cart_amount"}]
+        ]
+      }
+    },
+    "terminal_normal_grant": {
+      "id": "terminal_normal_grant",
+      "name": "i18n:template.ecommerce-coupon.step.terminal-normal-grant",
+      "type": "terminal",
+      "result": {
+        "code": "GRANTED",
+        "message": "i18n:template.ecommerce-coupon.msg.normal-granted",
+        "output": [
+          ["coupon_type", {"Literal": "standard"}],
+          ["discount_rate", {"Literal": 0.1}],
+          ["original_amount", {"Field": "cart_amount"}]
+        ]
+      }
+    },
+    "terminal_no_coupon": {
+      "id": "terminal_no_coupon",
+      "name": "i18n:template.ecommerce-coupon.step.terminal-no-coupon",
+      "type": "terminal",
+      "result": {
+        "code": "NO_COUPON",
+        "message": "i18n:template.ecommerce-coupon.msg.no-coupon",
+        "output": [
+          ["coupon_type", {"Literal": "none"}]
+        ]
+      }
+    },
+    "terminal_not_eligible": {
+      "id": "terminal_not_eligible",
+      "name": "i18n:template.ecommerce-coupon.step.terminal-not-eligible",
+      "type": "terminal",
+      "result": {
+        "code": "NOT_ELIGIBLE",
+        "message": "i18n:template.ecommerce-coupon.msg.not-eligible",
+        "output": [
+          ["coupon_type", {"Literal": "none"}]
+        ]
+      }
+    }
+  }
+}

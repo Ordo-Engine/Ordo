@@ -3,20 +3,27 @@
  * OrdoFormEditor - Form-based ruleset editor (IDE Style)
  * 表单模式规则集编辑器
  */
-import { computed, ref, provide, watch, type Ref } from 'vue';
+import { computed, ref, provide, inject } from 'vue';
 import type { RuleSet, SchemaField } from '@ordo-engine/editor-core';
 import { validateRuleSet, type ValidationResult } from '@ordo-engine/editor-core';
 import OrdoStepList from './OrdoStepList.vue';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
 import { useI18n, type Lang, LOCALE_KEY } from '../../locale';
+import type { SubRuleAssetOption } from '../step/subRuleAssets';
 
 export interface Props {
   /** RuleSet data */
   modelValue: RuleSet;
+  /** Project facts/concepts exposed as input schema */
+  inputSchema?: SchemaField[];
+  /** Project facts/concepts exposed as expression suggestions */
+  suggestions?: FieldSuggestion[];
   /** Whether the editor is disabled */
   disabled?: boolean;
   /** Whether to auto-validate on change */
   autoValidate?: boolean;
+  /** Managed project/org sub-rule assets */
+  managedSubRules?: SubRuleAssetOption[];
   /** Show validation panel */
   showValidation?: boolean;
   /** Locale */
@@ -24,26 +31,24 @@ export interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  inputSchema: () => [],
+  suggestions: () => [],
   disabled: false,
   autoValidate: true,
+  managedSubRules: () => [],
   showValidation: true,
-  locale: 'en',
 });
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
   change: [value: RuleSet];
   validate: [result: ValidationResult];
+  'open-sub-rule': [name: string];
 }>();
 
-// Provide locale using the shared key
-const currentLocale = ref<Lang>(props.locale);
-watch(
-  () => props.locale,
-  (val) => {
-    currentLocale.value = val;
-  }
-);
+// Inherit locale from parent provider unless the caller explicitly overrides it.
+const inheritedLocale = inject(LOCALE_KEY, ref<Lang>('en'));
+const currentLocale = computed<Lang>(() => props.locale ?? inheritedLocale.value);
 provide(LOCALE_KEY, currentLocale);
 
 // Use i18n inside this component as well
@@ -53,7 +58,16 @@ const validationResult = ref<ValidationResult | null>(null);
 
 // Convert input schema to field suggestions
 const suggestions = computed<FieldSuggestion[]>(() => {
-  if (!props.modelValue.config.inputSchema) return [];
+  const merged = new Map<string, FieldSuggestion>();
+
+  for (const suggestion of props.suggestions) {
+    merged.set(suggestion.path, suggestion);
+  }
+
+  const schemaFields = props.inputSchema.length
+    ? props.inputSchema
+    : props.modelValue.config.inputSchema ?? [];
+  if (!schemaFields.length) return Array.from(merged.values());
 
   function flattenSchema(fields: SchemaField[], prefix = ''): FieldSuggestion[] {
     const result: FieldSuggestion[] = [];
@@ -72,7 +86,11 @@ const suggestions = computed<FieldSuggestion[]>(() => {
     return result;
   }
 
-  return flattenSchema(props.modelValue.config.inputSchema);
+  for (const suggestion of flattenSchema(schemaFields)) {
+    if (!merged.has(suggestion.path)) merged.set(suggestion.path, suggestion);
+  }
+
+  return Array.from(merged.values());
 });
 
 // Update fields
@@ -81,15 +99,6 @@ function updateName(event: Event) {
   const newRuleset: RuleSet = {
     ...props.modelValue,
     config: { ...props.modelValue.config, name: target.value },
-  };
-  emit('update:modelValue', newRuleset);
-}
-
-function updateVersion(event: Event) {
-  const target = event.target as HTMLInputElement;
-  const newRuleset: RuleSet = {
-    ...props.modelValue,
-    config: { ...props.modelValue.config, version: target.value },
   };
   emit('update:modelValue', newRuleset);
 }
@@ -128,16 +137,6 @@ defineExpose({ validate });
             @input="updateName"
           />
         </div>
-        <div class="ordo-field-group small">
-          <label>{{ t('common.version') }}</label>
-          <input
-            :value="modelValue.config.version || ''"
-            :disabled="disabled"
-            placeholder="1.0.0"
-            class="ordo-input-base"
-            @input="updateVersion"
-          />
-        </div>
       </div>
 
       <!-- Validation Indicator -->
@@ -161,9 +160,11 @@ defineExpose({ validate });
       <OrdoStepList
         :model-value="modelValue"
         :suggestions="suggestions"
+        :managed-sub-rules="managedSubRules"
         :disabled="disabled"
         @update:model-value="handleRulesetUpdate"
         @change="handleRulesetChange"
+        @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
       />
     </div>
 

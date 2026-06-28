@@ -5,7 +5,7 @@
  */
 import { computed } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import type { Pin, PinType, PinDirection } from '../types';
+import type { Pin } from '../types';
 import { PIN_COLORS, PIN_SIZES } from '../types';
 
 const props = withDefaults(

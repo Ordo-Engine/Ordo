@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: '高性能规则引擎'
-  tagline: 亚微秒级延迟，50万+ QPS，配备可视化编辑器
+  text: '开源决策平台'
+  tagline: 由治理平台与高性能引擎组成的一体化决策基础设施。Studio 编排、平台审计、引擎执行——三层职责清晰分离。
   image:
     src: /logo.png
     alt: Ordo
@@ -13,32 +13,64 @@ hero:
       text: 开始使用
       link: /zh/guide/getting-started
     - theme: alt
-      text: 尝试演练场
-      link: https://pama-lee.github.io/Ordo/
+      text: 平台篇
+      link: /zh/platform/overview
+    - theme: alt
+      text: 引擎篇
+      link: /zh/guide/what-is-ordo
     - theme: alt
       text: GitHub
-      link: https://github.com/Pama-Lee/Ordo
+      link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - icon: ⚡
-    title: 极速性能
-    details: 1.63µs 平均执行时间（JIT 编译后 50-80ns）。比 1ms 目标快 600 倍。零分配热路径。
-  - icon: 🎨
-    title: 可视化编辑器
-    details: 使用拖放流程编辑器设计复杂规则。通过 WASM 实时执行。支持 .ordo 文件导入/导出。
-  - icon: 🔧
-    title: 灵活规则
-    details: 步骤流模型，丰富的表达式，内置函数和字段合并。编译二进制格式保护规则逻辑。
-  - icon: 🛡️
-    title: 生产就绪
-    details: 确定性执行，完整追踪，热重载，Ed25519 规则签名，审计日志和多租户支持。
-  - icon: 🔌
-    title: 易于集成
-    details: HTTP REST API，gRPC 支持，浏览器 WebAssembly，以及 npm 包（@ordo/editor-vue, @ordo/editor-core）。
-  - icon: 📊
-    title: 可观测性
-    details: Prometheus 指标，健康检查，结构化审计日志，以及规则版本管理与回滚。
+  - title: 决策平台
+    details: 组织 / 项目 / 成员与角色（RBAC）、事实目录、概念注册、决策契约、审批与发布流水线、多环境与回滚——为团队级决策治理而生。
+    link: /zh/platform/overview
+    linkText: 查看平台文档
+  - title: Studio 编辑器
+    details: 三种编辑模式（流程图 / 表单 / JSON）、决策表、子规则、模板实例化、测试套件管理与执行追踪面板。
+    linkText: 查看 Studio
+    link: /zh/platform/studio
+  - title: 发布与环境治理
+    details: 草稿 → 审批 → 发布 → 灰度 → 回滚。可配置的审批策略、变更对比、按环境分别下发，所有动作进入审计日志。
+    link: /zh/platform/releases
+    linkText: 发布流程
+  - title: 高性能引擎
+    details: 亚微秒级规则执行，字节码 VM + Cranelift JIT、表达式优化器。HTTP / gRPC / Unix Socket / WASM 多协议接入。
+    link: /zh/guide/execution-model
+    linkText: 执行模型
+  - title: 类型与契约
+    details: 项目级事实目录、可复用概念、带类型的输入/输出契约。Studio 与 CLI 共用同一份契约定义。
+    link: /zh/platform/catalog
+    linkText: 事实与契约
+  - title: 多区域部署
+    details: 平台中央治理 + 区域化引擎集群。服务器注册、健康检查、按项目路由的执行代理，支持单 binary 与容器化部署。
+    link: /zh/platform/server-registry
+    linkText: 服务器注册
 ---
+
+## 架构概览
+
+```mermaid
+flowchart TB
+  Studio["Studio (浏览器)"]
+  CLI["ordo-cli"]
+  SDK["SDK / 业务系统"]
+  Platform["ordo-platform<br/>治理 · 草稿 · 审批 · 发布"]
+  Server["ordo-server 集群<br/>HTTP · gRPC · UDS"]
+  Core["ordo-core 引擎<br/>VM + JIT + 子规则 + 追踪"]
+
+  Studio --> Platform
+  CLI --> Platform
+  SDK --> Server
+  Platform -- "发布事件 (NATS / 直接同步)" --> Server
+  Server --> Core
+```
+
+Ordo 的文档分为两大部分：
+
+- **平台篇**——面向使用 Ordo Platform / Studio 治理决策的团队：组织建模、契约、发布流程、测试管理。
+- **引擎篇**——面向需要直接集成 ordo-core / ordo-server 的开发者：规则结构、表达式语法、HTTP / gRPC / WASM API。
 
 ## 快速示例
 
@@ -70,13 +102,3 @@ features:
   }
 }
 ```
-
-## 性能
-
-| 指标                 | 结果             |
-| -------------------- | ---------------- |
-| 单规则执行（解释器） | **1.63 µs**      |
-| 单规则执行（JIT）    | **50-80 ns**     |
-| 表达式评估           | **79-211 ns**    |
-| HTTP API 吞吐量      | **54,000 QPS**   |
-| 预计多线程           | **500,000+ QPS** |

@@ -2,24 +2,29 @@
 resolver = "2"
 members = [
     "crates/ordo-core",
+    "crates/ordo-cli",
     "crates/ordo-derive",
-    "crates/ordo-proto", 
+    "crates/ordo-proto",
     "crates/ordo-server",
+    "crates/ordo-platform",
+    "crates/ordo-protocol",
     "crates/ordo-wasm",
+    "examples/capability-demo",
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.4.2"
 edition = "2021"
 authors = ["Ordo Team"]
 license = "MIT"
-rust-version = "1.75"
+rust-version = "1.88"
 
 [workspace.dependencies]
 # 序列化
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+simd-json = { version = "0.14", features = ["serde_impl"] }
 
 # 错误处理
 thiserror = "1"
@@ -30,7 +35,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # 高性能数据结构
-hashbrown = "0.14"
+hashbrown = { version = "0.14", features = ["serde"] }
 smallvec = "1"
 parking_lot = "0.12"
 
@@ -43,6 +48,20 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 base64 = "0.22"
 
+# 扩展函数
+sha2 = "0.10"
+hmac = "0.12"
+md-5 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+urlencoding = "2"
+hex = "0.4"
+jsonwebtoken = "9"
+argon2 = "0.5"
+semver = "1"
+ipnetwork = "0.20"
+glob = "0.3"
+data-encoding = "2"
+
 # 异步运行时
 tokio = { version = "1", features = ["full"] }
 
@@ -52,11 +71,11 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["trace", "cors", "limit", "timeout"] }
 
 # gRPC
-tonic = "0.10"
+tonic = { version = "0.10", features = ["tls"] }
 prost = "0.12"
 
 # 监控
-prometheus = "0.13"
+prometheus = { version = "0.13", default-features = false }
 
 # 并行计算
 rayon = "1.10"
@@ -78,8 +97,15 @@ syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+
 # Internal crates
-ordo-derive = { path = "crates/ordo-derive" }
+ordo-derive = { version = "0.4.2", path = "crates/ordo-derive" }
+
+# 数据库
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "migrate", "chrono", "json", "uuid"] }
 
 # OpenTelemetry
 opentelemetry = "0.22"

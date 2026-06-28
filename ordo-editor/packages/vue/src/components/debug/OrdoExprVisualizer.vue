@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import OrdoASTTree from './OrdoASTTree.vue';
-import type { ASTNode, BytecodeInfo, EvalStep, DebugEvalResponse } from './types';
+import type { DebugEvalResponse } from './types';
 
 const props = defineProps<{
   endpoint?: string;

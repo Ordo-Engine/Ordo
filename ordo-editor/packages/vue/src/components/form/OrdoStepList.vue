@@ -18,24 +18,29 @@ import OrdoStepEditor from '../step/OrdoStepEditor.vue';
 import OrdoIcon from '../icons/OrdoIcon.vue';
 import { useI18n } from '../../locale';
 import type { FieldSuggestion } from '../base/OrdoExpressionInput.vue';
+import type { SubRuleAssetOption } from '../step/subRuleAssets';
 
 export interface Props {
   /** RuleSet data */
   modelValue: RuleSet;
   /** Field suggestions for expressions */
   suggestions?: FieldSuggestion[];
+  /** Managed project/org sub-rule assets */
+  managedSubRules?: SubRuleAssetOption[];
   /** Whether the editor is disabled */
   disabled?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   suggestions: () => [],
+  managedSubRules: () => [],
   disabled: false,
 });
 
 const emit = defineEmits<{
   'update:modelValue': [value: RuleSet];
   change: [value: RuleSet];
+  'open-sub-rule': [name: string];
 }>();
 
 const { t } = useI18n();
@@ -45,7 +50,10 @@ const expandedGroups = ref<Set<string>>(new Set(['ungrouped']));
 const expandedSteps = ref<Set<string>>(new Set());
 
 // Get groups from ruleset
-const groups = computed(() => props.modelValue.groups || []);
+const groups = computed(() =>
+  Array.isArray(props.modelValue.groups) ? props.modelValue.groups : []
+);
+const steps = computed(() => (Array.isArray(props.modelValue.steps) ? props.modelValue.steps : []));
 
 // Get steps organized by group
 const stepsInGroups = computed(() => {
@@ -61,7 +69,7 @@ const stepsInGroups = computed(() => {
   }
 
   // Assign steps to groups
-  for (const step of props.modelValue.steps) {
+  for (const step of steps.value) {
     let found = false;
     for (const group of groups.value) {
       if (group.stepIds.includes(step.id)) {
@@ -124,7 +132,7 @@ function addGroup() {
 
   const newRuleset: RuleSet = {
     ...props.modelValue,
-    groups: [...(props.modelValue.groups || []), newGroup],
+    groups: [...groups.value, newGroup],
   };
 
   expandedGroups.value.add(id);
@@ -133,14 +141,14 @@ function addGroup() {
 }
 
 function updateGroup(group: StepGroup) {
-  const newGroups = (props.modelValue.groups || []).map((g) => (g.id === group.id ? group : g));
+  const newGroups = groups.value.map((g) => (g.id === group.id ? group : g));
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function deleteGroup(groupId: string) {
-  const newGroups = (props.modelValue.groups || []).filter((g) => g.id !== groupId);
+  const newGroups = groups.value.filter((g) => g.id !== groupId);
   const newRuleset: RuleSet = { ...props.modelValue, groups: newGroups };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
@@ -148,7 +156,7 @@ function deleteGroup(groupId: string) {
 
 // ============ Step Operations ============
 
-function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: string) {
+function addStepToGroup(type: 'decision' | 'action' | 'terminal' | 'sub_rule', groupId?: string) {
   let newStep: Step;
   const id = generateId('step');
 
@@ -167,9 +175,26 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
     case 'terminal':
       newStep = StepFactory.terminal({ id, name: t('step.terminal'), code: 'RESULT' });
       break;
+    case 'sub_rule':
+      const firstAsset =
+        props.managedSubRules.find((asset) => asset.scope === 'project') ??
+        props.managedSubRules[0];
+      const firstSubRuleName =
+        firstAsset?.name ?? Object.keys(props.modelValue.subRules ?? {})[0] ?? '';
+      newStep = StepFactory.subRule({
+        id,
+        name: t('step.subRule'),
+        refName: firstSubRuleName,
+        assetRef: {
+          scope: firstAsset?.scope ?? 'project',
+          name: firstSubRuleName,
+        },
+        nextStepId: '',
+      });
+      break;
   }
 
-  let newGroups = props.modelValue.groups || [];
+  let newGroups = groups.value;
 
   // If adding to a group, update group's stepIds
   if (groupId && groupId !== 'ungrouped') {
@@ -180,7 +205,7 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
 
   const newRuleset: RuleSet = {
     ...props.modelValue,
-    steps: [...props.modelValue.steps, newStep],
+    steps: [...steps.value, newStep],
     groups: newGroups,
     startStepId: props.modelValue.startStepId || id,
   };
@@ -191,22 +216,22 @@ function addStepToGroup(type: 'decision' | 'action' | 'terminal', groupId?: stri
 }
 
 function updateStep(step: Step) {
-  const newSteps = props.modelValue.steps.map((s) => (s.id === step.id ? step : s));
+  const newSteps = steps.value.map((s) => (s.id === step.id ? step : s));
   const newRuleset: RuleSet = { ...props.modelValue, steps: newSteps };
   emit('update:modelValue', newRuleset);
 }
 
 function handleStepChange(step: Step) {
-  const newSteps = props.modelValue.steps.map((s) => (s.id === step.id ? step : s));
+  const newSteps = steps.value.map((s) => (s.id === step.id ? step : s));
   const newRuleset: RuleSet = { ...props.modelValue, steps: newSteps };
   emit('update:modelValue', newRuleset);
   emit('change', newRuleset);
 }
 
 function deleteStep(stepId: string) {
-  const newSteps = props.modelValue.steps.filter((s) => s.id !== stepId);
+  const newSteps = steps.value.filter((s) => s.id !== stepId);
   // Also remove from groups
-  const newGroups = (props.modelValue.groups || []).map((g) => ({
+  const newGroups = groups.value.map((g) => ({
     ...g,
     stepIds: g.stepIds.filter((id) => id !== stepId),
   }));
@@ -229,7 +254,7 @@ function setAsStart(stepId: string) {
 
 function moveStepToGroup(stepId: string, targetGroupId: string) {
   // Remove from all groups first
-  let newGroups = (props.modelValue.groups || []).map((g) => ({
+  let newGroups = groups.value.map((g) => ({
     ...g,
     stepIds: g.stepIds.filter((id) => id !== stepId),
   }));
@@ -255,6 +280,8 @@ function getTypeLabel(type: string): string {
       return 'ACT';
     case 'terminal':
       return 'END';
+    case 'sub_rule':
+      return 'SUB';
     default:
       return type.toUpperCase();
   }
@@ -269,6 +296,8 @@ function getStepSummary(step: Step): string {
       return `${step.assignments?.length || 0} vars`;
     case 'terminal':
       return step.code || 'END';
+    case 'sub_rule':
+      return step.refName || t('step.subRule');
     default:
       return '';
   }
@@ -360,6 +389,13 @@ function getGroupColorStyle(group: StepGroup) {
               >
                 <OrdoIcon name="terminal" :size="12" />
               </button>
+              <button
+                class="btn-add-mini type-sub_rule"
+                :title="t('step.subRule')"
+                @click="addStepToGroup('sub_rule', group.id)"
+              >
+                <OrdoIcon name="sub_rule" :size="12" />
+              </button>
             </div>
             <button
               class="btn-delete-stage"
@@ -441,10 +477,13 @@ function getGroupColorStyle(group: StepGroup) {
                 :model-value="step"
                 :available-steps="modelValue.steps"
                 :suggestions="suggestions"
+                :available-sub-rules="modelValue.subRules ?? {}"
+                :managed-sub-rules="managedSubRules"
                 :disabled="disabled"
                 :show-delete="false"
                 @update:model-value="updateStep"
                 @change="handleStepChange"
+                @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
               />
             </div>
           </div>
@@ -459,6 +498,9 @@ function getGroupColorStyle(group: StepGroup) {
               <button @click="addStepToGroup('action', group.id)">+ {{ t('step.action') }}</button>
               <button @click="addStepToGroup('terminal', group.id)">
                 + {{ t('step.terminal') }}
+              </button>
+              <button @click="addStepToGroup('sub_rule', group.id)">
+                + {{ t('step.subRule') }}
               </button>
             </div>
           </div>
@@ -503,6 +545,13 @@ function getGroupColorStyle(group: StepGroup) {
                 @click="addStepToGroup('terminal', 'ungrouped')"
               >
                 <OrdoIcon name="terminal" :size="12" />
+              </button>
+              <button
+                class="btn-add-mini type-sub_rule"
+                :title="t('step.subRule')"
+                @click="addStepToGroup('sub_rule', 'ungrouped')"
+              >
+                <OrdoIcon name="sub_rule" :size="12" />
               </button>
             </div>
           </div>
@@ -557,10 +606,13 @@ function getGroupColorStyle(group: StepGroup) {
                 :model-value="step"
                 :available-steps="modelValue.steps"
                 :suggestions="suggestions"
+                :available-sub-rules="modelValue.subRules ?? {}"
+                :managed-sub-rules="managedSubRules"
                 :disabled="disabled"
                 :show-delete="false"
                 @update:model-value="updateStep"
                 @change="handleStepChange"
+                @open-sub-rule="(name: string) => emit('open-sub-rule', name)"
               />
             </div>
           </div>
@@ -774,6 +826,12 @@ function getGroupColorStyle(group: StepGroup) {
   color: var(--ordo-node-terminal);
 }
 
+.btn-add-mini.type-sub_rule:hover {
+  background: rgba(91, 112, 138, 0.12);
+  border-color: var(--ordo-node-sub-rule, #5b708a);
+  color: var(--ordo-node-sub-rule, #5b708a);
+}
+
 .btn-delete-stage {
   display: flex;
   align-items: center;
@@ -886,6 +944,11 @@ function getGroupColorStyle(group: StepGroup) {
 .step-type-badge.terminal {
   background: rgba(40, 167, 69, 0.15);
   color: #4ec969;
+}
+
+.step-type-badge.sub_rule {
+  background: rgba(91, 112, 138, 0.18);
+  color: #8fa7c1;
 }
 
 .step-name {

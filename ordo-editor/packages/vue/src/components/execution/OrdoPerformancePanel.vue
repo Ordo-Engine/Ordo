@@ -8,7 +8,7 @@
  * - HTTP backend (VM)
  * - JIT-compiled execution
  */
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import type { RuleSet, JITSchema, JITRulesetAnalysis } from '@ordo-engine/editor-core';
 
 export interface PerformanceMetric {

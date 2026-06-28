@@ -4,13 +4,7 @@
  * 决策步骤编辑器
  */
 import { computed } from 'vue';
-import type {
-  DecisionStep,
-  Branch,
-  Condition,
-  Step,
-  SchemaContext,
-} from '@ordo-engine/editor-core';
+import type { DecisionStep, Branch, Step, SchemaContext } from '@ordo-engine/editor-core';
 import { Condition as ConditionFactory, Expr, generateId } from '@ordo-engine/editor-core';
 import OrdoConditionBuilder from '../base/OrdoConditionBuilder.vue';
 import OrdoSmartConditionBuilder from '../base/OrdoSmartConditionBuilder.vue';
@@ -47,13 +41,26 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+function getStepTypeLabel(type: Step['type']) {
+  switch (type) {
+    case 'decision':
+      return t('step.typeDecision');
+    case 'action':
+      return t('step.typeAction');
+    case 'terminal':
+      return t('step.typeTerminal');
+    default:
+      return type;
+  }
+}
+
 // Computed step options for dropdowns
 const stepOptions = computed(() => {
   return props.availableSteps
     .filter((s) => s.id !== props.modelValue.id)
     .map((s) => ({
       value: s.id,
-      label: `${s.name} (${s.type})`,
+      label: `${s.name} (${getStepTypeLabel(s.type)})`,
     }));
 });
 
@@ -83,7 +90,7 @@ function updateDefaultNext(event: Event) {
 function addBranch() {
   const newBranch: Branch = {
     id: generateId('branch'),
-    label: `Branch ${props.modelValue.branches.length + 1}`,
+    label: `${t('step.branch')} ${props.modelValue.branches.length + 1}`,
     condition: ConditionFactory.simple(Expr.variable('$.field'), 'eq', Expr.string('')),
     nextStepId: props.modelValue.defaultNextStepId,
   };
@@ -177,7 +184,7 @@ function moveBranch(index: number, direction: 'up' | 'down') {
             <input
               :value="branch.label"
               :disabled="disabled"
-              placeholder="Branch Label"
+              :placeholder="t('step.branchLabel')"
               class="ordo-input-transparent"
               @input="updateBranch(index, { label: ($event.target as HTMLInputElement).value })"
             />
@@ -206,7 +213,7 @@ function moveBranch(index: number, direction: 'up' | 'down') {
           <!-- Branch Condition -->
           <div class="ordo-branch-body">
             <div class="ordo-branch-row">
-              <span class="label">If</span>
+              <span class="label">{{ t('step.ifLabel') }}</span>
               <div class="content">
                 <OrdoSmartConditionBuilder
                   v-if="hasSchema"
@@ -227,7 +234,7 @@ function moveBranch(index: number, direction: 'up' | 'down') {
             </div>
 
             <div class="ordo-branch-row">
-              <span class="label">Then</span>
+              <span class="label">{{ t('step.thenLabel') }}</span>
               <div class="content">
                 <select
                   :value="branch.nextStepId"
@@ -248,7 +255,7 @@ function moveBranch(index: number, direction: 'up' | 'down') {
         </div>
 
         <div v-if="modelValue.branches.length === 0" class="ordo-empty-state">
-          No branches defined.
+          {{ t('step.noBranches') }}
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 {
   "name": "@ordo-engine/wasm",
-  "version": "0.2.0",
+  "version": "0.4.2",
   "description": "WebAssembly bindings for Ordo Rule Engine",
   "type": "module",
   "main": "./index.js",
@@ -20,7 +20,7 @@
     "stub.d.ts"
   ],
   "scripts": {
-    "build": "echo 'wasm package uses pre-built files'",
+    "build": "pnpm build:wasm",
     "build:wasm": "cd ../../../crates/ordo-wasm && ./build.sh",
     "build:stub": "echo 'Using stub module'",
     "clean": "rm -rf dist"
@@ -34,7 +34,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Pama-Lee/Ordo.git",
+    "url": "https://github.com/Ordo-Engine/Ordo.git",
     "directory": "ordo-editor/packages/wasm"
   },
   "publishConfig": {

@@ -1,5 +1,7 @@
+# syntax=docker/dockerfile:1.7
+
 # Build stage
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -12,9 +14,14 @@ RUN apt-get update && apt-get install -y \
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY examples ./examples
 
-# Build release
-RUN cargo build --release --package ordo-server
+# Build release with NATS sync support
+RUN --mount=type=cache,id=ordo-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=ordo-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=ordo-rust-target-server,target=/app/target,sharing=locked \
+    cargo build --release --package ordo-server --features nats-sync \
+    && cp /app/target/release/ordo-server /tmp/ordo-server
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -28,10 +35,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/ordo-server /app/ordo-server
+COPY --from=builder /tmp/ordo-server /app/ordo-server
 
-# Create non-root user
-RUN useradd -r -s /bin/false ordo
+# Create non-root user and pre-create writable data dirs so fresh named
+# volumes inherit the expected ownership on first mount.
+RUN useradd -r -s /bin/false ordo \
+    && mkdir -p /data/rules \
+    && chown -R ordo:ordo /app /data/rules
 USER ordo
 
 # Expose port
@@ -43,4 +53,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Run
 ENTRYPOINT ["/app/ordo-server"]
-

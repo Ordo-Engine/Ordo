@@ -1,0 +1,46 @@
+[
+  {
+    "label": "i18n:template.ecommerce-coupon.sample.vip-hit",
+    "input": {
+      "user_id": "user-001",
+      "user_vip_level": 3,
+      "cart_amount": 300,
+      "cart_items_count": 2,
+      "promotion_active": true
+    },
+    "expected_result": "i18n:template.ecommerce-coupon.sample.vip-hit.expected"
+  },
+  {
+    "label": "i18n:template.ecommerce-coupon.sample.normal-hit",
+    "input": {
+      "user_id": "user-002",
+      "user_vip_level": 0,
+      "cart_amount": 800,
+      "cart_items_count": 5,
+      "promotion_active": true
+    },
+    "expected_result": "i18n:template.ecommerce-coupon.sample.normal-hit.expected"
+  },
+  {
+    "label": "i18n:template.ecommerce-coupon.sample.no-coupon",
+    "input": {
+      "user_id": "user-003",
+      "user_vip_level": 0,
+      "cart_amount": 150,
+      "cart_items_count": 1,
+      "promotion_active": true
+    },
+    "expected_result": "i18n:template.ecommerce-coupon.sample.no-coupon.expected"
+  },
+  {
+    "label": "i18n:template.ecommerce-coupon.sample.not-eligible",
+    "input": {
+      "user_id": "user-004",
+      "user_vip_level": 3,
+      "cart_amount": 500,
+      "cart_items_count": 3,
+      "promotion_active": false
+    },
+    "expected_result": "i18n:template.ecommerce-coupon.sample.not-eligible.expected"
+  }
+]

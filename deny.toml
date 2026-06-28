@@ -22,8 +22,31 @@ yanked = "warn"
 # Pulled in transitively by prometheus v0.13.4 which depends on protobuf v2.x.
 # The fix requires protobuf >=3.7.2 which is incompatible with prometheus 0.13.x.
 # Ordo is an internal service and does not parse untrusted protobuf input directly.
+#
+# The rustls-webpki advisories below are X.509 name-constraint / CRL handling
+# issues pulled in transitively via the reqwest + sqlx TLS stack (multiple
+# rustls-webpki versions coexist: 0.101/0.102/0.103). Ordo only makes TLS
+# connections to known, operator-configured endpoints inside trusted networks
+# (outbound HTTP via reqwest, Postgres via sqlx); it does not validate
+# attacker-controlled certificate chains or CRLs. They are tracked for removal
+# once the upstream reqwest/sqlx releases drop the vulnerable webpki versions.
+#   RUSTSEC-2026-0049 — CRLs not authoritative by distribution point (faulty matching)
+#   RUSTSEC-2026-0098 — name constraints for URI names incorrectly accepted
+#   RUSTSEC-2026-0099 — name constraints accepted for wildcard-asserting certs
+#   RUSTSEC-2026-0104 — reachable panic parsing a malformed CRL
+#
+# The two "unsound" advisories below are not reachable in Ordo's usage:
+#   RUSTSEC-2026-0002 — IterMut stacked-borrows unsoundness (no untrusted trigger path)
+#   RUSTSEC-2026-0097 — rand is unsound only with a custom logger calling rand::rng();
+#                       Ordo uses the default logger and does not hit this path.
 ignore = [
     "RUSTSEC-2024-0437",
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0002",
+    "RUSTSEC-2026-0097",
 ]
 
 # ------------------------------------------------------------------------
@@ -46,6 +69,8 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "OpenSSL",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
 ]
 
 # Workspace crates are marked publish = false and should be ignored

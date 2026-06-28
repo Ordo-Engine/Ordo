@@ -171,6 +171,21 @@ lazy_static! {
         "Unix timestamp of the last successful sync event"
     ).unwrap();
 
+    // ==================== Hot Reload Metrics ====================
+
+    /// Total hot reload operations
+    pub static ref HOT_RELOADS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_hot_reloads_total",
+        "Total hot reload operations triggered by file watcher or admin API",
+        &["kind", "result"]
+    ).unwrap();
+
+    /// Timestamp of the last successful hot reload (epoch seconds)
+    pub static ref LAST_RELOAD_TIMESTAMP: Gauge = register_gauge!(
+        "ordo_last_reload_timestamp_seconds",
+        "Unix timestamp of the last successful hot reload"
+    ).unwrap();
+
     // ==================== Batch Execution Metrics ====================
 
     /// Total batch executions counter
@@ -204,7 +219,81 @@ lazy_static! {
         "Total number of individual results in batch executions",
         &["ruleset", "result"]
     ).unwrap();
+
+    // ==================== WAL Metrics ====================
+
+    /// Total size of all WAL segment files in bytes
+    pub static ref WAL_SIZE_BYTES: Gauge = register_gauge!(
+        "ordo_wal_size_bytes",
+        "Total size of WAL segment files in bytes"
+    ).unwrap();
+
+    /// Number of WAL segment files on disk
+    pub static ref WAL_SEGMENTS_TOTAL: IntGauge = register_int_gauge!(
+        "ordo_wal_segments_total",
+        "Number of WAL segment files on disk"
+    ).unwrap();
+
+    /// WAL entries that are prepared but not yet committed
+    pub static ref WAL_PENDING_ENTRIES: IntGauge = register_int_gauge!(
+        "ordo_wal_pending_entries",
+        "WAL entries that are prepared but not yet committed"
+    ).unwrap();
+
+    /// Total WAL write operations (labels: op=put|delete, state=prepared|committed)
+    pub static ref WAL_WRITES_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_wal_writes_total",
+        "Total WAL write operations",
+        &["op", "state"]
+    ).unwrap();
+
+    /// Total WAL entries replayed at startup (labels: op=put|delete, result=recovered|skipped|error)
+    pub static ref WAL_REPLAYS_TOTAL: CounterVec = register_counter_vec!(
+        "ordo_wal_replays_total",
+        "Total WAL entries replayed at startup",
+        &["op", "result"]
+    ).unwrap();
+
+    /// Total WAL segment rotation events
+    pub static ref WAL_ROTATIONS_TOTAL: IntGauge = register_int_gauge!(
+        "ordo_wal_rotations_total",
+        "Total WAL segment rotation events"
+    ).unwrap();
 }
+
+// ── WAL metric helpers ────────────────────────────────────────────────────
+
+/// Record a WAL write (prepare or commit).
+pub fn record_wal_write(op: &str, state: &str) {
+    WAL_WRITES_TOTAL.with_label_values(&[op, state]).inc();
+}
+
+/// Record a WAL replay outcome at startup.
+pub fn record_wal_replay(op: &str, result: &str) {
+    WAL_REPLAYS_TOTAL.with_label_values(&[op, result]).inc();
+}
+
+/// Update total WAL size metric.
+pub fn set_wal_size_bytes(bytes: u64) {
+    WAL_SIZE_BYTES.set(bytes as f64);
+}
+
+/// Update WAL pending entries metric.
+pub fn set_wal_pending_entries(count: i64) {
+    WAL_PENDING_ENTRIES.set(count);
+}
+
+/// Update WAL segment count metric.
+pub fn set_wal_segments_total(count: i64) {
+    WAL_SEGMENTS_TOTAL.set(count);
+}
+
+/// Increment the WAL rotation counter.
+pub fn inc_wal_rotations() {
+    WAL_ROTATIONS_TOTAL.inc();
+}
+
+// ── General helpers ───────────────────────────────────────────────────────
 
 /// Initialize metrics (call once at startup)
 pub fn init() {
@@ -338,6 +427,20 @@ pub fn set_tenant_rules_count(tenant_id: &str, count: i64) {
         .with_label_values(&[tenant_id])
         .set(count as f64);
 }
+/// Record a hot reload operation (from file watcher or admin API)
+pub fn record_hot_reload(kind: &str, success: bool) {
+    let result = if success { "success" } else { "error" };
+    HOT_RELOADS_TOTAL.with_label_values(&[kind, result]).inc();
+    if success {
+        LAST_RELOAD_TIMESTAMP.set(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64(),
+        );
+    }
+}
+
 /// Record batch execution metrics
 pub fn record_batch_execution(
     ruleset: &str,

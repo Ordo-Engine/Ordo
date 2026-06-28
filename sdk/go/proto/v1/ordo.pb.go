@@ -1515,7 +1515,7 @@ const file_ordo_proto_rawDesc = "" +
 	"\fListRuleSets\x12\x1c.ordo.v1.ListRuleSetsRequest\x1a\x1d.ordo.v1.ListRuleSetsResponse\x123\n" +
 	"\x04Eval\x12\x14.ordo.v1.EvalRequest\x1a\x15.ordo.v1.EvalResponse\x129\n" +
 	"\x06Health\x12\x16.ordo.v1.HealthRequest\x1a\x17.ordo.v1.HealthResponseB8\n" +
-	"\x11com.ordo.proto.v1P\x01Z!github.com/pama-lee/ordo/proto/v1b\x06proto3"
+	"\x11com.ordo.proto.v1P\x01Z!github.com/Ordo-Engine/Ordo/proto/v1b\x06proto3"
 
 var (
 	file_ordo_proto_rawDescOnce sync.Once

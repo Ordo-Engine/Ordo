@@ -34,6 +34,13 @@ const sizePx = computed(() => props.size || 16);
       <circle cx="12" cy="12" r="10" />
     </template>
 
+    <template v-else-if="name === 'sub_rule'">
+      <rect x="4" y="5" width="16" height="14" rx="2" ry="2" />
+      <path d="M8 9h8" />
+      <path d="M8 13h5" />
+      <path d="M16 13l2 2l-2 2" />
+    </template>
+
     <!-- Actions -->
     <template v-else-if="name === 'add'">
       <line x1="12" y1="5" x2="12" y2="19" />

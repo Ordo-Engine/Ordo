@@ -2,7 +2,7 @@
 
 Ordo documentation supports dual deployment:
 
-1. **GitHub Pages**: `https://pama-lee.github.io/Ordo/docs/`
+1. **GitHub Pages**: `https://ordo-engine.github.io/Ordo/docs/`
 2. **Custom Domain**: `https://docs.ordoengine.com/`
 
 ## How It Works

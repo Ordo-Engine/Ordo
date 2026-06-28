@@ -9,6 +9,7 @@
  * 4. Cross-group edge targets are ordered to minimize crossing
  */
 
+import dagre from 'dagre';
 import type { FlowNode, FlowEdge } from './converter';
 import type { StepGroup } from '@ordo-engine/editor-core';
 
@@ -90,6 +91,9 @@ function calculateNodeHeight(node: FlowNode): number {
       // Output fields plus return indicator
       contentRows = (step.output?.length || 0) + 1;
       break;
+    case 'sub_rule':
+      contentRows = Math.max((step.bindings?.length || 0) + (step.outputs?.length || 0), 2);
+      break;
     default:
       contentRows = 2;
   }
@@ -114,6 +118,8 @@ function calculateNodeWidth(node: FlowNode): number {
       return 240; // Action nodes need more space for assignments
     case 'terminal':
       return 220; // Terminal nodes for output display
+    case 'sub_rule':
+      return 240;
     default:
       return 220;
   }
@@ -677,9 +683,6 @@ export function applyDagreLayout(
   edges: FlowEdge[],
   options: LayoutOptions = {}
 ): FlowNode[] {
-  // Dynamically import dagre only when needed
-  const dagre = require('dagre');
-
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   const stepNodes = nodes.filter((n) => n.type !== 'group');

@@ -13,7 +13,7 @@ use std::hint::black_box;
 use std::sync::OnceLock;
 
 use ordo_core::context::{Context, FieldType, MessageSchema, Value};
-use ordo_core::expr::jit::TypedContext;
+use ordo_core::expr::jit::{SchemaJITCache, TypedContext};
 use ordo_core::expr::{
     BinaryOp, BytecodeVM, Evaluator, Expr, ExprCompiler, SchemaJITCompiler, SchemaJITEvaluator,
 };
@@ -347,10 +347,13 @@ fn bench_compilation_time(c: &mut Criterion) {
                     let mut hasher = std::collections::hash_map::DefaultHasher::new();
                     format!("{:?}", expr).hash(&mut hasher);
                     let hash = hasher.finish();
-                    // Note: we can't return the result directly due to lifetime issues
-                    // Instead, just measure compilation time
-                    let result =
-                        compiler.compile_with_schema(black_box(expr), hash, black_box(schema));
+                    let cache = SchemaJITCache::default();
+                    let result = compiler.compile_with_schema(
+                        black_box(expr),
+                        hash,
+                        black_box(schema),
+                        &cache,
+                    );
                     black_box(result.is_ok())
                 });
             },
@@ -385,7 +388,11 @@ fn bench_field_access_only(c: &mut Criterion) {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     format!("{:?}", expr).hash(&mut hasher);
     let hash = hasher.finish();
-    let compiled = compiler.compile_with_schema(&expr, hash, schema).unwrap();
+    let compiled = {
+        let cache = SchemaJITCache::default();
+        compiler.compile_with_schema(&expr, hash, schema, &cache)
+    }
+    .unwrap();
 
     // Benchmark raw JIT execution (no evaluator overhead)
     group.bench_function("schema_jit_raw", |b| {

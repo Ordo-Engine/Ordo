@@ -1,0 +1,23 @@
+# Non-secret ORDO_* config for ordo-platform (and ordo-platform-worker).
+# Mirrors compose.yml. Full reference: deploy/CONFIGURATION.md
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ordo-platform
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-platform
+    app.kubernetes.io/part-of: ordo
+data:
+  ORDO_PLATFORM_ADDR: "0.0.0.0:3001"
+  ORDO_ENGINE_URL: "http://ordo-server:8080"
+  ORDO_NATS_URL: "nats://ordo-nats:4222"
+  ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
+  ORDO_PLATFORM_TEMPLATES_DIR: "/app/templates"
+  ORDO_JWT_EXPIRY_HOURS: "24"
+  ORDO_LOG_LEVEL: "info"
+  # SECURITY: do NOT use "*" in production. Set this to your Studio / frontend
+  # origin(s), comma-separated. "*" disables credentialed CORS protection.
+  ORDO_PLATFORM_CORS_ORIGINS: "https://studio.example.com"
+  # GitHub OAuth callback (only used if client id/secret are set in the Secret).
+  ORDO_GITHUB_CALLBACK_URL: "https://platform.example.com/api/v1/github/callback"

@@ -3,6 +3,7 @@ name = "ordo-server"
 version = "0.4.2"
 edition = "2021"
 license = "MIT"
+publish = false
 
 [dependencies]
 anyhow.workspace = true

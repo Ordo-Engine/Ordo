@@ -1,0 +1,79 @@
+[
+  {
+    "name": "applicant_id",
+    "data_type": "string",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 1,
+    "null_policy": "error",
+    "description": "i18n:template.loan-approval.fact.applicant-id.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "credit_score",
+    "data_type": "number",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 8,
+    "null_policy": "error",
+    "description": "i18n:template.loan-approval.fact.credit-score.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "annual_income",
+    "data_type": "number",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 5,
+    "null_policy": "error",
+    "description": "i18n:template.loan-approval.fact.annual-income.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "loan_amount",
+    "data_type": "number",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 1,
+    "null_policy": "error",
+    "description": "i18n:template.loan-approval.fact.loan-amount.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "employment_years",
+    "data_type": "number",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 5,
+    "null_policy": "default",
+    "description": "i18n:template.loan-approval.fact.employment-years.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "existing_debt",
+    "data_type": "number",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 8,
+    "null_policy": "default",
+    "description": "i18n:template.loan-approval.fact.existing-debt.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "has_bankruptcy",
+    "data_type": "boolean",
+    "source": "i18n:template.loan-approval.fact.source",
+    "latency_ms": 10,
+    "null_policy": "default",
+    "description": "i18n:template.loan-approval.fact.has-bankruptcy.desc",
+    "owner": "risk-team",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  }
+]

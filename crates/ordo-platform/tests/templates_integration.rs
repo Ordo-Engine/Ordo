@@ -5,7 +5,8 @@
 //! RuleSet schema — a class of bug that otherwise only surfaces at runtime
 //! when a user clicks "Create from template".
 
-use ordo_core::rule::RuleSet;
+use ordo_core::rule::{RuleExecutor, RuleSet};
+use ordo_platform::template::TemplateStore;
 
 #[test]
 fn ecommerce_coupon_ruleset_parses_with_ordo_core() {
@@ -36,5 +37,123 @@ fn ecommerce_coupon_ruleset_compiles() {
 
     for step in ruleset.steps.values_mut() {
         step.compile().expect("every branch condition must compile");
+    }
+}
+
+#[test]
+fn loan_approval_ruleset_parses_with_ordo_core() {
+    let path = std::path::Path::new("templates/loan-approval/ruleset.json");
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+
+    let ruleset = RuleSet::from_json(&text).expect("ruleset should parse");
+    ruleset
+        .validate()
+        .expect("ruleset.validate() should pass (all referenced steps must exist)");
+
+    assert_eq!(ruleset.config.entry_step, "screen_application");
+    for terminal in [
+        "terminal_approved",
+        "terminal_manual_review",
+        "terminal_rejected_bankruptcy",
+        "terminal_rejected_credit",
+        "terminal_rejected_affordability",
+    ] {
+        assert!(
+            ruleset.steps.contains_key(terminal),
+            "missing terminal step {terminal}"
+        );
+    }
+}
+
+#[test]
+fn loan_approval_ruleset_compiles() {
+    let path = std::path::Path::new("templates/loan-approval/ruleset.json");
+    let text = std::fs::read_to_string(path).unwrap();
+    let mut ruleset = RuleSet::from_json(&text).unwrap();
+
+    for step in ruleset.steps.values_mut() {
+        step.compile().expect("every branch condition must compile");
+    }
+}
+
+/// Load the real `templates/` directory through the platform's TemplateStore
+/// and assert the loan-approval template deserializes across every model
+/// (facts, concepts, contract, samples, tests) and resolves i18n in all locales.
+#[test]
+fn loan_approval_loads_through_template_store() {
+    let store = TemplateStore::load_from_dir(std::path::Path::new("templates"))
+        .expect("templates dir loads");
+
+    // Both shipped templates should be discoverable.
+    let ids: Vec<String> = store.list("en").into_iter().map(|m| m.id).collect();
+    assert!(ids.iter().any(|id| id == "ecommerce-coupon"));
+    assert!(ids.iter().any(|id| id == "loan-approval"));
+
+    let detail = store
+        .get("loan-approval", "en")
+        .expect("loan-approval resolves");
+    assert_eq!(detail.metadata.id, "loan-approval");
+    assert_eq!(detail.facts.len(), 7);
+    assert_eq!(detail.concepts.len(), 4);
+    assert_eq!(detail.tests.len(), 6);
+    assert!(detail.contract.is_some());
+
+    // After i18n resolution no `i18n:` sentinel should survive in any locale.
+    for locale in ["en", "zh-CN", "zh-TW"] {
+        let d = store
+            .get("loan-approval", locale)
+            .unwrap_or_else(|| panic!("loan-approval resolves for {locale}"));
+        let json = serde_json::to_string(&d).expect("detail serializes");
+        assert!(
+            !json.contains("i18n:"),
+            "{locale}: unresolved i18n sentinel(s) remain in loan-approval"
+        );
+    }
+}
+
+/// Execute every case in the template's `tests.json` through the engine and
+/// assert the resulting code and outputs match. This proves the shipped
+/// decision logic actually behaves as documented — not just that it parses.
+#[test]
+fn loan_approval_tests_execute_to_expected_results() {
+    let ruleset_text =
+        std::fs::read_to_string("templates/loan-approval/ruleset.json").expect("read ruleset");
+    let ruleset = RuleSet::from_json_compiled(&ruleset_text).expect("ruleset compiles");
+
+    let tests_text =
+        std::fs::read_to_string("templates/loan-approval/tests.json").expect("read tests");
+    let cases: Vec<serde_json::Value> =
+        serde_json::from_str(&tests_text).expect("tests.json is a JSON array");
+    assert!(!cases.is_empty(), "tests.json should not be empty");
+
+    let executor = RuleExecutor::new();
+    for case in &cases {
+        let id = case["id"].as_str().unwrap_or("<no id>");
+        // The engine takes its own Value type; both it and serde_json::Value go
+        // through serde, so deserialize the case input straight into it.
+        let input: ordo_core::context::Value =
+            serde_json::from_value(case["input"].clone()).expect("case input deserializes");
+        let result = executor
+            .execute(&ruleset, input)
+            .unwrap_or_else(|e| panic!("case {id} failed to execute: {e}"));
+
+        let expected_code = case["expect"]["code"].as_str().expect("expect.code");
+        assert_eq!(
+            result.code, expected_code,
+            "case {id}: expected code {expected_code}, got {}",
+            result.code
+        );
+
+        // Serialize the engine output back to JSON so we can compare fields.
+        let output_json = serde_json::to_value(&result.output).expect("output serializes");
+        if let Some(expected_output) = case["expect"]["output"].as_object() {
+            for (key, want) in expected_output {
+                let got = &output_json[key];
+                assert_eq!(
+                    got, want,
+                    "case {id}: output[{key}] expected {want}, got {got}"
+                );
+            }
+        }
     }
 }

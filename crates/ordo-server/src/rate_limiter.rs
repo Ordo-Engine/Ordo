@@ -52,14 +52,17 @@ impl TokenBucket {
             return;
         }
         let elapsed_ms = now_ms - last;
-        let tokens_to_add = (elapsed_ms as u128 * self.refill_rate as u128 / 1000) as u32;
+        // Clamp to capacity before casting to u32 to avoid truncation
+        let tokens_to_add = (elapsed_ms as u128 * self.refill_rate as u128 / 1000)
+            .min(self.capacity as u128) as u32;
         if tokens_to_add == 0 {
             return;
         }
 
         let mut current = self.tokens.load(Ordering::Relaxed);
         loop {
-            let new_tokens = (current + tokens_to_add).min(self.capacity);
+            // Use saturating_add to prevent overflow before .min()
+            let new_tokens = current.saturating_add(tokens_to_add).min(self.capacity);
             match self.tokens.compare_exchange(
                 current,
                 new_tokens,

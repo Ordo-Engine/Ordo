@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Studio ↔ engine protocol conversion layer for Ordo"
+publish = false
 
 [dependencies]
 ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }

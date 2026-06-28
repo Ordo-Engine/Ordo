@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["Ordo Team"]
 description = "WebAssembly bindings for Ordo Rule Engine"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -1,0 +1,102 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Only check dependencies for the default target
+targets = []
+
+# ------------------------------------------------------------------------
+# Security advisories
+# ------------------------------------------------------------------------
+[advisories]
+# The path where the advisory database is cloned/fetched into
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Warn on unmaintained crates (not deny, to avoid blocking on inactive-but-safe deps)
+unmaintained = "none"
+# Warn on crates that have been yanked
+yanked = "warn"
+
+# protobuf v2.28.0 vulnerability (RUSTSEC-2024-0437): crash via uncontrolled recursion.
+# Pulled in transitively by prometheus v0.13.4 which depends on protobuf v2.x.
+# The fix requires protobuf >=3.7.2 which is incompatible with prometheus 0.13.x.
+# Ordo is an internal service and does not parse untrusted protobuf input directly.
+#
+# The rustls-webpki advisories below are X.509 name-constraint / CRL handling
+# issues pulled in transitively via the reqwest + sqlx TLS stack (multiple
+# rustls-webpki versions coexist: 0.101/0.102/0.103). Ordo only makes TLS
+# connections to known, operator-configured endpoints inside trusted networks
+# (outbound HTTP via reqwest, Postgres via sqlx); it does not validate
+# attacker-controlled certificate chains or CRLs. They are tracked for removal
+# once the upstream reqwest/sqlx releases drop the vulnerable webpki versions.
+#   RUSTSEC-2026-0049 — CRLs not authoritative by distribution point (faulty matching)
+#   RUSTSEC-2026-0098 — name constraints for URI names incorrectly accepted
+#   RUSTSEC-2026-0099 — name constraints accepted for wildcard-asserting certs
+#   RUSTSEC-2026-0104 — reachable panic parsing a malformed CRL
+#
+# The two "unsound" advisories below are not reachable in Ordo's usage:
+#   RUSTSEC-2026-0002 — IterMut stacked-borrows unsoundness (no untrusted trigger path)
+#   RUSTSEC-2026-0097 — rand is unsound only with a custom logger calling rand::rng();
+#                       Ordo uses the default logger and does not hit this path.
+ignore = [
+    "RUSTSEC-2024-0437",
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0002",
+    "RUSTSEC-2026-0097",
+]
+
+# ------------------------------------------------------------------------
+# License checks
+# ------------------------------------------------------------------------
+[licenses]
+# Confidence threshold for license detection
+confidence-threshold = 0.8
+
+# Allow these licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "OpenSSL",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+
+# Workspace crates are marked publish = false and should be ignored
+# for license checks (they inherit license from workspace.package.license).
+[licenses.private]
+ignore = true
+
+# ------------------------------------------------------------------------
+# Crate bans
+# ------------------------------------------------------------------------
+[bans]
+# Warn on multiple versions of the same crate
+multiple-versions = "warn"
+# Deny wildcard dependencies
+wildcards = "deny"
+# Highlight the longest path each duplicate dependency takes
+highlight = "simplest-path"
+
+# Allow wildcard (path) dependencies for workspace-internal crates
+allow-wildcard-paths = true
+
+# ------------------------------------------------------------------------
+# Source checks
+# ------------------------------------------------------------------------
+[sources]
+# Only allow crates from crates.io and git sources
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -4,6 +4,7 @@ version = "0.4.2"
 edition = "2021"
 license = "MIT"
 description = "Ordo decision management platform — organization, project, auth, and governance APIs"
+publish = false
 
 [[bin]]
 name = "ordo-platform"

@@ -5,6 +5,15 @@
  * so rulesets stored on the server can be loaded and edited in the Studio.
  *
  * This is the inverse of convertToEngineFormat() in adapter.ts.
+ *
+ * IMPORTANT — do NOT delete this in favour of the backend `ordo-protocol` crate.
+ * Studio's normalizeRuleset() (apps/studio/src/utils/ruleset.ts) is a defensive
+ * normalizer that accepts EITHER format and only calls this when it detects
+ * engine-shaped input (config.entry_step + steps as a record). The common migrated
+ * path now carries studio format, so this branch is usually skipped — but dropping
+ * it would silently turn any engine-format input (server-stored, imported, or legacy
+ * data) into an empty-ruleset fallback. It is also a public editor-core export with
+ * round-trip tests against convertToEngineFormat().
  */
 
 import type {

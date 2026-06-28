@@ -7,6 +7,16 @@
  * - StepKind uses #[serde(tag = "type")] so format is { "type": "decision", ... }
  * - Condition uses #[serde(untagged)] so string conditions are just strings
  * - Terminal steps have a "result" field containing code, message, output
+ *
+ * IMPORTANT — do NOT delete this in favour of the backend `ordo-protocol` crate.
+ * The ordo-protocol migration moved studio↔engine conversion to the server ONLY
+ * for the ordo-platform draft/publish flow (Studio already sends its natural format
+ * there). This adapter is still load-bearing for the *local* execution path that
+ * never touches ordo-platform:
+ *   - RuleExecutor.execute / validate / analyzeJitCompatibility (executor.ts) run
+ *     rules in-browser via WASM/JIT — and the engine only understands engine format.
+ *   - The playground compiles/debugs/exports rulesets locally (apps/playground).
+ * Removing it breaks Studio's execution & trace panels and the entire playground.
  */
 
 import type {

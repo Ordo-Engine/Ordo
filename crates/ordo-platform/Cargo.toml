@@ -41,6 +41,8 @@ url = "2"
 sha2.workspace = true
 hex.workspace = true
 hashbrown.workspace = true
+prometheus.workspace = true
+lazy_static = "1.4"
 ordo-core = { path = "../ordo-core", default-features = false, features = ["derive"] }
 ordo-protocol = { path = "../ordo-protocol" }
 

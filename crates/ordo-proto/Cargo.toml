@@ -4,6 +4,7 @@ version = "0.4.2"
 edition = "2021"
 description = "Protobuf definitions for Ordo rule engine"
 license = "MIT"
+publish = false
 
 [dependencies]
 prost = "0.12"

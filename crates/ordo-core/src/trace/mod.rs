@@ -184,6 +184,42 @@ pub struct StepTrace {
     /// Inner step traces when this is a sub-rule invocation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_rule_frames: Option<Vec<StepTrace>>,
+
+    /// Sub-rule invocation details when this step calls a sub-rule
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_rule_call: Option<SubRuleCallTrace>,
+}
+
+/// Sub-rule invocation trace details.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubRuleCallTrace {
+    /// Referenced sub-rule name
+    pub ref_name: String,
+
+    /// Input object passed into the child context after binding evaluation
+    pub input: Value,
+
+    /// Output mappings applied back to the parent context
+    #[serde(default)]
+    pub outputs: Vec<SubRuleOutputTrace>,
+}
+
+/// One output mapping from child context back to parent context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubRuleOutputTrace {
+    /// Variable name written in the parent context
+    pub parent_var: String,
+
+    /// Variable name read from the child context
+    pub child_var: String,
+
+    /// Value copied back to the parent, if present
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
+
+    /// True when the child variable was not present
+    #[serde(default)]
+    pub missing: bool,
 }
 
 impl StepTrace {
@@ -198,6 +234,7 @@ impl StepTrace {
             next_step: None,
             is_terminal: false,
             sub_rule_frames: None,
+            sub_rule_call: None,
         }
     }
 
@@ -212,6 +249,7 @@ impl StepTrace {
             next_step: Some(next_step.to_string()),
             is_terminal: false,
             sub_rule_frames: None,
+            sub_rule_call: None,
         }
     }
 
@@ -226,6 +264,7 @@ impl StepTrace {
             next_step: None,
             is_terminal: true,
             sub_rule_frames: None,
+            sub_rule_call: None,
         }
     }
 }

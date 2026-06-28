@@ -297,6 +297,7 @@ export interface TestRunResult {
   test_name: string;
   passed: boolean;
   failures: string[];
+  failure_details?: TestFailureDetail[];
   duration_us: number;
   actual_code?: string;
   actual_message?: string;
@@ -304,14 +305,43 @@ export interface TestRunResult {
   trace?: TestExecutionTrace;
 }
 
+export type TestFailureKind =
+  | 'reference'
+  | 'contract'
+  | 'binding'
+  | 'sub_rule'
+  | 'output'
+  | 'assertion'
+  | 'execution';
+
+export interface TestFailureDetail {
+  message: string;
+  kind: TestFailureKind;
+  step_id?: string | null;
+  sub_rule_ref?: string | null;
+  trace_path?: string[];
+}
+
 export interface TestExecutionTraceStep {
   id: string;
   name: string;
   duration_us: number;
+  result?: string | null;
   next_step?: string | null;
   is_terminal?: boolean;
   input_snapshot?: Record<string, unknown> | null;
   variables_snapshot?: Record<string, unknown> | null;
+  sub_rule_ref?: string | null;
+  sub_rule_input?: Record<string, unknown> | null;
+  sub_rule_outputs?: TestSubRuleOutputTrace[];
+  sub_rule_frames?: TestExecutionTraceStep[];
+}
+
+export interface TestSubRuleOutputTrace {
+  parent_var: string;
+  child_var: string;
+  value?: unknown;
+  missing?: boolean;
 }
 
 export interface TestExecutionTrace {
@@ -331,6 +361,14 @@ export interface TestRunRequest {
 
 export interface ProjectTestRunRequest {
   rulesets?: Record<string, Record<string, unknown>>;
+  include_trace?: boolean;
+}
+
+export interface AdHocTestRunRequest {
+  ruleset: RuleSet;
+  name?: string;
+  input: Record<string, unknown>;
+  expect?: TestExpectation;
   include_trace?: boolean;
 }
 
@@ -467,6 +505,41 @@ export interface DraftConflictResponse {
   server_seq: number;
 }
 
+// ── Managed SubRule Assets ───────────────────────────────────────────────────
+
+export type SubRuleScope = 'org' | 'project';
+
+export interface SubRuleAssetMeta {
+  id: string;
+  org_id: string;
+  project_id: string | null;
+  scope: SubRuleScope;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  draft_seq: number;
+  draft_updated_at: string;
+  draft_updated_by: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface SubRuleAsset extends SubRuleAssetMeta {
+  draft: RuleSet;
+  input_schema: unknown[];
+  output_schema: unknown[];
+}
+
+export interface SaveSubRuleAssetRequest {
+  name: string;
+  display_name?: string | null;
+  description?: string | null;
+  draft: RuleSet;
+  input_schema?: unknown[];
+  output_schema?: unknown[];
+  expected_seq?: number;
+}
+
 // ── Deployments ───────────────────────────────────────────────────────────────
 
 export type DeploymentStatus = 'queued' | 'success' | 'failed';
@@ -569,10 +642,28 @@ export interface ReleaseContentDiffSummary {
   added_groups: string[];
   removed_groups: string[];
   modified_groups: string[];
+  added_sub_rules: ReleaseSubRuleDiffItem[];
+  removed_sub_rules: ReleaseSubRuleDiffItem[];
+  modified_sub_rules: ReleaseSubRuleDiffItem[];
   input_schema_changed: boolean;
   output_schema_changed: boolean;
   tags_changed: boolean;
   description_changed: boolean;
+}
+
+export interface ReleaseSubRuleDependency {
+  name: string;
+  display_name?: string | null;
+  scope: SubRuleScope;
+  asset_id: string;
+  draft_seq: number;
+  content_hash: string;
+}
+
+export interface ReleaseSubRuleDiffItem {
+  name: string;
+  content_hash?: string | null;
+  step_count?: number | null;
 }
 
 export interface ReleaseRequestSnapshot {
@@ -592,6 +683,8 @@ export interface ReleaseRequestSnapshot {
   rollout_strategy: RolloutStrategy;
   rollback_policy: RollbackPolicy;
   affected_instance_count: number;
+  target_ruleset_snapshot?: RuleSet | null;
+  sub_rule_dependencies: ReleaseSubRuleDependency[];
 }
 
 export interface ReleaseRequest {

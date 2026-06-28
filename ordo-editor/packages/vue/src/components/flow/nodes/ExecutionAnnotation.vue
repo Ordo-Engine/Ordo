@@ -19,7 +19,7 @@ export interface StepTraceInfo {
   /** Result code (for terminal nodes) */
   resultCode?: string;
   /** Execution order (1-based) */
-  order: number;
+  order: number | string;
   /** Whether this step is the entry point */
   isEntry?: boolean;
   /** Whether this step is the terminal */
@@ -151,8 +151,9 @@ const statusIcon = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
+  min-width: 18px;
   height: 18px;
+  padding: 0 5px;
   background: var(--ordo-accent, #6366f1);
   color: white;
   font-size: 10px;

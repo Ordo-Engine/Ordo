@@ -1,6 +1,4 @@
 use super::*;
-use ordo_core::rule::RuleSet;
-use ordo_protocol::StudioRuleSet;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -2773,7 +2771,8 @@ async fn publish_release_via_nats(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("NATS publisher is not configured"))?;
 
-    let normalized_ruleset = normalize_release_ruleset_json(ruleset_json)?;
+    let concepts = state.store.get_concepts("", project_id).await?;
+    let normalized_ruleset = normalize_release_ruleset_json_with_concepts(ruleset_json, &concepts)?;
     let json_str = serde_json::to_string(&normalized_ruleset)?;
     let event = SyncEvent::RulePut {
         tenant_id: project_id.to_string(),
@@ -2809,15 +2808,22 @@ fn looks_like_studio_ruleset(ruleset: &JsonValue) -> bool {
         && ruleset.get("steps").is_some_and(JsonValue::is_array)
 }
 
+#[cfg(test)]
 fn normalize_release_ruleset_json(ruleset: &JsonValue) -> anyhow::Result<JsonValue> {
+    normalize_release_ruleset_json_with_concepts(ruleset, &[])
+}
+
+fn normalize_release_ruleset_json_with_concepts(
+    ruleset: &JsonValue,
+    concepts: &[crate::models::ConceptDefinition],
+) -> anyhow::Result<JsonValue> {
     if looks_like_engine_ruleset(ruleset) {
         return Ok(ruleset.clone());
     }
 
     if looks_like_studio_ruleset(ruleset) {
-        let studio: StudioRuleSet = serde_json::from_value(ruleset.clone())?;
-        let engine: RuleSet = studio.try_into()?;
-        return Ok(serde_json::to_value(&engine)?);
+        return crate::ruleset_draft::studio_draft_to_engine_json_with_concepts(ruleset, concepts)
+            .map_err(anyhow::Error::from);
     }
 
     Err(anyhow::anyhow!(

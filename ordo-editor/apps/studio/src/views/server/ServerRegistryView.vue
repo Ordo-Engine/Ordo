@@ -53,22 +53,23 @@ const filterOptions = computed(() => [
 
 const columns = computed(() => [
   { colKey: 'name', title: t('settings.serverRegistry.serverName'), width: 240 },
-  { colKey: 'url', title: t('settings.serverRegistry.endpoint'), minWidth: 240 },
+  { colKey: 'url', title: t('settings.serverRegistry.endpoint'), width: 200 },
   {
     colKey: 'status',
     title: t('settings.serverRegistry.status'),
-    width: 120,
+    width: 92,
     align: 'center' as const,
   },
-  { colKey: 'version', title: t('settings.serverRegistry.version'), width: 120 },
-  { colKey: 'last_seen', title: t('settings.serverRegistry.lastSeen'), width: 190 },
-  { colKey: 'registered_at', title: t('settings.serverRegistry.registeredAt'), width: 190 },
-  { colKey: 'labels', title: t('settings.serverRegistry.labels'), minWidth: 180 },
+  { colKey: 'version', title: t('settings.serverRegistry.version'), width: 96 },
+  { colKey: 'last_seen', title: t('settings.serverRegistry.lastSeen'), width: 144 },
+  { colKey: 'registered_at', title: t('settings.serverRegistry.registeredAt'), width: 144 },
+  { colKey: 'labels', title: t('settings.serverRegistry.labels'), width: 160 },
   {
     colKey: 'actions',
     title: t('settings.serverRegistry.actions'),
-    width: 220,
+    width: 148,
     align: 'right' as const,
+    fixed: 'right' as const,
   },
 ]);
 
@@ -109,6 +110,25 @@ const filteredServers = computed(() => {
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return t('settings.serverRegistry.neverSeen');
   return new Date(value).toLocaleString();
+}
+
+function formatTimestampParts(value: string | null | undefined) {
+  if (!value) {
+    return {
+      primary: t('settings.serverRegistry.neverSeen'),
+      secondary: '',
+    };
+  }
+
+  const date = new Date(value);
+  return {
+    primary: date.toLocaleDateString(),
+    secondary: date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }),
+  };
 }
 
 function statusLabel(status: ServerInfo['status']) {
@@ -257,6 +277,7 @@ onMounted(loadServers);
       </div>
 
       <t-table
+        class="server-table"
         row-key="id"
         size="small"
         hover
@@ -264,6 +285,7 @@ onMounted(loadServers);
         :data="filteredServers"
         :columns="columns"
         :empty="t('settings.serverRegistry.empty')"
+        table-layout="fixed"
       >
         <template #name="{ row }">
           <div class="server-name-cell">
@@ -273,7 +295,7 @@ onMounted(loadServers);
         </template>
 
         <template #url="{ row }">
-          <span class="mono">{{ row.url }}</span>
+          <span class="mono mono-ellipsis" :title="row.url">{{ row.url }}</span>
         </template>
 
         <template #status="{ row }">
@@ -287,18 +309,29 @@ onMounted(loadServers);
         </template>
 
         <template #last_seen="{ row }">
-          {{ formatTimestamp(row.last_seen) }}
+          <div class="time-cell">
+            <strong>{{ formatTimestampParts(row.last_seen).primary }}</strong>
+            <span>{{ formatTimestampParts(row.last_seen).secondary }}</span>
+          </div>
         </template>
 
         <template #registered_at="{ row }">
-          {{ formatTimestamp(row.registered_at) }}
+          <div class="time-cell">
+            <strong>{{ formatTimestampParts(row.registered_at).primary }}</strong>
+            <span>{{ formatTimestampParts(row.registered_at).secondary }}</span>
+          </div>
         </template>
 
         <template #labels="{ row }">
           <div v-if="Object.keys(row.labels).length" class="label-list">
-            <span v-for="(value, key) in row.labels" :key="key" class="label-chip"
-              >{{ key }}={{ value }}</span
+            <span
+              v-for="(value, key) in row.labels"
+              :key="key"
+              class="label-chip"
+              :title="`${key}=${value}`"
             >
+              {{ key }}={{ value }}
+            </span>
           </div>
           <span v-else class="text-muted">{{ t('settings.serverRegistry.noLabels') }}</span>
         </template>
@@ -480,6 +513,7 @@ onMounted(loadServers);
   border: 1px solid var(--ordo-border-color);
   border-radius: 10px;
   padding: 16px;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -497,6 +531,14 @@ onMounted(loadServers);
 .server-name-cell {
   display: grid;
   gap: 4px;
+  min-width: 0;
+}
+
+.server-name-cell strong {
+  display: block;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .server-id,
@@ -511,24 +553,94 @@ onMounted(loadServers);
   font-family: 'JetBrains Mono', monospace;
 }
 
+.server-id {
+  display: block;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.mono-ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-cell {
+  display: grid;
+  gap: 2px;
+  line-height: 1.25;
+}
+
+.time-cell strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-primary);
+}
+
+.time-cell span {
+  font-size: 11px;
+  color: var(--ordo-text-secondary);
+}
+
 .label-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  max-height: 48px;
+  overflow: hidden;
 }
 
 .label-chip {
+  max-width: 100%;
   padding: 3px 8px;
   border-radius: 999px;
   background: var(--ordo-bg-item-hover);
   color: var(--ordo-text-secondary);
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-group {
   display: flex;
   justify-content: flex-end;
   gap: 4px;
+  white-space: nowrap;
+}
+
+:deep(.server-table .t-table__content) {
+  overflow-x: auto;
+}
+
+:deep(.server-table td),
+:deep(.server-table th) {
+  vertical-align: middle;
+}
+
+:deep(.server-table tbody td:first-child) {
+  overflow: visible;
+}
+
+:deep(.server-table tbody td:first-child .cell) {
+  display: block;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+:deep(.server-table .t-table__fixed-right),
+:deep(.server-table .t-table__fixed-right-last) {
+  background: var(--ordo-bg-panel);
+}
+
+:deep(.server-table .t-table__fixed-right-first::before) {
+  box-shadow: -10px 0 16px -14px rgba(15, 23, 42, 0.28);
 }
 
 .dialog-summary {

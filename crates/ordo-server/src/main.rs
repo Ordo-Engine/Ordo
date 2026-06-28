@@ -555,6 +555,8 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "nats-sync")]
     let mut nats_subscriber_handle: Option<tokio::task::JoinHandle<()>> = None;
     #[cfg(feature = "nats-sync")]
+    let mut nats_rpc_handle: Option<tokio::task::JoinHandle<()>> = None;
+    #[cfg(feature = "nats-sync")]
     let mut nats_jetstream: Option<async_nats::jetstream::Context> = None;
     #[cfg(feature = "nats-sync")]
     if let Some(ref nats_url) = config.nats_url {
@@ -565,8 +567,9 @@ async fn main() -> anyhow::Result<()> {
             nats_url, instance_id, config.nats_subject_prefix
         );
 
-        match sync::nats_sync::connect(nats_url).await {
-            Ok(jetstream) => {
+        match sync::nats_sync::connect_client(nats_url).await {
+            Ok(nats_client) => {
+                let jetstream = async_nats::jetstream::new(nats_client.clone());
                 if let Err(e) =
                     sync::nats_sync::ensure_stream(&jetstream, &config.nats_subject_prefix).await
                 {
@@ -615,6 +618,36 @@ async fn main() -> anyhow::Result<()> {
                                 "Failed to create NATS consumer: {} — sync subscriber disabled",
                                 e
                             );
+                        }
+                    }
+
+                    let rpc_state = AppState {
+                        store: store.clone(),
+                        audit_logger: audit_logger.clone(),
+                        metric_sink: metric_sink.clone(),
+                        executor: executor.clone(),
+                        config: config.clone(),
+                        signature_verifier: signature_verifier.clone(),
+                        debug_sessions: debug_sessions.clone(),
+                        tenant_manager: tenant_manager.clone(),
+                        rate_limiter: rate_limiter.clone(),
+                        webhook_manager: webhook_manager.clone(),
+                    };
+                    match start_server_control_rpc_responder(
+                        nats_client.clone(),
+                        config.nats_subject_prefix.clone(),
+                        server_id.clone(),
+                        rpc_state,
+                        shutdown_rx.clone(),
+                    )
+                    .await
+                    {
+                        Ok(handle) => {
+                            nats_rpc_handle = Some(handle);
+                            info!("NATS server control RPC responder started");
+                        }
+                        Err(e) => {
+                            warn!("Failed to start NATS server control RPC responder: {}", e);
                         }
                     }
 
@@ -847,6 +880,12 @@ async fn main() -> anyhow::Result<()> {
     // Stop the NATS subscriber.
     #[cfg(feature = "nats-sync")]
     if let Some(handle) = nats_subscriber_handle {
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    #[cfg(feature = "nats-sync")]
+    if let Some(handle) = nats_rpc_handle {
         handle.abort();
         let _ = handle.await;
     }
@@ -1141,6 +1180,92 @@ async fn start_grpc_server(
     Ok(())
 }
 
+#[cfg(feature = "nats-sync")]
+#[derive(serde::Serialize)]
+struct ServerControlRpcResponse {
+    status: u16,
+    content_type: &'static str,
+    body: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[cfg(feature = "nats-sync")]
+async fn start_server_control_rpc_responder(
+    client: async_nats::Client,
+    subject_prefix: String,
+    server_id: String,
+    state: AppState,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+    let subject = sync::nats_sync::server_rpc_wildcard_subject(&subject_prefix, &server_id);
+    let mut subscriber = client.subscribe(subject.clone()).await?;
+    Ok(tokio::spawn(async move {
+        use futures::StreamExt;
+
+        info!(
+            subject = %subject,
+            "NATS server control RPC responder listening"
+        );
+
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    info!("NATS server control RPC responder: shutdown signal received");
+                    break;
+                }
+                message = subscriber.next() => {
+                    let Some(message) = message else {
+                        warn!("NATS server control RPC responder subscription ended");
+                        break;
+                    };
+                    let Some(reply) = message.reply else {
+                        continue;
+                    };
+
+                    let endpoint = message.subject.as_str().rsplit('.').next().unwrap_or("");
+                    let rpc_response = match endpoint {
+                        "health" => {
+                            let (status_code, body) = build_readiness_payload(&state).await;
+                            ServerControlRpcResponse {
+                                status: status_code.as_u16(),
+                                content_type: "application/json",
+                                body,
+                                error: None,
+                            }
+                        }
+                        "metrics" => ServerControlRpcResponse {
+                            status: axum::http::StatusCode::OK.as_u16(),
+                            content_type: PROMETHEUS_CONTENT_TYPE,
+                            body: serde_json::Value::String(build_prometheus_metrics_text(&state).await),
+                            error: None,
+                        },
+                        other => ServerControlRpcResponse {
+                            status: axum::http::StatusCode::NOT_FOUND.as_u16(),
+                            content_type: "text/plain; charset=utf-8",
+                            body: serde_json::Value::String(String::new()),
+                            error: Some(format!("unknown server control RPC endpoint: {}", other)),
+                        },
+                    };
+
+                    match serde_json::to_vec(&rpc_response) {
+                        Ok(payload) => {
+                            if let Err(e) = client.publish(reply, payload.into()).await {
+                                warn!("Failed to publish NATS server control RPC response: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to serialize NATS server control RPC response: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }))
+}
+
+const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
+
 /// Liveness probe — confirms the process is running.
 /// Always returns 200; use for Kubernetes liveness probes.
 async fn liveness_check() -> impl IntoResponse {
@@ -1156,6 +1281,11 @@ async fn liveness_check() -> impl IntoResponse {
 /// Returns 503 if any check fails. Use for Kubernetes readiness probes
 /// and load balancer health checks.
 async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
+    let (status_code, payload) = build_readiness_payload(&state).await;
+    (status_code, Json(payload))
+}
+
+async fn build_readiness_payload(state: &AppState) -> (axum::http::StatusCode, serde_json::Value) {
     let store_result = tokio::time::timeout(Duration::from_secs(2), state.store.read()).await;
 
     let (store_lock_ok, rules_count, storage_mode) = match store_result {
@@ -1193,7 +1323,7 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
 
     (
         status_code,
-        Json(serde_json::json!({
+        serde_json::json!({
             "status": if is_ready { "ready" } else { "not_ready" },
             "version": ordo_core::VERSION,
             "role": state.config.role.to_string(),
@@ -1212,12 +1342,20 @@ async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
                 "last_reload_timestamp": metrics::LAST_RELOAD_TIMESTAMP.get(),
             },
             "debug_mode": state.config.debug_enabled()
-        })),
+        }),
     )
 }
 
 /// Prometheus metrics endpoint
 async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let metrics = build_prometheus_metrics_text(&state).await;
+    (
+        [(axum::http::header::CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
+        metrics,
+    )
+}
+
+async fn build_prometheus_metrics_text(state: &AppState) -> String {
     // Update rules count before encoding
     let store = state.store.read().await;
     metrics::set_rules_count(store.len() as i64);
@@ -1227,14 +1365,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> impl IntoResponse 
     let standard_metrics = metrics::encode_metrics();
     let custom_metrics = state.metric_sink.encode_custom_metrics();
 
-    // Return Prometheus text format
-    (
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/plain; version=0.0.4; charset=utf-8",
-        )],
-        format!("{}\n{}", standard_metrics, custom_metrics),
-    )
+    format!("{}\n{}", standard_metrics, custom_metrics)
 }
 
 /// Replay uncommitted WAL entries into the store before `load_from_dir`.

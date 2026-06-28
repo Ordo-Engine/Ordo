@@ -148,6 +148,27 @@ export interface StepTrace {
   duration_us: number;
   /** Step result (for decision steps) */
   result?: string;
+  /** Next step ID when execution continues */
+  next_step?: string | null;
+  /** Whether this step ended execution */
+  is_terminal?: boolean;
+  /** Input data snapshot for this step */
+  input_snapshot?: Record<string, any> | null;
+  /** Runtime variable snapshot for this step */
+  variables_snapshot?: Record<string, any> | null;
+  /** Referenced sub-rule name when this step invokes a sub-rule */
+  sub_rule_ref?: string | null;
+  /** Input object passed into the sub-rule */
+  sub_rule_input?: Record<string, any> | null;
+  /** Output mappings copied from child context to parent context */
+  sub_rule_outputs?: Array<{
+    parent_var: string;
+    child_var: string;
+    value?: any;
+    missing?: boolean;
+  }>;
+  /** Nested execution frames produced by a sub-rule invocation */
+  sub_rule_frames?: StepTrace[];
 }
 
 /** Engine validation result */

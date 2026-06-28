@@ -6,18 +6,53 @@ import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import { useTestStore } from '@/stores/test';
 import { useCatalogStore } from '@/stores/catalog';
 import { useAuthStore } from '@/stores/auth';
-import type { TestCase, TestCaseInput, TestRunResult } from '@/api/types';
+import { testApi } from '@/api/platform-client';
+import TraceStepTree from './TraceStepTree.vue';
+import type {
+  TestCase,
+  TestCaseInput,
+  TestExecutionTraceStep,
+  TestFailureDetail,
+  TestRunResult,
+} from '@/api/types';
+import type { RuleSet } from '@ordo-engine/editor-core';
 
 const props = defineProps<{
   projectId: string;
   rulesetName: string;
   visible: boolean;
   height: number;
+  ruleset?: RuleSet | null;
+  subRuleMode?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void;
   (e: 'update:height', v: number): void;
+  (
+    e: 'show-in-flow',
+    trace: {
+      path: string[];
+      steps: TestExecutionTraceStep[];
+      resultCode: string;
+      resultMessage: string;
+      output?: Record<string, any>;
+    }
+  ): void;
+  (
+    e: 'open-sub-rule-trace',
+    payload: {
+      refName: string;
+      focusStepId?: string;
+      trace: {
+        path: string[];
+        steps: TestExecutionTraceStep[];
+        resultCode: string;
+        resultMessage: string;
+        output?: Record<string, any>;
+      };
+    }
+  ): void;
 }>();
 
 const { t } = useI18n();
@@ -37,6 +72,13 @@ const inputJson = ref('{}');
 const expectOutputJson = ref('');
 const saving = ref(false);
 const jsonError = ref('');
+const probeInputJson = ref('{}');
+const probeExpectCode = ref('');
+const probeExpectMessage = ref('');
+const probeExpectOutputJson = ref('');
+const probeJsonError = ref<'input' | 'output' | ''>('');
+const probeRunning = ref(false);
+const probeResult = ref<TestRunResult | null>(null);
 
 function emptyForm(): TestCaseInput {
   return {
@@ -53,10 +95,14 @@ const results = computed(() => testStore.runResults.get(props.rulesetName) ?? []
 const running = computed(() => testStore.running);
 const runningOne = computed(() => testStore.runningOne);
 const loading = computed(() => testStore.loadingRuleset.get(props.rulesetName) ?? false);
+const isSubRuleMode = computed(() => props.subRuleMode === true);
 
 const passCount = computed(() => results.value.filter((r) => r.passed).length);
 const failCount = computed(() => results.value.filter((r) => !r.passed).length);
 const hasResults = computed(() => results.value.length > 0);
+const probePassCount = computed(() => (probeResult.value?.passed ? 1 : 0));
+const probeFailCount = computed(() => (probeResult.value && !probeResult.value.passed ? 1 : 0));
+const hasProbeResult = computed(() => !!probeResult.value);
 
 function resultFor(id: string): TestRunResult | undefined {
   return results.value.find((r) => r.test_id === id);
@@ -71,7 +117,17 @@ function toggleExpand(id: string) {
 watch(
   () => [props.projectId, props.rulesetName],
   ([pid, name]) => {
-    if (pid && name) testStore.fetchTests(pid as string, name as string);
+    if (pid && name && !isSubRuleMode.value) testStore.fetchTests(pid as string, name as string);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [props.rulesetName, props.subRuleMode],
+  () => {
+    probeResult.value = null;
+    probeJsonError.value = '';
+    if (isSubRuleMode.value) seedSubRuleProbeInput();
   },
   { immediate: true }
 );
@@ -113,6 +169,79 @@ async function runOne(tc: TestCase) {
     expandedId.value = tc.id;
   } catch (e: any) {
     MessagePlugin.error(e?.message ?? t('test.saveFailed'));
+  }
+}
+
+function defaultValueForSchemaField(field: any): unknown {
+  if (field?.defaultValue !== undefined) return field.defaultValue;
+  switch (field?.type) {
+    case 'number':
+      return 0;
+    case 'boolean':
+      return false;
+    case 'array':
+      return [];
+    case 'object':
+      return seedObjectFromSchema(field.fields ?? []);
+    default:
+      return '';
+  }
+}
+
+function seedObjectFromSchema(fields: any[]): Record<string, unknown> {
+  const skeleton: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!field?.name) continue;
+    skeleton[field.name] = defaultValueForSchemaField(field);
+  }
+  return skeleton;
+}
+
+function seedSubRuleProbeInput() {
+  const fields = props.ruleset?.config.inputSchema ?? [];
+  probeInputJson.value = JSON.stringify(seedObjectFromSchema(fields), null, 2);
+}
+
+async function runSubRuleProbe() {
+  if (!auth.token || !props.ruleset) return;
+
+  probeJsonError.value = '';
+  let input: Record<string, unknown>;
+  try {
+    input = JSON.parse(probeInputJson.value || '{}');
+  } catch {
+    probeJsonError.value = 'input';
+    return;
+  }
+
+  const expect: TestCaseInput['expect'] = {};
+  if (probeExpectCode.value.trim()) expect.code = probeExpectCode.value.trim();
+  if (probeExpectMessage.value.trim()) expect.message = probeExpectMessage.value.trim();
+  if (probeExpectOutputJson.value.trim()) {
+    try {
+      expect.output = JSON.parse(probeExpectOutputJson.value);
+    } catch {
+      probeJsonError.value = 'output';
+      return;
+    }
+  }
+
+  probeRunning.value = true;
+  try {
+    probeResult.value = await testApi.runAdHoc(auth.token, props.projectId, {
+      ruleset: props.ruleset,
+      name: `${props.rulesetName} probe`,
+      input,
+      expect,
+      include_trace: true,
+    });
+    MessagePlugin.success(
+      probeResult.value.passed ? t('test.runSuccess') : t('test.subRuleProbe.runFinished')
+    );
+  } catch (e: any) {
+    MessagePlugin.error(e?.message ?? t('test.saveFailed'));
+  } finally {
+    probeRunning.value = false;
   }
 }
 
@@ -261,6 +390,99 @@ function fmtJson(v: unknown): string {
 function durationMs(us: number): string {
   return (us / 1000).toFixed(1) + 'ms';
 }
+
+function buildFlowTrace(
+  result: TestRunResult,
+  steps: TestExecutionTraceStep[] = result.trace?.steps ?? []
+) {
+  const mapStep = (step: TestExecutionTraceStep): TestExecutionTraceStep => ({
+    ...step,
+    result: step.is_terminal ? result.actual_code ?? result.trace?.result_code ?? null : undefined,
+    sub_rule_frames: step.sub_rule_frames?.map(mapStep) ?? [],
+  });
+
+  return {
+    path: steps.map((step) => step.id),
+    steps: steps.map(mapStep),
+    resultCode: result.actual_code ?? result.trace?.result_code ?? '',
+    resultMessage: result.actual_message ?? '',
+    output: result.actual_output as Record<string, any> | undefined,
+  };
+}
+
+function showResultInFlow(result: TestRunResult) {
+  if (!result.trace) return;
+  emit('show-in-flow', buildFlowTrace(result));
+}
+
+function openSubRuleTrace(result: TestRunResult, step: TestExecutionTraceStep) {
+  if (!step.sub_rule_ref || !step.sub_rule_frames?.length) return;
+  emit('open-sub-rule-trace', {
+    refName: step.sub_rule_ref,
+    focusStepId: step.sub_rule_frames.at(-1)?.id,
+    trace: buildFlowTrace(result, step.sub_rule_frames),
+  });
+}
+
+function failureDetailFor(result: TestRunResult, index: number): TestFailureDetail | null {
+  return result.failure_details?.[index] ?? null;
+}
+
+function findNestedFailureTarget(
+  steps: TestExecutionTraceStep[],
+  stepId: string
+): { refName: string; steps: TestExecutionTraceStep[] } | null {
+  for (const step of steps) {
+    if (step.sub_rule_frames?.length) {
+      if (step.sub_rule_ref && step.sub_rule_frames.some((item) => item.id === stepId)) {
+        return {
+          refName: step.sub_rule_ref,
+          steps: step.sub_rule_frames,
+        };
+      }
+      const nested = findNestedFailureTarget(step.sub_rule_frames, stepId);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function openFailureTarget(result: TestRunResult, detail?: TestFailureDetail | null) {
+  if (!result.trace || !detail?.step_id) {
+    showResultInFlow(result);
+    return;
+  }
+
+  const nested = findNestedFailureTarget(result.trace.steps, detail.step_id);
+  if (nested) {
+    emit('open-sub-rule-trace', {
+      refName: nested.refName,
+      focusStepId: detail.step_id,
+      trace: buildFlowTrace(result, nested.steps),
+    });
+    return;
+  }
+
+  showResultInFlow(result);
+}
+
+function failureKind(message: string, detail?: TestFailureDetail | null) {
+  if (detail?.kind) {
+    return detail.kind === 'sub_rule' ? 'subRule' : detail.kind;
+  }
+  const lower = message.toLowerCase();
+  if (lower.includes('sub-rule') && lower.includes('not found')) return 'reference';
+  if (lower.includes('contract') || lower.includes('schema')) return 'contract';
+  if (lower.includes('field not found') || lower.includes('evaluation error')) return 'binding';
+  if (lower.includes('output') || lower.includes('write')) return 'output';
+  if (lower.includes('invalid test input')) return 'execution';
+  if (lower.includes('execution failed')) return 'subRule';
+  return 'assertion';
+}
+
+function failureKindLabel(message: string, detail?: TestFailureDetail | null) {
+  return t(`test.trace.failureKinds.${failureKind(message, detail)}`);
+}
 </script>
 
 <template>
@@ -276,39 +498,64 @@ function durationMs(us: number): string {
         <span v-if="rulesetName" class="ruleset-badge">{{ rulesetName }}</span>
       </div>
 
-      <div class="summary-badges" v-if="hasResults">
+      <div class="summary-badges" v-if="!isSubRuleMode && hasResults">
         <span class="badge badge--pass">✓ {{ passCount }}</span>
         <span class="badge badge--fail" v-if="failCount > 0">✗ {{ failCount }}</span>
       </div>
+      <div class="summary-badges" v-else-if="isSubRuleMode && hasProbeResult">
+        <span class="badge badge--pass" v-if="probePassCount">✓ {{ probePassCount }}</span>
+        <span class="badge badge--fail" v-if="probeFailCount">✗ {{ probeFailCount }}</span>
+      </div>
 
       <div class="test-panel__actions">
-        <t-button size="small" variant="outline" @click="openCreate" :disabled="!rulesetName">
-          <t-icon name="add" size="12px" />{{ t('test.newCase') }}
-        </t-button>
-        <t-button
-          size="small"
-          variant="outline"
-          :loading="running"
-          :disabled="!rulesetName || tests.length === 0"
-          @click="runAll"
-        >
-          <t-icon name="play-circle" size="12px" />{{ t('test.runAll') }}
-        </t-button>
-        <t-dropdown trigger="click">
-          <t-button size="small" variant="outline" :disabled="!rulesetName || tests.length === 0">
-            <t-icon name="download" size="12px" />{{ t('test.exportYaml') }}
+        <template v-if="isSubRuleMode">
+          <t-button
+            size="small"
+            variant="outline"
+            :disabled="!ruleset"
+            @click="seedSubRuleProbeInput"
+          >
+            <t-icon name="refresh" size="12px" />{{ t('test.subRuleProbe.seed') }}
           </t-button>
-          <template #dropdown>
-            <t-dropdown-menu>
-              <t-dropdown-item @click="doExport('yaml')">{{
-                t('test.export.yaml')
-              }}</t-dropdown-item>
-              <t-dropdown-item @click="doExport('json')">{{
-                t('test.export.json')
-              }}</t-dropdown-item>
-            </t-dropdown-menu>
-          </template>
-        </t-dropdown>
+          <t-button
+            size="small"
+            variant="outline"
+            :loading="probeRunning"
+            :disabled="!ruleset"
+            @click="runSubRuleProbe"
+          >
+            <t-icon name="play-circle" size="12px" />{{ t('test.subRuleProbe.run') }}
+          </t-button>
+        </template>
+        <template v-else>
+          <t-button size="small" variant="outline" @click="openCreate" :disabled="!rulesetName">
+            <t-icon name="add" size="12px" />{{ t('test.newCase') }}
+          </t-button>
+          <t-button
+            size="small"
+            variant="outline"
+            :loading="running"
+            :disabled="!rulesetName || tests.length === 0"
+            @click="runAll"
+          >
+            <t-icon name="play-circle" size="12px" />{{ t('test.runAll') }}
+          </t-button>
+          <t-dropdown trigger="click">
+            <t-button size="small" variant="outline" :disabled="!rulesetName || tests.length === 0">
+              <t-icon name="download" size="12px" />{{ t('test.exportYaml') }}
+            </t-button>
+            <template #dropdown>
+              <t-dropdown-menu>
+                <t-dropdown-item @click="doExport('yaml')">{{
+                  t('test.export.yaml')
+                }}</t-dropdown-item>
+                <t-dropdown-item @click="doExport('json')">{{
+                  t('test.export.json')
+                }}</t-dropdown-item>
+              </t-dropdown-menu>
+            </template>
+          </t-dropdown>
+        </template>
       </div>
 
       <button class="close-btn" @click="emit('update:visible', false)">
@@ -324,203 +571,389 @@ function durationMs(us: number): string {
 
     <!-- Content -->
     <div v-else class="test-panel__body">
-      <!-- Test list -->
-      <div class="test-list" :class="{ 'test-list--narrow': showEditor }">
-        <div v-if="loading" class="panel-loading"><t-loading size="small" /></div>
-
-        <div v-else-if="tests.length === 0" class="panel-empty-small">
-          <span>{{ t('test.noTests') }}</span>
-          <t-button size="small" variant="text" @click="openCreate">{{
-            t('test.addFirst')
-          }}</t-button>
-        </div>
-
-        <template v-else>
-          <div
-            v-for="tc in tests"
-            :key="tc.id"
-            class="test-item"
-            :class="{
-              'test-item--pass': resultFor(tc.id)?.passed === true,
-              'test-item--fail': resultFor(tc.id)?.passed === false,
-              'test-item--expanded': expandedId === tc.id,
-            }"
-          >
-            <!-- Row summary (always visible) -->
-            <div class="test-item__row" @click="toggleExpand(tc.id)">
-              <span class="status-icon">
-                <t-loading v-if="runningOne.has(tc.id)" size="small" />
-                <span v-else-if="!resultFor(tc.id)" class="dot dot--pending" />
-                <span v-else-if="resultFor(tc.id)?.passed" class="dot dot--pass">✓</span>
-                <span v-else class="dot dot--fail">✗</span>
-              </span>
-
-              <div class="test-item__info">
-                <span class="test-item__name">{{ tc.name }}</span>
-                <span v-if="tc.tags.length" class="test-item__tags">
-                  <span v-for="tag in tc.tags" :key="tag" class="tag">{{ tag }}</span>
-                </span>
-              </div>
-
-              <span v-if="resultFor(tc.id)" class="test-item__duration">
-                {{ durationMs(resultFor(tc.id)!.duration_us) }}
-              </span>
-
-              <div class="test-item__btns" @click.stop>
-                <t-button
-                  size="small"
-                  variant="text"
-                  :loading="runningOne.has(tc.id)"
-                  @click="runOne(tc)"
-                >
-                  <t-icon name="play-circle" size="12px" />
-                </t-button>
-                <t-button size="small" variant="text" @click="openEdit(tc)">
-                  <t-icon name="edit" size="12px" />
-                </t-button>
-                <t-button size="small" variant="text" theme="danger" @click="deleteTest(tc)">
-                  <t-icon name="delete" size="12px" />
-                </t-button>
-              </div>
-
-              <t-icon
-                :name="expandedId === tc.id ? 'chevron-up' : 'chevron-down'"
-                size="12px"
-                class="expand-chevron"
-              />
-            </div>
-
-            <!-- Expanded detail -->
-            <div v-if="expandedId === tc.id" class="test-item__detail">
-              <!-- Input -->
-              <div class="detail-section">
-                <div class="detail-label">{{ t('test.fieldInput') }}</div>
-                <pre class="detail-code">{{ fmtJson(tc.input) }}</pre>
-              </div>
-
-              <!-- Expect -->
-              <div class="detail-section">
-                <div class="detail-label">{{ t('test.fieldExpectCode') }}</div>
-                <div class="expect-row">
-                  <span class="expect-pill"
-                    >code: <strong>{{ tc.expect.code ?? '—' }}</strong></span
-                  >
-                  <span v-if="tc.expect.message" class="expect-pill">
-                    message: <strong>{{ tc.expect.message }}</strong>
-                  </span>
-                </div>
-                <div v-if="tc.expect.output" class="detail-label" style="margin-top: 6px">
-                  {{ t('test.fieldExpectOutput') }}
-                </div>
-                <pre v-if="tc.expect.output" class="detail-code">{{
-                  fmtJson(tc.expect.output)
-                }}</pre>
-              </div>
-
-              <!-- Result (if run) -->
-              <template v-if="resultFor(tc.id)">
-                <div
-                  class="detail-section detail-section--result"
-                  :class="resultFor(tc.id)!.passed ? 'result--pass' : 'result--fail'"
-                >
-                  <div class="detail-label">
-                    {{ resultFor(tc.id)!.passed ? t('test.result.pass') : t('test.result.fail') }}
-                  </div>
-
-                  <!-- Failures list -->
-                  <div v-if="resultFor(tc.id)!.failures.length" class="failures">
-                    <div v-for="(f, i) in resultFor(tc.id)!.failures" :key="i" class="failure-line">
-                      <t-icon name="close-circle" size="11px" class="failure-icon" />{{ f }}
-                    </div>
-                  </div>
-
-                  <!-- Actual output -->
-                  <div v-if="resultFor(tc.id)!.actual_code" class="actual-row">
-                    <span class="expect-pill expect-pill--actual">
-                      code: <strong>{{ resultFor(tc.id)!.actual_code }}</strong>
-                    </span>
-                  </div>
-                  <pre
-                    v-if="resultFor(tc.id)!.actual_output"
-                    class="detail-code detail-code--actual"
-                    >{{ fmtJson(resultFor(tc.id)!.actual_output) }}</pre
-                  >
-                </div>
-              </template>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <!-- Inline editor panel -->
-      <div v-if="showEditor" class="test-editor">
-        <div class="test-editor__header">
-          <span>{{ editingId ? t('test.editCase') : t('test.newCase') }}</span>
-          <button class="close-btn" @click="cancelEdit"><t-icon name="close" size="12px" /></button>
-        </div>
-
-        <div class="test-editor__form">
-          <div class="form-row">
-            <label class="form-label">{{ t('test.fieldName') }}</label>
-            <t-input v-model="form.name" size="small" :placeholder="t('test.fieldName')" />
+      <div v-if="isSubRuleMode" class="sub-rule-probe">
+        <div class="sub-rule-probe__editor">
+          <div class="sub-rule-probe__intro">
+            <div class="sub-rule-probe__eyebrow">{{ t('test.subRuleProbe.title') }}</div>
+            <p>{{ t('test.subRuleProbe.desc') }}</p>
           </div>
 
           <div class="form-row">
             <div class="form-label-row">
               <label class="form-label">{{ t('test.fieldInput') }}</label>
               <t-button
-                v-if="catalog.contracts.some((c) => c.ruleset_name === rulesetName)"
                 size="small"
                 variant="text"
                 style="font-size: 11px; padding: 0"
-                @click="generateFromContract"
+                @click="seedSubRuleProbeInput"
               >
-                {{ t('test.generateFromContract') }}
+                {{ t('test.subRuleProbe.seed') }}
               </t-button>
             </div>
-            <div class="json-wrap" :class="{ 'has-error': jsonError === 'input' }">
-              <textarea v-model="inputJson" class="json-editor" rows="6" spellcheck="false" />
+            <div class="json-wrap" :class="{ 'has-error': probeJsonError === 'input' }">
+              <textarea v-model="probeInputJson" class="json-editor" rows="8" spellcheck="false" />
             </div>
           </div>
 
-          <div class="form-row">
-            <label class="form-label">{{ t('test.fieldExpectCode') }}</label>
-            <t-input v-model="form.expect.code" size="small" placeholder="e.g. GRANTED" />
-          </div>
-
-          <div class="form-row">
-            <label class="form-label">{{ t('test.fieldExpectMessage') }}</label>
-            <t-input v-model="form.expect.message" size="small" placeholder="optional" />
+          <div class="sub-rule-probe__expect-grid">
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldExpectCode') }}</label>
+              <t-input v-model="probeExpectCode" size="small" placeholder="optional" />
+            </div>
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldExpectMessage') }}</label>
+              <t-input v-model="probeExpectMessage" size="small" placeholder="optional" />
+            </div>
           </div>
 
           <div class="form-row">
             <label class="form-label">{{ t('test.fieldExpectOutput') }}</label>
-            <div class="json-wrap" :class="{ 'has-error': jsonError === 'output' }">
+            <div class="json-wrap" :class="{ 'has-error': probeJsonError === 'output' }">
               <textarea
-                v-model="expectOutputJson"
+                v-model="probeExpectOutputJson"
                 class="json-editor"
-                rows="3"
+                rows="4"
                 spellcheck="false"
-                placeholder='{"coupon_type":"vip"}'
+                placeholder="optional"
               />
             </div>
           </div>
 
-          <div class="form-row">
-            <label class="form-label">{{ t('test.fieldTags') }}</label>
-            <t-input v-model="form.tags" size="small" placeholder="tag1, tag2" />
-          </div>
-
           <div class="form-actions">
-            <t-button size="small" variant="outline" @click="cancelEdit">{{
-              t('common.cancel')
-            }}</t-button>
-            <t-button size="small" theme="primary" :loading="saving" @click="saveTest">{{
-              t('common.save')
-            }}</t-button>
+            <t-button size="small" variant="outline" @click="seedSubRuleProbeInput">
+              {{ t('test.subRuleProbe.seed') }}
+            </t-button>
+            <t-button
+              size="small"
+              theme="primary"
+              :loading="probeRunning"
+              :disabled="!ruleset"
+              @click="runSubRuleProbe"
+            >
+              {{ t('test.subRuleProbe.run') }}
+            </t-button>
           </div>
         </div>
+
+        <div class="sub-rule-probe__result">
+          <div v-if="!probeResult" class="panel-empty-small panel-empty-small--probe">
+            <span>{{ t('test.subRuleProbe.emptyResult') }}</span>
+          </div>
+
+          <template v-else>
+            <div
+              class="detail-section detail-section--result"
+              :class="probeResult.passed ? 'result--pass' : 'result--fail'"
+            >
+              <div class="detail-label">
+                {{ probeResult.passed ? t('test.result.pass') : t('test.result.fail') }}
+              </div>
+
+              <div v-if="probeResult.failures.length" class="failures">
+                <button
+                  v-for="(f, i) in probeResult.failures"
+                  :key="i"
+                  type="button"
+                  class="failure-line"
+                  @click="openFailureTarget(probeResult!, failureDetailFor(probeResult!, i))"
+                >
+                  <t-icon name="close-circle" size="11px" class="failure-icon" />
+                  <span class="failure-kind">{{
+                    failureKindLabel(f, failureDetailFor(probeResult, i))
+                  }}</span>
+                  <span>{{ f }}</span>
+                </button>
+              </div>
+
+              <div v-if="probeResult.actual_code" class="actual-row">
+                <span class="expect-pill expect-pill--actual">
+                  code: <strong>{{ probeResult.actual_code }}</strong>
+                </span>
+                <span v-if="probeResult.actual_message" class="expect-pill expect-pill--actual">
+                  message: <strong>{{ probeResult.actual_message }}</strong>
+                </span>
+              </div>
+              <pre v-if="probeResult.actual_output" class="detail-code detail-code--actual">{{
+                fmtJson(probeResult.actual_output)
+              }}</pre>
+            </div>
+
+            <div v-if="probeResult.trace" class="detail-section trace-section">
+              <div class="trace-section__header">
+                <div>
+                  <div class="detail-label">{{ t('test.project.traceDetails') }}</div>
+                  <div class="trace-section__meta">
+                    <span>{{ t('test.project.path') }}: {{ probeResult.trace.path_string }}</span>
+                    <span
+                      >{{ t('test.project.totalDuration') }}:
+                      {{ durationMs(probeResult.trace.total_duration_us) }}</span
+                    >
+                  </div>
+                </div>
+                <button class="trace-flow-btn" @click="showResultInFlow(probeResult)">
+                  <t-icon name="flowchart" size="12px" />
+                  {{ t('test.trace.showInFlow') }}
+                </button>
+              </div>
+
+              <TraceStepTree
+                :steps="probeResult.trace.steps"
+                @open-sub-rule="(step) => openSubRuleTrace(probeResult!, step)"
+              />
+            </div>
+          </template>
+        </div>
       </div>
+
+      <template v-else>
+        <!-- Test list -->
+        <div class="test-list" :class="{ 'test-list--narrow': showEditor }">
+          <div v-if="loading" class="panel-loading"><t-loading size="small" /></div>
+
+          <div v-else-if="tests.length === 0" class="panel-empty-small">
+            <span>{{ t('test.noTests') }}</span>
+            <t-button size="small" variant="text" @click="openCreate">{{
+              t('test.addFirst')
+            }}</t-button>
+          </div>
+
+          <template v-else>
+            <div
+              v-for="tc in tests"
+              :key="tc.id"
+              class="test-item"
+              :class="{
+                'test-item--pass': resultFor(tc.id)?.passed === true,
+                'test-item--fail': resultFor(tc.id)?.passed === false,
+                'test-item--expanded': expandedId === tc.id,
+              }"
+            >
+              <!-- Row summary (always visible) -->
+              <div class="test-item__row" @click="toggleExpand(tc.id)">
+                <span class="status-icon">
+                  <t-loading v-if="runningOne.has(tc.id)" size="small" />
+                  <span v-else-if="!resultFor(tc.id)" class="dot dot--pending" />
+                  <span v-else-if="resultFor(tc.id)?.passed" class="dot dot--pass">✓</span>
+                  <span v-else class="dot dot--fail">✗</span>
+                </span>
+
+                <div class="test-item__info">
+                  <span class="test-item__name">{{ tc.name }}</span>
+                  <span v-if="tc.tags.length" class="test-item__tags">
+                    <span v-for="tag in tc.tags" :key="tag" class="tag">{{ tag }}</span>
+                  </span>
+                </div>
+
+                <span v-if="resultFor(tc.id)" class="test-item__duration">
+                  {{ durationMs(resultFor(tc.id)!.duration_us) }}
+                </span>
+
+                <div class="test-item__btns" @click.stop>
+                  <t-button
+                    size="small"
+                    variant="text"
+                    :loading="runningOne.has(tc.id)"
+                    @click="runOne(tc)"
+                  >
+                    <t-icon name="play-circle" size="12px" />
+                  </t-button>
+                  <t-button size="small" variant="text" @click="openEdit(tc)">
+                    <t-icon name="edit" size="12px" />
+                  </t-button>
+                  <t-button size="small" variant="text" theme="danger" @click="deleteTest(tc)">
+                    <t-icon name="delete" size="12px" />
+                  </t-button>
+                </div>
+
+                <t-icon
+                  :name="expandedId === tc.id ? 'chevron-up' : 'chevron-down'"
+                  size="12px"
+                  class="expand-chevron"
+                />
+              </div>
+
+              <!-- Expanded detail -->
+              <div v-if="expandedId === tc.id" class="test-item__detail">
+                <!-- Input -->
+                <div class="detail-section">
+                  <div class="detail-label">{{ t('test.fieldInput') }}</div>
+                  <pre class="detail-code">{{ fmtJson(tc.input) }}</pre>
+                </div>
+
+                <!-- Expect -->
+                <div class="detail-section">
+                  <div class="detail-label">{{ t('test.fieldExpectCode') }}</div>
+                  <div class="expect-row">
+                    <span class="expect-pill"
+                      >code: <strong>{{ tc.expect.code ?? '—' }}</strong></span
+                    >
+                    <span v-if="tc.expect.message" class="expect-pill">
+                      message: <strong>{{ tc.expect.message }}</strong>
+                    </span>
+                  </div>
+                  <div v-if="tc.expect.output" class="detail-label" style="margin-top: 6px">
+                    {{ t('test.fieldExpectOutput') }}
+                  </div>
+                  <pre v-if="tc.expect.output" class="detail-code">{{
+                    fmtJson(tc.expect.output)
+                  }}</pre>
+                </div>
+
+                <!-- Result (if run) -->
+                <template v-if="resultFor(tc.id)">
+                  <div
+                    class="detail-section detail-section--result"
+                    :class="resultFor(tc.id)!.passed ? 'result--pass' : 'result--fail'"
+                  >
+                    <div class="detail-label">
+                      {{ resultFor(tc.id)!.passed ? t('test.result.pass') : t('test.result.fail') }}
+                    </div>
+
+                    <!-- Failures list -->
+                    <div v-if="resultFor(tc.id)!.failures.length" class="failures">
+                      <button
+                        v-for="(f, i) in resultFor(tc.id)!.failures"
+                        :key="i"
+                        class="failure-line"
+                        type="button"
+                        @click="
+                          openFailureTarget(
+                            resultFor(tc.id)!,
+                            failureDetailFor(resultFor(tc.id)!, i)
+                          )
+                        "
+                      >
+                        <t-icon name="close-circle" size="11px" class="failure-icon" />
+                        <span class="failure-kind">{{
+                          failureKindLabel(f, failureDetailFor(resultFor(tc.id)!, i))
+                        }}</span>
+                        <span>{{ f }}</span>
+                      </button>
+                    </div>
+
+                    <!-- Actual output -->
+                    <div v-if="resultFor(tc.id)!.actual_code" class="actual-row">
+                      <span class="expect-pill expect-pill--actual">
+                        code: <strong>{{ resultFor(tc.id)!.actual_code }}</strong>
+                      </span>
+                      <span
+                        v-if="resultFor(tc.id)!.actual_message"
+                        class="expect-pill expect-pill--actual"
+                      >
+                        message: <strong>{{ resultFor(tc.id)!.actual_message }}</strong>
+                      </span>
+                    </div>
+                    <pre
+                      v-if="resultFor(tc.id)!.actual_output"
+                      class="detail-code detail-code--actual"
+                      >{{ fmtJson(resultFor(tc.id)!.actual_output) }}</pre
+                    >
+                  </div>
+
+                  <div v-if="resultFor(tc.id)!.trace" class="detail-section trace-section">
+                    <div class="trace-section__header">
+                      <div>
+                        <div class="detail-label">{{ t('test.project.traceDetails') }}</div>
+                        <div class="trace-section__meta">
+                          <span
+                            >{{ t('test.project.path') }}:
+                            {{ resultFor(tc.id)!.trace!.path_string }}</span
+                          >
+                          <span
+                            >{{ t('test.project.totalDuration') }}:
+                            {{ durationMs(resultFor(tc.id)!.trace!.total_duration_us) }}</span
+                          >
+                        </div>
+                      </div>
+                      <button class="trace-flow-btn" @click="showResultInFlow(resultFor(tc.id)!)">
+                        <t-icon name="flowchart" size="12px" />
+                        {{ t('test.trace.showInFlow') }}
+                      </button>
+                    </div>
+
+                    <TraceStepTree
+                      :steps="resultFor(tc.id)!.trace!.steps"
+                      @open-sub-rule="(step) => openSubRuleTrace(resultFor(tc.id)!, step)"
+                    />
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Inline editor panel -->
+        <div v-if="showEditor" class="test-editor">
+          <div class="test-editor__header">
+            <span>{{ editingId ? t('test.editCase') : t('test.newCase') }}</span>
+            <button class="close-btn" @click="cancelEdit">
+              <t-icon name="close" size="12px" />
+            </button>
+          </div>
+
+          <div class="test-editor__form">
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldName') }}</label>
+              <t-input v-model="form.name" size="small" :placeholder="t('test.fieldName')" />
+            </div>
+
+            <div class="form-row">
+              <div class="form-label-row">
+                <label class="form-label">{{ t('test.fieldInput') }}</label>
+                <t-button
+                  v-if="catalog.contracts.some((c) => c.ruleset_name === rulesetName)"
+                  size="small"
+                  variant="text"
+                  style="font-size: 11px; padding: 0"
+                  @click="generateFromContract"
+                >
+                  {{ t('test.generateFromContract') }}
+                </t-button>
+              </div>
+              <div class="json-wrap" :class="{ 'has-error': jsonError === 'input' }">
+                <textarea v-model="inputJson" class="json-editor" rows="6" spellcheck="false" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldExpectCode') }}</label>
+              <t-input v-model="form.expect.code" size="small" placeholder="e.g. GRANTED" />
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldExpectMessage') }}</label>
+              <t-input v-model="form.expect.message" size="small" placeholder="optional" />
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldExpectOutput') }}</label>
+              <div class="json-wrap" :class="{ 'has-error': jsonError === 'output' }">
+                <textarea
+                  v-model="expectOutputJson"
+                  class="json-editor"
+                  rows="3"
+                  spellcheck="false"
+                  placeholder='{"coupon_type":"vip"}'
+                />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">{{ t('test.fieldTags') }}</label>
+              <t-input v-model="form.tags" size="small" placeholder="tag1, tag2" />
+            </div>
+
+            <div class="form-actions">
+              <t-button size="small" variant="outline" @click="cancelEdit">{{
+                t('common.cancel')
+              }}</t-button>
+              <t-button size="small" theme="primary" :loading="saving" @click="saveTest">{{
+                t('common.save')
+              }}</t-button>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -628,6 +1061,58 @@ function durationMs(us: number): string {
   flex: 1;
   overflow-y: auto;
   min-width: 0;
+}
+
+.sub-rule-probe {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.42fr) minmax(360px, 0.58fr);
+  gap: 10px;
+  padding: 10px;
+}
+
+.sub-rule-probe__editor,
+.sub-rule-probe__result {
+  min-width: 0;
+  overflow-y: auto;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(15, 23, 32, 0.46), rgba(15, 23, 32, 0.2)),
+    var(--ordo-bg-main, var(--ordo-hover-bg));
+  padding: 12px;
+}
+
+.sub-rule-probe__intro {
+  margin-bottom: 12px;
+}
+
+.sub-rule-probe__intro p {
+  margin: 4px 0 0;
+  color: var(--ordo-text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sub-rule-probe__eyebrow {
+  color: var(--ordo-text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sub-rule-probe__expect-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.panel-empty-small--probe {
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  justify-content: center;
+  min-height: 180px;
+  color: var(--ordo-text-tertiary);
 }
 
 /* ── Empty / loading ── */
@@ -836,9 +1321,19 @@ function durationMs(us: number): string {
   display: flex;
   align-items: flex-start;
   gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
   font-size: 11px;
   color: #ef4444;
   line-height: 1.4;
+  cursor: pointer;
+}
+
+.failure-line:hover {
+  color: #dc2626;
 }
 .failure-icon {
   flex-shrink: 0;
@@ -846,8 +1341,65 @@ function durationMs(us: number): string {
   color: #ef4444;
 }
 
+.failure-kind {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .actual-row {
   margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.trace-section {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(15, 23, 32, 0.46), rgba(15, 23, 32, 0.2)),
+    var(--ordo-bg-main, var(--ordo-hover-bg));
+}
+
+.trace-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trace-section__meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--ordo-text-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+
+.trace-flow-btn {
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 999px;
+  background: var(--ordo-bg-item, transparent);
+  color: var(--ordo-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.trace-flow-btn:hover {
+  background: var(--ordo-hover-bg);
+  color: var(--ordo-text-primary);
 }
 
 /* ── Editor panel ── */
@@ -923,5 +1475,17 @@ function durationMs(us: number): string {
   gap: 6px;
   justify-content: flex-end;
   margin-top: 4px;
+}
+
+@media (max-width: 920px) {
+  .sub-rule-probe {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .sub-rule-probe__editor,
+  .sub-rule-probe__result {
+    overflow: visible;
+  }
 }
 </style>

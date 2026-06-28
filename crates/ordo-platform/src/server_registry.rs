@@ -8,8 +8,8 @@
 //!   GET    /api/v1/servers                           — list all visible servers
 //!   GET    /api/v1/servers/:id                       — server detail
 //!   DELETE /api/v1/servers/:id                       — remove server (admin+)
-//!   GET    /api/v1/servers/:id/metrics               — proxy to /metrics
-//!   GET    /api/v1/servers/:id/health                — proxy to /health
+//!   GET    /api/v1/servers/:id/metrics               — request metrics over NATS
+//!   GET    /api/v1/servers/:id/health                — request health over NATS
 //!   PUT    /api/v1/orgs/:oid/projects/:pid/server    — bind project to server
 
 use crate::{
@@ -17,17 +17,18 @@ use crate::{
     models::{derive_server_id, Claims, Role, ServerInfo, ServerNode, ServerStatus},
     org::load_org_and_check_role,
     proxy::find_project_membership,
-    AppState,
+    sync, AppState,
 };
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::Response,
     Extension, Json,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ── Internal (token-auth) ─────────────────────────────────────────────────────
 
@@ -230,7 +231,45 @@ pub async fn delete_server(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// GET /api/v1/servers/:id/metrics — proxy to server's Prometheus /metrics endpoint
+const SERVER_RPC_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Deserialize)]
+struct ServerRpcResponse {
+    status: u16,
+    content_type: Option<String>,
+    body: serde_json::Value,
+    error: Option<String>,
+}
+
+async fn request_server_rpc(
+    state: &AppState,
+    server: &ServerNode,
+    endpoint: &str,
+) -> ApiResult<ServerRpcResponse> {
+    let client = state.nats_client.as_ref().ok_or_else(|| {
+        PlatformError::internal("NATS is not configured for server control requests")
+    })?;
+    let subject = sync::server_rpc_subject(&state.config.nats_subject_prefix, &server.id, endpoint);
+    let response = tokio::time::timeout(
+        SERVER_RPC_TIMEOUT,
+        client.request(subject.clone(), Vec::new().into()),
+    )
+    .await
+    .map_err(|_| PlatformError::internal(format!("NATS request timed out: {}", subject)))?
+    .map_err(|e| PlatformError::internal(format!("NATS request failed: {}", e)))?;
+
+    serde_json::from_slice(&response.payload)
+        .map_err(|e| PlatformError::internal(format!("Invalid NATS response: {}", e)))
+}
+
+fn rpc_body_as_text(body: &serde_json::Value) -> String {
+    match body {
+        serde_json::Value::String(value) => value.clone(),
+        value => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+    }
+}
+
+/// GET /api/v1/servers/:id/metrics — request server Prometheus metrics over NATS
 pub async fn get_server_metrics(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -243,34 +282,20 @@ pub async fn get_server_metrics(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Server not found"))?;
 
-    let resp = state
-        .http_client
-        .get(format!("{}/metrics", server.url))
-        .send()
-        .await
-        .map_err(|e| PlatformError::internal(format!("Server unreachable: {}", e)))?;
-
-    let status = axum::http::StatusCode::from_u16(resp.status().as_u16())
-        .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("text/plain")
-        .to_string();
-    let body = resp
-        .bytes()
-        .await
-        .map_err(|e| PlatformError::internal(format!("Failed to read metrics: {}", e)))?;
+    let rpc = request_server_rpc(&state, &server, "metrics").await?;
+    let status =
+        axum::http::StatusCode::from_u16(rpc.status).unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
+    let content_type = rpc.content_type.unwrap_or_else(|| "text/plain".to_string());
+    let body = rpc.error.unwrap_or_else(|| rpc_body_as_text(&rpc.body));
 
     Ok(Response::builder()
         .status(status)
-        .header("content-type", content_type)
+        .header(header::CONTENT_TYPE, content_type)
         .body(Body::from(body))
         .unwrap())
 }
 
-/// GET /api/v1/servers/:id/health — proxy to server's /health endpoint
+/// GET /api/v1/servers/:id/health — request server health over NATS
 pub async fn get_server_health(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -283,22 +308,26 @@ pub async fn get_server_health(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Server not found"))?;
 
-    match state
-        .http_client
-        .get(format!("{}/health", server.url))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            let ok = resp.status().is_success();
-            let text = resp.text().await.unwrap_or_default();
-            Ok(Json(
-                serde_json::json!({ "online": ok, "response": text, "url": server.url }),
-            ))
+    match request_server_rpc(&state, &server, "health").await {
+        Ok(rpc) => {
+            let online = (200..300).contains(&rpc.status);
+            let mut payload = serde_json::json!({
+                "online": online,
+                "response": rpc_body_as_text(&rpc.body),
+                "url": server.url,
+                "transport": "nats",
+            });
+            if let Some(error) = rpc.error {
+                payload["error"] = serde_json::Value::String(error);
+            }
+            Ok(Json(payload))
         }
-        Err(e) => Ok(Json(
-            serde_json::json!({ "online": false, "error": e.to_string(), "url": server.url }),
-        )),
+        Err(e) => Ok(Json(serde_json::json!({
+            "online": false,
+            "error": e.to_string(),
+            "url": server.url,
+            "transport": "nats",
+        }))),
     }
 }
 

@@ -11,8 +11,9 @@ use crate::models::{
     ReleasePolicyScope, ReleasePolicyTargetType, ReleaseRequest, ReleaseRequestHistoryEntry,
     ReleaseRequestSnapshot, ReleaseRequestStatus, ReleaseVersionDiff, Role, RollbackPolicy,
     RolloutStrategy, RulesetDeployment, RulesetHistoryEntry, RulesetHistorySource, ServerNode,
-    ServerStatus, TestCase, TestExpectation, UpdateEnvironmentRequest, UpdateReleasePolicyRequest,
-    UpdateRoleRequest, User, UserRoleAssignment,
+    ServerStatus, SubRuleAsset, SubRuleAssetMeta, SubRuleScope, TestCase, TestExpectation,
+    UpdateEnvironmentRequest, UpdateReleasePolicyRequest, UpdateRoleRequest, User,
+    UserRoleAssignment,
 };
 use anyhow::Result;
 use serde_json::Value as JsonValue;
@@ -32,6 +33,7 @@ mod releases;
 mod rows;
 mod rulesets;
 mod servers;
+mod sub_rules;
 mod users;
 
 use self::codec::*;

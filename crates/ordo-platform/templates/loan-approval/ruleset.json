@@ -1,0 +1,128 @@
+{
+  "config": {
+    "name": "loan_approval",
+    "version": "1.0.0",
+    "description": "i18n:template.loan-approval.description",
+    "entry_step": "screen_application"
+  },
+  "steps": {
+    "screen_application": {
+      "id": "screen_application",
+      "name": "i18n:template.loan-approval.step.screen-application",
+      "type": "decision",
+      "branches": [
+        {
+          "condition": "has_bankruptcy == true",
+          "next_step": "terminal_rejected_bankruptcy"
+        },
+        {
+          "condition": "credit_score < 580",
+          "next_step": "terminal_rejected_credit"
+        }
+      ],
+      "default_next": "credit_assessment"
+    },
+    "credit_assessment": {
+      "id": "credit_assessment",
+      "name": "i18n:template.loan-approval.step.credit-assessment",
+      "type": "decision",
+      "branches": [
+        {
+          "condition": "credit_score >= 660",
+          "next_step": "affordability_check"
+        }
+      ],
+      "default_next": "terminal_manual_review"
+    },
+    "affordability_check": {
+      "id": "affordability_check",
+      "name": "i18n:template.loan-approval.step.affordability-check",
+      "type": "decision",
+      "branches": [
+        {
+          "condition": "existing_debt <= annual_income * 0.43 && loan_amount <= annual_income * 4",
+          "next_step": "employment_check"
+        }
+      ],
+      "default_next": "terminal_rejected_affordability"
+    },
+    "employment_check": {
+      "id": "employment_check",
+      "name": "i18n:template.loan-approval.step.employment-check",
+      "type": "decision",
+      "branches": [
+        {
+          "condition": "employment_years >= 2 || credit_score >= 740",
+          "next_step": "terminal_approved"
+        }
+      ],
+      "default_next": "terminal_manual_review"
+    },
+    "terminal_approved": {
+      "id": "terminal_approved",
+      "name": "i18n:template.loan-approval.step.terminal-approved",
+      "type": "terminal",
+      "result": {
+        "code": "APPROVED",
+        "message": "i18n:template.loan-approval.msg.approved",
+        "output": [
+          ["decision", {"Literal": "approve"}],
+          ["approved_amount", {"Field": "loan_amount"}],
+          ["risk_tier", {"Literal": "standard"}]
+        ]
+      }
+    },
+    "terminal_manual_review": {
+      "id": "terminal_manual_review",
+      "name": "i18n:template.loan-approval.step.terminal-manual-review",
+      "type": "terminal",
+      "result": {
+        "code": "MANUAL_REVIEW",
+        "message": "i18n:template.loan-approval.msg.manual-review",
+        "output": [
+          ["decision", {"Literal": "review"}],
+          ["risk_tier", {"Literal": "manual"}]
+        ]
+      }
+    },
+    "terminal_rejected_bankruptcy": {
+      "id": "terminal_rejected_bankruptcy",
+      "name": "i18n:template.loan-approval.step.terminal-rejected-bankruptcy",
+      "type": "terminal",
+      "result": {
+        "code": "REJECTED",
+        "message": "i18n:template.loan-approval.msg.rejected-bankruptcy",
+        "output": [
+          ["decision", {"Literal": "reject"}],
+          ["reject_reason", {"Literal": "bankruptcy"}]
+        ]
+      }
+    },
+    "terminal_rejected_credit": {
+      "id": "terminal_rejected_credit",
+      "name": "i18n:template.loan-approval.step.terminal-rejected-credit",
+      "type": "terminal",
+      "result": {
+        "code": "REJECTED",
+        "message": "i18n:template.loan-approval.msg.rejected-credit",
+        "output": [
+          ["decision", {"Literal": "reject"}],
+          ["reject_reason", {"Literal": "low_credit"}]
+        ]
+      }
+    },
+    "terminal_rejected_affordability": {
+      "id": "terminal_rejected_affordability",
+      "name": "i18n:template.loan-approval.step.terminal-rejected-affordability",
+      "type": "terminal",
+      "result": {
+        "code": "REJECTED",
+        "message": "i18n:template.loan-approval.msg.rejected-affordability",
+        "output": [
+          ["decision", {"Literal": "reject"}],
+          ["reject_reason", {"Literal": "affordability"}]
+        ]
+      }
+    }
+  }
+}

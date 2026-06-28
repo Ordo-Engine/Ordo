@@ -1,0 +1,24 @@
+# Optional HPA for the (stateless) ordo-platform gateway. Safe to enable since
+# all state lives in Postgres. Included in kustomization.yaml by default.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ordo-platform
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-platform
+    app.kubernetes.io/part-of: ordo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ordo-platform
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

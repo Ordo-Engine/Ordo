@@ -1,0 +1,21 @@
+# Internal ClusterIP service. ordo-server is NOT exposed to the internet —
+# ordo-platform is the single public entry point and proxies to it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordo-server
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-server
+    app.kubernetes.io/part-of: ordo
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ordo-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: grpc
+      port: 50051
+      targetPort: grpc

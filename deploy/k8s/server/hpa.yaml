@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL HorizontalPodAutoscaler for ordo-server.
+#
+# CAVEAT: The base Deployment is a single writer pinned to a ReadWriteOnce
+# rules/WAL volume, so it CANNOT be scaled past replicas:1 as-is. To use this
+# HPA you must first run the engine in a horizontally-scalable shape, e.g.:
+#   * reader pods with ORDO_ROLE=reader (read-only, fed by NATS JetStream sync)
+#     behind their own Deployment + PVC-per-pod or in-memory, with a single
+#     writer pod (ORDO_ROLE=writer), OR
+#   * in-memory mode (no ORDO_RULES_DIR) where each replica is stateless.
+#
+# Left here as a ready-to-adapt template; it is NOT included in kustomization.yaml
+# by default. Point scaleTargetRef at the appropriate (reader) Deployment.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ordo-server
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-server
+    app.kubernetes.io/part-of: ordo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ordo-server
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

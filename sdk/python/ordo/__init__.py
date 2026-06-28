@@ -1,6 +1,7 @@
 """Ordo Rule Engine Python SDK."""
 
 from .client import OrdoClient
+from .degrade import DegradationConfig, DegradationMode
 from .errors import APIError, ConfigError, ConnectionError, OrdoError
 from .models import (
     BatchResult,
@@ -26,6 +27,9 @@ __version__ = "0.3.0"
 __all__ = [
     "OrdoClient",
     "RetryConfig",
+    # Degradation / offline resilience
+    "DegradationConfig",
+    "DegradationMode",
     # Errors
     "OrdoError",
     "APIError",

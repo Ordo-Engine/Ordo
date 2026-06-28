@@ -47,7 +47,10 @@ impl ExprCompiler {
     #[inline]
     fn alloc_reg(&mut self) -> u8 {
         let reg = self.next_reg;
-        self.next_reg += 1;
+        self.next_reg = self
+            .next_reg
+            .checked_add(1)
+            .expect("register limit exceeded: expression requires more than 256 registers");
         reg
     }
 
@@ -77,6 +80,10 @@ impl ExprCompiler {
             return idx as u8;
         }
         let idx = self.compiled.constants.len();
+        assert!(
+            idx < 256,
+            "constant pool limit exceeded: expression has more than 256 unique constants"
+        );
         self.compiled.constants.push(value);
         idx as u8
     }
@@ -87,6 +94,10 @@ impl ExprCompiler {
             return idx as u8;
         }
         let idx = self.compiled.fields.len();
+        assert!(
+            idx < 256,
+            "field pool limit exceeded: expression references more than 256 unique fields"
+        );
         self.compiled.fields.push(name.to_string());
         idx as u8
     }
@@ -97,6 +108,10 @@ impl ExprCompiler {
             return idx as u8;
         }
         let idx = self.compiled.functions.len();
+        assert!(
+            idx < 256,
+            "function pool limit exceeded: expression references more than 256 unique functions"
+        );
         self.compiled.functions.push(name.to_string());
         idx as u8
     }
@@ -166,6 +181,10 @@ impl ExprCompiler {
                 }
 
                 let func_idx = self.add_function(name);
+                assert!(
+                    args.len() < 256,
+                    "argument count limit exceeded: function call has more than 255 arguments"
+                );
                 // For Call: a=result, b=func_idx, c=arg_count
                 // Arguments are expected in registers [result_reg+1, result_reg+1+arg_count)
                 self.emit(Instruction::new(

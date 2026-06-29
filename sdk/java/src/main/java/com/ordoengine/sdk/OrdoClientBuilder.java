@@ -1,6 +1,7 @@
 package com.ordoengine.sdk;
 
 import com.ordoengine.sdk.config.ClientConfig;
+import com.ordoengine.sdk.config.DegradationConfig;
 import com.ordoengine.sdk.config.RetryConfig;
 import com.ordoengine.sdk.exception.ConfigException;
 
@@ -16,6 +17,7 @@ public class OrdoClientBuilder {
     private Duration timeout = Duration.ofSeconds(30);
     private RetryConfig retryConfig;
     private int batchConcurrency = 10;
+    private DegradationConfig degradationConfig;
 
     OrdoClientBuilder() {}
 
@@ -64,6 +66,15 @@ public class OrdoClientBuilder {
         return this;
     }
 
+    /**
+     * Enables the local-snapshot cache and a degradation policy applied after
+     * retries are exhausted. Opt-in: without it, failures are thrown as before.
+     */
+    public OrdoClientBuilder degradation(DegradationConfig degradationConfig) {
+        this.degradationConfig = degradationConfig;
+        return this;
+    }
+
     public OrdoClient build() {
         if (httpOnly && grpcOnly) {
             throw new ConfigException("Cannot set both httpOnly and grpcOnly");
@@ -73,7 +84,7 @@ public class OrdoClientBuilder {
         }
         return new OrdoClientImpl(
                 httpAddress, grpcAddress, preferGrpc, httpOnly, grpcOnly,
-                tenantId, timeout, retryConfig, batchConcurrency
+                tenantId, timeout, retryConfig, batchConcurrency, degradationConfig
         );
     }
 }

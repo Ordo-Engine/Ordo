@@ -4,21 +4,32 @@
 //! Otherwise only stdout logging is active (zero runtime overhead).
 
 use opentelemetry_sdk::trace::TracerProvider;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 /// Initialize the global tracing subscriber.
+///
+/// `log_format` selects the stdout log encoding: `"json"` for structured
+/// JSON lines (opt-in), anything else for the default human-readable text
+/// format. OTLP wiring is unaffected by the format choice.
 ///
 /// Returns a `TracerProvider` if OTLP was configured — caller must call
 /// [`shutdown`] on it before the process exits to flush pending spans.
 pub fn init(
     service_name: &str,
     log_level: &str,
+    log_format: &str,
     otlp_endpoint: Option<&str>,
 ) -> Option<TracerProvider> {
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
-    let fmt_layer = tracing_subscriber::fmt::layer();
+    // Boxed so the text and JSON layers (which have different concrete types)
+    // can share the same binding and be composed with the optional OTLP layer.
+    let fmt_layer = if log_format.eq_ignore_ascii_case("json") {
+        tracing_subscriber::fmt::layer().json().boxed()
+    } else {
+        tracing_subscriber::fmt::layer().boxed()
+    };
 
     if let Some(endpoint) = otlp_endpoint {
         match build_otel_provider(service_name, endpoint) {

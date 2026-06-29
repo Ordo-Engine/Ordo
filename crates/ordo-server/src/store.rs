@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -52,6 +53,47 @@ impl FileFormat {
                 _ => None,
             })
     }
+}
+
+/// Validate that a ruleset name or tenant id is safe to use as a single
+/// filesystem path component.
+///
+/// Rejects empty values and anything containing path separators (`/`, `\`),
+/// parent references (`..`), NUL bytes, or characters outside a conservative
+/// `[A-Za-z0-9._-]` allow-list. This prevents path-traversal and cross-tenant
+/// clobbering when the value is later joined onto the rules directory.
+fn validate_path_component(kind: &str, value: &str) -> io::Result<()> {
+    if value.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{kind} must not be empty"),
+        ));
+    }
+    if value.contains("..") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{kind} '{value}' is invalid: must not contain '..'"),
+        ));
+    }
+    if let Some(bad) = value
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{kind} '{value}' is invalid: forbidden character {bad:?} (allowed: A-Za-z0-9._-)"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate a `(tenant_id, name)` pair used to build persistence paths.
+fn validate_tenant_and_name(tenant_id: &str, name: &str) -> io::Result<()> {
+    validate_path_component("tenant id", tenant_id)?;
+    validate_path_component("ruleset name", name)?;
+    Ok(())
 }
 
 /// Rule storage with optional file persistence and version management
@@ -667,6 +709,9 @@ impl RuleStore {
         name: &str,
         ruleset: &RuleSet,
     ) -> io::Result<()> {
+        // Reject names/tenants that would escape the rules directory.
+        validate_tenant_and_name(tenant_id, name)?;
+
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -687,10 +732,23 @@ impl RuleStore {
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
         };
 
-        // Write atomically: write to temp file, then rename
+        // Write atomically: write to a temp file, fsync it, then rename.
+        // fsync before rename guarantees the data is on disk before the
+        // directory entry flips; fsync the parent directory afterwards so the
+        // rename itself survives a power loss.
         let temp_path = rules_dir.join(format!(".{}.tmp", name));
-        fs::write(&temp_path, &content)?;
+        {
+            let mut file = fs::File::create(&temp_path)?;
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+        }
         fs::rename(&temp_path, &path)?;
+
+        // Best-effort durability of the rename. Directory fsync is supported on
+        // Unix; on platforms that don't support it the error is ignored.
+        if let Ok(dir) = fs::File::open(&rules_dir) {
+            let _ = dir.sync_all();
+        }
 
         // Record self-write so file watcher doesn't trigger a redundant reload
         if let Some(ref rw) = self.recent_writes {
@@ -703,6 +761,9 @@ impl RuleStore {
 
     /// Delete a ruleset file from disk
     pub(crate) fn delete_file(&self, tenant_id: &str, name: &str) -> io::Result<()> {
+        // Reject names/tenants that would escape the rules directory.
+        validate_tenant_and_name(tenant_id, name)?;
+
         let rules_dir = match self.tenant_rules_dir(tenant_id) {
             Some(dir) => dir,
             None => return Ok(()), // No persistence configured
@@ -1035,6 +1096,12 @@ impl RuleStore {
         tenant_id: &str,
         mut ruleset: RuleSet,
     ) -> Result<(), Vec<String>> {
+        // Reject names/tenants that would escape the rules directory before
+        // any further work.
+        if let Err(e) = validate_tenant_and_name(tenant_id, &ruleset.config.name) {
+            return Err(vec![e.to_string()]);
+        }
+
         // Validate before storing
         ruleset.validate()?;
 
@@ -1289,6 +1356,31 @@ impl RuleStore {
         ruleset.config.tenant_id = Some(tenant_id.to_string());
 
         let name = ruleset.config.name.clone();
+
+        // Reject names/tenants that would escape the rules directory.
+        validate_tenant_and_name(tenant_id, &name)?;
+
+        // ── WAL: record intent before any disk mutation ──────────────
+        // Mirrors the local `put_for_tenant` path so rules arriving via the
+        // Studio→NATS publish path are equally crash-protected.
+        let wal_seq: Option<u64> = if let Some(ref wal) = self.wal {
+            if self.rules_dir.is_some() {
+                let json = serde_json::to_string(&ruleset)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                match wal.prepare(WalOpKind::Put, tenant_id, &name, Some(&json)) {
+                    Ok(seq) => Some(seq),
+                    Err(e) => {
+                        error!("WAL prepare failed for synced '{}': {}", name, e);
+                        return Err(e);
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         if self.rules_dir.is_some() && self.exists_for_tenant(tenant_id, &name) {
             if let Err(e) = self.backup_current_version(tenant_id, &name) {
                 warn!(
@@ -1303,6 +1395,16 @@ impl RuleStore {
                 name, e
             )));
         }
+
+        // ── WAL: mark committed after successful disk write ───────────
+        if let (Some(ref wal), Some(seq)) = (&self.wal, wal_seq) {
+            if let Err(e) = wal.commit(seq, &WalOpKind::Put, tenant_id, &name) {
+                // Non-fatal: the rename already succeeded. On next startup the
+                // uncommitted prepare entry will be replayed, which is idempotent.
+                warn!("WAL commit failed for synced '{}' (non-fatal): {}", name, e);
+            }
+        }
+
         if self.rules_dir.is_some() {
             if let Err(e) = self.cleanup_old_versions(tenant_id, &name) {
                 warn!("Failed to cleanup synced versions of '{}': {}", name, e);
@@ -1691,6 +1793,84 @@ mod tests {
             TerminalResult::new("OK").with_message("Test completed"),
         ));
         ruleset
+    }
+
+    #[test]
+    fn test_validate_path_component_rejects_traversal() {
+        // Parent references and separators must be rejected.
+        assert!(validate_path_component("ruleset name", "..").is_err());
+        assert!(validate_path_component("ruleset name", "../foo").is_err());
+        assert!(validate_path_component("ruleset name", "a/b").is_err());
+        assert!(validate_path_component("ruleset name", "a\\b").is_err());
+        assert!(validate_path_component("ruleset name", "foo/../bar").is_err());
+        assert!(validate_path_component("ruleset name", "a\0b").is_err());
+        assert!(validate_path_component("ruleset name", "").is_err());
+        assert!(validate_path_component("ruleset name", "a b").is_err());
+
+        // Conservative allow-list passes.
+        assert!(validate_path_component("ruleset name", "payment-check").is_ok());
+        assert!(validate_path_component("ruleset name", "rule_v1.2.3").is_ok());
+        assert!(validate_path_component("tenant id", "tenant-123").is_ok());
+    }
+
+    #[test]
+    fn test_put_rejects_traversal_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = RuleStore::new_with_persistence(temp_dir.path().to_path_buf());
+
+        let ruleset = create_test_ruleset("../escape");
+        let err = store.put(ruleset).unwrap_err();
+        assert!(err[0].contains("escape") || err[0].contains(".."));
+        // Nothing must have been written outside the rules dir.
+        assert!(!store.exists("../escape"));
+    }
+
+    #[test]
+    fn test_persist_ruleset_rejects_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = RuleStore::new_with_persistence(temp_dir.path().to_path_buf());
+        let ruleset = create_test_ruleset("ok");
+        assert!(store
+            .persist_ruleset("default", "../evil", &ruleset)
+            .is_err());
+        assert!(store.persist_ruleset("../evil", "ok", &ruleset).is_err());
+        assert!(store.persist_ruleset("default", "ok", &ruleset).is_ok());
+    }
+
+    #[test]
+    fn test_apply_sync_put_writes_through_wal() {
+        use crate::wal::{WalEntryState, WalManager, WalOpKind};
+
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = RuleStore::new_with_persistence(temp_dir.path().to_path_buf());
+
+        let wal_dir = temp_dir.path().join("wal");
+        let wal = Arc::new(WalManager::open(wal_dir, 64 * 1024 * 1024, 3).unwrap());
+        store.set_wal(wal.clone());
+
+        let ruleset = create_test_ruleset("synced-rule");
+        let json = serde_json::to_string(&ruleset).unwrap();
+        store.apply_sync_put("default", &json).unwrap();
+
+        let entries = wal.read_all_entries().unwrap();
+        // Expect both a prepared and a committed entry for the sync put.
+        assert!(entries.iter().any(|e| matches!(e.op, WalOpKind::Put)
+            && matches!(e.state, WalEntryState::Prepared)
+            && e.name == "synced-rule"));
+        assert!(entries.iter().any(|e| matches!(e.op, WalOpKind::Put)
+            && matches!(e.state, WalEntryState::Committed)
+            && e.name == "synced-rule"));
+        // No pending (uncommitted) entries should remain.
+        assert_eq!(wal.pending_entry_count(), 0);
+    }
+
+    #[test]
+    fn test_apply_sync_put_rejects_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut store = RuleStore::new_with_persistence(temp_dir.path().to_path_buf());
+        let ruleset = create_test_ruleset("../escape");
+        let json = serde_json::to_string(&ruleset).unwrap();
+        assert!(store.apply_sync_put("default", &json).is_err());
     }
 
     #[test]

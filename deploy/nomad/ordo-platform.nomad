@@ -20,7 +20,7 @@
 variable "image" {
   type        = string
   description = "Platform image (built by build-platform-image.yml)"
-  default     = "ghcr.io/pama-lee/ordo-platform:latest"
+  default     = "ghcr.io/ordo-engine/ordo-platform:latest"
 }
 
 variable "http_port" {
@@ -78,17 +78,19 @@ job "ordo-platform" {
       }
     }
 
+    # Registered in Consul because Traefik on this cluster uses the Consul Catalog
+    # provider (not the Nomad provider). TLS is terminated at Cloudflare in front of
+    # Traefik, so the origin router runs on the plain HTTP `web` entrypoint.
     service {
       name     = "ordo-platform"
       port     = "http"
-      provider = "nomad"
+      provider = "consul"
       tags = [
         "ordo",
         "platform",
         "traefik.enable=true",
         "traefik.http.routers.ordo-platform.rule=Host(`${var.public_host}`)",
-        "traefik.http.routers.ordo-platform.entrypoints=websecure",
-        "traefik.http.routers.ordo-platform.tls=true",
+        "traefik.http.routers.ordo-platform.entrypoints=web",
         "traefik.http.services.ordo-platform.loadbalancer.passhostheader=true",
       ]
 

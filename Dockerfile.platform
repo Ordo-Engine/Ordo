@@ -11,9 +11,12 @@ RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Dependency cache layer — copy manifests only, then build deps
+# Dependency cache layer — copy manifests only, then build deps.
+# `examples/` is a workspace member (examples/capability-demo), so the workspace
+# manifest can't resolve without it — copy it too even though we only build ordo-platform.
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY examples ./examples
 
 # Build release binaries (HTTP API + background worker; other crates build as deps)
 RUN --mount=type=cache,id=ordo-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \

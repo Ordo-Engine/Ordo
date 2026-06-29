@@ -6,7 +6,9 @@ This wires up a public demo:
  Browser ──► app.ordoengine.com (Vercel, Studio SPA + static/CDN/TLS)
                  │  vercel.json rewrites /api/v1/* (edge proxy)
                  ▼
-            api.ordoengine.com (Traefik on the Nomad cluster)
+            api.ordoengine.com ──► Cloudflare (TLS terminates here, orange-cloud proxy)
+                 ▼
+            <cluster public IP>:80  Traefik (HTTP origin; routes via Consul Catalog)
                  ▼
             ordo-platform :3001 ──► ordo-server (engine) ─┐
                  ▲                                         │
@@ -14,6 +16,12 @@ This wires up a public demo:
                  ▼                                         ▼
             Postgres                                    NATS JetStream
 ```
+
+> **Cluster networking:** services address each other over the **public IP** (the
+> nodes don't route to each other over the private 10.0.0.0/24 subnet). Traefik
+> reads service definitions from **Consul Catalog**, so the platform registers its
+> Traefik tags via `provider = "consul"`. TLS is terminated at **Cloudflare**, so
+> the Traefik origin router uses the plain `web` (HTTP :80) entrypoint.
 
 **Why this split:** Studio's build compiles a Rust→WASM package that Vercel's
 cloud build can't produce, and Studio calls a same-origin `/api/v1`. Building in
@@ -26,11 +34,11 @@ with no app code changes and no CORS.
 
 | Thing | Value to decide |
 |------|------|
-| Studio domain | `app.ordoengine.com` → CNAME to Vercel |
-| Platform domain | `api.ordoengine.com` → A record to the cluster's Traefik node IP |
-| Traefik TLS | a cert resolver for `websecure` (Let's Encrypt). If none, use the HTTP fallback below. |
-| NATS URL | the running cluster value, incl. token: `nats://ordo-nats-<token>@<ip>:4222` |
-| Engine URL | an `ordo-server` base URL reachable from the platform (node IP:port) |
+| Studio domain | `app.ordoengine.com` → Vercel |
+| Platform domain | `api.ordoengine.com` → **Cloudflare (orange-cloud proxy)**, origin = cluster public IP (Traefik :80) |
+| TLS | terminated at **Cloudflare**; Traefik origin stays HTTP. No cert resolver needed on Traefik. |
+| NATS URL | the running cluster value over the **public IP**, incl. token: `nats://ordo-nats-<token>@<public-ip>:4222` |
+| Engine URL | an `ordo-server` base URL reachable from the platform (Traefik route or public IP:port) |
 | JWT secret | 32+ char random string |
 | DB password | Postgres password for the `ordo` user |
 | Vercel project | linked to repo, **root dir = `ordo-editor/apps/studio`** |
@@ -81,18 +89,17 @@ curl -fsS http://<WORKER_NODE>:8090/health/live    # worker liveness (C9)
 curl -fsS http://<WORKER_NODE>:8090/metrics        # worker metrics
 ```
 
-### TLS fallback (no cert resolver on Traefik yet)
+### TLS (Cloudflare)
 
-`ordo-platform.nomad` routes via `websecure` + `tls=true`. If Traefik has no cert
-resolver, either add one (`traefik.http.routers.ordo-platform.tls.certresolver=<name>`)
-or switch the router to HTTP by replacing those two tags with:
+`ordo-platform.nomad` routes on the Traefik `web` (HTTP) entrypoint and registers
+in Consul. HTTPS is provided by **Cloudflare** in front of Traefik:
 
-```
-"traefik.http.routers.ordo-platform.entrypoints=web",
-```
-
-and set the Vercel rewrite destination (step 4) to `http://api.ordoengine.com`.
-HTTPS is strongly recommended for anything public.
+1. In Cloudflare, add an `A`/`CNAME` record for `api.ordoengine.com` pointing at the
+   cluster's public IP, **proxied (orange cloud)**.
+2. Set the CF SSL/TLS mode to **Full** (CF → origin over the cluster's HTTP/HTTPS).
+   "Flexible" also works for a demo (CF→origin plain HTTP) but is less secure.
+3. The Vercel rewrite target stays `https://api.ordoengine.com` (the browser only ever
+   talks to Cloudflare over HTTPS; CF proxies to the HTTP origin).
 
 ## 4. Deploy Studio to Vercel
 

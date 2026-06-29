@@ -1,5 +1,18 @@
 use super::*;
 
+/// Decide whether an optimistic-locked draft save must be rejected as a
+/// `conflict`.
+///
+/// A save conflicts when the sequence the client based its edit on
+/// (`expected_seq`) no longer matches the sequence currently stored
+/// (`current_seq`) — i.e. someone else saved in the meantime. This is the exact
+/// predicate guarding the conditional `UPDATE ... AND draft_seq = $expected_seq`
+/// in [`PlatformStore::save_draft_ruleset`]; the database also enforces it
+/// atomically via the row lock + guarded update.
+fn draft_save_conflicts(current_seq: i64, expected_seq: i64) -> bool {
+    current_seq != expected_seq
+}
+
 fn extract_ruleset_version(draft: &serde_json::Value) -> Option<String> {
     draft
         .get("config")
@@ -192,11 +205,31 @@ impl PlatformStore {
         expected_seq: i64,
         user_id: &str,
     ) -> Result<ProjectRuleset> {
-        let existing = self.get_draft_ruleset(project_id, name).await?;
         let incoming_version = extract_ruleset_version(draft);
 
+        // Run the read and the write inside one transaction so the optimistic
+        // lock cannot silently lose concurrent edits. `SELECT ... FOR UPDATE`
+        // locks the existing row for the lifetime of the transaction, and the
+        // UPDATE is additionally guarded by `draft_seq = $expected_seq` so a
+        // stale `expected_seq` is rejected atomically (rows affected == 0 ->
+        // "conflict", matched by the handler in `ruleset_draft.rs`).
+        let mut tx = self.pool.begin().await?;
+
+        let existing = sqlx::query(
+            "SELECT id, project_id, name, draft, draft_seq, draft_updated_at, draft_updated_by,
+                    draft #>> '{config,version}' AS draft_version,
+                    published_version, published_at, created_at
+             FROM project_rulesets WHERE project_id = $1 AND name = $2 FOR UPDATE",
+        )
+        .bind(project_id)
+        .bind(name)
+        .fetch_optional(&mut *tx)
+        .await?
+        .as_ref()
+        .map(row_to_ruleset);
+
         if let Some(ref existing) = existing {
-            if existing.meta.draft_seq != expected_seq {
+            if draft_save_conflicts(existing.meta.draft_seq, expected_seq) {
                 return Err(anyhow::anyhow!("conflict"));
             }
             if existing.meta.published_version.is_some()
@@ -206,18 +239,22 @@ impl PlatformStore {
                     "Published ruleset changes require a new version number"
                 ));
             }
-            sqlx::query(
+            let result = sqlx::query(
                 "UPDATE project_rulesets SET
                    draft = $1, draft_seq = draft_seq + 1,
                    draft_updated_at = NOW(), draft_updated_by = $2
-                 WHERE project_id = $3 AND name = $4",
+                 WHERE project_id = $3 AND name = $4 AND draft_seq = $5",
             )
             .bind(sqlx::types::Json(draft))
             .bind(user_id)
             .bind(project_id)
             .bind(name)
-            .execute(&self.pool)
+            .bind(expected_seq)
+            .execute(&mut *tx)
             .await?;
+            if result.rows_affected() == 0 {
+                return Err(anyhow::anyhow!("conflict"));
+            }
         } else {
             sqlx::query(
                 "INSERT INTO project_rulesets
@@ -229,9 +266,11 @@ impl PlatformStore {
             .bind(name)
             .bind(sqlx::types::Json(draft))
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         }
+
+        tx.commit().await?;
 
         Ok(self
             .get_draft_ruleset(project_id, name)
@@ -370,5 +409,37 @@ impl PlatformStore {
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(row_to_deployment).transpose()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_expected_seq_is_a_conflict() {
+        // Client edited based on seq 4 but the row has since advanced to 5:
+        // the save must be rejected so the concurrent edit is not lost.
+        assert!(draft_save_conflicts(5, 4));
+        // Client somehow ahead of the stored row -> also a conflict.
+        assert!(draft_save_conflicts(5, 6));
+    }
+
+    #[test]
+    fn matching_expected_seq_is_not_a_conflict() {
+        assert!(!draft_save_conflicts(5, 5));
+        assert!(!draft_save_conflicts(0, 0));
+    }
+
+    #[test]
+    fn extract_ruleset_version_reads_config_version() {
+        let draft = serde_json::json!({ "config": { "version": "1.2.3" } });
+        assert_eq!(extract_ruleset_version(&draft), Some("1.2.3".to_string()));
+
+        let blank = serde_json::json!({ "config": { "version": "   " } });
+        assert_eq!(extract_ruleset_version(&blank), None);
+
+        let missing = serde_json::json!({ "config": {} });
+        assert_eq!(extract_ruleset_version(&missing), None);
     }
 }

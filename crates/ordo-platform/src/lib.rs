@@ -16,6 +16,7 @@ pub mod error;
 pub mod github;
 pub mod i18n;
 pub mod member;
+pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod notification;

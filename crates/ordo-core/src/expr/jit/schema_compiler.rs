@@ -382,16 +382,12 @@ impl SchemaJITCompiler {
     }
 }
 
-impl Default for SchemaJITCompiler {
-    fn default() -> Self {
-        Self::new().unwrap_or_else(|e| {
-            // This should not happen in normal circumstances
-            // Log the error and create a minimal compiler that will fail on use
-            eprintln!("Failed to create default Schema JIT compiler: {}", e);
-            panic!("Cannot create JIT compiler: {}", e)
-        })
-    }
-}
+// NOTE: `SchemaJITCompiler` intentionally has no `Default` impl. Constructing it
+// requires fallible Cranelift initialization (target ISA detection, flag setup),
+// so the only correct constructor is `SchemaJITCompiler::new() -> Result<Self>`.
+// A `Default` impl would be forced to panic on initialization failure, turning a
+// recoverable error into a process crash for any caller reaching for
+// `Default::default()`. Use `new()` and handle the error instead.
 
 // ==================== Compilation Context ====================
 

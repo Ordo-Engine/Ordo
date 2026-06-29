@@ -39,6 +39,8 @@ mod users;
 use self::codec::*;
 use self::rows::*;
 
+pub use self::releases::NewReleaseHistory;
+
 #[derive(Clone)]
 pub struct PlatformStore {
     pool: PgPool,
@@ -47,5 +49,21 @@ pub struct PlatformStore {
 impl PlatformStore {
     pub async fn new(pool: PgPool) -> Result<Self> {
         Ok(Self { pool })
+    }
+
+    /// Cheap connectivity probe used by the readiness endpoint.
+    pub async fn ping(&self) -> Result<()> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Total number of connections currently managed by the pool.
+    pub fn pool_size(&self) -> u32 {
+        self.pool.size()
+    }
+
+    /// Number of idle (available) connections in the pool.
+    pub fn pool_idle(&self) -> usize {
+        self.pool.num_idle()
     }
 }

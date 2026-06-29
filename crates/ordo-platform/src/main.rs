@@ -3,8 +3,11 @@
 use std::sync::Arc;
 
 use axum::{
+    extract::State,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     routing::{any, get, post, put},
-    Router,
+    Json, Router,
 };
 use clap::Parser;
 use tower_http::{
@@ -16,10 +19,10 @@ use tracing::info;
 
 use ordo_platform::{
     auth, bootstrap_platform_store, build_app_state, catalog, config::PlatformConfig,
-    connect_platform_store, contract, environment, github, i18n, init_tracing, member,
+    connect_platform_store, contract, environment, github, i18n, init_tracing, member, metrics,
     middleware::require_auth, notification, org, project, proxy, publish_existing_tenants, release,
     ruleset_draft, ruleset_history, server_registry, start_server_registry_maintenance,
-    sub_org_member, sub_rules, templates_api, testing,
+    sub_org_member, sub_rules, templates_api, testing, AppState,
 };
 
 #[tokio::main]
@@ -48,6 +51,8 @@ async fn main() -> anyhow::Result<()> {
 
     let state = build_app_state(config.clone(), store, false).await?;
     publish_existing_tenants(&state).await;
+
+    metrics::init();
 
     // CORS
     let cors = {
@@ -386,12 +391,19 @@ async fn main() -> anyhow::Result<()> {
             require_auth,
         ));
 
-    // Health check
-    let health = Router::new().route("/health", get(|| async { "ok" }));
+    // Health checks + Prometheus metrics.
+    //   /health, /health/ready -> readiness (verifies Postgres + NATS), 503 on failure
+    //   /health/live           -> liveness (process is up)
+    //   /metrics               -> Prometheus exposition format
+    let ops = Router::new()
+        .route("/health", get(readiness))
+        .route("/health/ready", get(readiness))
+        .route("/health/live", get(liveness))
+        .route("/metrics", get(metrics_handler));
 
     let app = public_routes
         .merge(protected_routes)
-        .merge(health)
+        .merge(ops)
         .layer(axum::middleware::from_fn(i18n::with_request_locale))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -403,4 +415,57 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Liveness probe: returns `200 ok` as long as the process is serving requests.
+async fn liveness() -> &'static str {
+    "ok"
+}
+
+/// Readiness probe: verifies Postgres connectivity and, when a NATS connection
+/// handle is available, that it is currently connected. Returns `503` on any
+/// failure so load balancers stop routing traffic to an unhealthy instance.
+async fn readiness(State(state): State<AppState>) -> Response {
+    if let Err(e) = state.store.ping().await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "unavailable",
+                "postgres": "error",
+                "error": e.to_string(),
+            })),
+        )
+            .into_response();
+    }
+
+    if let Some(client) = &state.nats_client {
+        if !matches!(
+            client.connection_state(),
+            async_nats::connection::State::Connected
+        ) {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "status": "unavailable",
+                    "postgres": "ok",
+                    "nats": "disconnected",
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))).into_response()
+}
+
+/// Prometheus metrics endpoint.
+async fn metrics_handler(State(state): State<AppState>) -> Response {
+    metrics::set_db_pool_stats(state.store.pool_size(), state.store.pool_idle());
+    let body = metrics::encode();
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        body,
+    )
+        .into_response()
 }

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ordo-platform
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-platform
+    app.kubernetes.io/part-of: ordo
+    app.kubernetes.io/component: gateway
+spec:
+  # Stateless (all state lives in Postgres) — safe to run multiple replicas.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ordo-platform
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ordo-platform
+        app.kubernetes.io/part-of: ordo
+        app.kubernetes.io/component: gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: ordo-platform
+          image: ghcr.io/pama-lee/ordo-platform:latest
+          imagePullPolicy: IfNotPresent
+          # The image ENTRYPOINT is /app/ordo-platform; --addr is taken from the
+          # ORDO_PLATFORM_ADDR env var, so no extra args are needed. The platform
+          # applies its embedded sqlx migrations against ORDO_DATABASE_URL on boot.
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: ordo-platform
+            - secretRef:
+                name: ordo-platform
+          # NOTE: /health is currently a lightweight stub that returns 200 "ok"
+          # as soon as the HTTP listener is up; it does NOT yet verify the DB /
+          # NATS dependencies. Platform readiness is being hardened separately —
+          # swap these probes to a deep readiness endpoint once it lands.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Generous startup window: first boot runs DB migrations.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

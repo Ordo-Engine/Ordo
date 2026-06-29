@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# NATS with JetStream — the rule-sync + release-event backbone.
+#
+# Both ordo-server (rule sync) and ordo-platform / ordo-platform-worker
+# (release events) publish to / consume from JetStream stream "ordo-rules"
+# (subjects "ordo.rules.>"). JetStream is configured with FILE storage, so its
+# state is the durable source of truth for in-flight releases and MUST be backed
+# up — see deploy/BACKUP_AND_DR.md.
+#
+# This is a single-replica dev/self-hosted topology. For production prefer a
+# 3-node JetStream cluster (RAFT) via the official NATS Helm chart / operator,
+# then point ORDO_NATS_URL at that cluster and delete this file from
+# kustomization.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordo-nats
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-nats
+    app.kubernetes.io/part-of: ordo
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ordo-nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ordo-nats
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-nats
+    app.kubernetes.io/part-of: ordo
+spec:
+  serviceName: ordo-nats
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ordo-nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ordo-nats
+        app.kubernetes.io/part-of: ordo
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args:
+            - "-js"                 # enable JetStream
+            - "-sd"                 # JetStream store directory
+            - "/data"
+            - "-m"                  # HTTP monitoring endpoint
+            - "8222"
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+        # storageClassName: <your-storage-class>

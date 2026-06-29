@@ -1,0 +1,18 @@
+# Public-facing service for ordo-platform (the single backend entry point).
+# Exposed as ClusterIP by default; front it with an Ingress / Gateway / LB.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordo-platform
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-platform
+    app.kubernetes.io/part-of: ordo
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ordo-platform
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http

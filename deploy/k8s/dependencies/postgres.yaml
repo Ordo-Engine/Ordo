@@ -1,0 +1,123 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PostgreSQL for ordo-platform (DEV / SELF-HOSTED single-node StatefulSet)
+#
+# ordo-platform persists ALL control-plane state here (orgs, projects, members,
+# rulesets, releases, RBAC, server registry). It runs its embedded sqlx
+# migrations automatically on startup, so no migration Job is required.
+#
+# PRODUCTION GUIDANCE:
+#   This single-replica StatefulSet has NO HA, NO automated backups, and NO
+#   connection pooler. For production prefer a managed Postgres (RDS, Cloud SQL,
+#   AlloyDB, Crunchy/CloudNativePG operator, etc.). To "bring your own" managed
+#   Postgres, DELETE this file from kustomization.yaml and point
+#   ORDO_DATABASE_URL (in secret-platform.yaml) at your managed instance.
+#
+#   Whichever you choose, set up backups — see deploy/BACKUP_AND_DR.md.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ordo-postgres
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-postgres
+    app.kubernetes.io/part-of: ordo
+type: Opaque
+stringData:
+  # CHANGE THIS before any non-throwaway deployment. Keep it in sync with the
+  # password embedded in ORDO_DATABASE_URL (secret-platform.yaml).
+  POSTGRES_PASSWORD: "ordo_dev_pass_CHANGE_ME"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ordo-postgres
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-postgres
+    app.kubernetes.io/part-of: ordo
+spec:
+  # Headless service gives the StatefulSet a stable DNS name:
+  #   ordo-postgres.ordo.svc.cluster.local
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ordo-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ordo-postgres
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-postgres
+    app.kubernetes.io/part-of: ordo
+spec:
+  serviceName: ordo-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ordo-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ordo-postgres
+        app.kubernetes.io/part-of: ordo
+    spec:
+      securityContext:
+        fsGroup: 999      # postgres group in the official image
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "ordo"
+            - name: POSTGRES_DB
+              value: "ordo_platform"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ordo-postgres
+                  key: POSTGRES_PASSWORD
+            # Subdir avoids "lost+found" issues on some PVC types.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ordo", "-d", "ordo_platform"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "ordo", "-d", "ordo_platform"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+        # storageClassName: <your-fast-ssd-class>   # uncomment / set per cluster

@@ -31,7 +31,7 @@ func main() {
 
 	fmt.Println("=== Execute with Retry ===")
 	fmt.Println("This example will retry automatically on transient failures")
-	fmt.Println("(e.g., network errors, 5xx server errors, rate limiting)\n")
+	fmt.Print("(e.g., network errors, 5xx server errors, rate limiting)\n\n")
 
 	input := map[string]any{
 		"user": map[string]any{

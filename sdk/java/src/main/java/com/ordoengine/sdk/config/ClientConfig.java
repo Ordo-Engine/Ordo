@@ -12,6 +12,7 @@ public class ClientConfig {
     private final Duration timeout;
     private final RetryConfig retryConfig;
     private final int batchConcurrency;
+    private final DegradationConfig degradationConfig;
 
     ClientConfig(Builder builder) {
         this.httpAddress = builder.httpAddress;
@@ -23,6 +24,7 @@ public class ClientConfig {
         this.timeout = builder.timeout;
         this.retryConfig = builder.retryConfig;
         this.batchConcurrency = builder.batchConcurrency;
+        this.degradationConfig = builder.degradationConfig;
     }
 
     public String getHttpAddress() { return httpAddress; }
@@ -34,6 +36,7 @@ public class ClientConfig {
     public Duration getTimeout() { return timeout; }
     public RetryConfig getRetryConfig() { return retryConfig; }
     public int getBatchConcurrency() { return batchConcurrency; }
+    public DegradationConfig getDegradationConfig() { return degradationConfig; }
 
     public static class Builder {
         private String httpAddress = "http://localhost:8080";
@@ -45,6 +48,7 @@ public class ClientConfig {
         private Duration timeout = Duration.ofSeconds(30);
         private RetryConfig retryConfig;
         private int batchConcurrency = 10;
+        private DegradationConfig degradationConfig;
 
         public Builder httpAddress(String httpAddress) {
             this.httpAddress = httpAddress;
@@ -88,6 +92,11 @@ public class ClientConfig {
 
         public Builder batchConcurrency(int batchConcurrency) {
             this.batchConcurrency = batchConcurrency;
+            return this;
+        }
+
+        public Builder degradation(DegradationConfig degradationConfig) {
+            this.degradationConfig = degradationConfig;
             return this;
         }
 

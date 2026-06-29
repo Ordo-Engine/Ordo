@@ -1,6 +1,7 @@
 package ordo
 
 import (
+	"github.com/pama-lee/ordo-go/ordo/degrade"
 	"github.com/pama-lee/ordo-go/ordo/types"
 )
 
@@ -23,4 +24,13 @@ type (
 	StorageStatus   = types.StorageStatus
 	APIError        = types.APIError
 	ConfigError     = types.ConfigError
+	DegradationMode = degrade.Mode
+	DegradeConfig   = degrade.Config
+)
+
+// Degradation mode constants, re-exported for convenience.
+const (
+	DegradeFail     = degrade.ModeFail
+	DegradeStale    = degrade.ModeStale
+	DegradeFailOpen = degrade.ModeFailOpen
 )

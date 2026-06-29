@@ -9,7 +9,7 @@
 
 variable "image" {
   type    = string
-  default = "ghcr.io/pama-lee/ordo-platform:latest"
+  default = "ghcr.io/ordo-engine/ordo-platform:latest"
 }
 
 variable "health_port" {

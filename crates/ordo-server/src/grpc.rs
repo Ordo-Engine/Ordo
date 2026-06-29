@@ -26,7 +26,7 @@ use ordo_proto::{
     HealthRequest, HealthResponse, ListRuleSetsRequest, ListRuleSetsResponse, RuleSetSummary,
     StepTrace,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tonic::{Request, Response, Status};
 
 use crate::config::InstanceRole;
@@ -51,6 +51,9 @@ pub struct OrdoGrpcService {
     multi_tenancy_enabled: bool,
     role: InstanceRole,
     writer_addr: Option<String>,
+    /// Optional global in-flight concurrency limit (shared with the HTTP
+    /// transport). `None` means unlimited.
+    concurrency: Option<Arc<Semaphore>>,
 }
 
 impl OrdoGrpcService {
@@ -73,6 +76,7 @@ impl OrdoGrpcService {
             multi_tenancy_enabled,
             role: InstanceRole::Standalone,
             writer_addr: None,
+            concurrency: None,
         }
     }
 
@@ -80,6 +84,13 @@ impl OrdoGrpcService {
     pub fn with_role(mut self, role: InstanceRole, writer_addr: Option<String>) -> Self {
         self.role = role;
         self.writer_addr = writer_addr;
+        self
+    }
+
+    /// Attach an optional global concurrency limiter shared with the HTTP
+    /// transport. `None` leaves execution unbounded (the default).
+    pub fn with_concurrency_limit(mut self, semaphore: Option<Arc<Semaphore>>) -> Self {
+        self.concurrency = semaphore;
         self
     }
 
@@ -136,6 +147,23 @@ impl OrdoGrpcService {
 
         Ok(config)
     }
+
+    /// Acquire a permit from the optional global concurrency limiter, blocking
+    /// (with backpressure) until one is free. Returns `None` when no limit is
+    /// configured.
+    async fn acquire_permit(
+        &self,
+    ) -> std::result::Result<Option<tokio::sync::OwnedSemaphorePermit>, Status> {
+        match &self.concurrency {
+            Some(sem) => sem
+                .clone()
+                .acquire_owned()
+                .await
+                .map(Some)
+                .map_err(|_| Status::unavailable("server overloaded")),
+            None => Ok(None),
+        }
+    }
 }
 
 /// Build execution trace for gRPC response
@@ -165,6 +193,20 @@ fn build_execution_trace(
     })
 }
 
+/// Run an RPC handler future, converting any panic into a clean `Status`
+/// instead of letting it unwind across the connection (C12). This is the gRPC
+/// equivalent of the HTTP `CatchPanicLayer`.
+async fn catch_panic<T, F>(fut: F) -> std::result::Result<Response<T>, Status>
+where
+    F: std::future::Future<Output = std::result::Result<Response<T>, Status>>,
+{
+    use futures::FutureExt;
+    match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
+        Ok(result) => result,
+        Err(_) => Err(Status::internal("internal error: RPC handler panicked")),
+    }
+}
+
 #[tonic::async_trait]
 impl OrdoService for OrdoGrpcService {
     /// Execute a ruleset with multi-tenancy support
@@ -172,61 +214,82 @@ impl OrdoService for OrdoGrpcService {
         &self,
         request: Request<ExecuteRequest>,
     ) -> std::result::Result<Response<ExecuteResponse>, Status> {
-        // Extract and validate tenant
-        let tenant_id = self.extract_tenant_id(&request);
-        let tenant_config = self.validate_tenant(&tenant_id).await?;
+        catch_panic(async move {
+            // Extract and validate tenant
+            let tenant_id = self.extract_tenant_id(&request);
+            let tenant_config = self.validate_tenant(&tenant_id).await?;
 
-        let req = request.into_inner();
+            // Optional global concurrency cap (shared with the HTTP transport).
+            // The permit is held until the end of the method.
+            let _permit = self.acquire_permit().await?;
 
-        // Parse input JSON (simd-json for speed)
-        let input: Value = simd_json::from_slice(&mut req.input_json.into_bytes())
-            .map_err(|e| Status::invalid_argument(format!("Invalid input JSON: {}", e)))?;
+            let req = request.into_inner();
 
-        // Get ruleset for the tenant
-        let ruleset = {
-            let store = self.store.read().await;
-            store
-                .get_for_tenant(&tenant_id, &req.ruleset_name)
-                .ok_or_else(|| {
-                    Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
-                })?
-        };
+            // Reject pathologically nested input before the recursive parse (C14).
+            let mut input_bytes = req.input_json.into_bytes();
+            if crate::json::exceeds_max_depth(&input_bytes, crate::json::MAX_JSON_DEPTH) {
+                return Err(Status::invalid_argument(format!(
+                    "input JSON nesting exceeds maximum depth of {}",
+                    crate::json::MAX_JSON_DEPTH
+                )));
+            }
 
-        // Build execution options for tenant-specific overrides
-        let exec_options = if tenant_config.execution_timeout_ms > 0 || req.include_trace {
-            Some(ExecutionOptions {
-                timeout_ms: if tenant_config.execution_timeout_ms > 0 {
-                    Some(tenant_config.execution_timeout_ms)
-                } else {
-                    None
-                },
-                enable_trace: if req.include_trace { Some(true) } else { None },
-                max_depth: None,
+            // Parse input JSON (simd-json for speed)
+            let input: Value = simd_json::from_slice(&mut input_bytes)
+                .map_err(|e| Status::invalid_argument(format!("Invalid input JSON: {}", e)))?;
+
+            // Get ruleset for the tenant
+            let ruleset = {
+                let store = self.store.read().await;
+                store
+                    .get_for_tenant(&tenant_id, &req.ruleset_name)
+                    .ok_or_else(|| {
+                        Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
+                    })?
+            };
+
+            // Build execution options for tenant-specific overrides
+            let exec_options = if tenant_config.execution_timeout_ms > 0 || req.include_trace {
+                Some(ExecutionOptions {
+                    timeout_ms: if tenant_config.execution_timeout_ms > 0 {
+                        Some(tenant_config.execution_timeout_ms)
+                    } else {
+                        None
+                    },
+                    enable_trace: if req.include_trace { Some(true) } else { None },
+                    max_depth: None,
+                })
+            } else {
+                None
+            };
+
+            // Execute on a blocking thread so CPU-bound rule evaluation cannot
+            // starve the async runtime (C5). A panic surfaces as a clean Status
+            // rather than dropping the connection (C12).
+            let executor = self.executor.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                executor.execute_with_options(&ruleset, input, exec_options.as_ref())
             })
-        } else {
-            None
-        };
-
-        // Execute
-        let result = self
-            .executor
-            .execute_with_options(&ruleset, input, exec_options.as_ref())
+            .await
+            .map_err(|e| Status::internal(format!("Execution task panicked: {}", e)))?
             .map_err(|e| Status::internal(format!("Execution error: {}", e)))?;
 
-        // Build response
-        let trace = build_execution_trace(result.trace.as_ref(), req.include_trace);
+            // Build response
+            let trace = build_execution_trace(result.trace.as_ref(), req.include_trace);
 
-        // Serialize output
-        let output_json = serde_json::to_string(&result.output)
-            .map_err(|e| Status::internal(format!("Failed to serialize output: {}", e)))?;
+            // Serialize output
+            let output_json = serde_json::to_string(&result.output)
+                .map_err(|e| Status::internal(format!("Failed to serialize output: {}", e)))?;
 
-        Ok(Response::new(ExecuteResponse {
-            code: result.code,
-            message: result.message,
-            output_json,
-            duration_us: result.duration_us,
-            trace,
-        }))
+            Ok(Response::new(ExecuteResponse {
+                code: result.code,
+                message: result.message,
+                output_json,
+                duration_us: result.duration_us,
+                trace,
+            }))
+        })
+        .await
     }
 
     /// Execute a ruleset with multiple inputs (batch execution) with multi-tenancy support
@@ -234,203 +297,246 @@ impl OrdoService for OrdoGrpcService {
         &self,
         request: Request<BatchExecuteRequest>,
     ) -> std::result::Result<Response<BatchExecuteResponse>, Status> {
-        // Extract and validate tenant
-        let tenant_id = self.extract_tenant_id(&request);
-        let tenant_config = self.validate_tenant(&tenant_id).await?;
+        catch_panic(async move {
+            // Extract and validate tenant
+            let tenant_id = self.extract_tenant_id(&request);
+            let tenant_config = self.validate_tenant(&tenant_id).await?;
 
-        let req = request.into_inner();
+            // Optional global concurrency cap (held for the whole batch).
+            let _permit = self.acquire_permit().await?;
 
-        // Validate batch size
-        if req.inputs_json.is_empty() {
-            return Err(Status::invalid_argument(
-                "inputs_json array cannot be empty",
-            ));
-        }
-        if req.inputs_json.len() > MAX_BATCH_SIZE {
-            return Err(Status::invalid_argument(format!(
-                "batch size {} exceeds maximum allowed size {}",
-                req.inputs_json.len(),
-                MAX_BATCH_SIZE
-            )));
-        }
+            let req = request.into_inner();
 
-        let batch_size = req.inputs_json.len();
-        let options = req.options.unwrap_or(BatchExecuteOptions {
-            parallel: true,
-            include_trace: false,
-        });
+            // Validate batch size
+            if req.inputs_json.is_empty() {
+                return Err(Status::invalid_argument(
+                    "inputs_json array cannot be empty",
+                ));
+            }
+            if req.inputs_json.len() > MAX_BATCH_SIZE {
+                return Err(Status::invalid_argument(format!(
+                    "batch size {} exceeds maximum allowed size {}",
+                    req.inputs_json.len(),
+                    MAX_BATCH_SIZE
+                )));
+            }
 
-        // Get ruleset for the tenant (single lock acquisition for entire batch)
-        let ruleset = {
-            let store = self.store.read().await;
-            store
-                .get_for_tenant(&tenant_id, &req.ruleset_name)
-                .ok_or_else(|| {
-                    Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
-                })?
-        };
-
-        // Build execution options
-        let exec_options = Arc::new(ExecutionOptions {
-            timeout_ms: if tenant_config.execution_timeout_ms > 0 {
-                Some(tenant_config.execution_timeout_ms)
-            } else {
-                None
-            },
-            enable_trace: if options.include_trace {
-                Some(true)
-            } else {
-                None
-            },
-            max_depth: None,
-        });
-
-        let executor = self.executor.clone();
-        let trace_enabled = options.include_trace;
-
-        // Execute batch
-        let results: Vec<BatchExecuteResultItem> = if options.parallel {
-            // Parallel execution using tokio::spawn_blocking
-            let futures = req.inputs_json.into_iter().map(|input_json| {
-                let ruleset = Arc::clone(&ruleset);
-                let executor = executor.clone();
-                let exec_options = Arc::clone(&exec_options);
-
-                tokio::task::spawn_blocking(move || {
-                    let start_one = Instant::now();
-
-                    // Parse input (simd-json for speed)
-                    let input: Value = match simd_json::from_slice(&mut input_json.into_bytes()) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            return BatchExecuteResultItem {
-                                code: "error".to_string(),
-                                message: "Invalid input JSON".to_string(),
-                                output_json: "null".to_string(),
-                                duration_us: start_one.elapsed().as_micros() as u64,
-                                trace: None,
-                                error: format!("Invalid input JSON: {}", e),
-                            }
-                        }
-                    };
-
-                    // Execute
-                    match executor.execute_with_options(&ruleset, input, Some(&exec_options)) {
-                        Ok(result) => {
-                            let trace = build_execution_trace(result.trace.as_ref(), trace_enabled);
-                            let output_json = serde_json::to_string(&result.output)
-                                .unwrap_or_else(|_| "null".to_string());
-                            BatchExecuteResultItem {
-                                code: result.code,
-                                message: result.message,
-                                output_json,
-                                duration_us: result.duration_us,
-                                trace,
-                                error: String::new(),
-                            }
-                        }
-                        Err(e) => BatchExecuteResultItem {
-                            code: "error".to_string(),
-                            message: e.to_string(),
-                            output_json: "null".to_string(),
-                            duration_us: start_one.elapsed().as_micros() as u64,
-                            trace: None,
-                            error: e.to_string(),
-                        },
-                    }
-                })
+            let batch_size = req.inputs_json.len();
+            let options = req.options.unwrap_or(BatchExecuteOptions {
+                parallel: true,
+                include_trace: false,
             });
 
-            join_all(futures)
-                .await
-                .into_iter()
-                .map(|result| match result {
-                    Ok(item) => item,
-                    Err(err) => BatchExecuteResultItem {
-                        code: "error".to_string(),
-                        message: "batch task failed".to_string(),
-                        output_json: "null".to_string(),
-                        duration_us: 0,
-                        trace: None,
-                        error: err.to_string(),
-                    },
-                })
-                .collect()
-        } else {
-            // Sequential execution
-            req.inputs_json
-                .into_iter()
-                .map(|input_json| {
-                    let start_one = Instant::now();
+            // Get ruleset for the tenant (single lock acquisition for entire batch)
+            let ruleset = {
+                let store = self.store.read().await;
+                store
+                    .get_for_tenant(&tenant_id, &req.ruleset_name)
+                    .ok_or_else(|| {
+                        Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
+                    })?
+            };
 
-                    // Parse input (simd-json for speed)
-                    let input: Value = match simd_json::from_slice(&mut input_json.into_bytes()) {
-                        Ok(v) => v,
-                        Err(e) => {
+            // Build execution options
+            let exec_options = Arc::new(ExecutionOptions {
+                timeout_ms: if tenant_config.execution_timeout_ms > 0 {
+                    Some(tenant_config.execution_timeout_ms)
+                } else {
+                    None
+                },
+                enable_trace: if options.include_trace {
+                    Some(true)
+                } else {
+                    None
+                },
+                max_depth: None,
+            });
+
+            let executor = self.executor.clone();
+            let trace_enabled = options.include_trace;
+
+            // Execute batch
+            let results: Vec<BatchExecuteResultItem> = if options.parallel {
+                // Parallel execution using tokio::spawn_blocking
+                let futures = req.inputs_json.into_iter().map(|input_json| {
+                    let ruleset = Arc::clone(&ruleset);
+                    let executor = executor.clone();
+                    let exec_options = Arc::clone(&exec_options);
+
+                    tokio::task::spawn_blocking(move || {
+                        let start_one = Instant::now();
+
+                        // Reject pathologically nested input before parsing (C14).
+                        let mut input_bytes = input_json.into_bytes();
+                        if crate::json::exceeds_max_depth(&input_bytes, crate::json::MAX_JSON_DEPTH)
+                        {
                             return BatchExecuteResultItem {
                                 code: "error".to_string(),
                                 message: "Invalid input JSON".to_string(),
                                 output_json: "null".to_string(),
                                 duration_us: start_one.elapsed().as_micros() as u64,
                                 trace: None,
-                                error: format!("Invalid input JSON: {}", e),
-                            }
+                                error: format!(
+                                    "input JSON nesting exceeds maximum depth of {}",
+                                    crate::json::MAX_JSON_DEPTH
+                                ),
+                            };
                         }
-                    };
 
-                    // Execute
-                    match self
-                        .executor
-                        .execute_with_options(&ruleset, input, Some(&exec_options))
-                    {
-                        Ok(result) => {
-                            let trace = build_execution_trace(result.trace.as_ref(), trace_enabled);
-                            let output_json = serde_json::to_string(&result.output)
-                                .unwrap_or_else(|_| "null".to_string());
-                            BatchExecuteResultItem {
-                                code: result.code,
-                                message: result.message,
-                                output_json,
-                                duration_us: result.duration_us,
-                                trace,
-                                error: String::new(),
+                        // Parse input (simd-json for speed)
+                        let input: Value = match simd_json::from_slice(&mut input_bytes) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return BatchExecuteResultItem {
+                                    code: "error".to_string(),
+                                    message: "Invalid input JSON".to_string(),
+                                    output_json: "null".to_string(),
+                                    duration_us: start_one.elapsed().as_micros() as u64,
+                                    trace: None,
+                                    error: format!("Invalid input JSON: {}", e),
+                                }
                             }
+                        };
+
+                        // Execute
+                        match executor.execute_with_options(&ruleset, input, Some(&exec_options)) {
+                            Ok(result) => {
+                                let trace =
+                                    build_execution_trace(result.trace.as_ref(), trace_enabled);
+                                let output_json = serde_json::to_string(&result.output)
+                                    .unwrap_or_else(|_| "null".to_string());
+                                BatchExecuteResultItem {
+                                    code: result.code,
+                                    message: result.message,
+                                    output_json,
+                                    duration_us: result.duration_us,
+                                    trace,
+                                    error: String::new(),
+                                }
+                            }
+                            Err(e) => BatchExecuteResultItem {
+                                code: "error".to_string(),
+                                message: e.to_string(),
+                                output_json: "null".to_string(),
+                                duration_us: start_one.elapsed().as_micros() as u64,
+                                trace: None,
+                                error: e.to_string(),
+                            },
                         }
-                        Err(e) => BatchExecuteResultItem {
+                    })
+                });
+
+                join_all(futures)
+                    .await
+                    .into_iter()
+                    .map(|result| match result {
+                        Ok(item) => item,
+                        Err(err) => BatchExecuteResultItem {
                             code: "error".to_string(),
-                            message: e.to_string(),
+                            message: "batch task failed".to_string(),
                             output_json: "null".to_string(),
-                            duration_us: start_one.elapsed().as_micros() as u64,
+                            duration_us: 0,
                             trace: None,
-                            error: e.to_string(),
+                            error: err.to_string(),
                         },
-                    }
-                })
-                .collect()
-        };
-
-        // Build summary
-        let mut success: u32 = 0;
-        let mut failed: u32 = 0;
-        let mut total_duration_us: u64 = 0;
-        for result in &results {
-            total_duration_us += result.duration_us;
-            if result.error.is_empty() {
-                success += 1;
+                    })
+                    .collect()
             } else {
-                failed += 1;
-            }
-        }
+                // Sequential execution
+                req.inputs_json
+                    .into_iter()
+                    .map(|input_json| {
+                        let start_one = Instant::now();
 
-        Ok(Response::new(BatchExecuteResponse {
-            results,
-            summary: Some(BatchExecuteSummary {
-                total: batch_size as u32,
-                success,
-                failed,
-                total_duration_us,
-            }),
-        }))
+                        // Reject pathologically nested input before parsing (C14).
+                        let mut input_bytes = input_json.into_bytes();
+                        if crate::json::exceeds_max_depth(&input_bytes, crate::json::MAX_JSON_DEPTH)
+                        {
+                            return BatchExecuteResultItem {
+                                code: "error".to_string(),
+                                message: "Invalid input JSON".to_string(),
+                                output_json: "null".to_string(),
+                                duration_us: start_one.elapsed().as_micros() as u64,
+                                trace: None,
+                                error: format!(
+                                    "input JSON nesting exceeds maximum depth of {}",
+                                    crate::json::MAX_JSON_DEPTH
+                                ),
+                            };
+                        }
+
+                        // Parse input (simd-json for speed)
+                        let input: Value = match simd_json::from_slice(&mut input_bytes) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return BatchExecuteResultItem {
+                                    code: "error".to_string(),
+                                    message: "Invalid input JSON".to_string(),
+                                    output_json: "null".to_string(),
+                                    duration_us: start_one.elapsed().as_micros() as u64,
+                                    trace: None,
+                                    error: format!("Invalid input JSON: {}", e),
+                                }
+                            }
+                        };
+
+                        // Execute
+                        match self.executor.execute_with_options(
+                            &ruleset,
+                            input,
+                            Some(&exec_options),
+                        ) {
+                            Ok(result) => {
+                                let trace =
+                                    build_execution_trace(result.trace.as_ref(), trace_enabled);
+                                let output_json = serde_json::to_string(&result.output)
+                                    .unwrap_or_else(|_| "null".to_string());
+                                BatchExecuteResultItem {
+                                    code: result.code,
+                                    message: result.message,
+                                    output_json,
+                                    duration_us: result.duration_us,
+                                    trace,
+                                    error: String::new(),
+                                }
+                            }
+                            Err(e) => BatchExecuteResultItem {
+                                code: "error".to_string(),
+                                message: e.to_string(),
+                                output_json: "null".to_string(),
+                                duration_us: start_one.elapsed().as_micros() as u64,
+                                trace: None,
+                                error: e.to_string(),
+                            },
+                        }
+                    })
+                    .collect()
+            };
+
+            // Build summary
+            let mut success: u32 = 0;
+            let mut failed: u32 = 0;
+            let mut total_duration_us: u64 = 0;
+            for result in &results {
+                total_duration_us += result.duration_us;
+                if result.error.is_empty() {
+                    success += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+
+            Ok(Response::new(BatchExecuteResponse {
+                results,
+                summary: Some(BatchExecuteSummary {
+                    total: batch_size as u32,
+                    success,
+                    failed,
+                    total_duration_us,
+                }),
+            }))
+        })
+        .await
     }
 
     /// Get a ruleset by name with multi-tenancy support
@@ -438,26 +544,29 @@ impl OrdoService for OrdoGrpcService {
         &self,
         request: Request<GetRuleSetRequest>,
     ) -> std::result::Result<Response<GetRuleSetResponse>, Status> {
-        // Extract and validate tenant
-        let tenant_id = self.extract_tenant_id(&request);
-        let _tenant_config = self.validate_tenant(&tenant_id).await?;
+        catch_panic(async move {
+            // Extract and validate tenant
+            let tenant_id = self.extract_tenant_id(&request);
+            let _tenant_config = self.validate_tenant(&tenant_id).await?;
 
-        let req = request.into_inner();
+            let req = request.into_inner();
 
-        let store = self.store.read().await;
-        let ruleset = store
-            .get_for_tenant(&tenant_id, &req.name)
-            .ok_or_else(|| Status::not_found(format!("RuleSet '{}' not found", req.name)))?;
+            let store = self.store.read().await;
+            let ruleset = store
+                .get_for_tenant(&tenant_id, &req.name)
+                .ok_or_else(|| Status::not_found(format!("RuleSet '{}' not found", req.name)))?;
 
-        let ruleset_json = serde_json::to_string(&*ruleset)
-            .map_err(|e| Status::internal(format!("Failed to serialize ruleset: {}", e)))?;
+            let ruleset_json = serde_json::to_string(&*ruleset)
+                .map_err(|e| Status::internal(format!("Failed to serialize ruleset: {}", e)))?;
 
-        Ok(Response::new(GetRuleSetResponse {
-            ruleset_json,
-            version: ruleset.config.version.clone(),
-            description: ruleset.config.description.clone(),
-            step_count: ruleset.steps.len() as u32,
-        }))
+            Ok(Response::new(GetRuleSetResponse {
+                ruleset_json,
+                version: ruleset.config.version.clone(),
+                description: ruleset.config.description.clone(),
+                step_count: ruleset.steps.len() as u32,
+            }))
+        })
+        .await
     }
 
     /// List all rulesets with multi-tenancy support
@@ -465,48 +574,51 @@ impl OrdoService for OrdoGrpcService {
         &self,
         request: Request<ListRuleSetsRequest>,
     ) -> std::result::Result<Response<ListRuleSetsResponse>, Status> {
-        // Extract and validate tenant
-        let tenant_id = self.extract_tenant_id(&request);
-        let _tenant_config = self.validate_tenant(&tenant_id).await?;
+        catch_panic(async move {
+            // Extract and validate tenant
+            let tenant_id = self.extract_tenant_id(&request);
+            let _tenant_config = self.validate_tenant(&tenant_id).await?;
 
-        let req = request.into_inner();
+            let req = request.into_inner();
 
-        let store = self.store.read().await;
-        let all_rulesets = store.list_for_tenant(&tenant_id);
+            let store = self.store.read().await;
+            let all_rulesets = store.list_for_tenant(&tenant_id);
 
-        // Filter by prefix if specified
-        let filtered: Vec<_> = if req.name_prefix.is_empty() {
-            all_rulesets
-        } else {
-            all_rulesets
+            // Filter by prefix if specified
+            let filtered: Vec<_> = if req.name_prefix.is_empty() {
+                all_rulesets
+            } else {
+                all_rulesets
+                    .into_iter()
+                    .filter(|r| r.name.starts_with(&req.name_prefix))
+                    .collect()
+            };
+
+            // Capture total count BEFORE applying limit (for pagination)
+            let total_count = filtered.len() as u32;
+
+            // Apply limit if specified
+            let limited: Vec<_> = if req.limit > 0 {
+                filtered.into_iter().take(req.limit as usize).collect()
+            } else {
+                filtered
+            };
+            let rulesets = limited
                 .into_iter()
-                .filter(|r| r.name.starts_with(&req.name_prefix))
-                .collect()
-        };
+                .map(|r| RuleSetSummary {
+                    name: r.name,
+                    version: r.version,
+                    description: r.description,
+                    step_count: r.step_count as u32,
+                })
+                .collect();
 
-        // Capture total count BEFORE applying limit (for pagination)
-        let total_count = filtered.len() as u32;
-
-        // Apply limit if specified
-        let limited: Vec<_> = if req.limit > 0 {
-            filtered.into_iter().take(req.limit as usize).collect()
-        } else {
-            filtered
-        };
-        let rulesets = limited
-            .into_iter()
-            .map(|r| RuleSetSummary {
-                name: r.name,
-                version: r.version,
-                description: r.description,
-                step_count: r.step_count as u32,
-            })
-            .collect();
-
-        Ok(Response::new(ListRuleSetsResponse {
-            rulesets,
-            total_count,
-        }))
+            Ok(Response::new(ListRuleSetsResponse {
+                rulesets,
+                total_count,
+            }))
+        })
+        .await
     }
 
     /// Evaluate an expression with multi-tenancy support
@@ -514,38 +626,48 @@ impl OrdoService for OrdoGrpcService {
         &self,
         request: Request<EvalRequest>,
     ) -> std::result::Result<Response<EvalResponse>, Status> {
-        // Extract and validate tenant (for rate limiting)
-        let tenant_id = self.extract_tenant_id(&request);
-        let _tenant_config = self.validate_tenant(&tenant_id).await?;
+        catch_panic(async move {
+            // Extract and validate tenant (for rate limiting)
+            let tenant_id = self.extract_tenant_id(&request);
+            let _tenant_config = self.validate_tenant(&tenant_id).await?;
 
-        let req = request.into_inner();
+            let req = request.into_inner();
 
-        // Parse expression
-        let expr = ExprParser::parse(&req.expression)
-            .map_err(|e| Status::invalid_argument(format!("Invalid expression: {}", e)))?;
+            // Parse expression
+            let expr = ExprParser::parse(&req.expression)
+                .map_err(|e| Status::invalid_argument(format!("Invalid expression: {}", e)))?;
 
-        // Parse context (simd-json for speed)
-        let context_value: Value = if req.context_json.is_empty() {
-            Value::object(std::collections::HashMap::new())
-        } else {
-            simd_json::from_slice(&mut req.context_json.into_bytes())
-                .map_err(|e| Status::invalid_argument(format!("Invalid context JSON: {}", e)))?
-        };
+            // Parse context (simd-json for speed)
+            let context_value: Value = if req.context_json.is_empty() {
+                Value::object(std::collections::HashMap::new())
+            } else {
+                let mut context_bytes = req.context_json.into_bytes();
+                if crate::json::exceeds_max_depth(&context_bytes, crate::json::MAX_JSON_DEPTH) {
+                    return Err(Status::invalid_argument(format!(
+                        "context JSON nesting exceeds maximum depth of {}",
+                        crate::json::MAX_JSON_DEPTH
+                    )));
+                }
+                simd_json::from_slice(&mut context_bytes)
+                    .map_err(|e| Status::invalid_argument(format!("Invalid context JSON: {}", e)))?
+            };
 
-        // Evaluate
-        let ctx = Context::new(context_value);
-        let evaluator = Evaluator::new();
-        let result = evaluator
-            .eval(&expr, &ctx)
-            .map_err(|e| Status::internal(format!("Evaluation error: {}", e)))?;
+            // Evaluate
+            let ctx = Context::new(context_value);
+            let evaluator = Evaluator::new();
+            let result = evaluator
+                .eval(&expr, &ctx)
+                .map_err(|e| Status::internal(format!("Evaluation error: {}", e)))?;
 
-        let result_json = serde_json::to_string(&result)
-            .map_err(|e| Status::internal(format!("Failed to serialize result: {}", e)))?;
+            let result_json = serde_json::to_string(&result)
+                .map_err(|e| Status::internal(format!("Failed to serialize result: {}", e)))?;
 
-        Ok(Response::new(EvalResponse {
-            result_json,
-            parsed_expression: format!("{:?}", expr),
-        }))
+            Ok(Response::new(EvalResponse {
+                result_json,
+                parsed_expression: format!("{:?}", expr),
+            }))
+        })
+        .await
     }
 
     /// Health check with timeout on store lock acquisition.
@@ -554,28 +676,31 @@ impl OrdoService for OrdoGrpcService {
         &self,
         request: Request<HealthRequest>,
     ) -> std::result::Result<Response<HealthResponse>, Status> {
-        let tenant_id = self.extract_tenant_id(&request);
+        catch_panic(async move {
+            let tenant_id = self.extract_tenant_id(&request);
 
-        let store_result =
-            tokio::time::timeout(std::time::Duration::from_secs(2), self.store.read()).await;
+            let store_result =
+                tokio::time::timeout(std::time::Duration::from_secs(2), self.store.read()).await;
 
-        match store_result {
-            Ok(store) => {
-                let ruleset_count = store.list_for_tenant(&tenant_id).len() as u32;
-                Ok(Response::new(HealthResponse {
-                    status: health_response::Status::Serving as i32,
+            match store_result {
+                Ok(store) => {
+                    let ruleset_count = store.list_for_tenant(&tenant_id).len() as u32;
+                    Ok(Response::new(HealthResponse {
+                        status: health_response::Status::Serving as i32,
+                        version: env!("CARGO_PKG_VERSION").to_string(),
+                        ruleset_count,
+                        uptime_seconds: self.start_time.elapsed().as_secs(),
+                    }))
+                }
+                Err(_) => Ok(Response::new(HealthResponse {
+                    status: health_response::Status::NotServing as i32,
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    ruleset_count,
+                    ruleset_count: 0,
                     uptime_seconds: self.start_time.elapsed().as_secs(),
-                }))
+                })),
             }
-            Err(_) => Ok(Response::new(HealthResponse {
-                status: health_response::Status::NotServing as i32,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                ruleset_count: 0,
-                uptime_seconds: self.start_time.elapsed().as_secs(),
-            })),
-        }
+        })
+        .await
     }
 }
 

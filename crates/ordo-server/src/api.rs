@@ -341,6 +341,10 @@ pub async fn create_ruleset(
 
     metrics::set_tenant_rules_count(&tenant.id, store.list_for_tenant(&tenant.id).len() as i64);
 
+    // Drop the write guard BEFORE the audit/webhook awaits so the store lock is
+    // not held across `.await` points (C13).
+    drop(store);
+
     // Log audit event + fire webhook
     let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
     if exists {
@@ -404,6 +408,8 @@ pub async fn delete_ruleset(
     let mut store = state.store.write().await;
     if store.delete_for_tenant(&tenant.id, &name) {
         metrics::set_tenant_rules_count(&tenant.id, store.list_for_tenant(&tenant.id).len() as i64);
+        // Drop the write guard BEFORE the audit/webhook awaits (C13).
+        drop(store);
         // Log audit event
         let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
         let rule_id = format!("{}/{}", tenant.id, name);
@@ -470,11 +476,27 @@ pub async fn execute_ruleset(
         None
     };
 
-    // Execute without holding the lock and without cloning RuleSet
-    let result = match state
-        .executor
-        .execute_with_options(&ruleset, input, exec_options.as_ref())
-    {
+    // Execute on a blocking thread so CPU-bound rule evaluation cannot block the
+    // async runtime and starve health checks / shutdown (C5). A panic in the
+    // executor surfaces as a clean 500 rather than aborting the worker (C12).
+    let exec_executor = state.executor.clone();
+    let exec_outcome = tokio::task::spawn_blocking(move || {
+        exec_executor.execute_with_options(&ruleset, input, exec_options.as_ref())
+    })
+    .await;
+
+    let exec_result = match exec_outcome {
+        Ok(r) => r,
+        Err(join_err) => {
+            metrics::dec_active_executions();
+            return Err(ApiError::internal(format!(
+                "Execution task failed: {}",
+                join_err
+            )));
+        }
+    };
+
+    let result = match exec_result {
         Ok(result) => {
             // Record success metrics
             let duration_secs = start.elapsed().as_secs_f64();
@@ -869,22 +891,29 @@ pub async fn rollback_ruleset(
     Path(name): Path<String>,
     Json(request): Json<RollbackRequest>,
 ) -> ApiResult<Json<RollbackResponse>> {
-    let mut store = state.store.write().await;
+    // Perform the store mutation under the write guard, then drop the guard
+    // BEFORE the audit/webhook awaits so the lock is not held across `.await`
+    // (C13).
+    let outcome = {
+        let mut store = state.store.write().await;
 
-    // Check if ruleset exists
-    if !store.exists_for_tenant(&tenant.id, &name) {
-        return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
-    }
+        // Check if ruleset exists
+        if !store.exists_for_tenant(&tenant.id, &name) {
+            return Err(ApiError::not_found(format!("RuleSet '{}' not found", name)));
+        }
 
-    // Check if persistence is enabled
-    if !store.persistence_enabled() {
-        return Err(ApiError::bad_request(
-            "Version rollback not available in memory-only mode".to_string(),
-        ));
-    }
+        // Check if persistence is enabled
+        if !store.persistence_enabled() {
+            return Err(ApiError::bad_request(
+                "Version rollback not available in memory-only mode".to_string(),
+            ));
+        }
 
-    // Perform rollback
-    match store.rollback_to_version_for_tenant(&tenant.id, &name, request.seq) {
+        store.rollback_to_version_for_tenant(&tenant.id, &name, request.seq)
+        // write guard dropped here
+    };
+
+    match outcome {
         Ok(Some((from_version, to_version))) => {
             // Log audit event
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());

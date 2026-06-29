@@ -48,6 +48,9 @@
 //! | `ORDO_WAL_DISABLED` | Disable WAL (not recommended) | `false` |
 //! | `ORDO_WAL_MAX_SEGMENT_BYTES` | Max bytes per WAL segment | `67108864` (64MiB) |
 //! | `ORDO_WAL_MAX_CLOSED_SEGMENTS` | Closed WAL segments to retain | `3` |
+//! | `ORDO_MAX_CONCURRENT_EXECUTIONS` | Global in-flight request cap (0 = unlimited) | `0` |
+//! | `ORDO_LOG_FORMAT` | Log output format: `text` or `json` | `text` |
+//! | `ORDO_API_TOKEN` | Shared bearer token for the HTTP data API (unset = no auth) | `-` |
 
 use clap::Parser;
 use sha2::{Digest, Sha256};
@@ -317,6 +320,27 @@ pub struct ServerConfig {
     #[arg(long, env = "ORDO_CORS_ORIGINS", value_delimiter = ',')]
     pub cors_allowed_origins: Vec<String>,
 
+    // ── Concurrency / Backpressure ────────────────────────────────────
+    /// Global cap on the number of concurrently in-flight data requests
+    /// (rule execution / CRUD), shared across the HTTP and gRPC transports.
+    /// `0` (the default) means unlimited, preserving the historical behaviour.
+    /// Health (`/healthz*`) and metrics endpoints are never gated by this limit.
+    #[arg(long, default_value = "0", env = "ORDO_MAX_CONCURRENT_EXECUTIONS")]
+    pub max_concurrent_executions: usize,
+
+    // ── Logging ───────────────────────────────────────────────────────
+    /// Log output format: `text` (human-readable, default) or `json` (structured).
+    #[arg(long, default_value = "text", env = "ORDO_LOG_FORMAT")]
+    pub log_format: String,
+
+    // ── HTTP API auth ─────────────────────────────────────────────────
+    /// Optional shared secret for the HTTP data API. When set, requests to the
+    /// data routes (execute / CRUD) must carry `Authorization: Bearer <token>`
+    /// or `X-API-Token: <token>`. Unset (the default) disables auth entirely,
+    /// preserving the historical behaviour. Health and metrics are never gated.
+    #[arg(long = "api-token", env = "ORDO_API_TOKEN")]
+    pub api_token: Option<String>,
+
     // ── gRPC TLS ──────────────────────────────────────────────────────
     /// Enable TLS for the gRPC server.
     /// Requires --grpc-tls-cert and --grpc-tls-key.
@@ -553,6 +577,34 @@ impl ServerConfig {
             tracing::warn!("--signature-require has no effect without --signature-enabled");
         }
 
+        // Signature footgun: verification enabled but unsigned local files still
+        // load without verification. --signature-require overrides this (see
+        // effective_allow_unsigned_local), but warn either way so the operator
+        // understands the trust posture.
+        if self.signature_enabled && self.signature_allow_unsigned_local {
+            if self.signature_require {
+                tracing::warn!(
+                    "--signature-require is set: unsigned local rule files will be REJECTED, \
+                     overriding --signature-allow-unsigned-local"
+                );
+            } else {
+                tracing::warn!(
+                    "--signature-enabled with --signature-allow-unsigned-local: unsigned local \
+                     rule files load WITHOUT verification. Set --signature-allow-unsigned-local=false \
+                     (or --signature-require) to enforce signatures on local files."
+                );
+            }
+        }
+
+        // Log format validation
+        let lf = self.log_format.to_ascii_lowercase();
+        if lf != "text" && lf != "json" {
+            tracing::warn!(
+                "Unknown --log-format '{}'; expected 'text' or 'json'. Falling back to 'text'.",
+                self.log_format
+            );
+        }
+
         // gRPC TLS validation
         if (self.grpc_tls_enabled || self.grpc_mtls_enabled)
             && (self.grpc_tls_cert.is_none() || self.grpc_tls_key.is_none())
@@ -569,6 +621,16 @@ impl ServerConfig {
     /// Returns true when gRPC TLS should be enabled (explicit flag or implied by mTLS).
     pub fn grpc_tls_active(&self) -> bool {
         self.grpc_tls_enabled || self.grpc_mtls_enabled
+    }
+
+    /// Effective value for "allow unsigned local rule files".
+    ///
+    /// `--signature-require` means *require*: when set it forces unsigned local
+    /// files to be rejected even if `--signature-allow-unsigned-local` is left at
+    /// its (permissive) default. This closes the footgun where requiring
+    /// signatures still silently loaded unverified local rules.
+    pub fn effective_allow_unsigned_local(&self) -> bool {
+        self.signature_allow_unsigned_local && !self.signature_require
     }
 }
 
@@ -622,6 +684,9 @@ impl Default for ServerConfig {
             wal_max_segment_bytes: 67108864,
             wal_max_closed_segments: 3,
             cors_allowed_origins: Vec::new(),
+            max_concurrent_executions: 0,
+            log_format: "text".to_string(),
+            api_token: None,
             platform_url: None,
             server_name: "ordo-server".to_string(),
             server_token: None,

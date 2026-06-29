@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm --filter @ordo-engine/wasm build && pnpm --filter @ordo-engine/studio build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://api.ordoengine.com/api/v1/:path*"
+    }
+  ]
+}

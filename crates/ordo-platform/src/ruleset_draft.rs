@@ -388,7 +388,33 @@ pub async fn publish_draft(
     .await;
 
     let final_status = match publish_result {
-        Ok(()) => DeploymentStatus::Success,
+        Ok(()) => {
+            // The NATS publish succeeded (the broker accepted/persisted the event),
+            // but that does NOT mean a server has applied it. Confirm by polling the
+            // environment's bound servers for the new version before reporting success.
+            match confirm_published_version(&state, &env, &project_id, &ruleset_name, &version)
+                .await
+            {
+                ConfirmOutcome::Confirmed => DeploymentStatus::Success,
+                ConfirmOutcome::Unconfirmed => {
+                    tracing::warn!(
+                        deployment = %dep_id,
+                        ruleset = %ruleset_name,
+                        version = %version,
+                        "Published to NATS but no bound server confirmed the new version within the window"
+                    );
+                    DeploymentStatus::Dispatched
+                }
+                ConfirmOutcome::NoServers => {
+                    tracing::info!(
+                        deployment = %dep_id,
+                        ruleset = %ruleset_name,
+                        "Published to NATS; environment has no registered servers to confirm against"
+                    );
+                    DeploymentStatus::Dispatched
+                }
+            }
+        }
         Err(ref e) => {
             tracing::error!("NATS publish failed for deployment {}: {}", dep_id, e);
             DeploymentStatus::Failed
@@ -401,7 +427,10 @@ pub async fn publish_draft(
         .await
         .map_err(PlatformError::Internal)?;
 
-    if let DeploymentStatus::Success = final_status {
+    // The publish reached NATS for both Success and Dispatched (only NATS failure is
+    // Failed), so record the published metadata and history in both cases — the
+    // deployment record's status carries the apply-confirmation nuance.
+    if !matches!(final_status, DeploymentStatus::Failed) {
         // Update draft's published metadata
         state
             .store
@@ -574,8 +603,19 @@ pub async fn redeploy(
     .await;
 
     let final_status = if result.is_ok() {
-        DeploymentStatus::Success
+        // Same confirmation as publish_draft: NATS acceptance ≠ applied on a server.
+        match confirm_published_version(&state, &env, &project_id, &ruleset_name, &original.version)
+            .await
+        {
+            ConfirmOutcome::Confirmed => DeploymentStatus::Success,
+            ConfirmOutcome::Unconfirmed | ConfirmOutcome::NoServers => DeploymentStatus::Dispatched,
+        }
     } else {
+        tracing::error!(
+            "NATS redeploy publish failed for deployment {}: {:?}",
+            dep_id,
+            result
+        );
         DeploymentStatus::Failed
     };
 
@@ -1536,6 +1576,78 @@ pub(crate) fn studio_draft_to_engine_json_with_concepts(
     materialize_concepts_into_engine_ruleset(&mut engine, concepts)?;
     serde_json::to_value(&engine)
         .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)))
+}
+
+/// Result of confirming a published version was actually applied by servers.
+enum ConfirmOutcome {
+    /// At least one bound server reports the new version is live.
+    Confirmed,
+    /// Servers are bound to the environment but none reported the new version
+    /// within the confirmation window.
+    Unconfirmed,
+    /// The environment has no registered servers to confirm against.
+    NoServers,
+}
+
+/// After a successful NATS publish, poll the environment's bound servers for the
+/// newly published version. NATS acceptance only means the event was queued; this
+/// verifies a server actually applied it before we report success.
+///
+/// Bounded to ~5s total with a short per-request timeout so a slow/dead server
+/// can't hang the publish call. Returns as soon as any server confirms.
+async fn confirm_published_version(
+    state: &AppState,
+    env: &crate::models::ProjectEnvironment,
+    project_id: &str,
+    ruleset_name: &str,
+    version: &str,
+) -> ConfirmOutcome {
+    // Resolve the servers bound to this environment.
+    let mut servers = Vec::new();
+    for server_id in &env.server_ids {
+        if let Ok(Some(server)) = state.store.get_server(server_id).await {
+            servers.push(server);
+        }
+    }
+    if servers.is_empty() {
+        return ConfirmOutcome::NoServers;
+    }
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        for server in &servers {
+            let url = format!(
+                "{}/api/v1/rulesets/{}",
+                server.url.trim_end_matches('/'),
+                ruleset_name
+            );
+            let resp = state
+                .http_client
+                .get(&url)
+                .header("X-Tenant-ID", project_id)
+                .timeout(std::time::Duration::from_secs(1))
+                .send()
+                .await;
+            if let Ok(resp) = resp {
+                if resp.status().is_success() {
+                    if let Ok(body) = resp.json::<serde_json::Value>().await {
+                        let applied = body
+                            .get("config")
+                            .and_then(|c| c.get("version"))
+                            .and_then(|v| v.as_str());
+                        if applied == Some(version) {
+                            return ConfirmOutcome::Confirmed;
+                        }
+                    }
+                }
+            }
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return ConfirmOutcome::Unconfirmed;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    }
 }
 
 async fn publish_via_nats(

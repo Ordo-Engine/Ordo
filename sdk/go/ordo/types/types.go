@@ -30,6 +30,10 @@ type ExecuteResult struct {
 	Output     json.RawMessage `json:"output"`
 	DurationUs uint64          `json:"duration_us"`
 	Trace      *ExecutionTrace `json:"trace,omitempty"`
+	// Stale is true when this result was served from the local snapshot cache
+	// or a configured fallback because the engine was unreachable. It is always
+	// false for fresh results returned by the engine.
+	Stale bool `json:"stale,omitempty"`
 }
 
 // ExecutionTrace contains execution trace information
@@ -77,6 +81,9 @@ type BatchSummary struct {
 type EvalResult struct {
 	Result json.RawMessage `json:"result"`
 	Parsed string          `json:"parsed"`
+	// Stale is true when this result was served from the local snapshot cache
+	// or a configured fallback because the engine was unreachable.
+	Stale bool `json:"stale,omitempty"`
 }
 
 // VersionList contains version information for a ruleset

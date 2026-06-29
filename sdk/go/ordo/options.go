@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pama-lee/ordo-go/ordo/degrade"
 	grpcClient "github.com/pama-lee/ordo-go/ordo/grpc"
 	httpClient "github.com/pama-lee/ordo-go/ordo/http"
 	"github.com/pama-lee/ordo-go/ordo/retry"
@@ -26,6 +27,10 @@ type ClientOptions struct {
 
 	// Retry configuration
 	RetryConfig *retry.Config
+
+	// Degradation configuration (local-snapshot cache + fail-open policy).
+	// Nil disables degradation: failures are returned as-is (default behavior).
+	DegradationConfig *degrade.Config
 
 	// Batch configuration
 	BatchConcurrency int
@@ -100,6 +105,15 @@ func WithDefaultRetry() ClientOption {
 	return func(o *ClientOptions) {
 		config := retry.DefaultConfig()
 		o.RetryConfig = &config
+	}
+}
+
+// WithDegradation enables the local-snapshot cache and a degradation policy
+// applied after retries are exhausted. It is strictly opt-in; without it the
+// client returns every failure to the caller (the default behavior).
+func WithDegradation(config degrade.Config) ClientOption {
+	return func(o *ClientOptions) {
+		o.DegradationConfig = &config
 	}
 }
 

@@ -1,6 +1,8 @@
 package com.ordoengine.sdk;
 
+import com.ordoengine.sdk.config.DegradationConfig;
 import com.ordoengine.sdk.config.RetryConfig;
+import com.ordoengine.sdk.degrade.Degrader;
 import com.ordoengine.sdk.exception.ConfigException;
 import com.ordoengine.sdk.model.*;
 import com.ordoengine.sdk.retry.RetryExecutor;
@@ -12,6 +14,7 @@ import java.util.List;
 class OrdoClientImpl implements OrdoClient {
     private final HttpTransport httpTransport;
     private final RetryExecutor retryExecutor;
+    private final Degrader degrader;
     private final boolean grpcOnly;
 
     OrdoClientImpl(
@@ -23,7 +26,8 @@ class OrdoClientImpl implements OrdoClient {
             String tenantId,
             Duration timeout,
             RetryConfig retryConfig,
-            int batchConcurrency
+            int batchConcurrency,
+            DegradationConfig degradationConfig
     ) {
         this.grpcOnly = grpcOnly;
 
@@ -38,6 +42,9 @@ class OrdoClientImpl implements OrdoClient {
         } else {
             this.retryExecutor = null;
         }
+
+        // Degradation (local-snapshot cache + fail-open policy) is opt-in.
+        this.degrader = degradationConfig != null ? new Degrader(degradationConfig) : null;
 
         // gRPC transport is not yet implemented — falls back to HTTP
     }
@@ -71,7 +78,21 @@ class OrdoClientImpl implements OrdoClient {
 
     @Override
     public ExecuteResult execute(String name, Object input, boolean includeTrace) {
-        return withRetry(() -> requireHttp().execute(name, input, includeTrace));
+        if (degrader == null) {
+            return withRetry(() -> requireHttp().execute(name, input, includeTrace));
+        }
+        try {
+            ExecuteResult result = withRetry(() -> requireHttp().execute(name, input, includeTrace));
+            degrader.storeExecute(name, input, result);
+            return result;
+        } catch (RuntimeException e) {
+            // After retries are exhausted, apply the degradation policy.
+            ExecuteResult degraded = degrader.executeFallback(name, input);
+            if (degraded != null) {
+                return degraded;
+            }
+            throw e;
+        }
     }
 
     @Override
@@ -127,7 +148,20 @@ class OrdoClientImpl implements OrdoClient {
 
     @Override
     public EvalResult eval(String expression, Object context) {
-        return withRetry(() -> requireHttp().eval(expression, context));
+        if (degrader == null) {
+            return withRetry(() -> requireHttp().eval(expression, context));
+        }
+        try {
+            EvalResult result = withRetry(() -> requireHttp().eval(expression, context));
+            degrader.storeEval(expression, context, result);
+            return result;
+        } catch (RuntimeException e) {
+            EvalResult degraded = degrader.evalFallback(expression, context);
+            if (degraded != null) {
+                return degraded;
+            }
+            throw e;
+        }
     }
 
     // --- Health ---

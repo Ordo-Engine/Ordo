@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/pama-lee/ordo-go/ordo/batch"
+	"github.com/pama-lee/ordo-go/ordo/degrade"
 	grpcClient "github.com/pama-lee/ordo-go/ordo/grpc"
 	httpClient "github.com/pama-lee/ordo-go/ordo/http"
 	"github.com/pama-lee/ordo-go/ordo/retry"
@@ -45,6 +46,7 @@ type client struct {
 	httpClient *httpClient.Client
 	grpcClient *grpcClient.Client
 	retrier    *retry.Retrier
+	degrader   *degrade.Degrader
 	batchExec  *batch.Executor
 	options    ClientOptions
 }
@@ -102,6 +104,11 @@ func NewClient(opts ...ClientOption) (Client, error) {
 		c.retrier = retry.NewRetrier(*options.RetryConfig)
 	}
 
+	// Initialize degrader (local-snapshot cache + fail-open policy)
+	if options.DegradationConfig != nil {
+		c.degrader = degrade.New(*options.DegradationConfig)
+	}
+
 	// Initialize batch executor
 	c.batchExec = batch.NewExecutor(options.BatchConcurrency)
 
@@ -142,16 +149,22 @@ func (c *client) Execute(ctx context.Context, name string, input any, opts ...Ex
 		return nil
 	}
 
+	var runErr error
 	if c.retrier != nil {
-		if err := c.retrier.Do(ctx, fn); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := fn(); err != nil {
-			return nil, execErr
-		}
+		runErr = c.retrier.Do(ctx, fn)
+	} else if err := fn(); err != nil {
+		runErr = execErr
 	}
 
+	if runErr != nil {
+		// After retries are exhausted, apply the degradation policy (if any).
+		if r, ok := c.degrader.ExecuteFallback(name, input); ok {
+			return r, nil
+		}
+		return nil, runErr
+	}
+
+	c.degrader.StoreExecute(name, input, result)
 	return result, nil
 }
 
@@ -309,13 +322,26 @@ func (c *client) Rollback(ctx context.Context, name string, seq int) (*RollbackR
 
 // Eval evaluates an expression
 func (c *client) Eval(ctx context.Context, expr string, contextData any) (*EvalResult, error) {
+	var result *types.EvalResult
+	var err error
+
 	if c.shouldUseGRPC() && c.grpcClient != nil {
-		return c.grpcClient.Eval(ctx, expr, contextData)
+		result, err = c.grpcClient.Eval(ctx, expr, contextData)
+	} else if c.httpClient != nil {
+		result, err = c.httpClient.Eval(ctx, expr, contextData)
+	} else {
+		return nil, &types.ConfigError{Message: "no client available"}
 	}
-	if c.httpClient != nil {
-		return c.httpClient.Eval(ctx, expr, contextData)
+
+	if err != nil {
+		if r, ok := c.degrader.EvalFallback(expr, contextData); ok {
+			return r, nil
+		}
+		return nil, err
 	}
-	return nil, &types.ConfigError{Message: "no client available"}
+
+	c.degrader.StoreEval(expr, contextData, result)
+	return result, nil
 }
 
 // Health checks server health

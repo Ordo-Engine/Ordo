@@ -3,8 +3,12 @@ package com.ordoengine.sdk.model;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.io.Serializable;
+
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class StepTrace {
+public class StepTrace implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     @JsonProperty("step_id")
     private String stepId;
 

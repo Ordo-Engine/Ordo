@@ -90,6 +90,14 @@ async fn update_release_execution_status_with_history(
         .update_release_execution_status(execution_id, to_status.clone(), current_batch)
         .await?;
 
+    match &to_status {
+        ReleaseExecutionStatus::Completed => crate::metrics::record_release_execution_succeeded(),
+        ReleaseExecutionStatus::Failed | ReleaseExecutionStatus::RollbackFailed => {
+            crate::metrics::record_release_execution_failed()
+        }
+        _ => {}
+    }
+
     append_release_history(
         state,
         release_request_id,
@@ -434,70 +442,13 @@ pub async fn execute_release_request(
     .await
     .map_err(PlatformError::Internal)?;
 
-    state
-        .store
-        .create_release_execution(
-            &execution_id,
-            &release.id,
-            ReleaseExecutionStatus::RollingOut,
-            0,
-            total_batches as i32,
-            &strategy,
-            Some(&claims.sub),
-        )
-        .await
-        .map_err(PlatformError::Internal)?;
-
-    append_release_history(
-        &state,
-        &release.id,
-        Some(&execution_id),
-        None,
-        ReleaseHistoryScope::Execution,
-        "execution_created",
-        &actor,
-        None,
-        Some(ReleaseExecutionStatus::RollingOut.to_string()),
-        serde_json::json!({
-            "ruleset_name": release.ruleset_name,
-            "version": release.version,
-            "environment_id": release.environment_id,
-            "environment_name": env.name,
-            "batch_size": batch_size,
-            "total_batches": total_batches,
-            "total_instances": total_instances,
-            "rollout_strategy": strategy,
-        }),
-    )
-    .await
-    .map_err(PlatformError::Internal)?;
-
-    append_release_history(
-        &state,
-        &release.id,
-        Some(&execution_id),
-        None,
-        ReleaseHistoryScope::Execution,
-        "execution_queued",
-        &actor,
-        None,
-        None,
-        serde_json::json!({
-            "ruleset_name": release.ruleset_name,
-            "version": release.version,
-            "environment_name": env.name,
-            "worker": "ordo-platform-worker",
-        }),
-    )
-    .await
-    .map_err(PlatformError::Internal)?;
-
     let current_version = release
         .version_diff
         .from_version
         .clone()
         .unwrap_or_else(|| "unreleased".to_string());
-    let mut instances = Vec::new();
+
+    let mut instances = Vec::with_capacity(bound_servers.len());
     for (idx, server) in bound_servers.iter().enumerate() {
         let batch_index = (idx / batch_size) as i32 + 1;
         let instance = ReleaseExecutionInstance {
@@ -527,42 +478,89 @@ pub async fn execute_release_request(
             },
             metric_summary: None,
         };
-        state
-            .store
-            .create_release_execution_instance(&instance)
-            .await
-            .map_err(PlatformError::Internal)?;
-        append_release_history(
-            &state,
-            &release.id,
-            Some(&execution_id),
-            Some(&instance.id),
-            ReleaseHistoryScope::Instance,
-            "instance_initialized",
-            &actor,
-            None,
-            Some(instance.status.to_string()),
-            serde_json::json!({
+        instances.push(instance);
+    }
+
+    // Assemble the initial history rows up front so the execution, its
+    // instances, and their history are written in a single transaction (C11):
+    // a crash mid-rollout can no longer leave a partial instance set behind.
+    let mut history = Vec::with_capacity(2 + instances.len());
+    history.push(crate::store::NewReleaseHistory {
+        release_request_id: release.id.clone(),
+        release_execution_id: Some(execution_id.clone()),
+        instance_id: None,
+        scope: ReleaseHistoryScope::Execution,
+        action: "execution_created".to_string(),
+        actor: actor.clone(),
+        from_status: None,
+        to_status: Some(ReleaseExecutionStatus::RollingOut.to_string()),
+        detail: serde_json::json!({
+            "ruleset_name": release.ruleset_name,
+            "version": release.version,
+            "environment_id": release.environment_id,
+            "environment_name": env.name,
+            "batch_size": batch_size,
+            "total_batches": total_batches,
+            "total_instances": total_instances,
+            "rollout_strategy": strategy,
+        }),
+    });
+    history.push(crate::store::NewReleaseHistory {
+        release_request_id: release.id.clone(),
+        release_execution_id: Some(execution_id.clone()),
+        instance_id: None,
+        scope: ReleaseHistoryScope::Execution,
+        action: "execution_queued".to_string(),
+        actor: actor.clone(),
+        from_status: None,
+        to_status: None,
+        detail: serde_json::json!({
+            "ruleset_name": release.ruleset_name,
+            "version": release.version,
+            "environment_name": env.name,
+            "worker": "ordo-platform-worker",
+        }),
+    });
+    for instance in &instances {
+        history.push(crate::store::NewReleaseHistory {
+            release_request_id: release.id.clone(),
+            release_execution_id: Some(execution_id.clone()),
+            instance_id: Some(instance.id.clone()),
+            scope: ReleaseHistoryScope::Instance,
+            action: "instance_initialized".to_string(),
+            actor: actor.clone(),
+            from_status: None,
+            to_status: Some(instance.status.to_string()),
+            detail: serde_json::json!({
                 "instance_name": instance.instance_name,
                 "target_instance_id": instance.instance_id,
-                "batch_index": batch_index,
+                "batch_index": instance.batch_index,
                 "zone": instance.zone,
                 "current_version": instance.current_version,
                 "target_version": instance.target_version,
                 "message": instance.message,
             }),
-        )
-        .await
-        .map_err(PlatformError::Internal)?;
-        instances.push(instance);
+        });
     }
 
     let execution = state
         .store
-        .get_release_execution(&execution_id)
+        .create_release_execution_with_instances(
+            &execution_id,
+            &release.id,
+            ReleaseExecutionStatus::RollingOut,
+            0,
+            total_batches as i32,
+            &strategy,
+            Some(&claims.sub),
+            &instances,
+            &history,
+        )
         .await
-        .map_err(PlatformError::Internal)?
-        .ok_or_else(|| PlatformError::not_found("Release execution not found"))?;
+        .map_err(PlatformError::Internal)?;
+
+    crate::metrics::record_release_execution_started();
+
     Ok(Json(execution))
 }
 
@@ -2872,6 +2870,66 @@ mod tests {
         assert_eq!(normalized["config"]["version"].as_str(), Some("1.2.3"));
         assert!(normalized["steps"].is_object());
         assert!(normalized["steps"].get("done").is_some());
+    }
+
+    #[test]
+    fn compute_batch_size_handles_each_strategy() {
+        // No instances always yields a single (no-op) batch.
+        assert_eq!(compute_batch_size(&RolloutStrategy::default(), 0), 1);
+
+        // AllAtOnce / unset rolls every instance in one batch.
+        assert_eq!(compute_batch_size(&RolloutStrategy::default(), 10), 10);
+
+        let fixed = RolloutStrategy {
+            kind: Some(RolloutStrategyKind::FixedBatch),
+            batch_size: Some(3),
+            ..Default::default()
+        };
+        assert_eq!(compute_batch_size(&fixed, 10), 3);
+        // Batch size is clamped to the instance count.
+        assert_eq!(compute_batch_size(&fixed, 2), 2);
+
+        // A zero/invalid batch size is floored to 1.
+        let fixed_zero = RolloutStrategy {
+            kind: Some(RolloutStrategyKind::FixedBatch),
+            batch_size: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(compute_batch_size(&fixed_zero, 5), 1);
+
+        // 25% of 10 = 3 (ceil), and at least 1.
+        let pct = RolloutStrategy {
+            kind: Some(RolloutStrategyKind::PercentageBatch),
+            batch_percentage: Some(25),
+            ..Default::default()
+        };
+        assert_eq!(compute_batch_size(&pct, 10), 3);
+        assert_eq!(compute_batch_size(&pct, 1), 1);
+    }
+
+    #[test]
+    fn batch_interval_secs_only_applies_to_batched_strategies() {
+        let all_at_once = RolloutStrategy {
+            kind: Some(RolloutStrategyKind::AllAtOnce),
+            batch_interval_seconds: Some(30),
+            ..Default::default()
+        };
+        assert_eq!(batch_interval_secs(&all_at_once), 0);
+
+        let timed = RolloutStrategy {
+            kind: Some(RolloutStrategyKind::TimeIntervalBatch),
+            batch_interval_seconds: Some(30),
+            ..Default::default()
+        };
+        assert_eq!(batch_interval_secs(&timed), 30);
+
+        // Negative intervals are floored to 0.
+        let negative = RolloutStrategy {
+            kind: Some(RolloutStrategyKind::FixedBatch),
+            batch_interval_seconds: Some(-5),
+            ..Default::default()
+        };
+        assert_eq!(batch_interval_secs(&negative), 0);
     }
 }
 

@@ -1,0 +1,54 @@
+[
+  {
+    "label": "i18n:template.loan-approval.sample.prime-approve",
+    "input": {
+      "applicant_id": "app-001",
+      "credit_score": 760,
+      "annual_income": 120000,
+      "loan_amount": 300000,
+      "employment_years": 5,
+      "existing_debt": 30000,
+      "has_bankruptcy": false
+    },
+    "expected_result": "i18n:template.loan-approval.sample.prime-approve.expected"
+  },
+  {
+    "label": "i18n:template.loan-approval.sample.subprime-review",
+    "input": {
+      "applicant_id": "app-002",
+      "credit_score": 620,
+      "annual_income": 80000,
+      "loan_amount": 200000,
+      "employment_years": 3,
+      "existing_debt": 20000,
+      "has_bankruptcy": false
+    },
+    "expected_result": "i18n:template.loan-approval.sample.subprime-review.expected"
+  },
+  {
+    "label": "i18n:template.loan-approval.sample.bankruptcy",
+    "input": {
+      "applicant_id": "app-003",
+      "credit_score": 700,
+      "annual_income": 90000,
+      "loan_amount": 150000,
+      "employment_years": 4,
+      "existing_debt": 10000,
+      "has_bankruptcy": true
+    },
+    "expected_result": "i18n:template.loan-approval.sample.bankruptcy.expected"
+  },
+  {
+    "label": "i18n:template.loan-approval.sample.affordability-reject",
+    "input": {
+      "applicant_id": "app-004",
+      "credit_score": 700,
+      "annual_income": 50000,
+      "loan_amount": 400000,
+      "employment_years": 5,
+      "existing_debt": 10000,
+      "has_bankruptcy": false
+    },
+    "expected_result": "i18n:template.loan-approval.sample.affordability-reject.expected"
+  }
+]

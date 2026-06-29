@@ -35,6 +35,17 @@ pub struct PlatformConfig {
     )]
     pub listen_addr: SocketAddr,
 
+    /// Listen address for the background worker's liveness/metrics server.
+    /// The worker (`ordo-platform-worker`) is otherwise headless; this exposes
+    /// `/health/live` (503 when the poll loop has stalled) and `/metrics` so a
+    /// hung worker can be detected by k8s probes and scraped by Prometheus.
+    #[arg(
+        long = "worker-health-addr",
+        default_value = "0.0.0.0:8090",
+        env = "ORDO_WORKER_HEALTH_ADDR"
+    )]
+    pub worker_health_addr: SocketAddr,
+
     /// PostgreSQL connection URL (e.g. postgresql://user:pass@host/db)
     #[arg(long = "database-url", env = "ORDO_DATABASE_URL")]
     pub database_url: String,

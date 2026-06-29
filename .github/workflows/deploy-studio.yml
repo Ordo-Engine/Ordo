@@ -1,0 +1,96 @@
+name: Deploy Studio to Vercel
+
+# Studio is a Vite SPA whose build compiles the Rust→WASM package (@ordo-engine/wasm),
+# which Vercel's Node-only cloud build cannot do. So we build here (the runner has the
+# Rust toolchain + wasm-pack), then ship the prebuilt output with `vercel deploy --prebuilt`.
+#
+# Required repo secrets:
+#   VERCEL_TOKEN       — Vercel personal/team token
+#   VERCEL_ORG_ID      — from `.vercel/project.json` after `vercel link`
+#   VERCEL_PROJECT_ID  — from `.vercel/project.json` (project root = ordo-editor/apps/studio)
+# The API base is configured in ordo-editor/apps/studio/vercel.json (rewrites /api/v1/* to
+# the platform on Nomad), so no API URL needs to be injected at build time.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ordo-editor/apps/studio/**'
+      - 'ordo-editor/packages/**'
+      - 'crates/ordo-wasm/**'
+      - 'crates/ordo-core/**'
+      - '.github/workflows/deploy-studio.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: studio-vercel
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy Studio
+    runs-on: ubuntu-latest
+    environment:
+      name: studio-production
+      url: https://app.ordoengine.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Rust & WASM (Studio's build compiles @ordo-engine/wasm) ──────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-wasm-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      # ── Node / pnpm ──────────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      # ── Build via Vercel (respects vercel.json: install + wasm + vite build) ──
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+        working-directory: ordo-editor/apps/studio
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build (Rust/wasm-pack available in this runner)
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+        working-directory: ordo-editor/apps/studio
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy prebuilt output
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        working-directory: ordo-editor/apps/studio
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

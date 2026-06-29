@@ -198,6 +198,7 @@ async fn main() -> anyhow::Result<()> {
     let otel_provider = telemetry::init(
         &config.service_name,
         &config.log_level,
+        &config.log_format,
         config.otlp_endpoint.as_deref(),
     );
 
@@ -269,7 +270,7 @@ async fn main() -> anyhow::Result<()> {
             Some(capability_invoker.clone()),
         );
         if let Some(verifier) = signature_verifier.clone() {
-            store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
+            store.set_signature_verifier(verifier, config.effective_allow_unsigned_local());
         }
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
@@ -359,7 +360,7 @@ async fn main() -> anyhow::Result<()> {
             Some(capability_invoker.clone()),
         );
         if let Some(verifier) = signature_verifier.clone() {
-            store.set_signature_verifier(verifier, config.signature_allow_unsigned_local);
+            store.set_signature_verifier(verifier, config.effective_allow_unsigned_local());
         }
         if config.multi_tenancy_enabled {
             store.enable_multi_tenancy(config.default_tenant.clone());
@@ -429,6 +430,21 @@ async fn main() -> anyhow::Result<()> {
         audit_logger.log_server_started(ordo_core::VERSION, store_guard.len());
     }
 
+    // Optional global in-flight concurrency limiter, shared across the HTTP and
+    // gRPC transports (C5). `0` = unlimited, preserving historical behaviour.
+    let exec_semaphore: Option<Arc<tokio::sync::Semaphore>> =
+        if config.max_concurrent_executions > 0 {
+            info!(
+                "Global concurrency limit enabled: {} in-flight data requests",
+                config.max_concurrent_executions
+            );
+            Some(Arc::new(tokio::sync::Semaphore::new(
+                config.max_concurrent_executions,
+            )))
+        } else {
+            None
+        };
+
     // Create tasks for each enabled protocol
     let mut tasks = Vec::new();
 
@@ -446,6 +462,7 @@ async fn main() -> anyhow::Result<()> {
         let http_webhook_manager = webhook_manager.clone();
         let http_addr = config.http_addr();
         let http_shutdown_rx = shutdown_rx.clone();
+        let http_exec_semaphore = exec_semaphore.clone();
         tasks.push(tokio::spawn(async move {
             start_http_server(
                 http_addr,
@@ -459,6 +476,7 @@ async fn main() -> anyhow::Result<()> {
                 http_tenant_manager,
                 http_rate_limiter,
                 http_webhook_manager,
+                http_exec_semaphore,
                 http_shutdown_rx,
             )
             .await
@@ -479,6 +497,7 @@ async fn main() -> anyhow::Result<()> {
         let grpc_role = config.role;
         let grpc_writer_addr = config.writer_addr.clone();
         let grpc_shutdown_rx = shutdown_rx.clone();
+        let grpc_exec_semaphore = exec_semaphore.clone();
         tasks.push(tokio::spawn(async move {
             start_grpc_server(
                 grpc_addr,
@@ -492,6 +511,7 @@ async fn main() -> anyhow::Result<()> {
                 grpc_role,
                 grpc_writer_addr,
                 grpc_tls_config,
+                grpc_exec_semaphore,
                 grpc_shutdown_rx,
             )
             .await
@@ -912,6 +932,7 @@ async fn start_http_server(
     tenant_manager: Arc<TenantManager>,
     rate_limiter: Arc<RateLimiter>,
     webhook_manager: Arc<webhook::WebhookManager>,
+    exec_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
@@ -929,12 +950,10 @@ async fn start_http_server(
         webhook_manager,
     };
 
-    // Build base router
+    // Build the data router. Health/metrics live in a separate, un-gated router
+    // (see `public_routes` below) so that the optional auth (C7) and concurrency
+    // limit (C5) layers never apply to probes or metrics scraping.
     let mut app = Router::new()
-        // Health check (backward-compatible + Kubernetes-style probes)
-        .route("/health", get(readiness_check))
-        .route("/healthz/live", get(liveness_check))
-        .route("/healthz/ready", get(readiness_check))
         // Rule management (Admin API)
         .route(
             "/api/v1/rulesets",
@@ -1004,8 +1023,6 @@ async fn start_http_server(
         )
         // Admin API
         .route("/api/v1/admin/reload", post(api::admin_reload))
-        // Metrics
-        .route("/metrics", get(prometheus_metrics))
         // Tenant management
         .route(
             "/api/v1/tenants",
@@ -1054,6 +1071,34 @@ async fn start_http_server(
                 post(debug::api::debug_control),
             );
     }
+
+    // C5(b): optional global concurrency limit — applied to data routes only.
+    if let Some(sem) = exec_semaphore.clone() {
+        app = app.layer(axum::middleware::from_fn_with_state(
+            sem,
+            middleware::limit::concurrency_limit_middleware,
+        ));
+    }
+
+    // C7: optional bearer-token auth — applied to data routes only.
+    if state.config.api_token.is_some() {
+        info!("HTTP API token auth enabled for data routes");
+        app = app.layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::auth::auth_middleware,
+        ));
+    }
+
+    // Health/probe + metrics routes — never gated by auth or the concurrency
+    // limit, so liveness/readiness and Prometheus scraping stay responsive even
+    // when the data path is saturated or auth-protected.
+    let public_routes = Router::new()
+        .route("/health", get(readiness_check))
+        .route("/healthz/live", get(liveness_check))
+        .route("/healthz/ready", get(readiness_check))
+        .route("/metrics", get(prometheus_metrics));
+
+    let app = app.merge(public_routes);
 
     // CORS configuration - permissive for debug mode, configurable otherwise
     let cors = if debug_enabled {
@@ -1142,6 +1187,7 @@ async fn start_grpc_server(
     role: config::InstanceRole,
     writer_addr: Option<String>,
     tls_config: Option<tonic::transport::ServerTlsConfig>,
+    exec_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let grpc_service = OrdoGrpcService::new(
@@ -1152,7 +1198,8 @@ async fn start_grpc_server(
         rate_limiter,
         multi_tenancy_enabled,
     )
-    .with_role(role, writer_addr);
+    .with_role(role, writer_addr)
+    .with_concurrency_limit(exec_semaphore);
 
     let mut builder = TonicServer::builder()
         .tcp_keepalive(Some(Duration::from_secs(60)))
@@ -1166,6 +1213,9 @@ async fn start_grpc_server(
         info!("gRPC server listening on {}", addr);
     }
 
+    // C12: panics are caught at the RPC handler boundary inside `OrdoGrpcService`
+    // (tower-http's `CatchPanicLayer` is built against a different `http` major
+    // version than tonic 0.10 and cannot wrap the gRPC service directly).
     builder
         .add_service(
             OrdoServiceServer::new(grpc_service).max_decoding_message_size(max_request_body_bytes),

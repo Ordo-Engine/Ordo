@@ -1,5 +1,22 @@
 use super::*;
 
+/// A release-history row to be written as part of a larger transaction.
+///
+/// Used by [`PlatformStore::create_release_execution_with_instances`] so the
+/// initial execution, its instances, and their history rows are persisted
+/// atomically (all-or-nothing).
+pub struct NewReleaseHistory {
+    pub release_request_id: String,
+    pub release_execution_id: Option<String>,
+    pub instance_id: Option<String>,
+    pub scope: ReleaseHistoryScope,
+    pub action: String,
+    pub actor: ReleaseHistoryActor,
+    pub from_status: Option<String>,
+    pub to_status: Option<String>,
+    pub detail: serde_json::Value,
+}
+
 impl PlatformStore {
     pub async fn list_release_policies(
         &self,
@@ -435,6 +452,98 @@ impl PlatformStore {
         .bind(triggered_by)
         .execute(&self.pool)
         .await?;
+        Ok(self
+            .get_release_execution(id)
+            .await?
+            .expect("just inserted"))
+    }
+
+    /// Create a release execution together with its instances and initial
+    /// history rows in a single transaction.
+    ///
+    /// This makes release orchestration atomic: a crash partway through can no
+    /// longer leave a half-created instance set or orphaned execution behind —
+    /// either everything commits or nothing does.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_release_execution_with_instances(
+        &self,
+        id: &str,
+        release_request_id: &str,
+        status: ReleaseExecutionStatus,
+        current_batch: i32,
+        total_batches: i32,
+        strategy: &RolloutStrategy,
+        triggered_by: Option<&str>,
+        instances: &[ReleaseExecutionInstance],
+        history: &[NewReleaseHistory],
+    ) -> Result<ReleaseExecution> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "INSERT INTO release_executions
+             (id, release_request_id, status, current_batch, total_batches, next_batch_at, strategy_snapshot, started_at, triggered_by)
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, NOW(), $7)",
+        )
+        .bind(id)
+        .bind(release_request_id)
+        .bind(status.to_string())
+        .bind(current_batch)
+        .bind(total_batches)
+        .bind(sqlx::types::Json(strategy.clone()))
+        .bind(triggered_by)
+        .execute(&mut *tx)
+        .await?;
+
+        for instance in instances {
+            sqlx::query(
+                "INSERT INTO release_execution_instances
+                 (id, release_execution_id, instance_id, instance_name, zone, batch_index, current_version, target_version,
+                  status, scheduled_at, message, metric_summary, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '{}'::jsonb), $13)",
+            )
+            .bind(&instance.id)
+            .bind(&instance.release_execution_id)
+            .bind(&instance.instance_id)
+            .bind(&instance.instance_name)
+            .bind(&instance.zone)
+            .bind(instance.batch_index)
+            .bind(&instance.current_version)
+            .bind(&instance.target_version)
+            .bind(instance.status.to_string())
+            .bind(instance.scheduled_at)
+            .bind(&instance.message)
+            .bind(instance.metric_summary.as_ref())
+            .bind(instance.updated_at)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        for entry in history {
+            sqlx::query(
+                "INSERT INTO release_request_history
+                 (id, release_request_id, release_execution_id, instance_id, scope, action,
+                  actor_type, actor_id, actor_name, actor_email, from_status, to_status, detail, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())",
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&entry.release_request_id)
+            .bind(&entry.release_execution_id)
+            .bind(&entry.instance_id)
+            .bind(entry.scope.to_string())
+            .bind(&entry.action)
+            .bind(entry.actor.actor_type.to_string())
+            .bind(&entry.actor.actor_id)
+            .bind(&entry.actor.actor_name)
+            .bind(&entry.actor.actor_email)
+            .bind(&entry.from_status)
+            .bind(&entry.to_status)
+            .bind(&entry.detail)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
         Ok(self
             .get_release_execution(id)
             .await?

@@ -78,6 +78,14 @@ npm install @ordo-engine/editor-vue    # Vue 3
 npm install @ordo-engine/editor-react  # React
 ```
 
+### Call from your app
+
+```bash
+go get github.com/pama-lee/ordo-go     # Go
+pip install ordo-sdk                    # Python
+# Java (Maven): com.ordoengine:ordo-sdk-java
+```
+
 ---
 
 ## Platform Features
@@ -124,23 +132,9 @@ ordo/
 │       ├── studio/      # Platform Studio (Vue 3 + TDesign)
 │       ├── playground/  # Live demo
 │       └── docs/        # VitePress documentation
+├── sdk/                 # Official Go / Python / Java client SDKs
 └── scripts/             # sync-version.sh, benchmarks
 ```
-
----
-
-## Roadmap
-
-| Milestone | Target | Goal |
-|-----------|--------|------|
-| **M1 — Platform Foundation** | v0.4 ✅ | Org workspace, Studio app, template flow, test management |
-| **First Decision** | v0.5 | 5-min onboarding, guided setup wizard |
-| **Deploy & Connect** | v0.6 | Release center, server registration, rollout execution, SDK codegen |
-| **Observe** | v0.7 | Execution dashboard, trace explorer, alerting |
-| **Govern** | v0.8 | Change requests, impact analysis, approval flows |
-| **Ordo Cloud** | v1.0 | Managed platform with hosted engine |
-
-Full roadmap → [docs/roadmap](https://ordo-engine.github.io/Ordo/docs/en/roadmap)
 
 ---
 

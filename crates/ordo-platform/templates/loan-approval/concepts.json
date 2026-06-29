@@ -1,0 +1,38 @@
+[
+  {
+    "name": "dti_ratio",
+    "data_type": "number",
+    "expression": "existing_debt / annual_income",
+    "dependencies": ["existing_debt", "annual_income"],
+    "description": "i18n:template.loan-approval.concept.dti-ratio.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "loan_to_income",
+    "data_type": "number",
+    "expression": "loan_amount / annual_income",
+    "dependencies": ["loan_amount", "annual_income"],
+    "description": "i18n:template.loan-approval.concept.loan-to-income.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "is_prime_credit",
+    "data_type": "boolean",
+    "expression": "credit_score >= 740",
+    "dependencies": ["credit_score"],
+    "description": "i18n:template.loan-approval.concept.is-prime-credit.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  },
+  {
+    "name": "stable_employment",
+    "data_type": "boolean",
+    "expression": "employment_years >= 2",
+    "dependencies": ["employment_years"],
+    "description": "i18n:template.loan-approval.concept.stable-employment.desc",
+    "created_at": "2026-04-12T00:00:00Z",
+    "updated_at": "2026-04-12T00:00:00Z"
+  }
+]

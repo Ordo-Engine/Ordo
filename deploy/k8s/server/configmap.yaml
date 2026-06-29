@@ -1,0 +1,24 @@
+# Non-secret ORDO_* config for ordo-server.
+# Mirrors compose.yml. Full reference: deploy/CONFIGURATION.md
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ordo-server
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-server
+    app.kubernetes.io/part-of: ordo
+data:
+  ORDO_HTTP_ADDR: "0.0.0.0:8080"
+  ORDO_GRPC_ADDR: "0.0.0.0:50051"
+  ORDO_RULES_DIR: "/data/rules"
+  ORDO_MULTI_TENANCY_ENABLED: "true"
+  ORDO_LOG_LEVEL: "info"
+  # NATS JetStream rule sync (stream "ordo-rules", subjects "ordo.rules.>")
+  ORDO_NATS_URL: "nats://ordo-nats:4222"
+  ORDO_NATS_SUBJECT_PREFIX: "ordo.rules"
+  # Platform self-registration: server registers + heartbeats so the platform
+  # can track health/metrics. The shared token lives in the Secret.
+  ORDO_PLATFORM_URL: "http://ordo-platform:3001"
+  ORDO_SERVER_NAME: "ordo-server"
+  ORDO_SERVER_URL: "http://ordo-server:8080"

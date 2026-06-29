@@ -1,0 +1,146 @@
+[
+  {
+    "id": "tc-001",
+    "name": "i18n:template.loan-approval.test.prime-approve",
+    "description": "i18n:template.loan-approval.test.prime-approve-desc",
+    "input": {
+      "credit_score": 760,
+      "annual_income": 120000,
+      "loan_amount": 300000,
+      "employment_years": 5,
+      "existing_debt": 30000,
+      "has_bankruptcy": false
+    },
+    "expect": {
+      "code": "APPROVED",
+      "output": {
+        "decision": "approve",
+        "risk_tier": "standard"
+      }
+    },
+    "tags": ["approve", "happy-path"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-002",
+    "name": "i18n:template.loan-approval.test.bankruptcy",
+    "description": "i18n:template.loan-approval.test.bankruptcy-desc",
+    "input": {
+      "credit_score": 700,
+      "annual_income": 90000,
+      "loan_amount": 150000,
+      "employment_years": 4,
+      "existing_debt": 10000,
+      "has_bankruptcy": true
+    },
+    "expect": {
+      "code": "REJECTED",
+      "output": {
+        "decision": "reject",
+        "reject_reason": "bankruptcy"
+      }
+    },
+    "tags": ["reject", "hard-reject"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-003",
+    "name": "i18n:template.loan-approval.test.low-credit",
+    "description": "i18n:template.loan-approval.test.low-credit-desc",
+    "input": {
+      "credit_score": 550,
+      "annual_income": 80000,
+      "loan_amount": 100000,
+      "employment_years": 3,
+      "existing_debt": 10000,
+      "has_bankruptcy": false
+    },
+    "expect": {
+      "code": "REJECTED",
+      "output": {
+        "decision": "reject",
+        "reject_reason": "low_credit"
+      }
+    },
+    "tags": ["reject", "hard-reject"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-004",
+    "name": "i18n:template.loan-approval.test.subprime-review",
+    "description": "i18n:template.loan-approval.test.subprime-review-desc",
+    "input": {
+      "credit_score": 620,
+      "annual_income": 80000,
+      "loan_amount": 200000,
+      "employment_years": 3,
+      "existing_debt": 20000,
+      "has_bankruptcy": false
+    },
+    "expect": {
+      "code": "MANUAL_REVIEW",
+      "output": {
+        "decision": "review",
+        "risk_tier": "manual"
+      }
+    },
+    "tags": ["review", "subprime"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-005",
+    "name": "i18n:template.loan-approval.test.affordability-reject",
+    "description": "i18n:template.loan-approval.test.affordability-reject-desc",
+    "input": {
+      "credit_score": 700,
+      "annual_income": 50000,
+      "loan_amount": 400000,
+      "employment_years": 5,
+      "existing_debt": 10000,
+      "has_bankruptcy": false
+    },
+    "expect": {
+      "code": "REJECTED",
+      "output": {
+        "decision": "reject",
+        "reject_reason": "affordability"
+      }
+    },
+    "tags": ["reject", "affordability"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  },
+  {
+    "id": "tc-006",
+    "name": "i18n:template.loan-approval.test.employment-review",
+    "description": "i18n:template.loan-approval.test.employment-review-desc",
+    "input": {
+      "credit_score": 680,
+      "annual_income": 100000,
+      "loan_amount": 250000,
+      "employment_years": 1,
+      "existing_debt": 20000,
+      "has_bankruptcy": false
+    },
+    "expect": {
+      "code": "MANUAL_REVIEW",
+      "output": {
+        "decision": "review",
+        "risk_tier": "manual"
+      }
+    },
+    "tags": ["review", "boundary"],
+    "created_at": "2026-04-15T00:00:00Z",
+    "updated_at": "2026-04-15T00:00:00Z",
+    "created_by": "template"
+  }
+]

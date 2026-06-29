@@ -1,0 +1,17 @@
+# Persistent rule storage for ordo-server (ORDO_RULES_DIR) including its WAL.
+# ReadWriteOnce: a single writer pod owns this volume, which is why the
+# Deployment below pins replicas:1 with strategy Recreate.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ordo-server-rules
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-server
+    app.kubernetes.io/part-of: ordo
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: <your-storage-class>

@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base, self-hosted single-cluster deployment of the Ordo stack:
+#   ordo-server (engine)  +  ordo-platform (gateway)  +  ordo-platform-worker
+#   with bundled NATS JetStream and PostgreSQL dependencies.
+#
+# Apply:   kubectl apply -k deploy/k8s
+# Diff:    kubectl diff  -k deploy/k8s
+#
+# For production: replace the placeholder Secrets, swap the bundled
+# postgres/nats for managed/HA equivalents (remove them from the list below and
+# repoint ORDO_DATABASE_URL / ORDO_NATS_URL), and set real image tags.
+
+namespace: ordo
+
+resources:
+  - namespace.yaml
+
+  # ── Dependencies (remove these two if you bring your own managed services) ──
+  - dependencies/postgres.yaml
+  - dependencies/nats.yaml
+
+  # ── Rule engine ────────────────────────────────────────────────────────────
+  - server/configmap.yaml
+  - server/secret.yaml
+  - server/pvc.yaml
+  - server/deployment.yaml
+  - server/service.yaml
+  # server/hpa.yaml is intentionally NOT included — the default engine pod is a
+  # single writer on a ReadWriteOnce volume. See that file's header before use.
+
+  # ── Platform gateway + worker ──────────────────────────────────────────────
+  - platform/configmap.yaml
+  - platform/secret.yaml
+  - platform/deployment.yaml
+  - platform/worker-deployment.yaml
+  - platform/service.yaml
+  - platform/hpa.yaml

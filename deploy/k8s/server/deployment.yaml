@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ordo-server
+  namespace: ordo
+  labels:
+    app.kubernetes.io/name: ordo-server
+    app.kubernetes.io/part-of: ordo
+    app.kubernetes.io/component: engine
+spec:
+  replicas: 1
+  # Recreate (not RollingUpdate) because the ReadWriteOnce rules/WAL volume
+  # cannot be attached to an old and a new pod at the same time.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ordo-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ordo-server
+        app.kubernetes.io/part-of: ordo
+        app.kubernetes.io/component: engine
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999            # matches the "ordo" user in the image
+        fsGroup: 999
+      containers:
+        - name: ordo-server
+          # Replace with your registry/tag (CI publishes to ghcr.io/<org>/...).
+          image: ghcr.io/pama-lee/ordo-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 50051
+          envFrom:
+            - configMapRef:
+                name: ordo-server
+            - secretRef:
+                name: ordo-server
+          # Liveness: process is up and the HTTP listener responds.
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness: gate traffic until the engine has loaded rules / is ready.
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Startup probe gives slow first-load (large rules dirs / WAL replay)
+          # extra time before liveness kicks in.
+          startupProbe:
+            httpGet:
+              path: /healthz/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: rules
+              mountPath: /data/rules
+      volumes:
+        - name: rules
+          persistentVolumeClaim:
+            claimName: ordo-server-rules

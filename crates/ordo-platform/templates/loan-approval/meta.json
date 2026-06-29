@@ -1,0 +1,17 @@
+{
+  "id": "loan-approval",
+  "name": "i18n:template.loan-approval.name",
+  "description": "i18n:template.loan-approval.description",
+  "tags": [
+    "i18n:template.tag.finance",
+    "i18n:template.tag.decision",
+    "i18n:template.tag.intermediate"
+  ],
+  "icon": "landmark",
+  "difficulty": "intermediate",
+  "features": [
+    "i18n:template.loan-approval.feature.multi-step",
+    "i18n:template.loan-approval.feature.credit-bands",
+    "i18n:template.loan-approval.feature.affordability"
+  ]
+}

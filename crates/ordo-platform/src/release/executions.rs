@@ -594,9 +594,24 @@ pub async fn run_release_worker_loop(
     poll_interval: Duration,
 ) -> anyhow::Result<()> {
     loop {
-        if let Err(err) = run_release_worker_once(state.clone()).await {
-            warn!("release worker poll failed: {err}");
-        }
+        // Run the poll on a spawned task so a panic inside it is caught as a
+        // JoinError rather than tearing down the whole worker loop (which would
+        // otherwise stall all release processing silently). The per-execution
+        // work spawned inside run_release_worker_once is already isolated.
+        let outcome = match tokio::spawn(run_release_worker_once(state.clone())).await {
+            Ok(Ok(_claimed)) => "ok",
+            Ok(Err(err)) => {
+                warn!("release worker poll failed: {err}");
+                "error"
+            }
+            Err(join_err) => {
+                error!("release worker poll panicked: {join_err}");
+                "panic"
+            }
+        };
+        // Heartbeat: record that the loop completed an iteration regardless of
+        // outcome, so a hung loop is detectable by the timestamp going stale.
+        crate::metrics::record_release_worker_poll(outcome, chrono::Utc::now().timestamp());
         tokio::time::sleep(poll_interval).await;
     }
 }

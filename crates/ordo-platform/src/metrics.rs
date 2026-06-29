@@ -46,6 +46,45 @@ lazy_static! {
         &["outcome"]
     )
     .unwrap();
+
+    /// Unix timestamp (seconds) of the release worker's last completed poll
+    /// iteration. Used as a liveness heartbeat: if `now - this` exceeds a few
+    /// poll intervals, the worker loop has stalled or died.
+    pub static ref RELEASE_WORKER_LAST_POLL: IntGauge = register_int_gauge!(
+        "ordo_platform_release_worker_last_poll_timestamp_seconds",
+        "Unix timestamp of the release worker's last completed poll iteration"
+    )
+    .unwrap();
+
+    /// Release worker poll iterations by outcome (`ok` / `error` / `panic`).
+    pub static ref RELEASE_WORKER_POLLS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "ordo_platform_release_worker_polls_total",
+        "Release worker poll iterations by outcome",
+        &["outcome"]
+    )
+    .unwrap();
+}
+
+/// Record a completed release worker poll iteration with the given outcome
+/// (`ok` / `error` / `panic`) and refresh the liveness heartbeat. Called once
+/// per loop tick regardless of outcome, so a stalled loop is detectable by the
+/// heartbeat going stale.
+pub fn record_release_worker_poll(outcome: &str, now_unix_secs: i64) {
+    RELEASE_WORKER_LAST_POLL.set(now_unix_secs);
+    RELEASE_WORKER_POLLS_TOTAL
+        .with_label_values(&[outcome])
+        .inc();
+}
+
+/// Seconds since the worker's last completed poll, or `None` if it has never
+/// polled (gauge still at 0). Used by the worker's liveness probe.
+pub fn release_worker_staleness_secs(now_unix_secs: i64) -> Option<i64> {
+    let last = RELEASE_WORKER_LAST_POLL.get();
+    if last == 0 {
+        None
+    } else {
+        Some(now_unix_secs - last)
+    }
 }
 
 /// Initialize metrics so they appear in `/metrics` even before any traffic.
@@ -54,6 +93,9 @@ pub fn init() {
     // Touch each outcome so the counter is exported at 0 from the start.
     for outcome in ["started", "succeeded", "failed"] {
         RELEASE_EXECUTIONS_TOTAL.with_label_values(&[outcome]);
+    }
+    for outcome in ["ok", "error", "panic"] {
+        RELEASE_WORKER_POLLS_TOTAL.with_label_values(&[outcome]);
     }
 }
 
@@ -118,5 +160,24 @@ mod tests {
         assert!(output.contains("ordo_platform_db_pool_in_use"));
         // 10 total - 4 idle = 6 in use
         assert!(output.contains("ordo_platform_db_pool_in_use 6"));
+    }
+
+    #[test]
+    fn worker_heartbeat_and_staleness() {
+        // Before any poll the gauge is 0 -> staleness is unknown (None), so the
+        // liveness probe gives the worker startup grace.
+        // (RELEASE_WORKER_LAST_POLL starts at 0 unless another test set it; we
+        // set it explicitly below to make the assertions deterministic.)
+        record_release_worker_poll("ok", 1_000);
+        assert_eq!(RELEASE_WORKER_LAST_POLL.get(), 1_000);
+        // 1_005 - 1_000 = 5 seconds since last poll.
+        assert_eq!(release_worker_staleness_secs(1_005), Some(5));
+
+        record_release_worker_poll("error", 2_000);
+        assert_eq!(release_worker_staleness_secs(2_050), Some(50));
+
+        let output = encode();
+        assert!(output.contains("ordo_platform_release_worker_last_poll_timestamp_seconds"));
+        assert!(output.contains("ordo_platform_release_worker_polls_total"));
     }
 }

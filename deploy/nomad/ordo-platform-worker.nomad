@@ -12,6 +12,20 @@ variable "image" {
   default = "ghcr.io/ordo-engine/ordo-platform:latest"
 }
 
+variable "ghcr_user" {
+  type    = string
+  default = "Pama-Lee"
+}
+
+variable "ghcr_token" {
+  type = string
+}
+
+variable "node_name" {
+  type    = string
+  default = "pama1"
+}
+
 variable "health_port" {
   type    = number
   default = 8090
@@ -46,11 +60,14 @@ job "ordo-platform-worker" {
   group "worker" {
     count = 1
 
+    constraint {
+      attribute = "${attr.unique.hostname}"
+      value     = var.node_name
+    }
+
     network {
       mode = "host"
-      port "health" {
-        static = var.health_port
-      }
+      port "health" {}
     }
 
     service {
@@ -83,9 +100,15 @@ job "ordo-platform-worker" {
       driver = "docker"
 
       config {
-        image      = var.image
-        entrypoint = ["/app/ordo-platform-worker"]
-        ports      = ["health"]
+        image        = var.image
+        network_mode = "host"
+        entrypoint   = ["/app/ordo-platform-worker"]
+        ports        = ["health"]
+
+        auth {
+          username = var.ghcr_user
+          password = var.ghcr_token
+        }
       }
 
       env {
@@ -94,12 +117,12 @@ job "ordo-platform-worker" {
         ORDO_NATS_URL            = var.nats_url
         ORDO_NATS_SUBJECT_PREFIX = var.nats_subject_prefix
         ORDO_JWT_SECRET          = var.jwt_secret
-        ORDO_WORKER_HEALTH_ADDR  = "0.0.0.0:${var.health_port}"
+        ORDO_WORKER_HEALTH_ADDR  = "0.0.0.0:${NOMAD_PORT_health}"
         ORDO_LOG_LEVEL           = "info"
       }
 
       resources {
-        cpu    = 300
+        cpu    = 50
         memory = 256
       }
     }

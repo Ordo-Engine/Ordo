@@ -1,8 +1,8 @@
 //! gRPC integration tests
 
-use ordo_proto::ordo_service_client::OrdoServiceClient;
-use ordo_proto::ordo_service_server::OrdoServiceServer;
-use ordo_proto::{
+use ordo_grpc::ordo_service_client::OrdoServiceClient;
+use ordo_grpc::ordo_service_server::OrdoServiceServer;
+use ordo_grpc::{
     EvalRequest, ExecuteRequest, GetRuleSetRequest, HealthRequest, ListRuleSetsRequest,
 };
 use tonic::transport::{Channel, Server};

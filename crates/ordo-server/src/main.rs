@@ -37,7 +37,7 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
-use ordo_proto::ordo_service_server::OrdoServiceServer;
+use ordo_grpc::ordo_service_server::OrdoServiceServer;
 use tokio::sync::{watch, RwLock};
 use tonic::transport::Server as TonicServer;
 use tower_http::catch_panic::CatchPanicLayer;

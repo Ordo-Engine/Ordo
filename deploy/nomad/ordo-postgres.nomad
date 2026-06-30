@@ -75,8 +75,9 @@ job "ordo-postgres" {
       driver = "docker"
 
       config {
-        image = "postgres:16-alpine"
-        ports = ["db"]
+        image        = "postgres:16-alpine"
+        network_mode = "host"
+        ports        = ["db"]
         volumes = [
           "${var.pgdata_host_path}:/var/lib/postgresql/data",
         ]

@@ -10,6 +10,7 @@ import { useEnvironmentStore } from '@/stores/environment';
 import { useRbacStore } from '@/stores/rbac';
 import ChangeHistoryPanel from '@/components/ChangeHistoryPanel.vue';
 import TestCasePanel from './TestCasePanel.vue';
+import AiSidebar from '@/components/project/AiSidebar.vue';
 import { rulesetHistoryApi, subRuleApi } from '@/api/platform-client';
 import DraftConflictDialog from '@/components/project/DraftConflictDialog.vue';
 import { materializeConceptsForExecution } from '@/utils/concepts';
@@ -75,6 +76,7 @@ const editorMode = ref<'form' | 'flow' | 'table'>('form');
 const tabModes = new Map<string, 'form' | 'flow' | 'table'>();
 const openMenu = ref<'file' | 'edit' | 'select' | 'view' | 'window' | null>(null);
 const showHistoryPanel = ref(false);
+const showAiPanel = ref(false);
 const showKnowledgeAdvisorPanel = ref(false);
 
 function switchToTab(name: string) {
@@ -3061,6 +3063,13 @@ onUnmounted(() => {
               <span>{{ t('menuBar.history') }}</span>
               <t-icon v-if="showHistoryPanel" name="check" size="13px" />
             </button>
+            <button
+              class="editor-menu__item"
+              @click="runMenuAction(() => (showAiPanel = !showAiPanel))"
+            >
+              <span>{{ t('ai.title') }}</span>
+              <t-icon v-if="showAiPanel" name="check" size="13px" />
+            </button>
             <button class="editor-menu__item" @click="runMenuAction(() => toggleExecution())">
               <span>{{ t('menuBar.executionPanel') }}</span>
               <t-icon v-if="showExecution" name="check" size="13px" />
@@ -3508,6 +3517,13 @@ onUnmounted(() => {
         />
       </div>
     </div>
+
+    <AiSidebar
+      v-if="showAiPanel"
+      :org-id="orgId"
+      :project-id="projectId"
+      @close="showAiPanel = false"
+    />
 
     <!-- Create ruleset dialog -->
     <t-dialog

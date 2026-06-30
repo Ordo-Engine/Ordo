@@ -1,4 +1,20 @@
 export default {
+  ai: {
+    title: 'AI 助手',
+    send: '發送',
+    clear: '清空',
+    undo: '撤銷 AI 變更',
+    selectModel: '選擇模型',
+    noProvider: '未設定 AI 服務商',
+    placeholder: '描述一條規則,或讓我幫你改…',
+    thinking: '思考中…',
+    emptyTitle: '對話式建立規則',
+    emptyHint: '例如「加一個分支:金額>1000 且 VIP 則通過」。',
+    approve: '批准',
+    reject: '拒絕',
+    confirmPublish: '發布這個規則集?',
+    confirmDelete: '刪除這個規則集?',
+  },
   common: {
     loading: '載入中...',
     save: '儲存',

@@ -65,6 +65,7 @@ import type {
   UserInfo,
   UserRoleAssignment,
 } from './types';
+import type { AiChatRequest, AiChatResponse, AiProviderOption } from './ai-types';
 
 const BASE = '/api/v1';
 
@@ -153,6 +154,18 @@ async function requestText(
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
+
+export const aiApi = {
+  /** Configured providers + their model lists (only providers with a key set). */
+  listModels(token: string): Promise<AiProviderOption[]> {
+    return request('/ai/models', { token });
+  },
+
+  /** One assistant turn. The client executes any returned tool_calls and loops. */
+  chat(token: string, req: AiChatRequest): Promise<AiChatResponse> {
+    return request('/ai/chat', { method: 'POST', token, body: JSON.stringify(req) });
+  },
+};
 
 export const authApi = {
   register(email: string, password: string, display_name: string): Promise<AuthResponse> {

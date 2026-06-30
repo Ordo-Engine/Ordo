@@ -34,7 +34,7 @@ flowchart TD
 }
 ```
 
-发布时由 `ordo-protocol`（Rust crate）转换为引擎格式后再下发。前端不再需要维护 adapter 转换逻辑。
+发布时由 `ordo-studio-format`（Rust crate）转换为引擎格式后再下发。前端不再需要维护 adapter 转换逻辑。
 
 ## 乐观并发控制
 

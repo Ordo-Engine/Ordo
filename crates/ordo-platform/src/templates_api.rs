@@ -18,6 +18,18 @@ use chrono::Utc;
 use serde::Deserialize;
 use uuid::Uuid;
 
+/// Convert a template's engine-format ruleset JSON into studio format for storage
+/// as a draft. Drafts are canonical **studio** format; templates ship engine-format
+/// `ruleset.json`, so we convert here — no engine-format draft ever reaches the DB.
+fn engine_value_to_studio_value(engine: &serde_json::Value) -> ApiResult<serde_json::Value> {
+    let rs: ordo_core::rule::RuleSet = serde_json::from_value(engine.clone()).map_err(|e| {
+        PlatformError::internal(format!("template ruleset is not valid engine format: {e}"))
+    })?;
+    let studio = ordo_studio_format::engine_to_studio(&rs);
+    serde_json::to_value(&studio)
+        .map_err(|e| PlatformError::internal(format!("failed to serialize studio draft: {e}")))
+}
+
 fn locale_from_headers(headers: &HeaderMap) -> &'static str {
     let raw = headers
         .get(axum::http::header::ACCEPT_LANGUAGE)
@@ -113,6 +125,9 @@ pub async fn install_template_detail(
         .unwrap_or(source_label)
         .to_string();
 
+    // Drafts are stored in studio format — convert the engine-format template now.
+    let studio_draft = engine_value_to_studio_value(&ruleset)?;
+
     if let Some(mut contract) = tpl.contract {
         contract.ruleset_name = ruleset_name.clone();
         contract.updated_at = Utc::now();
@@ -153,7 +168,7 @@ pub async fn install_template_detail(
             &Uuid::new_v4().to_string(),
             &project.id,
             &ruleset_name,
-            &ruleset,
+            &studio_draft,
             0,
             &claims.sub,
         )
@@ -170,7 +185,7 @@ pub async fn install_template_detail(
             ruleset_name: ruleset_name.clone(),
             source: crate::models::RulesetHistorySource::Create,
             action: format!("Created from '{}'", source_label),
-            snapshot: ruleset.clone(),
+            snapshot: studio_draft.clone(),
             author_id: claims.sub.clone(),
             author_email: claims.email.clone(),
         },

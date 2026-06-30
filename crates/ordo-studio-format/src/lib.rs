@@ -1,4 +1,4 @@
-//! ordo-protocol — Studio ↔ engine protocol conversion layer.
+//! ordo-studio-format — Studio ↔ engine format conversion layer.
 //!
 //! The frontend (Studio) speaks a camelCase JSON format with steps as arrays,
 //! structured Condition/Expr objects, and editor metadata like positions and groups.

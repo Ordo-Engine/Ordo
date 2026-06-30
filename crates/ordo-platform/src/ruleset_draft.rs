@@ -8,7 +8,7 @@ use ordo_core::{
     },
     trace::ExecutionTrace,
 };
-use ordo_protocol::{
+use ordo_studio_format::{
     types::{
         condition::StudioCondition,
         expr::StudioExpr,
@@ -166,7 +166,7 @@ pub async fn delete_draft(
 
 #[derive(serde::Deserialize)]
 pub struct TraceRequest {
-    /// Studio-format ruleset (converted to engine format by ordo-protocol on the backend).
+    /// Studio-format ruleset (converted to engine format by ordo-studio-format on the backend).
     pub ruleset: StudioRuleSet,
     pub input: serde_json::Value,
 }
@@ -217,7 +217,7 @@ pub async fn trace_draft(
     let mut ruleset: RuleSet =
         req.ruleset
             .try_into()
-            .map_err(|e: ordo_protocol::ConvertError| {
+            .map_err(|e: ordo_studio_format::ConvertError| {
                 PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
             })?;
     let concepts = state
@@ -286,7 +286,7 @@ pub async fn convert_draft_ruleset(
     let mut engine: RuleSet =
         req.ruleset
             .try_into()
-            .map_err(|e: ordo_protocol::ConvertError| {
+            .map_err(|e: ordo_studio_format::ConvertError| {
                 PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
             })?;
     let concepts = state
@@ -655,7 +655,7 @@ pub(crate) async fn inline_sub_rules_with_manifest(
     draft: serde_json::Value,
 ) -> ApiResult<InlineSubRuleSnapshot> {
     use crate::models::SubRuleScope;
-    use ordo_protocol::types::{
+    use ordo_studio_format::types::{
         ruleset::StudioSubRuleGraph,
         step::{StudioStep, StudioStepKind},
     };
@@ -1568,11 +1568,12 @@ pub(crate) fn studio_draft_to_engine_json_with_concepts(
         PlatformError::bad_request(format!("Draft is not valid studio format: {}", e))
     })?;
     materialize_sub_rule_runtime(&mut studio);
-    let mut engine: RuleSet = studio
-        .try_into()
-        .map_err(|e: ordo_protocol::ConvertError| {
-            PlatformError::bad_request(format!("Draft conversion failed: {}", e))
-        })?;
+    let mut engine: RuleSet =
+        studio
+            .try_into()
+            .map_err(|e: ordo_studio_format::ConvertError| {
+                PlatformError::bad_request(format!("Draft conversion failed: {}", e))
+            })?;
     materialize_concepts_into_engine_ruleset(&mut engine, concepts)?;
     serde_json::to_value(&engine)
         .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)))

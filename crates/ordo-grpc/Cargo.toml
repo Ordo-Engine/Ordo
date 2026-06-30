@@ -1,5 +1,5 @@
 [package]
-name = "ordo-proto"
+name = "ordo-grpc"
 version = "0.4.2"
 edition = "2021"
 description = "Protobuf definitions for Ordo rule engine"

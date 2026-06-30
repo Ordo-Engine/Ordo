@@ -7,12 +7,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RuleExecutor } from '../executor';
 import type { RuleSet, TerminalStep } from '../../model';
 
-// Mock the WASM module
-vi.mock('@ordo-engine/wasm/dist/ordo_wasm', () => ({
+// Mock the WASM module (the specifier loaded by engine/wasm.ts).
+vi.mock('@ordo-engine/wasm', () => ({
   default: vi.fn().mockResolvedValue(undefined),
   execute_ruleset: vi.fn(),
   validate_ruleset: vi.fn(),
   eval_expression: vi.fn(),
+  // Studio→engine conversion now happens in WASM. Mimic the real converter's
+  // behaviour just enough for these tests: reject a missing start step, otherwise
+  // emit a minimal engine ruleset.
+  studio_to_engine_json: vi.fn((studioJson: string) => {
+    const r = JSON.parse(studioJson);
+    if (!r.startStepId) throw new Error('startStepId is missing or empty');
+    return JSON.stringify({
+      config: { name: r.config?.name ?? '', entry_step: r.startStepId },
+      steps: {},
+    });
+  }),
+  engine_to_studio_json: vi.fn((engineJson: string) => engineJson),
 }));
 
 describe('RuleExecutor', () => {
@@ -23,7 +35,7 @@ describe('RuleExecutor', () => {
     executor = new RuleExecutor();
 
     // Get mock module
-    mockWasm = await import('@ordo-engine/wasm/dist/ordo_wasm');
+    mockWasm = await import('@ordo-engine/wasm');
   });
 
   describe('WASM Execution', () => {

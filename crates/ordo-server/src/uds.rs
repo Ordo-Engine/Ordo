@@ -10,7 +10,7 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tracing::info;
 
-use ordo_proto::ordo_service_server::OrdoServiceServer;
+use ordo_grpc::ordo_service_server::OrdoServiceServer;
 
 use crate::grpc::OrdoGrpcService;
 use crate::rate_limiter::RateLimiter;

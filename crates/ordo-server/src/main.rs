@@ -37,7 +37,7 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
-use ordo_proto::ordo_service_server::OrdoServiceServer;
+use ordo_grpc::ordo_service_server::OrdoServiceServer;
 use tokio::sync::{watch, RwLock};
 use tonic::transport::Server as TonicServer;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -691,6 +691,15 @@ async fn main() -> anyhow::Result<()> {
         let version = env!("CARGO_PKG_VERSION").to_string();
         let reg_secret = config.platform_registration_secret.clone();
 
+        // NATS, when configured, is the primary liveness/heartbeat channel. HTTP then
+        // only bootstraps registration (delivers the token) + self-heals the row on a
+        // slow cadence; the frequent HTTP heartbeat is a fallback for NATS-less
+        // deployments. This removes the dual 30s heartbeat both channels used to send.
+        #[cfg(feature = "nats-sync")]
+        let nats_enabled = nats_jetstream.is_some();
+        #[cfg(not(feature = "nats-sync"))]
+        let nats_enabled = false;
+
         if let Some(platform_url) = config.platform_url.clone() {
             let http_server_id = server_id.clone();
             let http_server_name = server_name.clone();
@@ -701,6 +710,7 @@ async fn main() -> anyhow::Result<()> {
             let http_capability_invoker = capability_invoker.clone();
             let log_url = platform_url.clone();
             let log_name = http_server_name.clone();
+            let http_nats_enabled = nats_enabled;
 
             let http_capabilities_json =
                 serde_json::to_value(http_capability_invoker.list_capabilities())
@@ -724,7 +734,10 @@ async fn main() -> anyhow::Result<()> {
                 });
                 let hb_payload = serde_json::json!({ "server_id": http_server_id });
 
-                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                // When NATS handles heartbeats, HTTP only needs to self-heal the
+                // registration row occasionally; otherwise it is the sole channel.
+                let period = if http_nats_enabled { 300 } else { 30 };
+                let mut interval = tokio::time::interval(Duration::from_secs(period));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                 loop {
@@ -732,6 +745,7 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(ref secret) = http_reg_secret {
                         headers.insert("x-registration-secret".to_string(), secret.to_string());
                     }
+                    // Register (delivers the token + creates/refreshes the row).
                     match invoke_http_json(
                         Some(http_capability_invoker.clone()),
                         "post",
@@ -749,24 +763,27 @@ async fn main() -> anyhow::Result<()> {
                             let _ = r.send().await;
                         }
                     }
-                    interval.tick().await;
-                    match invoke_http_json(
-                        Some(http_capability_invoker.clone()),
-                        "post",
-                        &hb_url,
-                        headers.clone(),
-                        &hb_payload,
-                        Some(5_000),
-                    ) {
-                        Ok(Some(_)) => {}
-                        Ok(None) | Err(_) => {
-                            let mut r = client.post(&hb_url).json(&hb_payload);
-                            if let Some(ref secret) = http_reg_secret {
-                                r = r.header("x-registration-secret", secret.as_str());
+                    // HTTP heartbeat is only the fallback when NATS is unavailable.
+                    if !http_nats_enabled {
+                        match invoke_http_json(
+                            Some(http_capability_invoker.clone()),
+                            "post",
+                            &hb_url,
+                            headers.clone(),
+                            &hb_payload,
+                            Some(5_000),
+                        ) {
+                            Ok(Some(_)) => {}
+                            Ok(None) | Err(_) => {
+                                let mut r = client.post(&hb_url).json(&hb_payload);
+                                if let Some(ref secret) = http_reg_secret {
+                                    r = r.header("x-registration-secret", secret.as_str());
+                                }
+                                let _ = r.send().await;
                             }
-                            let _ = r.send().await;
                         }
                     }
+                    interval.tick().await;
                 }
             });
 
@@ -797,18 +814,22 @@ async fn main() -> anyhow::Result<()> {
                     capabilities: nats_capabilities,
                 };
 
+                // Announce presence once at startup (the authoritative row + token
+                // come from HTTP register; this lets NATS-only consumers discover the
+                // server). Steady-state liveness is the heartbeat below — no repeated
+                // ServerRegistered.
+                let _ = sync::nats_sync::publish_immediate(
+                    &jetstream,
+                    &subject_prefix,
+                    &instance_id,
+                    presence,
+                )
+                .await;
+
                 let mut interval = tokio::time::interval(Duration::from_secs(30));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                 loop {
-                    let _ = sync::nats_sync::publish_immediate(
-                        &jetstream,
-                        &subject_prefix,
-                        &instance_id,
-                        presence.clone(),
-                    )
-                    .await;
-
                     interval.tick().await;
 
                     let _ = sync::nats_sync::publish_immediate(

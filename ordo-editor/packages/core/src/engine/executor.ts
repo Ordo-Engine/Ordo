@@ -5,7 +5,9 @@
 
 import type { RuleSet, JITSchema, JITRulesetAnalysis } from '../model';
 import type { ExecutionResult, EngineValidationResult, EvalResult } from './types';
-import { convertToEngineFormat, validateEngineCompatibility } from './adapter';
+// Studio→engine conversion is done by the WASM module (ordo-studio-format, the
+// single source of truth). The old TS `adapter.ts` has been removed.
+import { initWasm as initSharedWasm, getWasm, convertToEngineFormat } from './wasm';
 
 /** Execution options */
 export interface ExecutionOptions {
@@ -60,13 +62,10 @@ export class RuleExecutor {
     if (this.wasmInitialized) return;
 
     try {
-      // Dynamic import of WASM module
-      const wasm = await import('@ordo-engine/wasm');
-      // Initialize WASM - the default export is the init function
-      if (typeof wasm.default === 'function') {
-        await wasm.default();
-      }
-      this.wasmModule = wasm;
+      // Delegate to the shared WASM singleton so the module is loaded/initialized
+      // exactly once across the whole app (executor, conversion helpers, etc.).
+      await initSharedWasm();
+      this.wasmModule = getWasm();
       this.wasmInitialized = true;
     } catch (error) {
       throw new Error(
@@ -78,6 +77,14 @@ export class RuleExecutor {
   }
 
   /**
+   * Convert a studio-format ruleset to engine format via the WASM module
+   * (single source of truth). Requires `initWasm()` to have completed.
+   */
+  private toEngineFormat(ruleset: RuleSet): any {
+    return convertToEngineFormat(ruleset);
+  }
+
+  /**
    * Execute a ruleset
    * 执行规则集
    */
@@ -86,14 +93,9 @@ export class RuleExecutor {
     input: Record<string, any>,
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult> {
-    // Convert to engine format
-    const engineRuleset = convertToEngineFormat(ruleset);
-
-    // Validate compatibility
-    const errors = validateEngineCompatibility(ruleset);
-    if (errors.length > 0) {
-      throw new Error(`Compatibility errors:\n${errors.join('\n')}`);
-    }
+    // Convert to engine format via WASM (throws on incompatible rulesets).
+    await this.initWasm();
+    const engineRuleset = this.toEngineFormat(ruleset);
 
     // Choose execution mode
     const mode = options.mode || 'wasm';
@@ -279,17 +281,18 @@ export class RuleExecutor {
     ruleset: RuleSet,
     options: Pick<ExecutionOptions, 'mode' | 'httpEndpoint'> = {}
   ): Promise<EngineValidationResult> {
-    // First check client-side compatibility
-    const compatErrors = validateEngineCompatibility(ruleset);
-    if (compatErrors.length > 0) {
+    // Convert to engine format via WASM; a conversion failure is itself a
+    // validation failure, so surface it as one rather than throwing.
+    await this.initWasm();
+    let engineRuleset: any;
+    try {
+      engineRuleset = this.toEngineFormat(ruleset);
+    } catch (error) {
       return {
         valid: false,
-        errors: compatErrors,
+        errors: [error instanceof Error ? error.message : String(error)],
       };
     }
-
-    // Convert to engine format
-    const engineRuleset = convertToEngineFormat(ruleset);
 
     // Choose validation mode
     const mode = options.mode || 'wasm';
@@ -426,7 +429,8 @@ export class RuleExecutor {
     ruleset: RuleSet,
     options: Pick<ExecutionOptions, 'mode' | 'httpEndpoint'> = {}
   ): Promise<JITRulesetAnalysis> {
-    const engineRuleset = convertToEngineFormat(ruleset);
+    await this.initWasm();
+    const engineRuleset = this.toEngineFormat(ruleset);
     const mode = options.mode || 'wasm';
 
     if (mode === 'wasm') {

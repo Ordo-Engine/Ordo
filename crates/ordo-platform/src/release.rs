@@ -18,7 +18,6 @@ use crate::{
         PERM_RELEASE_RESUME, PERM_RELEASE_ROLLBACK,
     },
     ruleset_draft::inline_sub_rules_with_manifest,
-    sync::SyncEvent,
     AppState,
 };
 use axum::{

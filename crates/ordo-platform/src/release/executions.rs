@@ -2787,21 +2787,23 @@ async fn publish_release_via_nats(
     let concepts = state.store.get_concepts("", project_id).await?;
     let normalized_ruleset = normalize_release_ruleset_json_with_concepts(ruleset_json, &concepts)?;
     let json_str = serde_json::to_string(&normalized_ruleset)?;
-    let event = SyncEvent::RulePut {
-        tenant_id: project_id.to_string(),
-        name: ruleset_name.to_string(),
-        ruleset_json: json_str,
-        version: version.to_string(),
-        release_execution_id: release_execution_id.map(str::to_string),
-        target_server_ids: target_server_ids.map(|ids| ids.to_vec()),
-    };
 
     let prefix = env
         .nats_subject_prefix
         .as_deref()
         .unwrap_or(&state.config.nats_subject_prefix);
 
-    publisher.publish_to(prefix, event).await
+    publisher
+        .publish_rule_put(
+            prefix,
+            project_id,
+            ruleset_name,
+            json_str,
+            version,
+            release_execution_id.map(str::to_string),
+            target_server_ids.map(|ids| ids.to_vec()),
+        )
+        .await
 }
 
 fn looks_like_engine_ruleset(ruleset: &JsonValue) -> bool {

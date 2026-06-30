@@ -23,6 +23,26 @@ variable "image" {
   default     = "ghcr.io/ordo-engine/ordo-platform:latest"
 }
 
+# GHCR pull credentials. The image is private (matching the engine image), so the
+# Docker driver needs a read:packages token. Pass via NOMAD_VAR_ghcr_token — never
+# commit a value. No default for the token so a missing one fails loudly.
+variable "ghcr_user" {
+  type    = string
+  default = "Pama-Lee"
+}
+
+variable "ghcr_token" {
+  type = string
+}
+
+# Pin to the node that runs Postgres + NATS + Traefik so all of those are reachable
+# on the same host (the nodes don't route to each other over their public IPs for
+# these ports). pama1 hosts the dependencies.
+variable "node_name" {
+  type    = string
+  default = "pama1"
+}
+
 variable "http_port" {
   type    = number
   default = 3001
@@ -71,6 +91,11 @@ job "ordo-platform" {
   group "platform" {
     count = 1
 
+    constraint {
+      attribute = "${attr.unique.hostname}"
+      value     = var.node_name
+    }
+
     network {
       mode = "host"
       port "http" {
@@ -114,9 +139,15 @@ job "ordo-platform" {
       driver = "docker"
 
       config {
-        image = var.image
-        ports = ["http"]
-        args  = ["--addr", "0.0.0.0:${var.http_port}"]
+        image        = var.image
+        network_mode = "host"
+        ports        = ["http"]
+        args         = ["--addr", "0.0.0.0:${var.http_port}"]
+
+        auth {
+          username = var.ghcr_user
+          password = var.ghcr_token
+        }
       }
 
       env {
@@ -130,7 +161,7 @@ job "ordo-platform" {
       }
 
       resources {
-        cpu    = 500
+        cpu    = 100
         memory = 512
       }
     }

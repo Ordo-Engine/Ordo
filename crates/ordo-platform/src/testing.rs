@@ -32,7 +32,7 @@ use ordo_core::{
     rule::{ExecutionOptions, RuleExecutor, RuleSet},
     trace::{ExecutionTrace, StepTrace, TraceConfig},
 };
-use ordo_protocol::StudioRuleSet;
+use ordo_studio_format::StudioRuleSet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -673,11 +673,12 @@ fn normalize_execution_ruleset_json(ruleset: &JsonValue) -> ApiResult<JsonValue>
         let studio: StudioRuleSet = serde_json::from_value(ruleset.clone()).map_err(|e| {
             PlatformError::bad_request(format!("Invalid studio ruleset payload: {}", e))
         })?;
-        let engine: RuleSet = studio
-            .try_into()
-            .map_err(|e: ordo_protocol::ConvertError| {
-                PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
-            })?;
+        let engine: RuleSet =
+            studio
+                .try_into()
+                .map_err(|e: ordo_studio_format::ConvertError| {
+                    PlatformError::bad_request(format!("Ruleset conversion failed: {}", e))
+                })?;
         return serde_json::to_value(&engine)
             .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)));
     }

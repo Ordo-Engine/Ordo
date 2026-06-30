@@ -34,7 +34,7 @@ Drafts are stored in Studio's natural format (camelCase, `steps` array, structur
 }
 ```
 
-At publish time, `ordo-protocol` (a Rust crate) converts to engine format before delivery. The frontend no longer maintains adapter conversion logic.
+At publish time, `ordo-studio-format` (a Rust crate) converts to engine format before delivery. The frontend no longer maintains adapter conversion logic.
 
 ## Optimistic Concurrency
 

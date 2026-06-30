@@ -14,6 +14,7 @@ export default {
     reject: '拒绝',
     confirmPublish: '发布这个规则集?',
     confirmDelete: '删除这个规则集?',
+    changedFiles: '已改动:',
   },
   common: {
     loading: '加载中...',

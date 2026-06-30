@@ -14,6 +14,7 @@ export default {
     reject: 'Reject',
     confirmPublish: 'Publish this ruleset?',
     confirmDelete: 'Delete this ruleset?',
+    changedFiles: 'Changed:',
   },
   common: {
     loading: 'Loading...',

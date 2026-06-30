@@ -29,8 +29,8 @@ const selectedModel = computed({
 const pendingTitle = computed(() => {
   const c = ai.pending?.call;
   if (!c) return '';
-  if (c.name === 'publish_ruleset') return t('ai.confirmPublish');
-  if (c.name === 'delete_ruleset') return t('ai.confirmDelete');
+  if (c.name === 'publish') return t('ai.confirmPublish');
+  if (c.name === 'delete_file') return t('ai.confirmDelete');
   return c.name;
 });
 
@@ -70,6 +70,11 @@ function submit() {
         <t-option v-for="o in modelOptions" :key="o.value" :value="o.value" :label="o.label" />
       </t-select>
       <span v-else class="ai-no-provider">{{ t('ai.noProvider') }}</span>
+    </div>
+
+    <div v-if="ai.touchedFiles.length" class="ai-changed">
+      <span class="ai-changed-label">{{ t('ai.changedFiles') }}</span>
+      <t-tag v-for="f in ai.touchedFiles" :key="f" size="small" variant="outline">{{ f }}</t-tag>
     </div>
 
     <div class="ai-messages">
@@ -163,6 +168,19 @@ function submit() {
 .ai-no-provider {
   font-size: 12px;
   color: var(--ordo-text-secondary, #888);
+}
+.ai-changed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--ordo-border, #e7e7e7);
+}
+.ai-changed-label {
+  font-size: 11px;
+  color: var(--ordo-text-secondary, #888);
+  margin-right: 4px;
 }
 .ai-messages {
   flex: 1;

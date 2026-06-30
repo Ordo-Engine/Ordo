@@ -14,6 +14,7 @@ export default {
     reject: '拒絕',
     confirmPublish: '發布這個規則集?',
     confirmDelete: '刪除這個規則集?',
+    changedFiles: '已變更:',
   },
   common: {
     loading: '載入中...',

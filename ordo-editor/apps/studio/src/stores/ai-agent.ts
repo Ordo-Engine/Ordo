@@ -1,32 +1,30 @@
 /**
- * AI rule assistant — the agentic loop.
+ * AI rule assistant — the agentic loop over the virtual project filesystem.
  *
- * The browser drives the loop: it sends the transcript + live editor context to
- * the server-side `/ai/chat` proxy, receives one assistant turn (text + tool
- * calls), executes the tool calls locally (reads project state, edits the open
- * ruleset on the canvas), feeds the results back, and repeats until the assistant
- * stops. Edits land live and are reversible (a per-turn snapshot powers "undo this
- * AI change"). High-risk tools (publish / delete) pause the loop for explicit user
- * approval.
+ * The browser drives the loop: it sends the transcript + a snapshot of the project
+ * (file tree + open file) to the server-side `/ai/chat` proxy, receives one assistant
+ * turn (text + tool calls), executes the file tools locally against `project-fs`
+ * (read/write/delete files, grep, validate, run tests), feeds the results back, and
+ * repeats until the assistant stops. Ruleset writes land live on the canvas and are
+ * reversible (a per-turn snapshot powers "undo this AI change"). High-risk tools
+ * (publish, deleting a ruleset file) pause the loop for explicit user approval.
  */
 import { defineStore } from 'pinia';
 import { ref, computed, toRaw } from 'vue';
 import type { RuleSet } from '@ordo-engine/editor-core';
-import { aiApi, rulesetDraftApi } from '@/api/platform-client';
-import { catalogApi } from '@/api/catalog-client';
+import { aiApi, rulesetDraftApi, testApi } from '@/api/platform-client';
 import type { AiChatMessage, AiProviderOption, AiToolCall } from '@/api/ai-types';
 import { useAuthStore } from './auth';
 import { useProjectStore } from './project';
+import * as fs from './project-fs';
 
-/** A high-risk tool whose names require explicit user approval before running. */
-const HIGH_RISK = new Set(['publish_ruleset', 'delete_ruleset']);
 /** Safety cap on tool-call rounds per user message, then we checkpoint and pause. */
 const MAX_ROUNDS = 12;
+const RULESET_RE = /^rulesets\/(.+)\.json$/;
 
 interface ToolActivity {
   name: string;
   ok: boolean;
-  detail?: string;
 }
 /** A rendered chat turn (what the sidebar shows). */
 export interface DisplayMessage {
@@ -38,6 +36,10 @@ export interface DisplayMessage {
 interface PendingConfirm {
   call: AiToolCall;
   resolve: (result: string) => void;
+}
+
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export const useAiStore = defineStore('ai', () => {
@@ -53,11 +55,11 @@ export const useAiStore = defineStore('ai', () => {
   const pending = ref<PendingConfirm | null>(null);
   /** Ruleset snapshot taken before the latest AI edits, for one-click undo. */
   const undoSnapshot = ref<{ name: string; ruleset: RuleSet } | null>(null);
+  /** Files the assistant has touched this session (for the sidebar's changed list). */
+  const touchedFiles = ref<string[]>([]);
 
-  // The normalized transcript sent to the model (separate from the display list).
   const transcript = ref<AiChatMessage[]>([]);
-
-  let ctx: { orgId: string; projectId: string } = { orgId: '', projectId: '' };
+  let ctx: fs.FsCtx = { orgId: '', projectId: '' };
 
   const ready = computed(() => !!provider.value && !!modelId.value);
   const canUndo = computed(() => undoSnapshot.value !== null);
@@ -72,7 +74,7 @@ export const useAiStore = defineStore('ai', () => {
         modelId.value = providers.value[0].models[0]?.id ?? '';
       }
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e);
+      error.value = msg(e);
     }
   }
 
@@ -84,17 +86,24 @@ export const useAiStore = defineStore('ai', () => {
   function reset() {
     messages.value = [];
     transcript.value = [];
+    touchedFiles.value = [];
     error.value = null;
     pending.value = null;
   }
 
-  /** Build the live context the server folds into the system prompt. */
-  function buildContext(): Record<string, unknown> {
+  /** A snapshot of the project the server folds into the system prompt. */
+  async function buildContext(): Promise<Record<string, unknown>> {
     const tab = project.activeTab;
+    let files: string[] = [];
+    try {
+      files = await fs.listFiles(ctx);
+    } catch {
+      // best-effort; the AI can also call list_files
+    }
     return {
-      ruleset: tab?.ruleset ?? null,
-      activeRulesetName: tab?.name ?? null,
-      otherRulesets: project.openTabs.map((t) => t.name).filter((n) => n !== tab?.name),
+      files,
+      openFile: tab ? `rulesets/${tab.name}.json` : null,
+      openFileContent: tab?.ruleset ?? null,
     };
   }
 
@@ -102,7 +111,6 @@ export const useAiStore = defineStore('ai', () => {
     if (!ready.value || running.value || !auth.token) return;
     const trimmed = text.trim();
     if (!trimmed) return;
-
     error.value = null;
     messages.value.push({ role: 'user', text: trimmed, tools: [] });
     transcript.value.push({ role: 'user', content: trimmed });
@@ -117,10 +125,9 @@ export const useAiStore = defineStore('ai', () => {
           provider: provider.value,
           model: modelId.value,
           messages: transcript.value,
-          context: buildContext(),
+          context: await buildContext(),
         });
 
-        // Record the assistant turn (display + transcript).
         const display: DisplayMessage = { role: 'assistant', text: resp.content, tools: [] };
         messages.value.push(display);
         transcript.value.push({
@@ -129,15 +136,12 @@ export const useAiStore = defineStore('ai', () => {
           tool_calls: resp.tool_calls,
         });
 
-        if (resp.stop_reason !== 'tool_use' || resp.tool_calls.length === 0) {
-          return; // assistant is done
-        }
+        if (resp.stop_reason !== 'tool_use' || resp.tool_calls.length === 0) return;
 
-        // Execute every tool call, collect results, feed back as one tool message.
         const results = [];
         for (const call of resp.tool_calls) {
           const r = await executeTool(call);
-          display.tools.push({ name: call.name, ok: !r.is_error, detail: r.detail });
+          display.tools.push({ name: toolLabel(call), ok: !r.is_error });
           results.push({ tool_call_id: call.id, content: r.content, is_error: r.is_error });
         }
         transcript.value.push({ role: 'tool', tool_results: results });
@@ -148,105 +152,102 @@ export const useAiStore = defineStore('ai', () => {
         tools: [],
       });
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e);
+      error.value = msg(e);
     } finally {
       running.value = false;
     }
   }
 
-  /** Execute one tool call locally. Returns the result string for the model. */
-  async function executeTool(
-    call: AiToolCall
-  ): Promise<{ content: string; is_error: boolean; detail?: string }> {
+  function isHighRisk(call: AiToolCall): boolean {
+    if (call.name === 'publish') return true;
+    if (call.name === 'delete_file') return RULESET_RE.test(String(call.input?.path ?? ''));
+    return false;
+  }
+
+  async function executeTool(call: AiToolCall): Promise<{ content: string; is_error: boolean }> {
     try {
-      if (HIGH_RISK.has(call.name)) {
-        // Pause for explicit user approval (resolved by approve/reject).
+      if (isHighRisk(call)) {
         const content = await new Promise<string>((resolve) => {
           pending.value = { call, resolve };
         });
-        return { content, is_error: false, detail: 'awaited confirmation' };
+        return { content, is_error: false };
       }
-
-      const out = await runTool(call);
-      return { content: out, is_error: false };
+      return { content: await runTool(call), is_error: false };
     } catch (e: unknown) {
-      return { content: e instanceof Error ? e.message : String(e), is_error: true };
+      return { content: msg(e), is_error: true };
     }
   }
 
-  /** The actual read/edit dispatch (non-high-risk, or post-approval). */
+  /** Dispatch a (non-high-risk, or approved) tool call to the project filesystem. */
   async function runTool(call: AiToolCall): Promise<string> {
     const input = call.input ?? {};
-    const tab = project.activeTab;
-    const token = auth.token!;
-
     switch (call.name) {
-      // ── reads ──
-      case 'get_ruleset':
-        return JSON.stringify(tab?.ruleset ?? null);
-      case 'list_rulesets': {
-        const metas = await rulesetDraftApi.list(token, ctx.orgId, ctx.projectId);
-        return JSON.stringify(metas.map((m) => m.name));
+      case 'list_files':
+        return JSON.stringify(await fs.listFiles(ctx));
+      case 'read_file':
+        return fs.readFile(ctx, String(input.path));
+      case 'write_file': {
+        const path = String(input.path);
+        snapshotForUndo(path);
+        const out = await fs.writeFile(ctx, path, String(input.content));
+        markTouched(path);
+        return out;
       }
-      case 'get_other_ruleset': {
-        const got = await rulesetDraftApi.get(token, ctx.orgId, ctx.projectId, String(input.name));
-        return JSON.stringify(got.draft);
+      case 'delete_file': {
+        const out = await fs.deleteFile(ctx, String(input.path));
+        markTouched(String(input.path));
+        return out;
       }
-      case 'list_facts':
-        return JSON.stringify(await catalogApi.listFacts(token, ctx.projectId));
-      case 'list_concepts':
-        return JSON.stringify(await catalogApi.listConcepts(token, ctx.projectId));
-      case 'validate_ruleset': {
-        if (!tab) return 'No ruleset is open.';
-        try {
-          await rulesetDraftApi.convert(token, ctx.orgId, ctx.projectId, tab.name, tab.ruleset);
-          return 'valid';
-        } catch (e: unknown) {
-          return `invalid: ${e instanceof Error ? e.message : String(e)}`;
-        }
-      }
-
-      // ── edits (current ruleset) ──
-      case 'update_ruleset_config':
-      case 'set_start_step':
-      case 'add_step':
-      case 'update_step':
-      case 'remove_step':
-      case 'add_branch':
-      case 'update_branch':
-      case 'remove_branch':
-      case 'replace_ruleset': {
-        if (!tab) return 'No ruleset is open to edit.';
-        snapshotForUndo(tab.name, tab.ruleset);
-        const next = applyEdit(tab.ruleset, call.name, input);
-        project.setTabRuleset(tab.name, next, true);
-        return 'ok';
-      }
-
-      // ── catalog edits ──
-      case 'upsert_fact':
-        await catalogApi.upsertFact(token, ctx.projectId, input.fact as never);
-        return 'ok';
-      case 'upsert_concept':
-        await catalogApi.upsertConcept(token, ctx.projectId, input.concept as never);
-        return 'ok';
-
-      // ── high-risk (only reached post-approval) ──
-      case 'publish_ruleset': {
-        if (!tab) return 'No ruleset is open to publish.';
-        const dep = await rulesetDraftApi.publish(token, ctx.orgId, ctx.projectId, tab.name, {
-          environment_id: String(input.environmentId),
-          release_note: input.releaseNote ? String(input.releaseNote) : undefined,
-        });
-        return `published (deployment ${dep.id}, status ${dep.status})`;
-      }
-      case 'delete_ruleset':
-        await rulesetDraftApi.delete(token, ctx.orgId, ctx.projectId, String(input.name));
-        return 'deleted';
-
+      case 'grep':
+        return fs.grepFiles(ctx, String(input.query));
+      case 'validate':
+        return validateRuleset(String(input.path));
+      case 'run_tests':
+        return runRulesetTests(String(input.ruleset));
+      case 'publish':
+        return publishRuleset(
+          String(input.ruleset),
+          String(input.environmentId),
+          input.releaseNote
+        );
       default:
         return `Unknown tool: ${call.name}`;
     }
+  }
+
+  async function validateRuleset(path: string): Promise<string> {
+    const m = path.match(RULESET_RE);
+    if (!m) return 'validate expects a rulesets/<name>.json path.';
+    const ruleset = JSON.parse(await fs.readFile(ctx, path)) as RuleSet;
+    try {
+      await rulesetDraftApi.convert(auth.token!, ctx.orgId, ctx.projectId, m[1], ruleset);
+      return 'valid';
+    } catch (e: unknown) {
+      return `invalid: ${msg(e)}`;
+    }
+  }
+
+  async function runRulesetTests(ruleset: string): Promise<string> {
+    const results = await testApi.runAll(auth.token!, ctx.projectId, ruleset);
+    const passed = results.filter((r) => r.passed).length;
+    return (
+      `${passed}/${results.length} passed\n` +
+      JSON.stringify(
+        results.map((r) => ({ test: r.test_name, passed: r.passed, failures: r.failures }))
+      )
+    );
+  }
+
+  async function publishRuleset(
+    ruleset: string,
+    environmentId: string,
+    note: unknown
+  ): Promise<string> {
+    const dep = await rulesetDraftApi.publish(auth.token!, ctx.orgId, ctx.projectId, ruleset, {
+      environment_id: environmentId,
+      release_note: note ? String(note) : undefined,
+    });
+    return `published ${ruleset} (deployment ${dep.id}, status ${dep.status})`;
   }
 
   // ── high-risk approval ──
@@ -255,8 +256,13 @@ export const useAiStore = defineStore('ai', () => {
     if (!p) return;
     pending.value = null;
     runTool(p.call)
-      .then((out) => p.resolve(out))
-      .catch((e) => p.resolve(`error: ${e instanceof Error ? e.message : String(e)}`));
+      .then((out) => {
+        if (p.call.name === 'delete_file' || p.call.name === 'write_file') {
+          markTouched(String(p.call.input?.path ?? ''));
+        }
+        p.resolve(out);
+      })
+      .catch((e) => p.resolve(`error: ${msg(e)}`));
   }
   function rejectPending() {
     const p = pending.value;
@@ -265,16 +271,27 @@ export const useAiStore = defineStore('ai', () => {
     p.resolve('The user declined this action.');
   }
 
-  // ── per-turn undo ──
-  function snapshotForUndo(name: string, ruleset: RuleSet) {
-    if (undoSnapshot.value && undoSnapshot.value.name === name) return; // keep earliest in a turn
-    undoSnapshot.value = { name, ruleset: structuredClone(toRaw(ruleset)) };
+  // ── changed-file tracking + per-turn undo ──
+  function markTouched(path: string) {
+    if (path && !touchedFiles.value.includes(path)) touchedFiles.value.push(path);
   }
-  function undoLastChange() {
+  function snapshotForUndo(path: string) {
+    const m = path.match(RULESET_RE);
+    if (!m) return;
+    const name = m[1];
+    if (undoSnapshot.value && undoSnapshot.value.name === name) return; // keep earliest in a turn
+    const tab = project.openTabs.find((t) => t.name === name);
+    if (tab) undoSnapshot.value = { name, ruleset: structuredClone(toRaw(tab.ruleset)) };
+  }
+  async function undoLastChange() {
     const snap = undoSnapshot.value;
     if (!snap) return;
-    project.setTabRuleset(snap.name, snap.ruleset, true);
     undoSnapshot.value = null;
+    try {
+      await fs.writeFile(ctx, `rulesets/${snap.name}.json`, JSON.stringify(snap.ruleset));
+    } catch (e: unknown) {
+      error.value = msg(e);
+    }
   }
 
   return {
@@ -285,6 +302,7 @@ export const useAiStore = defineStore('ai', () => {
     running,
     error,
     pending,
+    touchedFiles,
     ready,
     canUndo,
     init,
@@ -297,88 +315,11 @@ export const useAiStore = defineStore('ai', () => {
   };
 });
 
-/** Apply a structured edit to a studio RuleSet and return a new ruleset. */
-function applyEdit(current: RuleSet, tool: string, input: Record<string, unknown>): RuleSet {
-  const rs = structuredClone(toRaw(current)) as unknown as {
-    config: Record<string, unknown>;
-    startStepId?: string;
-    steps: Array<Record<string, unknown>>;
-  };
-  rs.steps = rs.steps ?? [];
-
-  const findStep = (id: string) => rs.steps.find((s) => s.id === id);
-
-  switch (tool) {
-    case 'replace_ruleset':
-      return structuredClone(input.ruleset) as RuleSet;
-
-    case 'update_ruleset_config':
-      rs.config = { ...rs.config, ...input };
-      return rs as unknown as RuleSet;
-
-    case 'set_start_step':
-      rs.startStepId = String(input.stepId);
-      return rs as unknown as RuleSet;
-
-    case 'add_step': {
-      const step = input.step as Record<string, unknown>;
-      rs.steps.push(step);
-      if (input.setAsStart) rs.startStepId = String(step.id);
-      return rs as unknown as RuleSet;
-    }
-
-    case 'update_step': {
-      const s = findStep(String(input.stepId));
-      if (s) Object.assign(s, input.updates as object, { id: s.id, type: s.type });
-      return rs as unknown as RuleSet;
-    }
-
-    case 'remove_step': {
-      const id = String(input.stepId);
-      rs.steps = rs.steps.filter((s) => s.id !== id);
-      // Clean dangling references.
-      for (const s of rs.steps) {
-        if (Array.isArray(s.branches)) {
-          s.branches = (s.branches as Array<Record<string, unknown>>).filter(
-            (b) => b.nextStepId !== id
-          );
-        }
-        if (s.defaultNextStepId === id) s.defaultNextStepId = undefined;
-        if (s.nextStepId === id) s.nextStepId = undefined;
-      }
-      if (rs.startStepId === id) rs.startStepId = rs.steps[0]?.id as string | undefined;
-      return rs as unknown as RuleSet;
-    }
-
-    case 'add_branch': {
-      const s = findStep(String(input.stepId));
-      if (s) {
-        const branches = (s.branches as Array<unknown>) ?? [];
-        branches.push(input.branch);
-        s.branches = branches;
-      }
-      return rs as unknown as RuleSet;
-    }
-
-    case 'update_branch': {
-      const s = findStep(String(input.stepId));
-      const branches = (s?.branches as Array<Record<string, unknown>>) ?? [];
-      const b = branches.find((x) => x.id === input.branchId);
-      if (b) Object.assign(b, input.updates as object, { id: b.id });
-      return rs as unknown as RuleSet;
-    }
-
-    case 'remove_branch': {
-      const s = findStep(String(input.stepId));
-      if (s && Array.isArray(s.branches)) {
-        s.branches = (s.branches as Array<Record<string, unknown>>).filter(
-          (b) => b.id !== input.branchId
-        );
-      }
-      return rs as unknown as RuleSet;
-    }
-
-    default:
-      return rs as unknown as RuleSet;
-  }
+/** Short label for a tool-call badge (e.g. "write rulesets/x.json"). */
+function toolLabel(call: AiToolCall): string {
+  const path = call.input?.path;
+  if (typeof path === 'string') return `${call.name} ${path}`;
+  const ruleset = call.input?.ruleset;
+  if (typeof ruleset === 'string') return `${call.name} ${ruleset}`;
+  return call.name;
 }

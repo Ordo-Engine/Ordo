@@ -9,7 +9,9 @@
 //! send its natural format and the backend handles the rest.
 
 pub mod convert;
+pub mod convert_reverse;
 pub mod types;
 
 pub use convert::ConvertError;
+pub use convert_reverse::engine_to_studio;
 pub use types::*;

@@ -648,6 +648,13 @@ pub(crate) struct InlineSubRuleSnapshot {
     pub dependencies: Vec<ReleaseSubRuleDependency>,
 }
 
+/// A draft is in engine format (vs studio format) when its `steps` is a map keyed
+/// by step id rather than an array. Drafts seeded from a template are stored this
+/// way; studio-saved drafts use an array. Used to route conversion correctly.
+pub(crate) fn draft_is_engine_format(draft: &serde_json::Value) -> bool {
+    draft.get("steps").map(|s| s.is_object()).unwrap_or(false)
+}
+
 pub(crate) async fn inline_sub_rules_with_manifest(
     state: &AppState,
     org_id: &str,
@@ -662,6 +669,15 @@ pub(crate) async fn inline_sub_rules_with_manifest(
 
     const MAX_DEPTH: usize = 8;
     const MAX_REFS: usize = 64;
+
+    // Engine-format drafts (e.g. seeded from a template — steps as a map) have no
+    // studio `subRules` graph to inline; pass them through untouched.
+    if draft_is_engine_format(&draft) {
+        return Ok(InlineSubRuleSnapshot {
+            draft,
+            dependencies: Vec::new(),
+        });
+    }
 
     let mut ruleset: StudioRuleSet = serde_json::from_value(draft).map_err(|e| {
         PlatformError::bad_request(format!("Draft is not valid studio format: {}", e))
@@ -1564,6 +1580,19 @@ pub(crate) fn studio_draft_to_engine_json_with_concepts(
     draft: &serde_json::Value,
     concepts: &[ConceptDefinition],
 ) -> ApiResult<serde_json::Value> {
+    // Drafts seeded from a template are stored in engine format (steps as a map),
+    // while studio-saved drafts are studio format (steps as an array). If the draft
+    // is already engine format, parse it directly instead of through the studio
+    // converter (which would fail with "expected a sequence").
+    if draft_is_engine_format(draft) {
+        let mut engine: RuleSet = serde_json::from_value(draft.clone()).map_err(|e| {
+            PlatformError::bad_request(format!("Draft is not valid engine format: {}", e))
+        })?;
+        materialize_concepts_into_engine_ruleset(&mut engine, concepts)?;
+        return serde_json::to_value(&engine)
+            .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)));
+    }
+
     let mut studio: StudioRuleSet = serde_json::from_value(draft.clone()).map_err(|e| {
         PlatformError::bad_request(format!("Draft is not valid studio format: {}", e))
     })?;

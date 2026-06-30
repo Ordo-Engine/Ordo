@@ -104,7 +104,7 @@ impl OrdoGrpcServiceImpl {
     }
 }
 
-use ordo_proto::{
+use ordo_grpc::{
     health_response, ordo_service_server::OrdoService, BatchExecuteOptions, BatchExecuteRequest,
     BatchExecuteResponse, BatchExecuteResultItem, BatchExecuteSummary, EvalRequest, EvalResponse,
     ExecuteRequest, ExecuteResponse, ExecutionTrace, GetRuleSetRequest, GetRuleSetResponse,
@@ -392,7 +392,7 @@ impl OrdoService for OrdoGrpcServiceImpl {
 #[allow(dead_code)]
 pub async fn wait_for_server(addr: &str) {
     for _ in 0..50 {
-        if ordo_proto::ordo_service_client::OrdoServiceClient::connect(addr.to_string())
+        if ordo_grpc::ordo_service_client::OrdoServiceClient::connect(addr.to_string())
             .await
             .is_ok()
         {

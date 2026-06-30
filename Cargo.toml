@@ -4,7 +4,7 @@ members = [
     "crates/ordo-core",
     "crates/ordo-cli",
     "crates/ordo-derive",
-    "crates/ordo-proto",
+    "crates/ordo-grpc",
     "crates/ordo-server",
     "crates/ordo-platform",
     "crates/ordo-studio-format",

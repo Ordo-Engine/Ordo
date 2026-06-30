@@ -2336,6 +2336,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordo-grpc"
+version = "0.4.2"
+dependencies = [
+ "prost",
+ "tonic 0.10.2",
+ "tonic-build",
+]
+
+[[package]]
 name = "ordo-platform"
 version = "0.4.2"
 dependencies = [
@@ -2374,15 +2383,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ordo-proto"
-version = "0.4.2"
-dependencies = [
- "prost",
- "tonic 0.10.2",
- "tonic-build",
-]
-
-[[package]]
 name = "ordo-server"
 version = "0.4.2"
 dependencies = [
@@ -2407,7 +2407,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "ordo-core",
- "ordo-proto",
+ "ordo-grpc",
  "parking_lot",
  "prometheus",
  "prost",

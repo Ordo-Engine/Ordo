@@ -19,7 +19,7 @@ use std::time::Instant;
 use futures::future::join_all;
 use ordo_core::prelude::*;
 use ordo_core::rule::{ExecutionOptions, RuleExecutor};
-use ordo_proto::{
+use ordo_grpc::{
     health_response, ordo_service_server::OrdoService, BatchExecuteOptions, BatchExecuteRequest,
     BatchExecuteResponse, BatchExecuteResultItem, BatchExecuteSummary, EvalRequest, EvalResponse,
     ExecuteRequest, ExecuteResponse, ExecutionTrace, GetRuleSetRequest, GetRuleSetResponse,

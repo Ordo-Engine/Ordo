@@ -84,6 +84,19 @@ variable "public_host" {
   default = "api.ordoengine.com"
 }
 
+# Demo/seed controls. Default off (locked down). Flip to "true" temporarily to
+# self-register the first account and create a root org, then redeploy with the
+# defaults to lock the instance back down.
+variable "allow_registration" {
+  type    = string
+  default = "false"
+}
+
+variable "allow_org_creation" {
+  type    = string
+  default = "false"
+}
+
 job "ordo-platform" {
   datacenters = ["dc1"]
   type        = "service"
@@ -157,6 +170,8 @@ job "ordo-platform" {
         ORDO_NATS_SUBJECT_PREFIX = var.nats_subject_prefix
         ORDO_JWT_SECRET          = var.jwt_secret
         ORDO_PLATFORM_CORS_ORIGINS = var.cors_origins
+        ORDO_ALLOW_REGISTRATION  = var.allow_registration
+        ORDO_ALLOW_ORG_CREATION  = var.allow_org_creation
         ORDO_LOG_LEVEL           = "info"
       }
 

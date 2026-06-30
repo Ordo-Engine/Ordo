@@ -187,6 +187,10 @@ export const Step = StepFactory;
 export const Condition = ConditionFactory;
 export const Expr = ExprFactory;
 
+// WASM-backed studio↔engine conversion (single source of truth). `initWasm` must
+// be awaited once at app startup before the synchronous converters are used.
+export { initWasm, isWasmReady, convertFromEngineFormat } from '@ordo-engine/editor-core';
+
 // Export factory objects for decision tables
 export { DecisionTableFactory };
 export const DecisionTableHelper = DecisionTableFactory;

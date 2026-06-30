@@ -60,7 +60,7 @@ pub struct ProjectRuleset {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveDraftRequest {
-    pub ruleset: ordo_protocol::StudioRuleSet,
+    pub ruleset: ordo_studio_format::StudioRuleSet,
     pub expected_seq: i64,
 }
 

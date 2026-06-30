@@ -2353,7 +2353,7 @@ dependencies = [
  "jsonwebtoken",
  "lazy_static",
  "ordo-core",
- "ordo-protocol",
+ "ordo-studio-format",
  "prometheus",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -2380,17 +2380,6 @@ dependencies = [
  "prost",
  "tonic 0.10.2",
  "tonic-build",
-]
-
-[[package]]
-name = "ordo-protocol"
-version = "0.1.0"
-dependencies = [
- "hashbrown 0.14.5",
- "ordo-core",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2444,12 +2433,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordo-studio-format"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.14.5",
+ "ordo-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ordo-wasm"
 version = "0.4.2"
 dependencies = [
  "console_error_panic_hook",
  "ordo-core",
- "ordo-protocol",
+ "ordo-studio-format",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

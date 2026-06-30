@@ -15,6 +15,36 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+/// Convert a studio-format ruleset JSON into engine-format ruleset JSON.
+///
+/// Single source of truth for studio→engine conversion in the browser (replaces
+/// the TypeScript `convertToEngineFormat` adapter).
+#[wasm_bindgen]
+pub fn studio_to_engine_json(studio_json: &str) -> std::result::Result<String, JsValue> {
+    let studio: ordo_protocol::StudioRuleSet = serde_json::from_str(studio_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse studio ruleset: {}", e)))?;
+    let engine: RuleSet = studio
+        .try_into()
+        .map_err(|e: ordo_protocol::ConvertError| {
+            JsValue::from_str(&format!("Studio→engine conversion failed: {}", e))
+        })?;
+    serde_json::to_string(&engine)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize engine ruleset: {}", e)))
+}
+
+/// Convert an engine-format ruleset JSON into studio-format ruleset JSON.
+///
+/// Single source of truth for engine→studio conversion in the browser (replaces
+/// the TypeScript `convertFromEngineFormat` reverse-adapter).
+#[wasm_bindgen]
+pub fn engine_to_studio_json(engine_json: &str) -> std::result::Result<String, JsValue> {
+    let engine: RuleSet = serde_json::from_str(engine_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse engine ruleset: {}", e)))?;
+    let studio = ordo_protocol::engine_to_studio(&engine);
+    serde_json::to_string(&studio)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize studio ruleset: {}", e)))
+}
+
 /// Execution result returned to JavaScript
 #[derive(Serialize, Deserialize)]
 pub struct WasmExecutionResult {

@@ -35,6 +35,14 @@ export function analyze_ruleset_jit(ruleset_json: string): string;
 export function compile_ruleset(ruleset_json: string): Uint8Array;
 
 /**
+ * Convert an engine-format ruleset JSON into studio-format ruleset JSON.
+ *
+ * Single source of truth for engine→studio conversion in the browser (replaces
+ * the TypeScript `convertFromEngineFormat` reverse-adapter).
+ */
+export function engine_to_studio_json(engine_json: string): string;
+
+/**
  * Evaluate an expression with given context
  *
  * # Arguments
@@ -89,6 +97,14 @@ export function get_compiled_ruleset_info(compiled_bytes: Uint8Array): string;
 export function init(): void;
 
 /**
+ * Convert a studio-format ruleset JSON into engine-format ruleset JSON.
+ *
+ * Single source of truth for studio→engine conversion in the browser (replaces
+ * the TypeScript `convertToEngineFormat` adapter).
+ */
+export function studio_to_engine_json(studio_json: string): string;
+
+/**
  * Validate a ruleset
  *
  * # Arguments
@@ -106,10 +122,12 @@ export interface InitOutput {
   readonly analyze_jit_compatibility: (a: number, b: number) => [number, number, number, number];
   readonly analyze_ruleset_jit: (a: number, b: number) => [number, number, number, number];
   readonly compile_ruleset: (a: number, b: number) => [number, number, number, number];
+  readonly engine_to_studio_json: (a: number, b: number) => [number, number, number, number];
   readonly eval_expression: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly execute_compiled_ruleset: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly execute_ruleset: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly get_compiled_ruleset_info: (a: number, b: number) => [number, number, number, number];
+  readonly studio_to_engine_json: (a: number, b: number) => [number, number, number, number];
   readonly validate_ruleset: (a: number, b: number) => [number, number, number, number];
   readonly init: () => void;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;

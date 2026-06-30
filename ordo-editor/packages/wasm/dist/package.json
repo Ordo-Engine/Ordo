@@ -1,0 +1,20 @@
+{
+  "name": "ordo-wasm",
+  "type": "module",
+  "collaborators": [
+    "Ordo Team"
+  ],
+  "description": "WebAssembly bindings for Ordo Rule Engine",
+  "version": "0.4.2",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "ordo_wasm_bg.wasm",
+    "ordo_wasm.js",
+    "ordo_wasm.d.ts"
+  ],
+  "main": "ordo_wasm.js",
+  "types": "ordo_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

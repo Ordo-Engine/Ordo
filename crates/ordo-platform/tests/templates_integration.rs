@@ -8,6 +8,47 @@
 use ordo_core::rule::{RuleExecutor, RuleSet};
 use ordo_platform::template::TemplateStore;
 
+/// Every shipped template's engine-format ruleset.json must convert to a valid
+/// *studio* draft (steps as an array, startStepId set) and round-trip back to a
+/// compilable engine ruleset. This mirrors what `install_template_detail` does
+/// when seeding a draft — drafts are canonical studio format (PR-D).
+#[test]
+fn templates_convert_to_studio_drafts_and_round_trip() {
+    for tpl in ["ecommerce-coupon", "loan-approval"] {
+        let path = format!("templates/{tpl}/ruleset.json");
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        let engine = RuleSet::from_json(&text).expect("engine ruleset parses");
+
+        // engine → studio (what the draft is stored as)
+        let studio = ordo_studio_format::engine_to_studio(&engine);
+        let studio_json = serde_json::to_value(&studio).expect("studio serializes");
+        assert!(
+            studio_json["steps"].is_array(),
+            "{tpl}: studio draft steps must be an array (got {:?})",
+            studio_json["steps"]
+        );
+        assert!(
+            studio_json["startStepId"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty()),
+            "{tpl}: studio draft must have a non-empty startStepId"
+        );
+        assert!(
+            studio_json["config"]["entry_step"].is_null(),
+            "{tpl}: studio draft must not carry the engine 'entry_step' key"
+        );
+
+        // studio → engine round-trips and compiles (every condition stays valid).
+        let mut back: RuleSet = studio.try_into().expect("studio converts back to engine");
+        assert_eq!(back.config.entry_step, engine.config.entry_step);
+        assert_eq!(back.steps.len(), engine.steps.len());
+        for step in back.steps.values_mut() {
+            step.compile()
+                .expect("every round-tripped condition compiles");
+        }
+    }
+}
+
 #[test]
 fn ecommerce_coupon_ruleset_parses_with_ordo_core() {
     // The tests binary runs from the crate root, so this is a relative path.

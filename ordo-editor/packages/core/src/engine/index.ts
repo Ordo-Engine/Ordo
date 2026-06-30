@@ -4,6 +4,5 @@
  */
 
 export * from './types';
-export * from './adapter';
-export * from './reverse-adapter';
+export * from './wasm';
 export * from './executor';

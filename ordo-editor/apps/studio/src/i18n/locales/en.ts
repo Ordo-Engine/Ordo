@@ -1098,6 +1098,7 @@ export default {
     redeploySuccess: 'Redeployed successfully',
     noDeployments: 'No deployments yet',
     statusQueued: 'Queued',
+    statusDispatched: 'Dispatching',
     statusSuccess: 'Success',
     statusFailed: 'Failed',
   },

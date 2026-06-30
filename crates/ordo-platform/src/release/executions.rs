@@ -415,18 +415,12 @@ pub async fn execute_release_request(
             .ok_or_else(|| PlatformError::not_found("Bound server not found"))?;
         bound_servers.push(server);
     }
-    let strategy = release.request_snapshot.rollout_strategy.clone();
-    let total_instances = bound_servers.len();
-    let batch_size = compute_batch_size(&strategy, total_instances);
-    let total_batches = total_instances.div_ceil(batch_size);
     let executor = state
         .store
         .get_user(&claims.sub)
         .await
         .map_err(PlatformError::Internal)?;
     let actor = user_history_actor(&claims, executor.as_ref());
-
-    let execution_id = Uuid::new_v4().to_string();
 
     set_release_request_status_with_history(
         &state,
@@ -441,6 +435,34 @@ pub async fn execute_release_request(
     )
     .await
     .map_err(PlatformError::Internal)?;
+
+    let execution =
+        enqueue_release_execution(&state, &release, &env, &bound_servers, &actor, &claims.sub)
+            .await
+            .map_err(PlatformError::Internal)?;
+
+    Ok(Json(execution))
+}
+
+/// Build the per-server instance set + initial history and write them with the
+/// execution in a single transaction, leaving it `RollingOut` for the worker to
+/// claim. Shared by the governed `execute_release_request` path and the direct
+/// publish path (`create_publish_execution`). It does NOT transition the request
+/// status — the caller owns that (direct publish mints its internal request already
+/// in the right state).
+pub(crate) async fn enqueue_release_execution(
+    state: &AppState,
+    release: &ReleaseRequest,
+    env: &crate::models::ProjectEnvironment,
+    bound_servers: &[crate::models::ServerNode],
+    actor: &ReleaseHistoryActor,
+    triggered_by: &str,
+) -> anyhow::Result<ReleaseExecution> {
+    let strategy = release.request_snapshot.rollout_strategy.clone();
+    let total_instances = bound_servers.len();
+    let batch_size = compute_batch_size(&strategy, total_instances);
+    let total_batches = total_instances.div_ceil(batch_size);
+    let execution_id = Uuid::new_v4().to_string();
 
     let current_version = release
         .version_diff
@@ -552,16 +574,15 @@ pub async fn execute_release_request(
             0,
             total_batches as i32,
             &strategy,
-            Some(&claims.sub),
+            Some(triggered_by),
             &instances,
             &history,
         )
-        .await
-        .map_err(PlatformError::Internal)?;
+        .await?;
 
     crate::metrics::record_release_execution_started();
 
-    Ok(Json(execution))
+    Ok(execution)
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +608,10 @@ struct RollingDeploymentContext {
     auto_rollback: bool,
     rollback_version: Option<String>,
     release_note: Option<String>,
+    /// Set when this execution was synthesized by a direct publish — the id of the
+    /// `RulesetDeployment` row created up front (status `Dispatched`) that the worker
+    /// flips to `Success`/`Failed` instead of inserting a new deployment row.
+    publish_deployment_id: Option<String>,
 }
 
 pub async fn run_release_worker_loop(
@@ -782,6 +807,7 @@ async fn build_rolling_context(
             .clone()
             .or_else(|| release.rollback_version.clone()),
         release_note: release.release_note,
+        publish_deployment_id: release.request_snapshot.publish_deployment_id.clone(),
     })
 }
 
@@ -899,6 +925,7 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
         auto_rollback,
         rollback_version,
         release_note,
+        publish_deployment_id,
     } = ctx;
 
     let batch_size = compute_batch_size(&strategy, instances.len());
@@ -1309,6 +1336,15 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
             error!(execution_id, "Failed to mark release request Failed: {e}");
         }
 
+        // A direct publish's deployment row (created `Dispatched`) settles to `Failed`
+        // so studio's poll reflects it. Direct publishes never auto-rollback.
+        if let Some(deployment_id) = &publish_deployment_id {
+            let _ = state
+                .store
+                .update_deployment_status(deployment_id, DeploymentStatus::Failed)
+                .await;
+        }
+
         // Auto-rollback to previous version if configured
         if auto_rollback {
             if let Some(rb_version) = &rollback_version {
@@ -1372,20 +1408,30 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
         error!(execution_id, "Failed to mark ruleset published: {e}");
     }
 
-    let deployment = RulesetDeployment {
-        id: Uuid::new_v4().to_string(),
-        project_id: project_id.clone(),
-        environment_id: env.id.clone(),
-        environment_name: Some(env.name.clone()),
-        ruleset_name: ruleset_name.clone(),
-        version: version.clone(),
-        release_note: release_note.clone(),
-        snapshot: draft.clone(),
-        deployed_at: Utc::now(),
-        deployed_by: Some(deployed_by.clone()),
-        status: DeploymentStatus::Success,
-    };
-    let _ = state.store.create_deployment(&deployment).await;
+    // A direct publish created its deployment row up front (status `Dispatched`);
+    // flip that same row to `Success` so studio's poll sees it settle. A governed UI
+    // release has no pre-created row, so insert one.
+    if let Some(deployment_id) = &publish_deployment_id {
+        let _ = state
+            .store
+            .update_deployment_status(deployment_id, DeploymentStatus::Success)
+            .await;
+    } else {
+        let deployment = RulesetDeployment {
+            id: Uuid::new_v4().to_string(),
+            project_id: project_id.clone(),
+            environment_id: env.id.clone(),
+            environment_name: Some(env.name.clone()),
+            ruleset_name: ruleset_name.clone(),
+            version: version.clone(),
+            release_note: release_note.clone(),
+            snapshot: draft.clone(),
+            deployed_at: Utc::now(),
+            deployed_by: Some(deployed_by.clone()),
+            status: DeploymentStatus::Success,
+        };
+        let _ = state.store.create_deployment(&deployment).await;
+    }
 
     let entry = RulesetHistoryEntry {
         id: Uuid::new_v4().to_string(),

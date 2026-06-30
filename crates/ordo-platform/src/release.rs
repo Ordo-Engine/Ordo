@@ -440,6 +440,8 @@ pub use executions::{
     list_release_execution_events, pause_release_execution, resume_release_execution,
     rollback_release_execution, run_release_worker_loop, run_release_worker_once,
 };
+// Crate-internal: the direct-publish path reuses this to enqueue its synthesized release.
+pub(crate) use executions::enqueue_release_execution;
 pub use policies::{
     create_release_policy, delete_release_policy, list_release_policies, update_release_policy,
 };

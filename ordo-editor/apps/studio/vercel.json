@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
-  "buildCommand": "cd ../.. && pnpm --filter @ordo-engine/wasm build && pnpm --filter @ordo-engine/studio build",
+  "buildCommand": "curl https://sh.rustup.rs -sSf | sh -s -- -y --target wasm32-unknown-unknown && . \"$HOME/.cargo/env\" && cargo install wasm-pack --locked && cd ../.. && pnpm --filter @ordo-engine/studio build",
   "outputDirectory": "dist",
   "rewrites": [
     {

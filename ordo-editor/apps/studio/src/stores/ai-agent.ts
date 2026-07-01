@@ -41,6 +41,14 @@ interface PendingConfirm {
   call: AiToolCall;
   resolve: (result: string) => void;
 }
+/** An `ask_question` tool call awaiting the user's choice. */
+export interface PendingQuestion {
+  question: string;
+  options: string[];
+  resolve: (answer: string) => void;
+}
+
+export type AiMode = 'agent' | 'ask';
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -57,10 +65,19 @@ export const useAiStore = defineStore('ai', () => {
   const running = ref(false);
   const error = ref<string | null>(null);
   const pending = ref<PendingConfirm | null>(null);
+  /** An `ask_question` tool call awaiting the user's answer. */
+  const pendingQuestion = ref<PendingQuestion | null>(null);
+  /** "agent" = full tools; "ask" = read-only Q&A. */
+  const mode = ref<AiMode>('agent');
+  /** High-risk tools the user chose to always allow this session. */
+  const allowlist = ref<Set<string>>(new Set());
   /** Ruleset snapshot taken before the latest AI edits, for one-click undo. */
   const undoSnapshot = ref<{ name: string; ruleset: RuleSet } | null>(null);
   /** Files the assistant has touched this session (for the sidebar's changed list). */
   const touchedFiles = ref<string[]>([]);
+
+  // AbortController for the in-flight streaming request (the Stop button).
+  let abortCtrl: AbortController | null = null;
 
   const transcript = ref<AiChatMessage[]>([]);
   let ctx: fs.FsCtx = { orgId: '', projectId: '' };
@@ -121,8 +138,19 @@ export const useAiStore = defineStore('ai', () => {
     await runLoop();
   }
 
+  /** Stop the running agent (aborts the in-flight stream). */
+  function stop() {
+    abortCtrl?.abort();
+    if (pending.value) rejectPending();
+    if (pendingQuestion.value) {
+      pendingQuestion.value.resolve('(cancelled)');
+      pendingQuestion.value = null;
+    }
+  }
+
   async function runLoop() {
     running.value = true;
+    abortCtrl = new AbortController();
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         const more = await streamTurn();
@@ -134,9 +162,14 @@ export const useAiStore = defineStore('ai', () => {
         tools: [],
       });
     } catch (e: unknown) {
-      error.value = msg(e);
+      if (abortCtrl?.signal.aborted) {
+        messages.value.push({ role: 'assistant', text: '(Stopped.)', tools: [] });
+      } else {
+        error.value = msg(e);
+      }
     } finally {
       running.value = false;
+      abortCtrl = null;
     }
   }
 
@@ -154,6 +187,7 @@ export const useAiStore = defineStore('ai', () => {
         model: modelId.value,
         messages: transcript.value,
         context: await buildContext(),
+        mode: mode.value,
       },
       (ev) => {
         if (ev.type === 'text') {
@@ -177,7 +211,8 @@ export const useAiStore = defineStore('ai', () => {
         } else if (ev.type === 'error') {
           error.value = ev.message;
         }
-      }
+      },
+      abortCtrl?.signal
     );
 
     transcript.value.push({ role: 'assistant', content: display.text, tool_calls: toolCalls });
@@ -202,7 +237,20 @@ export const useAiStore = defineStore('ai', () => {
 
   async function executeTool(call: AiToolCall): Promise<{ content: string; is_error: boolean }> {
     try {
-      if (isHighRisk(call)) {
+      // Human-in-the-loop question — pause for the user's choice.
+      if (call.name === 'ask_question') {
+        const input = call.input ?? {};
+        const answer = await new Promise<string>((resolve) => {
+          pendingQuestion.value = {
+            question: String(input.question ?? ''),
+            options: Array.isArray(input.options) ? (input.options as unknown[]).map(String) : [],
+            resolve,
+          };
+        });
+        return { content: `The user chose: ${answer}`, is_error: false };
+      }
+      // High-risk — confirm unless the user chose "always allow" this session.
+      if (isHighRisk(call) && !allowlist.value.has(call.name)) {
         const content = await new Promise<string>((resolve) => {
           pending.value = { call, resolve };
         });
@@ -306,6 +354,23 @@ export const useAiStore = defineStore('ai', () => {
     pending.value = null;
     p.resolve('The user declined this action.');
   }
+  /** Approve + remember: don't ask again for this tool this session. */
+  function approvePendingAlways() {
+    if (pending.value) allowlist.value.add(pending.value.call.name);
+    approvePending();
+  }
+
+  // ── ask_question (human-in-the-loop) ──
+  function answerQuestion(option: string) {
+    const q = pendingQuestion.value;
+    if (!q) return;
+    pendingQuestion.value = null;
+    q.resolve(option);
+  }
+
+  function setMode(m: AiMode) {
+    mode.value = m;
+  }
 
   // ── changed-file tracking + per-turn undo ──
   function markTouched(path: string) {
@@ -338,6 +403,8 @@ export const useAiStore = defineStore('ai', () => {
     running,
     error,
     pending,
+    pendingQuestion,
+    mode,
     touchedFiles,
     ready,
     canUndo,
@@ -345,8 +412,12 @@ export const useAiStore = defineStore('ai', () => {
     selectModel,
     reset,
     send,
+    stop,
+    setMode,
     approvePending,
+    approvePendingAlways,
     rejectPending,
+    answerQuestion,
     undoLastChange,
   };
 });

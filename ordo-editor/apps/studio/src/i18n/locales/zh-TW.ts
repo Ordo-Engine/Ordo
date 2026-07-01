@@ -15,6 +15,10 @@ export default {
     confirmPublish: '發布這個規則集?',
     confirmDelete: '刪除這個規則集?',
     changedFiles: '已變更:',
+    stop: '停止',
+    modeAgent: 'Agent',
+    modeAsk: '問答',
+    approveAlways: '本會話都允許',
   },
   common: {
     loading: '載入中...',

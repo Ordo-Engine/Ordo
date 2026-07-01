@@ -169,7 +169,8 @@ export const aiApi = {
   async chatStream(
     token: string,
     req: AiChatRequest,
-    onEvent: (ev: AiStreamEvent) => void
+    onEvent: (ev: AiStreamEvent) => void,
+    signal?: AbortSignal
   ): Promise<void> {
     const resp = await fetch(`${BASE}/ai/chat`, {
       method: 'POST',
@@ -179,6 +180,7 @@ export const aiApi = {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(req),
+      signal,
     });
     if (!resp.ok || !resp.body) {
       let m = `HTTP ${resp.status}`;

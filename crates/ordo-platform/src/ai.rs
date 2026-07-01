@@ -70,6 +70,10 @@ pub struct ChatRequest {
     /// without a read round-trip on the first turn.
     #[serde(default)]
     pub context: Option<Value>,
+    /// `"agent"` (default; full edit tools) | `"ask"` (read-only Q&A — only read
+    /// tools are offered so the assistant can't modify the project).
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 // The chat handler streams normalized SSE events (see `chat`), rather than
@@ -198,8 +202,9 @@ pub async fn chat(
     Extension(_claims): Extension<Claims>,
     Json(req): Json<ChatRequest>,
 ) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
-    let system = build_system_prompt(req.context.as_ref());
-    let tools = tool_specs();
+    let mode = req.mode.as_deref().unwrap_or("agent");
+    let system = build_system_prompt(req.context.as_ref(), mode);
+    let tools = tool_specs(mode);
     let http = state.http_client.clone();
     let cfg = state.config.clone();
 
@@ -578,8 +583,15 @@ fn openai_push_message(out: &mut Vec<Value>, m: &ChatMessage) {
 
 // ── System prompt + tool schemas ────────────────────────────────────────────
 
-fn build_system_prompt(context: Option<&Value>) -> String {
+fn build_system_prompt(context: Option<&Value>, mode: &str) -> String {
     let mut s = String::from(BASE_SYSTEM);
+    if mode == "ask" {
+        s.push_str(
+            "\n\n<mode>You are in ASK mode: read-only. You can read and search the project and \
+             answer questions, but you have NO editing tools — do not offer to make changes; if \
+             asked to, explain what you would change and suggest switching to Agent mode.</mode>",
+        );
+    }
     if let Some(ctx) = context {
         s.push_str("\n\n# Project context\n");
         s.push_str("The project's file tree and the currently open file (its content may ");
@@ -635,7 +647,7 @@ A `rulesets/*.json` file is Ordo "studio" format:
 /// (mapped to the platform's rulesets/facts/concepts/tests); file contents are
 /// loosely typed — the client validates rulesets via WASM and the assistant
 /// self-corrects.
-fn tool_specs() -> Vec<Value> {
+fn tool_specs(mode: &str) -> Vec<Value> {
     let path_arg = |desc: &str| {
         json!({
             "type": "object",
@@ -643,7 +655,9 @@ fn tool_specs() -> Vec<Value> {
             "required": ["path"],
         })
     };
-    vec![
+
+    // Read tools — always available (both agent and ask mode).
+    let mut tools = vec![
         json!({
             "name": "list_files",
             "description": "List every file in the project (the file tree).",
@@ -653,23 +667,6 @@ fn tool_specs() -> Vec<Value> {
             "name": "read_file",
             "description": "Read a file's full contents (returns JSON text).",
             "input_schema": path_arg("e.g. 'rulesets/loan-approval.json', 'facts.json'"),
-        }),
-        json!({
-            "name": "write_file",
-            "description": "Create or overwrite a file with the FULL new contents. Read the file first, modify it, then write the whole thing back.",
-            "input_schema": json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "e.g. 'rulesets/<name>.json', 'facts.json', 'tests/<ruleset>.json'" },
-                    "content": { "type": "string", "description": "The full new file content as a JSON string." },
-                },
-                "required": ["path", "content"],
-            }),
-        }),
-        json!({
-            "name": "delete_file",
-            "description": "Delete a file. Deleting a 'rulesets/*.json' file is HIGH-RISK and the user must confirm.",
-            "input_schema": path_arg("the file path to delete"),
         }),
         json!({
             "name": "grep",
@@ -694,19 +691,55 @@ fn tool_specs() -> Vec<Value> {
                 "required": ["ruleset"],
             }),
         }),
-        // ── high-risk (client confirms) ──
+        // Human-in-the-loop: ask the user a question with options and wait for a choice.
         json!({
-            "name": "publish",
-            "description": "HIGH-RISK: publish a ruleset to an environment. The user must confirm.",
+            "name": "ask_question",
+            "description": "Ask the user a question to resolve a decision you can't make yourself (ambiguity, a design choice). The user picks one of the options; their answer comes back as the tool result. Use sparingly.",
             "input_schema": json!({
                 "type": "object",
                 "properties": {
-                    "ruleset": { "type": "string", "description": "ruleset name" },
-                    "environmentId": { "type": "string" },
-                    "releaseNote": { "type": "string" },
+                    "question": { "type": "string" },
+                    "options": { "type": "array", "items": { "type": "string" }, "description": "2–4 short choices" },
                 },
-                "required": ["ruleset", "environmentId"],
+                "required": ["question", "options"],
             }),
         }),
-    ]
+    ];
+
+    // Ask mode is read-only — no editing tools.
+    if mode == "ask" {
+        return tools;
+    }
+
+    tools.push(json!({
+        "name": "write_file",
+        "description": "Create or overwrite a file with the FULL new contents. Read the file first, modify it, then write the whole thing back.",
+        "input_schema": json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "e.g. 'rulesets/<name>.json', 'facts.json', 'tests/<ruleset>.json'" },
+                "content": { "type": "string", "description": "The full new file content as a JSON string." },
+            },
+            "required": ["path", "content"],
+        }),
+    }));
+    tools.push(json!({
+        "name": "delete_file",
+        "description": "Delete a file. Deleting a 'rulesets/*.json' file is HIGH-RISK and the user must confirm.",
+        "input_schema": path_arg("the file path to delete"),
+    }));
+    tools.push(json!({
+        "name": "publish",
+        "description": "HIGH-RISK: publish a ruleset to an environment. The user must confirm.",
+        "input_schema": json!({
+            "type": "object",
+            "properties": {
+                "ruleset": { "type": "string", "description": "ruleset name" },
+                "environmentId": { "type": "string" },
+                "releaseNote": { "type": "string" },
+            },
+            "required": ["ruleset", "environmentId"],
+        }),
+    }));
+    tools
 }

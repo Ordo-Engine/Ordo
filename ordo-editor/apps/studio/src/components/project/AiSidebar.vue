@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAiStore } from '@/stores/ai-agent';
+import { renderMarkdown } from '@/utils/ai-markdown';
 
 const props = defineProps<{ orgId: string; projectId: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -89,6 +90,14 @@ function submit() {
     </header>
 
     <div class="ai-model-bar">
+      <div class="ai-mode-toggle">
+        <button :class="{ active: ai.mode === 'agent' }" @click="ai.setMode('agent')">
+          {{ t('ai.modeAgent') }}
+        </button>
+        <button :class="{ active: ai.mode === 'ask' }" @click="ai.setMode('ask')">
+          {{ t('ai.modeAsk') }}
+        </button>
+      </div>
       <t-select
         v-if="modelOptions.length"
         v-model="selectedModel"
@@ -96,6 +105,7 @@ function submit() {
         filterable
         :creatable="true"
         :placeholder="t('ai.selectModel')"
+        class="ai-model-select"
       >
         <t-option v-for="o in modelOptions" :key="o.value" :value="o.value" :label="o.label" />
       </t-select>
@@ -117,7 +127,8 @@ function submit() {
         <div v-if="msg.role === 'user'" class="ai-user">{{ msg.text }}</div>
         <template v-else>
           <div v-if="msg.text || i === streamingIdx" class="ai-assistant">
-            {{ msg.text }}<span v-if="i === streamingIdx" class="ai-cursor">▍</span>
+            <span class="ai-md" v-html="renderMarkdown(msg.text)"></span
+            ><span v-if="i === streamingIdx" class="ai-cursor">▍</span>
           </div>
           <div v-for="tool in msg.tools" :key="tool.id" class="ai-tool-line" :class="tool.status">
             <t-icon v-if="tool.status === 'running'" name="loading" class="ai-tool-spin" />
@@ -132,13 +143,32 @@ function submit() {
       <t-alert v-if="ai.error" theme="error" :message="ai.error" class="ai-error" />
     </div>
 
+    <!-- Human-in-the-loop question (ask_question tool) -->
+    <div v-if="ai.pendingQuestion" class="ai-question">
+      <p class="ai-question-text">{{ ai.pendingQuestion.question }}</p>
+      <div class="ai-question-options">
+        <t-button
+          v-for="(opt, k) in ai.pendingQuestion.options"
+          :key="k"
+          size="small"
+          variant="outline"
+          @click="ai.answerQuestion(opt)"
+        >
+          {{ opt }}
+        </t-button>
+      </div>
+    </div>
+
     <!-- High-risk confirmation card -->
     <div v-if="ai.pending" class="ai-confirm">
       <p class="ai-confirm-title">⚠ {{ pendingTitle }}</p>
       <pre class="ai-confirm-input">{{ JSON.stringify(ai.pending.call.input, null, 2) }}</pre>
       <div class="ai-confirm-actions">
-        <t-button size="small" variant="outline" @click="ai.rejectPending">{{
+        <t-button size="small" variant="text" @click="ai.rejectPending">{{
           t('ai.reject')
+        }}</t-button>
+        <t-button size="small" variant="outline" @click="ai.approvePendingAlways">{{
+          t('ai.approveAlways')
         }}</t-button>
         <t-button size="small" theme="danger" @click="ai.approvePending">{{
           t('ai.approve')
@@ -154,10 +184,13 @@ function submit() {
         :disabled="ai.running || !ai.ready"
         @keydown.enter.exact.prevent="submit"
       />
+      <t-button v-if="ai.running" size="small" theme="default" @click="ai.stop">
+        ■ {{ t('ai.stop') }}
+      </t-button>
       <t-button
+        v-else
         theme="primary"
         size="small"
-        :loading="ai.running"
         :disabled="!ai.ready || !input.trim()"
         @click="submit"
       >
@@ -192,12 +225,58 @@ function submit() {
   gap: 2px;
 }
 .ai-model-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--ordo-border, #e7e7e7);
+}
+.ai-model-select {
+  flex: 1;
+  min-width: 0;
+}
+.ai-mode-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--ordo-border, #dcdcdc);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ai-mode-toggle button {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  color: var(--ordo-text-secondary, #888);
+  transition:
+    background 0.1s,
+    color 0.1s;
+}
+.ai-mode-toggle button.active {
+  background: var(--ordo-brand, #0052d9);
+  color: #fff;
 }
 .ai-no-provider {
   font-size: 12px;
   color: var(--ordo-text-secondary, #888);
+}
+.ai-question {
+  margin: 0 12px 8px;
+  padding: 10px;
+  border: 1px solid var(--ordo-border, #dcdcdc);
+  border-radius: 8px;
+  background: var(--ordo-bg-sunken, #fafafa);
+}
+.ai-question-text {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.ai-question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .ai-changed {
   display: flex;
@@ -246,12 +325,41 @@ function submit() {
   padding-left: 9px;
   border-left: 2px solid var(--ordo-border, #dcdcdc);
 }
-/* Assistant turn — plain flowing text. */
+/* Assistant turn — rendered markdown. */
 .ai-assistant {
   color: var(--ordo-text-primary, #1a1a1a);
   line-height: 1.6;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+.ai-md :deep(.ai-code) {
+  background: var(--ordo-bg-sunken, #f4f4f4);
+  border: 1px solid var(--ordo-border, #ececec);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  overflow-x: auto;
+  font-family: var(--td-font-family-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+.ai-md :deep(.ai-inline-code) {
+  background: var(--ordo-bg-sunken, #f0f0f0);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: var(--td-font-family-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}
+.ai-md :deep(.ai-list) {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.ai-md :deep(h3),
+.ai-md :deep(h4),
+.ai-md :deep(h5) {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 8px 0 4px;
 }
 /* A tool call as a compact monochrome line: verb + dimmed target. */
 .ai-tool-line {

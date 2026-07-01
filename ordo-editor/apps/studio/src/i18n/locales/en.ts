@@ -15,6 +15,10 @@ export default {
     confirmPublish: 'Publish this ruleset?',
     confirmDelete: 'Delete this ruleset?',
     changedFiles: 'Changed:',
+    stop: 'Stop',
+    modeAgent: 'Agent',
+    modeAsk: 'Ask',
+    approveAlways: 'Always allow',
   },
   common: {
     loading: 'Loading...',

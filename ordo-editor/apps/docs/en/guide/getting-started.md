@@ -1,6 +1,11 @@
-# Getting Started
+# Run the Engine Locally
 
-This guide will help you get Ordo up and running quickly.
+This guide gets the open-source **engine** (`ordo-server`) running on your
+machine — for embedding, self-hosting, or hacking on the core.
+
+> **Building a decision service?** You don't need to run the engine yourself.
+> Follow the [Platform Quickstart](/en/platform/quickstart) — create a project,
+> author a rule, and publish it in five minutes, with a hosted engine.
 
 ## Prerequisites
 
@@ -48,7 +53,7 @@ Expected response:
 ```json
 {
   "status": "healthy",
-  "version": "0.2.0",
+  "version": "0.4.2",
   "uptime_seconds": 5,
   "storage": {
     "mode": "memory",

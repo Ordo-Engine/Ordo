@@ -1,6 +1,9 @@
-# CLI Options
+# Server Options (`ordo-server`)
 
-Complete reference for `ordo-server` command-line options.
+Complete reference for the `ordo-server` engine's command-line options.
+
+> Looking for the `ordo` developer CLI (projects, `validate`, `push`, `publish`)?
+> That's a different tool — see [CLI (ordo)](/en/platform/cli).
 
 ## Usage
 

@@ -11,7 +11,7 @@ hero:
   actions:
     - theme: brand
       text: Get Started
-      link: /en/guide/getting-started
+      link: /en/platform/quickstart
     - theme: alt
       text: Platform Docs
       link: /en/platform/overview

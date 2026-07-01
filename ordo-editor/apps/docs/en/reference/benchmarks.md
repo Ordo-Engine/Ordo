@@ -2,6 +2,8 @@
 
 Comprehensive performance benchmarks for the Ordo rule engine, including core engine microbenchmarks, HTTP server throughput, distributed (NATS sync) mode, and head-to-head comparisons against mainstream rule engines.
 
+> 📊 Prefer to explore the numbers visually? See the [interactive benchmark chart](./benchmark-chart).
+
 > **Test Environment**: Apple M1 Pro (10 cores), 16 GB RAM, macOS Darwin 25.3.0
 > **Tools**: Criterion.rs (microbenchmarks), hey (HTTP load testing), Docker (NATS)
 > **Date**: 2026-03-11

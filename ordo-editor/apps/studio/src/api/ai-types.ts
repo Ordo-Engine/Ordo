@@ -29,11 +29,13 @@ export interface AiChatRequest {
   context?: Record<string, unknown>;
 }
 
-export interface AiChatResponse {
-  content: string;
-  tool_calls: AiToolCall[];
-  stop_reason: 'tool_use' | 'end_turn';
-}
+/** One normalized SSE event from /ai/chat (streaming). */
+export type AiStreamEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool_start'; id: string; name: string }
+  | { type: 'tool'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'done'; stop_reason: 'tool_use' | 'end_turn' }
+  | { type: 'error'; message: string };
 
 export interface AiModelOption {
   id: string;

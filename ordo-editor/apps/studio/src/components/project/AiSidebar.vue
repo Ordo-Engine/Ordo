@@ -30,6 +30,13 @@ const selectedModel = computed({
   },
 });
 
+// Index of the assistant message currently streaming (for the live cursor).
+const streamingIdx = computed(() => {
+  if (!ai.running) return -1;
+  const last = ai.messages.length - 1;
+  return last >= 0 && ai.messages[last].role === 'assistant' ? last : -1;
+});
+
 const pendingTitle = computed(() => {
   const c = ai.pending?.call;
   if (!c) return '';
@@ -90,21 +97,20 @@ function submit() {
       </div>
 
       <div v-for="(msg, i) in ai.messages" :key="i" class="ai-msg" :class="msg.role">
-        <div v-if="msg.text" class="ai-bubble">{{ msg.text }}</div>
+        <div v-if="msg.text || i === streamingIdx" class="ai-bubble">
+          {{ msg.text }}<span v-if="i === streamingIdx" class="ai-cursor">▍</span>
+        </div>
         <div v-if="msg.tools.length" class="ai-tools">
-          <t-tag
-            v-for="(tool, j) in msg.tools"
-            :key="j"
-            size="small"
-            variant="light"
-            :theme="tool.ok ? 'success' : 'danger'"
-          >
-            {{ tool.name }}
-          </t-tag>
+          <div v-for="tool in msg.tools" :key="tool.id" class="ai-tool" :class="tool.status">
+            <t-icon v-if="tool.status === 'running'" name="loading" class="ai-tool-spin" />
+            <t-icon v-else-if="tool.status === 'ok'" name="check-circle-filled" />
+            <t-icon v-else name="close-circle-filled" />
+            <span class="ai-tool-label">{{ tool.label }}</span>
+          </div>
         </div>
       </div>
 
-      <div v-if="ai.running" class="ai-running">{{ t('ai.thinking') }}</div>
+      <div v-if="ai.running && streamingIdx === -1" class="ai-running">{{ t('ai.thinking') }}</div>
       <t-alert v-if="ai.error" theme="error" :message="ai.error" class="ai-error" />
     </div>
 
@@ -233,8 +239,51 @@ function submit() {
 }
 .ai-tools {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+.ai-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-family: var(--td-font-family-mono, ui-monospace, monospace);
+  color: var(--ordo-text-secondary, #666);
+  padding: 3px 8px;
+  border: 1px solid var(--ordo-border, #ececec);
+  border-radius: 6px;
+  background: var(--ordo-bg-sunken, #fafafa);
+}
+.ai-tool.ok {
+  color: var(--td-success-color, #2ba471);
+}
+.ai-tool.error {
+  color: var(--td-error-color, #d54941);
+}
+.ai-tool-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-tool-spin {
+  animation: ai-spin 0.9s linear infinite;
+}
+@keyframes ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ai-cursor {
+  display: inline-block;
+  animation: ai-blink 1s step-end infinite;
+  color: var(--ordo-brand, #0052d9);
+  font-weight: 400;
+}
+@keyframes ai-blink {
+  50% {
+    opacity: 0;
+  }
 }
 .ai-running,
 .ai-error {

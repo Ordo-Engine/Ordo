@@ -65,7 +65,7 @@ import type {
   UserInfo,
   UserRoleAssignment,
 } from './types';
-import type { AiChatRequest, AiChatResponse, AiProviderOption } from './ai-types';
+import type { AiChatRequest, AiStreamEvent, AiProviderOption } from './ai-types';
 
 const BASE = '/api/v1';
 
@@ -161,9 +161,56 @@ export const aiApi = {
     return request('/ai/models', { token });
   },
 
-  /** One assistant turn. The client executes any returned tool_calls and loops. */
-  chat(token: string, req: AiChatRequest): Promise<AiChatResponse> {
-    return request('/ai/chat', { method: 'POST', token, body: JSON.stringify(req) });
+  /**
+   * Stream one assistant turn. `onEvent` fires for each normalized SSE event
+   * (text delta / tool_start / tool / done / error). The client executes the tool
+   * calls it receives, then streams the next turn.
+   */
+  async chatStream(
+    token: string,
+    req: AiChatRequest,
+    onEvent: (ev: AiStreamEvent) => void
+  ): Promise<void> {
+    const resp = await fetch(`${BASE}/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Language': currentLocale(),
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(req),
+    });
+    if (!resp.ok || !resp.body) {
+      let m = `HTTP ${resp.status}`;
+      try {
+        m = (await resp.json()).error || m;
+      } catch {
+        // ignore
+      }
+      throw new Error(m);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!line) continue;
+        const json = line.slice(5).trim();
+        if (!json) continue;
+        try {
+          onEvent(JSON.parse(json) as AiStreamEvent);
+        } catch {
+          // ignore malformed frame
+        }
+      }
+    }
   },
 };
 

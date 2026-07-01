@@ -10,7 +10,7 @@
  * (publish, deleting a ruleset file) pause the loop for explicit user approval.
  */
 import { defineStore } from 'pinia';
-import { ref, computed, toRaw } from 'vue';
+import { ref, computed, reactive, toRaw } from 'vue';
 import type { RuleSet } from '@ordo-engine/editor-core';
 import { aiApi, rulesetDraftApi, testApi } from '@/api/platform-client';
 import type { AiChatMessage, AiProviderOption, AiToolCall } from '@/api/ai-types';
@@ -217,7 +217,10 @@ export const useAiStore = defineStore('ai', () => {
 
   /** Stream one assistant turn; returns true if tools ran and we should loop again. */
   async function streamTurn(): Promise<boolean> {
-    const display: DisplayMessage = { role: 'assistant', text: '', tools: [] };
+    // Must be reactive: the stream handler below mutates `display.text`/`display.tools`
+    // in place, and those mutations only re-render token-by-token if they go through
+    // a reactive proxy (a raw object pushed into the array won't track in-place edits).
+    const display: DisplayMessage = reactive({ role: 'assistant', text: '', tools: [] });
     messages.value.push(display);
     const toolCalls: AiToolCall[] = [];
     let stopReason = 'end_turn';

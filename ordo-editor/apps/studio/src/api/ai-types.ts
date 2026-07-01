@@ -27,6 +27,8 @@ export interface AiChatRequest {
   messages: AiChatMessage[];
   /** Live editor context folded into the system prompt server-side. */
   context?: Record<string, unknown>;
+  /** "agent" (default, full tools) | "ask" (read-only). */
+  mode?: string;
 }
 
 /** One normalized SSE event from /ai/chat (streaming). */

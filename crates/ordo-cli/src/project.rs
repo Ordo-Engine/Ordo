@@ -160,6 +160,41 @@ impl Project {
         }
     }
 
+    /// The project's virtual file tree (the paths an agent sees), mirroring the
+    /// Studio file list: config + catalogs + each ruleset's files.
+    pub fn list_files(&self) -> Vec<String> {
+        let mut files = vec![
+            "ordo.yaml".to_string(),
+            "facts.json".to_string(),
+            "concepts.json".to_string(),
+        ];
+        if let Ok(names) = self.ruleset_names() {
+            for n in &names {
+                files.push(format!("rulesets/{n}.json"));
+                if self.tests_path(n).is_file() {
+                    files.push(format!("tests/{n}.json"));
+                }
+                if self
+                    .root
+                    .join("contracts")
+                    .join(format!("{n}.json"))
+                    .is_file()
+                {
+                    files.push(format!("contracts/{n}.json"));
+                }
+            }
+        }
+        files
+    }
+
+    /// Resolve a project-relative path, rejecting traversal outside the root.
+    pub fn resolve(&self, rel: &str) -> Result<PathBuf> {
+        if rel.split(['/', '\\']).any(|seg| seg == "..") {
+            anyhow::bail!("path must stay within the project: {rel}");
+        }
+        Ok(self.root.join(rel))
+    }
+
     /// Build the executable engine `RuleSet` for a ruleset: studio→engine plus
     /// concept materialization from `concepts.json`. This mirrors the platform's
     /// `convert` endpoint, offline.

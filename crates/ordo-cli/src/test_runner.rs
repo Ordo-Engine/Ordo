@@ -115,6 +115,20 @@ pub fn run(args: TestArgs, json: bool) -> Result<()> {
     report(suites, json)
 }
 
+/// Run a project ruleset's tests and return a JSON summary (used by `ordo mcp`).
+pub(crate) fn run_project_ruleset(project: &Project, name: &str) -> Result<serde_json::Value> {
+    let tests = load_tests(&project.tests_path(name))?;
+    let mut engine = project.load_engine(name)?;
+    engine
+        .compile()
+        .map_err(|e| anyhow::anyhow!("compile error in {name}: {e}"))?;
+    let cases = run_cases(&LoadedRule::Source(engine), &tests);
+    let passed = cases.iter().filter(|c| c.passed).count();
+    Ok(serde_json::json!({
+        "total": cases.len(), "passed": passed, "failed": cases.len() - passed, "cases": cases,
+    }))
+}
+
 fn run_cases(rule: &LoadedRule, tests: &[TestCase]) -> Vec<CaseResult> {
     tests
         .iter()

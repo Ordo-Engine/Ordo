@@ -12,6 +12,7 @@ mod init;
 mod link;
 mod lint;
 mod login;
+mod mcp;
 mod new;
 mod output;
 mod project;
@@ -77,6 +78,9 @@ enum Commands {
     Deployments(deployments::DeploymentsArgs),
     /// Compare local rulesets against the platform's drafts
     Diff(diff::DiffArgs),
+
+    /// Run Ordo as an MCP server (stdio) — exposes tools to a coding agent
+    Mcp(mcp::McpArgs),
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -103,5 +107,12 @@ async fn main() -> Result<()> {
         Commands::Publish(a) => publish::run(a, json).await,
         Commands::Deployments(a) => deployments::run(a, json).await,
         Commands::Diff(a) => diff::run(a, json).await,
+        Commands::Mcp(a) => {
+            mcp::run(mcp::Policy {
+                allow_publish: a.allow_publish,
+                allow_delete: a.allow_delete,
+            })
+            .await
+        }
     }
 }

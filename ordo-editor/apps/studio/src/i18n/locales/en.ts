@@ -19,6 +19,9 @@ export default {
     modeAgent: 'Agent',
     modeAsk: 'Ask',
     approveAlways: 'Always allow',
+    keep: 'Keep',
+    revert: 'Revert',
+    addContext: 'Add file to context',
   },
   common: {
     loading: 'Loading...',

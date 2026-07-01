@@ -19,6 +19,9 @@ export default {
     modeAgent: 'Agent',
     modeAsk: '問答',
     approveAlways: '本會話都允許',
+    keep: '保留',
+    revert: '撤銷',
+    addContext: '加檔案到上下文',
   },
   common: {
     loading: '載入中...',

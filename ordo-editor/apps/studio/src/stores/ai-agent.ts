@@ -71,10 +71,13 @@ export const useAiStore = defineStore('ai', () => {
   const mode = ref<AiMode>('agent');
   /** High-risk tools the user chose to always allow this session. */
   const allowlist = ref<Set<string>>(new Set());
-  /** Ruleset snapshot taken before the latest AI edits, for one-click undo. */
-  const undoSnapshot = ref<{ name: string; ruleset: RuleSet } | null>(null);
-  /** Files the assistant has touched this session (for the sidebar's changed list). */
+  /** Before-state of each ruleset the AI edited this session (name → ruleset), so
+   * individual changes can be reverted (edit review). */
+  const fileSnapshots = ref<Map<string, RuleSet>>(new Map());
+  /** Files the assistant has touched this session (for the sidebar's review list). */
   const touchedFiles = ref<string[]>([]);
+  /** Files the user pinned as @context — their content is added to every request. */
+  const contextFiles = ref<string[]>([]);
 
   // AbortController for the in-flight streaming request (the Stop button).
   let abortCtrl: AbortController | null = null;
@@ -83,7 +86,11 @@ export const useAiStore = defineStore('ai', () => {
   let ctx: fs.FsCtx = { orgId: '', projectId: '' };
 
   const ready = computed(() => !!provider.value && !!modelId.value);
-  const canUndo = computed(() => undoSnapshot.value !== null);
+  /** Whether a given file path can be reverted (has a before-snapshot). */
+  function canRevert(path: string): boolean {
+    const m = path.match(RULESET_RE);
+    return !!m && fileSnapshots.value.has(m[1]);
+  }
 
   async function init(orgId: string, projectId: string) {
     ctx = { orgId, projectId };
@@ -108,6 +115,8 @@ export const useAiStore = defineStore('ai', () => {
     messages.value = [];
     transcript.value = [];
     touchedFiles.value = [];
+    fileSnapshots.value.clear();
+    contextFiles.value = [];
     error.value = null;
     pending.value = null;
   }
@@ -121,11 +130,34 @@ export const useAiStore = defineStore('ai', () => {
     } catch {
       // best-effort; the AI can also call list_files
     }
+    const pinned: Array<{ path: string; content: string }> = [];
+    for (const p of contextFiles.value) {
+      try {
+        pinned.push({ path: p, content: await fs.readFile(ctx, p) });
+      } catch {
+        // skip a pinned file that can't be read
+      }
+    }
     return {
       files,
       openFile: tab ? `rulesets/${tab.name}.json` : null,
       openFileContent: tab?.ruleset ?? null,
+      pinnedFiles: pinned,
     };
+  }
+
+  async function listProjectFiles(): Promise<string[]> {
+    try {
+      return await fs.listFiles(ctx);
+    } catch {
+      return [];
+    }
+  }
+  function pinFile(path: string) {
+    if (path && !contextFiles.value.includes(path)) contextFiles.value.push(path);
+  }
+  function unpinFile(path: string) {
+    contextFiles.value = contextFiles.value.filter((f) => f !== path);
   }
 
   async function send(text: string) {
@@ -272,7 +304,7 @@ export const useAiStore = defineStore('ai', () => {
         return fs.readFile(ctx, String(input.path));
       case 'write_file': {
         const path = String(input.path);
-        snapshotForUndo(path);
+        await snapshotBeforeWrite(path);
         const out = await fs.writeFile(ctx, path, String(input.content));
         markTouched(path);
         return out;
@@ -376,23 +408,37 @@ export const useAiStore = defineStore('ai', () => {
   function markTouched(path: string) {
     if (path && !touchedFiles.value.includes(path)) touchedFiles.value.push(path);
   }
-  function snapshotForUndo(path: string) {
+  /** Capture a ruleset's before-state (once) so an AI edit can be reverted. */
+  async function snapshotBeforeWrite(path: string) {
     const m = path.match(RULESET_RE);
     if (!m) return;
     const name = m[1];
-    if (undoSnapshot.value && undoSnapshot.value.name === name) return; // keep earliest in a turn
-    const tab = project.openTabs.find((t) => t.name === name);
-    if (tab) undoSnapshot.value = { name, ruleset: structuredClone(toRaw(tab.ruleset)) };
-  }
-  async function undoLastChange() {
-    const snap = undoSnapshot.value;
-    if (!snap) return;
-    undoSnapshot.value = null;
+    if (fileSnapshots.value.has(name)) return; // keep the earliest before-state
     try {
-      await fs.writeFile(ctx, `rulesets/${snap.name}.json`, JSON.stringify(snap.ruleset));
+      fileSnapshots.value.set(name, JSON.parse(await fs.readFile(ctx, path)) as RuleSet);
+    } catch {
+      // new file — no before-state to snapshot
+    }
+  }
+  /** Revert one file to its before-state (reject the AI's change). */
+  async function revertFile(path: string) {
+    const m = path.match(RULESET_RE);
+    if (!m) return;
+    const snap = fileSnapshots.value.get(m[1]);
+    if (!snap) return;
+    try {
+      await fs.writeFile(ctx, path, JSON.stringify(snap));
+      fileSnapshots.value.delete(m[1]);
+      touchedFiles.value = touchedFiles.value.filter((f) => f !== path);
     } catch (e: unknown) {
       error.value = msg(e);
     }
+  }
+  /** Keep one file's change (accept): drop its revert snapshot. */
+  function keepFile(path: string) {
+    const m = path.match(RULESET_RE);
+    if (m) fileSnapshots.value.delete(m[1]);
+    touchedFiles.value = touchedFiles.value.filter((f) => f !== path);
   }
 
   return {
@@ -406,9 +452,13 @@ export const useAiStore = defineStore('ai', () => {
     pendingQuestion,
     mode,
     touchedFiles,
+    contextFiles,
     ready,
-    canUndo,
+    canRevert,
     init,
+    listProjectFiles,
+    pinFile,
+    unpinFile,
     selectModel,
     reset,
     send,
@@ -418,7 +468,8 @@ export const useAiStore = defineStore('ai', () => {
     approvePendingAlways,
     rejectPending,
     answerQuestion,
-    undoLastChange,
+    revertFile,
+    keepFile,
   };
 });
 

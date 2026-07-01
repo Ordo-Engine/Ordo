@@ -18,6 +18,8 @@ export default {
     stop: 'Stop',
     modeAgent: 'Agent',
     modeAsk: 'Ask',
+    modeHint: 'Switch between Agent (edits) and Ask (read-only)',
+    planTitle: 'Plan',
     approveAlways: 'Always allow',
     keep: 'Keep',
     revert: 'Revert',

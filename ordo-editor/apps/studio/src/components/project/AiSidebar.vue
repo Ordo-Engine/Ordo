@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useAiStore } from '@/stores/ai-agent';
+import { useAiStore, type ToolActivity } from '@/stores/ai-agent';
 import { renderMarkdown } from '@/utils/ai-markdown';
 
 const props = defineProps<{ orgId: string; projectId: string }>();
@@ -14,7 +14,7 @@ const input = ref('');
 onMounted(() => ai.init(props.orgId, props.projectId));
 
 // Model options (value = model slug). Users can also type any slug the provider
-// supports (e.g. an OpenRouter model) — see the creatable select below.
+// supports — see the creatable select below.
 const modelOptions = computed(() =>
   ai.providers.flatMap((p) => p.models.map((m) => ({ value: m.id, label: m.label })))
 );
@@ -62,6 +62,18 @@ function verbOf(tool: { name: string; status: string }): string {
   if (!f) return tool.name;
   return tool.status === 'running' ? f[0] : f[1];
 }
+/** The plan checklist renders itself — hide its raw tool line from the flow. */
+function visibleTools(tools: ToolActivity[]): ToolActivity[] {
+  return tools.filter((tl) => tl.name !== 'update_plan');
+}
+
+const planActive = computed(() => ai.plan.length > 0);
+const planDone = computed(() => ai.plan.filter((p) => p.status === 'completed').length);
+
+// Mode pill cycles agent -> ask -> agent.
+function toggleMode() {
+  ai.setMode(ai.mode === 'agent' ? 'ask' : 'agent');
+}
 
 // @ context picker
 const showPin = ref(false);
@@ -92,29 +104,6 @@ function submit() {
       </div>
     </header>
 
-    <div class="ai-model-bar">
-      <div class="ai-mode-toggle">
-        <button :class="{ active: ai.mode === 'agent' }" @click="ai.setMode('agent')">
-          {{ t('ai.modeAgent') }}
-        </button>
-        <button :class="{ active: ai.mode === 'ask' }" @click="ai.setMode('ask')">
-          {{ t('ai.modeAsk') }}
-        </button>
-      </div>
-      <t-select
-        v-if="modelOptions.length"
-        v-model="selectedModel"
-        size="small"
-        filterable
-        :creatable="true"
-        :placeholder="t('ai.selectModel')"
-        class="ai-model-select"
-      >
-        <t-option v-for="o in modelOptions" :key="o.value" :value="o.value" :label="o.label" />
-      </t-select>
-      <span v-else class="ai-no-provider">{{ t('ai.noProvider') }}</span>
-    </div>
-
     <div v-if="ai.touchedFiles.length" class="ai-changed">
       <div class="ai-changed-label">{{ t('ai.changedFiles') }}</div>
       <div v-for="f in ai.touchedFiles" :key="f" class="ai-changed-row">
@@ -141,7 +130,12 @@ function submit() {
             <span class="ai-md" v-html="renderMarkdown(msg.text)"></span
             ><span v-if="i === streamingIdx" class="ai-cursor">▍</span>
           </div>
-          <div v-for="tool in msg.tools" :key="tool.id" class="ai-tool-line" :class="tool.status">
+          <div
+            v-for="tool in visibleTools(msg.tools)"
+            :key="tool.id"
+            class="ai-tool-line"
+            :class="tool.status"
+          >
             <t-icon v-if="tool.status === 'running'" name="loading" class="ai-tool-spin" />
             <span v-else class="ai-tool-tick">{{ tool.status === 'error' ? '✕' : '✓' }}</span>
             <span class="ai-tool-verb">{{ verbOf(tool) }}</span>
@@ -152,6 +146,21 @@ function submit() {
 
       <div v-if="ai.running && streamingIdx === -1" class="ai-running">{{ t('ai.thinking') }}</div>
       <t-alert v-if="ai.error" theme="error" :message="ai.error" class="ai-error" />
+    </div>
+
+    <!-- Task checklist (update_plan tool) -->
+    <div v-if="planActive" class="ai-plan">
+      <div class="ai-plan-head">
+        <span class="ai-plan-title">{{ t('ai.planTitle') }}</span>
+        <span class="ai-plan-count">{{ planDone }}/{{ ai.plan.length }}</span>
+      </div>
+      <div v-for="(item, k) in ai.plan" :key="k" class="ai-plan-item" :class="item.status">
+        <span class="ai-plan-dot" :class="item.status">
+          <t-icon v-if="item.status === 'in_progress'" name="loading" class="ai-plan-spin" />
+          <span v-else-if="item.status === 'completed'" class="ai-plan-check">✓</span>
+        </span>
+        <span class="ai-plan-text">{{ item.content }}</span>
+      </div>
     </div>
 
     <!-- Human-in-the-loop question (ask_question tool) -->
@@ -187,61 +196,69 @@ function submit() {
       </div>
     </div>
 
-    <!-- @ context pins -->
-    <div v-if="ai.contextFiles.length || showPin" class="ai-context">
-      <t-tag
-        v-for="p in ai.contextFiles"
-        :key="p"
-        size="small"
-        variant="light"
-        closable
-        @close="ai.unpinFile(p)"
-      >
-        @ {{ p }}
-      </t-tag>
-      <t-select
-        v-if="showPin"
-        size="small"
-        filterable
-        autofocus
-        :placeholder="t('ai.addContext')"
-        class="ai-pin-select"
-        @change="pick"
-      >
-        <t-option v-for="f in projectFiles" :key="f" :value="f" :label="f" />
-      </t-select>
-    </div>
+    <!-- Unified composer: context pills + textarea + toolbar, all in one box -->
+    <footer class="ai-composer" :class="{ disabled: !ai.ready }">
+      <div v-if="ai.contextFiles.length || showPin" class="ai-composer-pills">
+        <span v-for="p in ai.contextFiles" :key="p" class="ai-pill">
+          <span class="ai-pill-at">@</span>{{ p }}
+          <button class="ai-pill-x" @click="ai.unpinFile(p)">✕</button>
+        </span>
+        <t-select
+          v-if="showPin"
+          size="small"
+          filterable
+          autofocus
+          :placeholder="t('ai.addContext')"
+          class="ai-pin-select"
+          @change="pick"
+        >
+          <t-option v-for="f in projectFiles" :key="f" :value="f" :label="f" />
+        </t-select>
+      </div>
 
-    <footer class="ai-input-bar">
-      <t-button
-        size="small"
-        variant="text"
-        shape="square"
-        :disabled="!ai.ready"
-        :title="t('ai.addContext')"
-        @click="openPin"
-      >
-        @
-      </t-button>
-      <t-textarea
+      <textarea
         v-model="input"
+        class="ai-composer-input"
         :placeholder="t('ai.placeholder')"
-        :autosize="{ minRows: 1, maxRows: 5 }"
         :disabled="ai.running || !ai.ready"
+        rows="1"
         @keydown.enter.exact.prevent="submit"
-      />
-      <t-button v-if="ai.running" size="small" theme="default" @click="ai.stop">
-        ■ {{ t('ai.stop') }}
-      </t-button>
-      <t-button
-        v-else
-        theme="primary"
-        size="small"
-        :disabled="!ai.ready || !input.trim()"
-        @click="submit"
-      >
-        {{ t('ai.send') }}
-      </t-button>
+      ></textarea>
+
+      <div class="ai-composer-toolbar">
+        <button class="ai-mode-pill" :class="ai.mode" :title="t('ai.modeHint')" @click="toggleMode">
+          {{ ai.mode === 'agent' ? t('ai.modeAgent') : t('ai.modeAsk') }}
+        </button>
+        <t-select
+          v-if="modelOptions.length"
+          v-model="selectedModel"
+          size="small"
+          filterable
+          :creatable="true"
+          :placeholder="t('ai.selectModel')"
+          class="ai-model-select"
+        >
+          <t-option v-for="o in modelOptions" :key="o.value" :value="o.value" :label="o.label" />
+        </t-select>
+        <span v-else class="ai-no-provider">{{ t('ai.noProvider') }}</span>
+
+        <span class="ai-toolbar-spacer" />
+
+        <button
+          class="ai-icon-btn"
+          :disabled="!ai.ready"
+          :title="t('ai.addContext')"
+          @click="openPin"
+        >
+          @
+        </button>
+        <button v-if="ai.running" class="ai-send-btn stop" @click="ai.stop">
+          <span class="ai-stop-glyph" />
+        </button>
+        <button v-else class="ai-send-btn" :disabled="!ai.ready || !input.trim()" @click="submit">
+          ↑
+        </button>
+      </div>
     </footer>
   </aside>
 </template>
@@ -259,71 +276,19 @@ function submit() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 8px 10px 8px 12px;
   border-bottom: 1px solid var(--ordo-border, #e7e7e7);
 }
 .ai-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
 }
 .ai-header-actions {
   display: flex;
   gap: 2px;
 }
-.ai-model-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--ordo-border, #e7e7e7);
-}
-.ai-model-select {
-  flex: 1;
-  min-width: 0;
-}
-.ai-mode-toggle {
-  display: inline-flex;
-  flex-shrink: 0;
-  border: 1px solid var(--ordo-border, #dcdcdc);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.ai-mode-toggle button {
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  padding: 3px 10px;
-  cursor: pointer;
-  color: var(--ordo-text-secondary, #888);
-  transition:
-    background 0.1s,
-    color 0.1s;
-}
-.ai-mode-toggle button.active {
-  background: var(--ordo-brand, #0052d9);
-  color: #fff;
-}
-.ai-no-provider {
-  font-size: 12px;
-  color: var(--ordo-text-secondary, #888);
-}
-.ai-question {
-  margin: 0 12px 8px;
-  padding: 10px;
-  border: 1px solid var(--ordo-border, #dcdcdc);
-  border-radius: 8px;
-  background: var(--ordo-bg-sunken, #fafafa);
-}
-.ai-question-text {
-  font-size: 13px;
-  line-height: 1.5;
-  margin-bottom: 8px;
-}
-.ai-question-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+
+/* ── changed-file review ── */
 .ai-changed {
   display: flex;
   flex-direction: column;
@@ -368,13 +333,15 @@ function submit() {
 .ai-changed-btn.revert {
   color: var(--td-error-color, #d54941);
 }
+
+/* ── message flow ── */
 .ai-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 14px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .ai-empty {
   margin-top: 24px;
@@ -389,18 +356,22 @@ function submit() {
 .ai-msg {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
   font-size: 13px;
 }
-/* User turn — dimmed, marked with a subtle left rule (no chat bubble). */
+/* User turn — a compact bubble aligned to the trailing edge. */
 .ai-user {
+  align-self: flex-end;
+  max-width: 88%;
+  min-width: 64px;
+  padding: 6px 10px;
+  border: 1px solid var(--ordo-border, #e3e3e3);
+  border-radius: 12px 12px 4px 12px;
+  background: var(--ordo-bg-sunken, #f6f7f9);
   color: var(--ordo-text-primary, #1a1a1a);
-  font-weight: 500;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  padding-left: 9px;
-  border-left: 2px solid var(--ordo-border, #dcdcdc);
 }
 /* Assistant turn — rendered markdown. */
 .ai-assistant {
@@ -442,7 +413,7 @@ function submit() {
 .ai-tool-line {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   font-size: 12px;
   line-height: 1.5;
   overflow: hidden;
@@ -451,6 +422,7 @@ function submit() {
 }
 .ai-tool-verb {
   flex-shrink: 0;
+  font-weight: 500;
 }
 .ai-tool-target {
   color: var(--ordo-text-placeholder, #b0b0b0);
@@ -495,6 +467,97 @@ function submit() {
   font-size: 12px;
   color: var(--ordo-text-secondary, #888);
 }
+
+/* ── task checklist ── */
+.ai-plan {
+  margin: 0 12px 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--ordo-border, #e3e3e3);
+  border-radius: 6px;
+  background: var(--ordo-bg-sunken, #f7f8fa);
+}
+.ai-plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ai-plan-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ordo-text-primary, #333);
+}
+.ai-plan-count {
+  font-size: 11px;
+  color: var(--ordo-text-secondary, #999);
+}
+.ai-plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.ai-plan-dot {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ordo-text-placeholder, #bdbdbd);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.ai-plan-dot.in_progress {
+  border-color: var(--ordo-brand, #0052d9);
+}
+.ai-plan-dot.completed {
+  border-color: var(--td-success-color, #2ba471);
+  background: var(--td-success-color, #2ba471);
+}
+.ai-plan-check {
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+}
+.ai-plan-spin {
+  color: var(--ordo-brand, #0052d9);
+  font-size: 10px;
+  animation: ai-spin 0.9s linear infinite;
+}
+.ai-plan-text {
+  color: var(--ordo-text-primary, #333);
+}
+.ai-plan-item.completed .ai-plan-text {
+  color: var(--ordo-text-secondary, #999);
+  text-decoration: line-through;
+}
+.ai-plan-item.pending .ai-plan-text {
+  color: var(--ordo-text-secondary, #8a8a8a);
+}
+
+/* ── inline cards (question / confirm) ── */
+.ai-question {
+  margin: 0 12px 8px;
+  padding: 10px;
+  border: 1px solid var(--ordo-border, #dcdcdc);
+  border-radius: 8px;
+  background: var(--ordo-bg-sunken, #fafafa);
+}
+.ai-question-text {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.ai-question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .ai-confirm {
   margin: 0 12px 8px;
   padding: 10px;
@@ -521,24 +584,176 @@ function submit() {
   justify-content: flex-end;
   gap: 8px;
 }
-.ai-context {
+
+/* ── unified composer ── */
+.ai-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 12px 12px;
+  padding: 8px 10px 6px;
+  border: 1px solid var(--ordo-border, #dcdcdc);
+  border-radius: 10px;
+  background: var(--ordo-bg-elevated, #fff);
+  transition: border-color 0.12s;
+}
+.ai-composer:focus-within {
+  border-color: var(--ordo-brand, #0052d9);
+}
+.ai-composer.disabled {
+  opacity: 0.6;
+}
+.ai-composer-pills {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px 0;
+}
+.ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--ordo-border, #e0e0e0);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ordo-text-primary, #444);
+  max-width: 100%;
+  white-space: nowrap;
+}
+.ai-pill-at {
+  color: var(--ordo-text-secondary, #999);
+}
+.ai-pill-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 9px;
+  color: var(--ordo-text-secondary, #aaa);
+  line-height: 1;
+}
+.ai-pill-x:hover {
+  color: var(--ordo-text-primary, #555);
 }
 .ai-pin-select {
   min-width: 160px;
 }
-.ai-input-bar {
-  display: flex;
-  gap: 6px;
-  align-items: flex-end;
-  padding: 10px 12px;
-  border-top: 1px solid var(--ordo-border, #e7e7e7);
+.ai-composer-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ordo-text-primary, #1a1a1a);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 160px;
+  padding: 2px 0;
 }
-.ai-input-bar :deep(.t-textarea) {
+.ai-composer-input::placeholder {
+  color: var(--ordo-text-placeholder, #b0b0b0);
+}
+.ai-composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-toolbar-spacer {
   flex: 1;
+}
+.ai-mode-pill {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--ordo-border, #dcdcdc);
+  border-radius: 9999px;
+  background: var(--ordo-bg-sunken, #f4f5f7);
+  color: var(--ordo-text-secondary, #666);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    color 0.1s,
+    border-color 0.1s;
+}
+.ai-mode-pill.agent {
+  border-color: var(--ordo-brand, #0052d9);
+  color: var(--ordo-brand, #0052d9);
+  background: color-mix(in srgb, var(--ordo-brand, #0052d9) 8%, transparent);
+}
+.ai-model-select {
+  flex: 1;
+  min-width: 0;
+}
+/* strip the model select down to a borderless pill inside the toolbar */
+.ai-model-select :deep(.t-input) {
+  border: none;
+  background: transparent;
+  padding-left: 2px;
+}
+.ai-model-select :deep(.t-input:hover),
+.ai-model-select :deep(.t-input--focused) {
+  border: none;
+  box-shadow: none;
+}
+.ai-no-provider {
+  flex: 1;
+  font-size: 12px;
+  color: var(--ordo-text-secondary, #888);
+}
+.ai-icon-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ordo-text-secondary, #888);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.1s;
+}
+.ai-icon-btn:hover:not(:disabled) {
+  background: var(--ordo-bg-sunken, #f0f0f0);
+}
+.ai-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ai-send-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: var(--ordo-brand, #0052d9);
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.1s,
+    opacity 0.1s;
+}
+.ai-send-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ai-send-btn.stop {
+  background: var(--ordo-text-secondary, #666);
+}
+.ai-stop-glyph {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #fff;
 }
 </style>

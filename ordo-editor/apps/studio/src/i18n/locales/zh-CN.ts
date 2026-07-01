@@ -18,6 +18,8 @@ export default {
     stop: '停止',
     modeAgent: 'Agent',
     modeAsk: '问答',
+    modeHint: '在 Agent(可编辑)与问答(只读)之间切换',
+    planTitle: '计划',
     approveAlways: '本会话都允许',
     keep: '保留',
     revert: '撤销',

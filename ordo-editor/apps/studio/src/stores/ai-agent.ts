@@ -24,8 +24,10 @@ const RULESET_RE = /^rulesets\/(.+)\.json$/;
 
 export interface ToolActivity {
   id: string;
+  /** Tool name (e.g. `write_file`); the UI derives a human verb from it. */
   name: string;
-  label: string;
+  /** The target (file path / query), shown dimmed + monospace. */
+  target: string;
   status: 'running' | 'ok' | 'error';
 }
 /** A rendered chat turn (what the sidebar shows). */
@@ -157,17 +159,17 @@ export const useAiStore = defineStore('ai', () => {
         if (ev.type === 'text') {
           display.text += ev.text;
         } else if (ev.type === 'tool_start') {
-          display.tools.push({ id: ev.id, name: ev.name, label: ev.name, status: 'running' });
+          display.tools.push({ id: ev.id, name: ev.name, target: '', status: 'running' });
         } else if (ev.type === 'tool') {
           const call: AiToolCall = { id: ev.id, name: ev.name, input: ev.input };
           toolCalls.push(call);
           const badge = display.tools.find((t) => t.id === ev.id);
-          if (badge) badge.label = toolLabel(call);
+          if (badge) badge.target = toolTarget(call);
           else
             display.tools.push({
               id: ev.id,
               name: ev.name,
-              label: toolLabel(call),
+              target: toolTarget(call),
               status: 'running',
             });
         } else if (ev.type === 'done') {
@@ -349,11 +351,11 @@ export const useAiStore = defineStore('ai', () => {
   };
 });
 
-/** Short label for a tool-call badge (e.g. "write rulesets/x.json"). */
-function toolLabel(call: AiToolCall): string {
-  const path = call.input?.path;
-  if (typeof path === 'string') return `${call.name} ${path}`;
-  const ruleset = call.input?.ruleset;
-  if (typeof ruleset === 'string') return `${call.name} ${ruleset}`;
-  return call.name;
+/** The target of a tool call (file path / ruleset / query), for the dimmed detail. */
+function toolTarget(call: AiToolCall): string {
+  const i = call.input ?? {};
+  if (typeof i.path === 'string') return i.path;
+  if (typeof i.ruleset === 'string') return i.ruleset;
+  if (typeof i.query === 'string') return `"${i.query}"`;
+  return '';
 }

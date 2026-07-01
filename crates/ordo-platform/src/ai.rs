@@ -122,18 +122,75 @@ pub async fn list_models(
             ],
         });
     }
-    if cfg.openai_api_key.is_some() {
-        providers.push(ProviderOption {
-            id: "openai".to_string(),
-            label: "OpenAI-compatible".to_string(),
-            models: vec![
-                model("gpt-4o", "GPT-4o"),
-                model("gpt-4o-mini", "GPT-4o mini"),
-            ],
-        });
+    if let Some(key) = cfg.openai_api_key.as_deref() {
+        // OpenRouter is OpenAI-compatible but its catalog changes constantly, so fetch
+        // the live model list (fall back to a small preset if the fetch fails). The
+        // Studio selector also lets the user type any slug directly.
+        if cfg.openai_base_url.contains("openrouter") {
+            let models = fetch_openrouter_models(&state.http_client, &cfg.openai_base_url, key)
+                .await
+                .unwrap_or_else(openrouter_fallback);
+            providers.push(ProviderOption {
+                id: "openai".to_string(),
+                label: "OpenRouter".to_string(),
+                models,
+            });
+        } else {
+            providers.push(ProviderOption {
+                id: "openai".to_string(),
+                label: "OpenAI-compatible".to_string(),
+                models: vec![
+                    model("gpt-4o", "GPT-4o"),
+                    model("gpt-4o-mini", "GPT-4o mini"),
+                ],
+            });
+        }
     }
 
     Ok(Json(providers))
+}
+
+/// Fetch OpenRouter's live model catalog so the Studio selector is always current.
+async fn fetch_openrouter_models(
+    http: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+) -> Result<Vec<ModelOption>, PlatformError> {
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let res = http
+        .get(&url)
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|e| PlatformError::internal(format!("OpenRouter models request failed: {e}")))?;
+    let payload: Value = res
+        .json()
+        .await
+        .map_err(|e| PlatformError::internal(format!("OpenRouter models decode failed: {e}")))?;
+    let mut out = Vec::new();
+    if let Some(arr) = payload["data"].as_array() {
+        for m in arr {
+            if let Some(id) = m["id"].as_str() {
+                let name = m["name"].as_str().unwrap_or(id);
+                out.push(model(id, name));
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(PlatformError::internal("OpenRouter returned no models"));
+    }
+    Ok(out)
+}
+
+/// A small preset used only when the live OpenRouter fetch fails.
+fn openrouter_fallback(_e: PlatformError) -> Vec<ModelOption> {
+    vec![
+        model("anthropic/claude-opus-4.8", "Claude Opus 4.8"),
+        model("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6"),
+        model("openai/gpt-5.5", "GPT-5.5"),
+        model("openai/gpt-5", "GPT-5"),
+        model("google/gemini-2.5-pro", "Gemini 2.5 Pro"),
+    ]
 }
 
 // ── Chat (POST /ai/chat) ────────────────────────────────────────────────────

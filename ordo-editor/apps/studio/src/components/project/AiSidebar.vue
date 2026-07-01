@@ -12,17 +12,21 @@ const input = ref('');
 
 onMounted(() => ai.init(props.orgId, props.projectId));
 
-// Flat provider·model options for the selector.
+// Model options (value = model slug). Users can also type any slug the provider
+// supports (e.g. an OpenRouter model) — see the creatable select below.
 const modelOptions = computed(() =>
-  ai.providers.flatMap((p) =>
-    p.models.map((m) => ({ value: `${p.id}::${m.id}`, label: `${p.label} · ${m.label}` }))
-  )
+  ai.providers.flatMap((p) => p.models.map((m) => ({ value: m.id, label: m.label })))
 );
+function providerForModel(modelId: string): string {
+  for (const p of ai.providers) {
+    if (p.models.some((m) => m.id === modelId)) return p.id;
+  }
+  return ai.provider || ai.providers[0]?.id || 'openai';
+}
 const selectedModel = computed({
-  get: () => (ai.provider && ai.modelId ? `${ai.provider}::${ai.modelId}` : ''),
+  get: () => ai.modelId,
   set: (v: string) => {
-    const [p, m] = v.split('::');
-    ai.selectModel(p, m);
+    if (v) ai.selectModel(providerForModel(v), v);
   },
 });
 
@@ -65,6 +69,8 @@ function submit() {
         v-if="modelOptions.length"
         v-model="selectedModel"
         size="small"
+        filterable
+        :creatable="true"
         :placeholder="t('ai.selectModel')"
       >
         <t-option v-for="o in modelOptions" :key="o.value" :value="o.value" :label="o.label" />

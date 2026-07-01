@@ -204,3 +204,39 @@ impl Project {
         studio_draft_to_engine_with_concepts(&studio, &concepts).map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project_at(root: &str) -> Project {
+        Project {
+            root: PathBuf::from(root),
+            config: ProjectConfig {
+                project: "t".into(),
+                org_id: None,
+                project_id: None,
+                api_url: None,
+                environments: Default::default(),
+            },
+        }
+    }
+
+    #[test]
+    fn ruleset_name_normalizes_identifiers() {
+        assert_eq!(ruleset_name("loan-approval"), "loan-approval");
+        assert_eq!(ruleset_name("loan-approval.json"), "loan-approval");
+        assert_eq!(ruleset_name("rulesets/loan-approval.json"), "loan-approval");
+    }
+
+    #[test]
+    fn resolve_rejects_traversal() {
+        let p = project_at("/tmp/proj");
+        assert_eq!(
+            p.resolve("rulesets/a.json").unwrap(),
+            PathBuf::from("/tmp/proj/rulesets/a.json")
+        );
+        assert!(p.resolve("../secrets").is_err());
+        assert!(p.resolve("rulesets/../../etc/passwd").is_err());
+    }
+}

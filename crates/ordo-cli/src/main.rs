@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 mod api;
 mod config;
@@ -81,6 +81,12 @@ enum Commands {
 
     /// Run Ordo as an MCP server (stdio) — exposes tools to a coding agent
     Mcp(mcp::McpArgs),
+
+    /// Print shell completion script for the given shell
+    Completions {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -113,6 +119,10 @@ async fn main() -> Result<()> {
                 allow_delete: a.allow_delete,
             })
             .await
+        }
+        Commands::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "ordo", &mut std::io::stdout());
+            Ok(())
         }
     }
 }

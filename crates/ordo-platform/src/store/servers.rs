@@ -9,7 +9,10 @@ impl PlatformStore {
                name = EXCLUDED.name,
                url = EXCLUDED.url,
                token = EXCLUDED.token,
-               org_id = EXCLUDED.org_id,
+               -- Keep an already-assigned org; only a non-null incoming value
+               -- (an explicit reassignment) overrides it. This stops NATS/HTTP
+               -- re-registration from clobbering the connect-token-derived org.
+               org_id = COALESCE(EXCLUDED.org_id, servers.org_id),
                version = EXCLUDED.version,
                capabilities = EXCLUDED.capabilities,
                status = 'online',
@@ -129,6 +132,70 @@ impl PlatformStore {
     pub async fn delete_server(&self, id: &str) -> Result<bool> {
         let result = sqlx::query("DELETE FROM servers WHERE id = $1")
             .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    // ── org connect tokens ──
+
+    pub async fn create_connect_token(
+        &self,
+        id: &str,
+        org_id: &str,
+        token: &str,
+        label: Option<&str>,
+        created_by: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO org_connect_tokens (id, org_id, token, label, created_by)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(id)
+        .bind(org_id)
+        .bind(token)
+        .bind(label)
+        .bind(created_by)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Resolve a connect token to its org id, stamping `last_used_at`.
+    pub async fn org_for_connect_token(&self, token: &str) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "UPDATE org_connect_tokens SET last_used_at = NOW()
+             WHERE token = $1 RETURNING org_id",
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.get("org_id")))
+    }
+
+    pub async fn list_connect_tokens(&self, org_id: &str) -> Result<Vec<ConnectTokenInfo>> {
+        let rows = sqlx::query(
+            "SELECT id, label, created_at, last_used_at
+             FROM org_connect_tokens WHERE org_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| ConnectTokenInfo {
+                id: r.get("id"),
+                label: r.get("label"),
+                created_at: r.get("created_at"),
+                last_used_at: r.get("last_used_at"),
+            })
+            .collect())
+    }
+
+    pub async fn delete_connect_token(&self, org_id: &str, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM org_connect_tokens WHERE id = $1 AND org_id = $2")
+            .bind(id)
+            .bind(org_id)
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)

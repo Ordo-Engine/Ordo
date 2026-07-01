@@ -690,6 +690,7 @@ async fn main() -> anyhow::Result<()> {
         let server_url = config.resolved_server_url();
         let version = env!("CARGO_PKG_VERSION").to_string();
         let reg_secret = config.platform_registration_secret.clone();
+        let connect_token = config.platform_connect_token.clone();
 
         // NATS, when configured, is the primary liveness/heartbeat channel. HTTP then
         // only bootstraps registration (delivers the token) + self-heals the row on a
@@ -707,6 +708,7 @@ async fn main() -> anyhow::Result<()> {
             let http_version = version.clone();
             let http_token = token.clone();
             let http_reg_secret = reg_secret.clone();
+            let http_connect_token = connect_token.clone();
             let http_capability_invoker = capability_invoker.clone();
             let log_url = platform_url.clone();
             let log_name = http_server_name.clone();
@@ -745,6 +747,9 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(ref secret) = http_reg_secret {
                         headers.insert("x-registration-secret".to_string(), secret.to_string());
                     }
+                    if let Some(ref tok) = http_connect_token {
+                        headers.insert("x-connect-token".to_string(), tok.to_string());
+                    }
                     // Register (delivers the token + creates/refreshes the row).
                     match invoke_http_json(
                         Some(http_capability_invoker.clone()),
@@ -759,6 +764,9 @@ async fn main() -> anyhow::Result<()> {
                             let mut r = client.post(&reg_url).json(&payload);
                             if let Some(ref secret) = http_reg_secret {
                                 r = r.header("x-registration-secret", secret.as_str());
+                            }
+                            if let Some(ref tok) = http_connect_token {
+                                r = r.header("x-connect-token", tok.as_str());
                             }
                             let _ = r.send().await;
                         }

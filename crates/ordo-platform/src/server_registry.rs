@@ -14,9 +14,12 @@
 
 use crate::{
     error::{ApiResult, PlatformError},
-    models::{derive_server_id, Claims, Role, ServerInfo, ServerNode, ServerStatus},
+    models::{
+        derive_server_id, Claims, ConnectTokenInfo, Role, ServerInfo, ServerNode, ServerStatus,
+    },
     org::load_org_and_check_role,
     proxy::find_project_membership,
+    rbac::{require_permission, PERM_SERVER_MANAGE, PERM_SERVER_VIEW},
     sync, AppState,
 };
 use axum::{
@@ -29,6 +32,7 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use uuid::Uuid;
 
 // ── Internal (token-auth) ─────────────────────────────────────────────────────
 
@@ -59,13 +63,31 @@ pub async fn register_server(
     headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> ApiResult<Json<RegisterResponse>> {
-    if let Some(required_secret) = state.config.registration_secret.as_deref() {
-        let provided = headers
-            .get("x-registration-secret")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        if provided != required_secret {
-            return Err(PlatformError::unauthorized("Invalid registration secret"));
+    // Resolve the connect token (if any) to its owning org. A valid connect
+    // token both authorizes registration and scopes the engine to that org.
+    let connect_org = match headers.get("x-connect-token").and_then(|v| v.to_str().ok()) {
+        Some(tok) if !tok.is_empty() => Some(
+            state
+                .store
+                .org_for_connect_token(tok)
+                .await
+                .map_err(PlatformError::Internal)?
+                .ok_or_else(|| PlatformError::unauthorized("Invalid connect token"))?,
+        ),
+        _ => None,
+    };
+    // Without a connect token, fall back to the global registration secret.
+    if connect_org.is_none() {
+        if let Some(required_secret) = state.config.registration_secret.as_deref() {
+            let provided = headers
+                .get("x-registration-secret")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if provided != required_secret {
+                return Err(PlatformError::unauthorized(
+                    "Invalid registration secret or connect token",
+                ));
+            }
         }
     }
     if req.server_id.is_empty() || req.token.is_empty() || req.url.is_empty() || req.name.is_empty()
@@ -104,7 +126,7 @@ pub async fn register_server(
         name: req.name,
         url: req.url,
         token: req.token,
-        org_id: req.org_id,
+        org_id: connect_org.or(req.org_id),
         labels: serde_json::Value::Object(Default::default()),
         version: req.version,
         status: ServerStatus::Online,
@@ -168,6 +190,9 @@ pub async fn list_servers(
         .await
         .map_err(PlatformError::Internal)?;
 
+    // Only servers scoped to an org the caller belongs to. Unassigned (global)
+    // servers are intentionally NOT surfaced here — that leaked every engine
+    // into every org. They are managed/assigned via the connect-token flow.
     let mut result = Vec::new();
     for org in &orgs {
         let servers = state
@@ -177,18 +202,79 @@ pub async fn list_servers(
             .map_err(PlatformError::Internal)?;
         result.extend(servers.into_iter().map(ServerInfo::from));
     }
-    // Also include global servers (no org_id)
-    let global = state
+    Ok(Json(result))
+}
+
+// ── org connect tokens (admin) ──
+
+#[derive(Deserialize)]
+pub struct CreateConnectTokenRequest {
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CreateConnectTokenResponse {
+    pub id: String,
+    /// The raw token — shown once, on creation, and never again.
+    pub token: String,
+    pub label: Option<String>,
+}
+
+/// POST /api/v1/orgs/:oid/connect-tokens — mint a connect token for the org.
+pub async fn create_connect_token(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(oid): Path<String>,
+    Json(req): Json<CreateConnectTokenRequest>,
+) -> ApiResult<Json<CreateConnectTokenResponse>> {
+    require_permission(&state, &oid, &claims.sub, PERM_SERVER_MANAGE).await?;
+    let id = Uuid::new_v4().to_string();
+    let token = format!("ordo_connect_{}", Uuid::new_v4().simple());
+    state
         .store
-        .list_servers(None)
+        .create_connect_token(&id, &oid, &token, req.label.as_deref(), &claims.sub)
         .await
         .map_err(PlatformError::Internal)?;
-    for s in global {
-        if s.org_id.is_none() && !result.iter().any(|r: &ServerInfo| r.id == s.id) {
-            result.push(s.into());
-        }
+    Ok(Json(CreateConnectTokenResponse {
+        id,
+        token,
+        label: req.label,
+    }))
+}
+
+/// GET /api/v1/orgs/:oid/connect-tokens — list token metadata (never the raw token).
+pub async fn list_connect_tokens(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(oid): Path<String>,
+) -> ApiResult<Json<Vec<ConnectTokenInfo>>> {
+    require_permission(&state, &oid, &claims.sub, PERM_SERVER_VIEW).await?;
+    let tokens = state
+        .store
+        .list_connect_tokens(&oid)
+        .await
+        .map_err(PlatformError::Internal)?;
+    Ok(Json(tokens))
+}
+
+/// DELETE /api/v1/orgs/:oid/connect-tokens/:id — revoke a connect token.
+pub async fn delete_connect_token(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((oid, id)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    require_permission(&state, &oid, &claims.sub, PERM_SERVER_MANAGE).await?;
+    let deleted = state
+        .store
+        .delete_connect_token(&oid, &id)
+        .await
+        .map_err(PlatformError::Internal)?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(PlatformError::not_found("Connect token not found"))
     }
-    Ok(Json(result))
 }
 
 /// GET /api/v1/servers/:id
@@ -352,14 +438,20 @@ pub async fn bind_project_server(
     // Verify project exists in this org
     let _ = find_project_membership(&state, &project_id, &claims.sub).await?;
 
-    // If server_id is provided, verify it exists
+    // If a server is provided, verify it exists AND belongs to this org — a
+    // project may only bind to an engine registered to its own organization.
     if let Some(ref sid) = req.server_id {
-        state
+        let server = state
             .store
             .get_server(sid)
             .await
             .map_err(PlatformError::Internal)?
             .ok_or_else(|| PlatformError::not_found("Server not found"))?;
+        if server.org_id.as_deref() != Some(org_id.as_str()) {
+            return Err(PlatformError::bad_request(
+                "server is not registered to this organization",
+            ));
+        }
     }
 
     state

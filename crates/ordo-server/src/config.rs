@@ -392,6 +392,12 @@ pub struct ServerConfig {
     )]
     pub platform_registration_secret: Option<String>,
 
+    /// Org connect token — registers this engine to a specific organization.
+    /// Mint one in the org's settings (Connect tokens). Takes precedence over
+    /// the global registration secret for org scoping.
+    #[arg(long = "platform-connect-token", env = "ORDO_CONNECT_TOKEN")]
+    pub platform_connect_token: Option<String>,
+
     /// Public HTTP URL of this server as reachable by the platform.
     /// Defaults to http://<http-addr> when not set.
     #[arg(long = "server-url", env = "ORDO_SERVER_URL")]
@@ -692,6 +698,7 @@ impl Default for ServerConfig {
             server_token: None,
             server_url: None,
             platform_registration_secret: None,
+            platform_connect_token: None,
         }
     }
 }

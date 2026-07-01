@@ -27,7 +27,7 @@ pub struct ExecArgs {
     trace: bool,
 }
 
-pub fn run(args: ExecArgs) -> Result<()> {
+pub fn run(args: ExecArgs, json: bool) -> Result<()> {
     let rule = load_rule(&args.rule)?;
     let mut input = load_input(args.input.as_deref(), args.input_file.as_deref())?;
 
@@ -38,16 +38,25 @@ pub fn run(args: ExecArgs) -> Result<()> {
 
     let result = execute_loaded_rule(&rule, input, args.trace)?;
 
-    // Output result
-    let output = serde_json::json!({
-        "code": result.code,
-        "message": result.message,
-        "output": result.output,
-        "duration_us": result.duration_us,
-    });
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    if json {
+        crate::output::emit_json(&serde_json::json!({
+            "code": result.code,
+            "message": result.message,
+            "output": result.output,
+            "duration_us": result.duration_us,
+            "trace": result.trace,
+        }))?;
+        return Ok(());
+    }
 
-    // Output trace if enabled
+    // Human-readable summary.
+    println!("code:    {}", result.code);
+    if !result.message.is_empty() {
+        println!("message: {}", result.message);
+    }
+    println!("output:  {}", serde_json::to_string_pretty(&result.output)?);
+    println!("({}µs)", result.duration_us);
+
     if let Some(trace) = &result.trace {
         eprintln!("\n--- Execution Trace ---");
         for step in &trace.steps {

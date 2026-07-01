@@ -45,6 +45,23 @@ const pendingTitle = computed(() => {
   return c.name;
 });
 
+// Human action verb — present-continuous while running, past tense when done.
+const VERB_FORMS: Record<string, [string, string]> = {
+  read_file: ['Reading', 'Read'],
+  write_file: ['Editing', 'Edited'],
+  delete_file: ['Deleting', 'Deleted'],
+  list_files: ['Listing files', 'Listed files'],
+  grep: ['Searching', 'Searched'],
+  validate: ['Validating', 'Validated'],
+  run_tests: ['Running tests', 'Ran tests'],
+  publish: ['Publishing', 'Published'],
+};
+function verbOf(tool: { name: string; status: string }): string {
+  const f = VERB_FORMS[tool.name];
+  if (!f) return tool.name;
+  return tool.status === 'running' ? f[0] : f[1];
+}
+
 function submit() {
   const text = input.value;
   input.value = '';
@@ -97,17 +114,18 @@ function submit() {
       </div>
 
       <div v-for="(msg, i) in ai.messages" :key="i" class="ai-msg" :class="msg.role">
-        <div v-if="msg.text || i === streamingIdx" class="ai-bubble">
-          {{ msg.text }}<span v-if="i === streamingIdx" class="ai-cursor">▍</span>
-        </div>
-        <div v-if="msg.tools.length" class="ai-tools">
-          <div v-for="tool in msg.tools" :key="tool.id" class="ai-tool" :class="tool.status">
-            <t-icon v-if="tool.status === 'running'" name="loading" class="ai-tool-spin" />
-            <t-icon v-else-if="tool.status === 'ok'" name="check-circle-filled" />
-            <t-icon v-else name="close-circle-filled" />
-            <span class="ai-tool-label">{{ tool.label }}</span>
+        <div v-if="msg.role === 'user'" class="ai-user">{{ msg.text }}</div>
+        <template v-else>
+          <div v-if="msg.text || i === streamingIdx" class="ai-assistant">
+            {{ msg.text }}<span v-if="i === streamingIdx" class="ai-cursor">▍</span>
           </div>
-        </div>
+          <div v-for="tool in msg.tools" :key="tool.id" class="ai-tool-line" :class="tool.status">
+            <t-icon v-if="tool.status === 'running'" name="loading" class="ai-tool-spin" />
+            <span v-else class="ai-tool-tick">{{ tool.status === 'error' ? '✕' : '✓' }}</span>
+            <span class="ai-tool-verb">{{ verbOf(tool) }}</span>
+            <span v-if="tool.target" class="ai-tool-target">{{ tool.target }}</span>
+          </div>
+        </template>
       </div>
 
       <div v-if="ai.running && streamingIdx === -1" class="ai-running">{{ t('ai.thinking') }}</div>
@@ -215,58 +233,60 @@ function submit() {
 .ai-msg {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-.ai-msg.user {
-  align-items: flex-end;
-}
-.ai-bubble {
-  max-width: 92%;
-  padding: 8px 10px;
-  border-radius: 10px;
+  gap: 3px;
   font-size: 13px;
+}
+/* User turn — dimmed, marked with a subtle left rule (no chat bubble). */
+.ai-user {
+  color: var(--ordo-text-primary, #1a1a1a);
+  font-weight: 500;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  padding-left: 9px;
+  border-left: 2px solid var(--ordo-border, #dcdcdc);
 }
-.ai-msg.user .ai-bubble {
-  background: var(--ordo-brand, #0052d9);
-  color: #fff;
-}
-.ai-msg.assistant .ai-bubble {
-  background: var(--ordo-bg-sunken, #f3f3f3);
+/* Assistant turn — plain flowing text. */
+.ai-assistant {
   color: var(--ordo-text-primary, #1a1a1a);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.ai-tools {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-top: 2px;
-}
-.ai-tool {
+/* A tool call as a compact monochrome line: verb + dimmed target. */
+.ai-tool-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-size: 12px;
-  font-family: var(--td-font-family-mono, ui-monospace, monospace);
-  color: var(--ordo-text-secondary, #666);
-  padding: 3px 8px;
-  border: 1px solid var(--ordo-border, #ececec);
-  border-radius: 6px;
-  background: var(--ordo-bg-sunken, #fafafa);
+  line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--ordo-text-secondary, #8a8a8a);
 }
-.ai-tool.ok {
-  color: var(--td-success-color, #2ba471);
+.ai-tool-verb {
+  flex-shrink: 0;
 }
-.ai-tool.error {
-  color: var(--td-error-color, #d54941);
-}
-.ai-tool-label {
+.ai-tool-target {
+  color: var(--ordo-text-placeholder, #b0b0b0);
+  font-family: var(--td-font-family-mono, ui-monospace, SFMono-Regular, monospace);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.ai-tool-line.error,
+.ai-tool-line.error .ai-tool-target {
+  color: var(--td-error-color, #d54941);
+}
+.ai-tool-tick {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.55;
 }
 .ai-tool-spin {
+  flex-shrink: 0;
   animation: ai-spin 0.9s linear infinite;
 }
 @keyframes ai-spin {

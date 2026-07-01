@@ -63,6 +63,18 @@ function verbOf(tool: { name: string; status: string }): string {
   return tool.status === 'running' ? f[0] : f[1];
 }
 
+// @ context picker
+const showPin = ref(false);
+const projectFiles = ref<string[]>([]);
+async function openPin() {
+  projectFiles.value = await ai.listProjectFiles();
+  showPin.value = true;
+}
+function pick(path: unknown) {
+  if (typeof path === 'string') ai.pinFile(path);
+  showPin.value = false;
+}
+
 function submit() {
   const text = input.value;
   input.value = '';
@@ -75,15 +87,6 @@ function submit() {
     <header class="ai-header">
       <span class="ai-title">{{ t('ai.title') }}</span>
       <div class="ai-header-actions">
-        <t-button
-          v-if="ai.canUndo"
-          size="small"
-          variant="text"
-          theme="warning"
-          @click="ai.undoLastChange"
-        >
-          {{ t('ai.undo') }}
-        </t-button>
         <t-button size="small" variant="text" @click="ai.reset">{{ t('ai.clear') }}</t-button>
         <t-button size="small" variant="text" shape="square" @click="emit('close')">✕</t-button>
       </div>
@@ -113,8 +116,16 @@ function submit() {
     </div>
 
     <div v-if="ai.touchedFiles.length" class="ai-changed">
-      <span class="ai-changed-label">{{ t('ai.changedFiles') }}</span>
-      <t-tag v-for="f in ai.touchedFiles" :key="f" size="small" variant="outline">{{ f }}</t-tag>
+      <div class="ai-changed-label">{{ t('ai.changedFiles') }}</div>
+      <div v-for="f in ai.touchedFiles" :key="f" class="ai-changed-row">
+        <span class="ai-changed-file">{{ f }}</span>
+        <span class="ai-changed-actions">
+          <button v-if="ai.canRevert(f)" class="ai-changed-btn revert" @click="ai.revertFile(f)">
+            {{ t('ai.revert') }}
+          </button>
+          <button class="ai-changed-btn keep" @click="ai.keepFile(f)">{{ t('ai.keep') }}</button>
+        </span>
+      </div>
     </div>
 
     <div class="ai-messages">
@@ -176,7 +187,42 @@ function submit() {
       </div>
     </div>
 
+    <!-- @ context pins -->
+    <div v-if="ai.contextFiles.length || showPin" class="ai-context">
+      <t-tag
+        v-for="p in ai.contextFiles"
+        :key="p"
+        size="small"
+        variant="light"
+        closable
+        @close="ai.unpinFile(p)"
+      >
+        @ {{ p }}
+      </t-tag>
+      <t-select
+        v-if="showPin"
+        size="small"
+        filterable
+        autofocus
+        :placeholder="t('ai.addContext')"
+        class="ai-pin-select"
+        @change="pick"
+      >
+        <t-option v-for="f in projectFiles" :key="f" :value="f" :label="f" />
+      </t-select>
+    </div>
+
     <footer class="ai-input-bar">
+      <t-button
+        size="small"
+        variant="text"
+        shape="square"
+        :disabled="!ai.ready"
+        :title="t('ai.addContext')"
+        @click="openPin"
+      >
+        @
+      </t-button>
       <t-textarea
         v-model="input"
         :placeholder="t('ai.placeholder')"
@@ -280,16 +326,47 @@ function submit() {
 }
 .ai-changed {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--ordo-border, #e7e7e7);
 }
 .ai-changed-label {
   font-size: 11px;
   color: var(--ordo-text-secondary, #888);
-  margin-right: 4px;
+  margin-bottom: 2px;
+}
+.ai-changed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.ai-changed-file {
+  font-family: var(--td-font-family-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ordo-text-primary, #333);
+}
+.ai-changed-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.ai-changed-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.ai-changed-btn.keep {
+  color: var(--td-success-color, #2ba471);
+}
+.ai-changed-btn.revert {
+  color: var(--td-error-color, #d54941);
 }
 .ai-messages {
   flex: 1;
@@ -444,9 +521,19 @@ function submit() {
   justify-content: flex-end;
   gap: 8px;
 }
+.ai-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px 0;
+}
+.ai-pin-select {
+  min-width: 160px;
+}
 .ai-input-bar {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-end;
   padding: 10px 12px;
   border-top: 1px solid var(--ordo-border, #e7e7e7);

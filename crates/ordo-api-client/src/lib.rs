@@ -289,6 +289,145 @@ impl Client {
         )
         .await
     }
+
+    /// Send a request that returns no meaningful body (e.g. DELETE/204, or an
+    /// upsert whose response we ignore). Non-2xx maps to `ApiError::Http`.
+    async fn send_empty(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<()> {
+        let resp = self.raw(method, path, body).await?;
+        let status = resp.status();
+        let bytes = resp.bytes().await?;
+        if status.is_success() {
+            Ok(())
+        } else {
+            Err(parse_error(status.as_u16(), &bytes))
+        }
+    }
+
+    pub async fn upsert_fact(&self, project_id: &str, fact: Value) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::POST,
+            &format!("/projects/{}/facts", enc(project_id)),
+            Some(fact),
+        )
+        .await
+    }
+
+    pub async fn delete_fact(&self, project_id: &str, name: &str) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::DELETE,
+            &format!("/projects/{}/facts/{}", enc(project_id), enc(name)),
+            None,
+        )
+        .await
+    }
+
+    pub async fn upsert_concept(&self, project_id: &str, concept: Value) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::POST,
+            &format!("/projects/{}/concepts", enc(project_id)),
+            Some(concept),
+        )
+        .await
+    }
+
+    pub async fn delete_concept(&self, project_id: &str, name: &str) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::DELETE,
+            &format!("/projects/{}/concepts/{}", enc(project_id), enc(name)),
+            None,
+        )
+        .await
+    }
+
+    pub async fn list_contracts(&self, project_id: &str) -> Result<Vec<Value>> {
+        self.send(
+            reqwest::Method::GET,
+            &format!("/projects/{}/contracts", enc(project_id)),
+            None,
+        )
+        .await
+    }
+
+    pub async fn upsert_contract(
+        &self,
+        project_id: &str,
+        name: &str,
+        contract: Value,
+    ) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::PUT,
+            &format!("/projects/{}/contracts/{}", enc(project_id), enc(name)),
+            Some(contract),
+        )
+        .await
+    }
+
+    // ── test cases (project-scoped, per ruleset) ──
+
+    pub async fn list_tests(&self, project_id: &str, ruleset: &str) -> Result<Vec<Value>> {
+        self.send(
+            reqwest::Method::GET,
+            &format!(
+                "/projects/{}/rulesets/{}/tests",
+                enc(project_id),
+                enc(ruleset)
+            ),
+            None,
+        )
+        .await
+    }
+
+    pub async fn create_test(&self, project_id: &str, ruleset: &str, test: Value) -> Result<Value> {
+        self.send(
+            reqwest::Method::POST,
+            &format!(
+                "/projects/{}/rulesets/{}/tests",
+                enc(project_id),
+                enc(ruleset)
+            ),
+            Some(test),
+        )
+        .await
+    }
+
+    pub async fn update_test(
+        &self,
+        project_id: &str,
+        ruleset: &str,
+        test_id: &str,
+        test: Value,
+    ) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::PUT,
+            &format!(
+                "/projects/{}/rulesets/{}/tests/{}",
+                enc(project_id),
+                enc(ruleset),
+                enc(test_id)
+            ),
+            Some(test),
+        )
+        .await
+    }
+
+    pub async fn delete_test(&self, project_id: &str, ruleset: &str, test_id: &str) -> Result<()> {
+        self.send_empty(
+            reqwest::Method::DELETE,
+            &format!(
+                "/projects/{}/rulesets/{}/tests/{}",
+                enc(project_id),
+                enc(ruleset),
+                enc(test_id)
+            ),
+            None,
+        )
+        .await
+    }
 }
 
 fn parse_error(status: u16, bytes: &[u8]) -> ApiError {
@@ -319,4 +458,46 @@ fn enc(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enc_passes_unreserved_and_escapes_the_rest() {
+        assert_eq!(enc("loan-approval"), "loan-approval");
+        assert_eq!(enc("a b/c"), "a%20b%2Fc");
+        assert_eq!(enc("x.y_z~1"), "x.y_z~1");
+    }
+
+    #[test]
+    fn parse_error_reads_error_body() {
+        let e = parse_error(400, br#"{"error":"bad","code":"x"}"#);
+        match e {
+            ApiError::Http {
+                status,
+                code,
+                message,
+            } => {
+                assert_eq!(status, 400);
+                assert_eq!(code.as_deref(), Some("x"));
+                assert_eq!(message, "bad");
+            }
+            _ => panic!("expected Http"),
+        }
+    }
+
+    #[test]
+    fn parse_error_falls_back_to_raw_body() {
+        let e = parse_error(500, b"boom");
+        assert!(matches!(e, ApiError::Http { message, .. } if message == "boom"));
+    }
+
+    #[test]
+    fn draft_conflict_deserializes() {
+        let c: DraftConflict =
+            serde_json::from_str(r#"{"conflict":true,"server_seq":7,"server_draft":{}}"#).unwrap();
+        assert_eq!(c.server_seq, 7);
+    }
 }

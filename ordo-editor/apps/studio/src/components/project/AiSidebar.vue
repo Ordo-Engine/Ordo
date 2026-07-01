@@ -322,22 +322,25 @@ function submit() {
 </template>
 
 <style scoped>
-/* Self-contained dark surface — matches the studio's dark file sidebar and the
-   reference agent panel, independent of the app's light/dark theme. */
+/* Follows the studio's own design tokens — a light, on-brand surface that
+   adapts with the app theme (the --ordo-* set flips in dark mode). */
 .ai-sidebar {
-  --c-bg: #1b1d21;
-  --c-elev: #212429;
-  --c-elev-2: #26292f;
-  --c-hover: rgba(255, 255, 255, 0.055);
-  --c-border: rgba(255, 255, 255, 0.09);
-  --c-border-2: rgba(255, 255, 255, 0.14);
-  --c-text: #e7e9ee;
-  --c-dim: rgba(231, 233, 238, 0.62);
-  --c-faint: rgba(231, 233, 238, 0.4);
-  --c-accent: #4a9eff;
-  --c-accent-soft: rgba(74, 158, 255, 0.16);
-  --c-green: #5fb87a;
-  --c-red: #e5715f;
+  --c-bg: var(--ordo-bg-panel, #ffffff);
+  --c-elev: var(--ordo-bg-panel, #ffffff);
+  --c-elev-2: var(--ordo-bg-secondary, #f4f5f7);
+  --c-hover: var(--ordo-hover-bg, rgba(0, 0, 0, 0.05));
+  --c-border: var(--ordo-border-light, #eceef1);
+  --c-border-2: var(--ordo-border-color, #e1e4e8);
+  --c-text: var(--ordo-text-primary, #24292e);
+  --c-dim: var(--ordo-text-secondary, #586069);
+  --c-faint: var(--ordo-text-tertiary, #8b929c);
+  --c-accent: var(--ordo-accent, #0066b8);
+  --c-accent-hover: var(--ordo-accent-hover, #005ba1);
+  --c-accent-soft: var(--ordo-accent-bg, #e6f1fc);
+  --c-green: var(--ordo-success, #388a34);
+  --c-red: var(--ordo-error, #e51400);
+  --c-warn: var(--ordo-warning, #b76e00);
+  --c-code-bg: var(--ordo-bg-secondary, #f6f8fa);
   --c-mono: var(--ordo-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 
   display: flex;
@@ -457,7 +460,7 @@ function submit() {
   height: 13px;
   margin-top: 2px;
   border-radius: 50%;
-  border: 1.5px solid var(--c-faint);
+  border: 1.5px solid var(--c-border-2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -471,7 +474,7 @@ function submit() {
   background: var(--c-green);
 }
 .ai-plan-check {
-  color: #10231a;
+  color: #ffffff;
   font-size: 9px;
   line-height: 1;
   font-weight: 700;
@@ -552,8 +555,8 @@ function submit() {
   word-break: break-word;
 }
 .ai-md :deep(.ai-code) {
-  background: #16181c;
-  border: 1px solid var(--c-border);
+  background: var(--c-code-bg);
+  border: 1px solid var(--c-border-2);
   border-radius: 7px;
   padding: 9px 11px;
   margin: 7px 0;
@@ -562,16 +565,16 @@ function submit() {
   font-size: 12px;
   line-height: 1.5;
   white-space: pre;
-  color: #d7dbe2;
+  color: var(--c-text);
 }
 .ai-md :deep(.ai-inline-code) {
-  background: var(--c-hover);
-  border: 1px solid var(--c-border);
+  background: var(--c-code-bg);
+  border: 1px solid var(--c-border-2);
   border-radius: 4px;
   padding: 0.5px 4px;
   font-family: var(--c-mono);
   font-size: 0.88em;
-  color: #cdd3dd;
+  color: var(--c-text);
 }
 .ai-md :deep(.ai-list) {
   margin: 4px 0;
@@ -700,26 +703,26 @@ function submit() {
   color: var(--c-dim);
 }
 .ai-opt-btn.danger {
-  border-color: rgba(229, 113, 95, 0.5);
-  color: #f0a99c;
+  border-color: color-mix(in srgb, var(--c-red) 45%, transparent);
+  color: var(--c-red);
 }
 .ai-confirm {
-  border-color: rgba(203, 138, 0, 0.4);
-  background: rgba(203, 138, 0, 0.08);
+  border-color: color-mix(in srgb, var(--c-warn) 40%, transparent);
+  background: color-mix(in srgb, var(--c-warn) 8%, transparent);
 }
 .ai-confirm-title {
   font-size: 12.5px;
   font-weight: 600;
   margin-bottom: 7px;
-  color: #e6c778;
+  color: var(--c-warn);
 }
 .ai-confirm-input {
   font-size: 11px;
   max-height: 120px;
   overflow: auto;
-  background: #16181c;
-  border: 1px solid var(--c-border);
-  color: #cdd3dd;
+  background: var(--c-code-bg);
+  border: 1px solid var(--c-border-2);
+  color: var(--c-text);
   padding: 7px;
   border-radius: 6px;
   margin-bottom: 9px;
@@ -978,7 +981,7 @@ function submit() {
     opacity 0.1s;
 }
 .ai-send:hover:not(:disabled) {
-  background: #5aa8ff;
+  background: var(--c-accent-hover);
 }
 .ai-send:disabled {
   opacity: 0.35;
@@ -999,10 +1002,10 @@ function submit() {
 .ai-popover {
   position: absolute;
   z-index: 20;
-  background: var(--c-elev-2);
+  background: var(--c-elev);
   border: 1px solid var(--c-border-2);
   border-radius: 9px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--ordo-shadow-md, 0 4px 16px rgba(0, 0, 0, 0.14));
   overflow: hidden;
   display: flex;
   flex-direction: column;

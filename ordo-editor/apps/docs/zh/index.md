@@ -10,8 +10,8 @@ hero:
     alt: Ordo
   actions:
     - theme: brand
-      text: 开始使用
-      link: /zh/guide/getting-started
+      text: 快速上手
+      link: /zh/platform/quickstart
     - theme: alt
       text: 平台篇
       link: /zh/platform/overview

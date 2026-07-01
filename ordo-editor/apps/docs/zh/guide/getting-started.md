@@ -1,6 +1,8 @@
-# 开始使用
+# 在本地运行引擎
 
-本指南将帮助你快速运行 Ordo。
+本指南带你在本机跑起开源**引擎**(`ordo-server`)——用于嵌入、自建,或改核心代码。
+
+> **要做一个决策服务?** 你不需要自己跑引擎。跟着[平台快速上手](/zh/platform/quickstart)走——五分钟内建项目、写规则、发布,引擎由平台托管。
 
 ##先决条件
 
@@ -48,7 +50,7 @@ curl http://localhost:8080/health
 ```json
 {
   "status": "healthy",
-  "version": "0.2.0",
+  "version": "0.4.2",
   "uptime_seconds": 5,
   "storage": {
     "mode": "memory",

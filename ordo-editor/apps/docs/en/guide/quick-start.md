@@ -2,6 +2,11 @@
 
 Let's create and execute your first rule in under 5 minutes.
 
+> This is the raw **engine** REST path — you author a ruleset by hand and `POST`
+> it to a running `ordo-server`. Using the platform instead? The
+> [Platform Quickstart](/en/platform/quickstart) covers projects, Studio, and
+> publishing.
+
 ## Create a Rule
 
 Create a simple discount rule that gives VIP users 20% off:

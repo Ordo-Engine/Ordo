@@ -22,8 +22,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Ordo-Engine/Ordo.git",
+    "url": "git+https://github.com/Ordo-Engine/Ordo.git",
     "directory": "npm"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT",
   "engines": {

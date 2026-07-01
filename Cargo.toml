@@ -8,6 +8,7 @@ members = [
     "crates/ordo-server",
     "crates/ordo-platform",
     "crates/ordo-studio-format",
+    "crates/ordo-api-client",
     "crates/ordo-wasm",
     "examples/capability-demo",
 ]

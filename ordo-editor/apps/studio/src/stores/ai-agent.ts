@@ -22,9 +22,11 @@ import * as fs from './project-fs';
 const MAX_ROUNDS = 12;
 const RULESET_RE = /^rulesets\/(.+)\.json$/;
 
-interface ToolActivity {
+export interface ToolActivity {
+  id: string;
   name: string;
-  ok: boolean;
+  label: string;
+  status: 'running' | 'ok' | 'error';
 }
 /** A rendered chat turn (what the sidebar shows). */
 export interface DisplayMessage {
@@ -121,30 +123,8 @@ export const useAiStore = defineStore('ai', () => {
     running.value = true;
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
-        const resp = await aiApi.chat(auth.token!, {
-          provider: provider.value,
-          model: modelId.value,
-          messages: transcript.value,
-          context: await buildContext(),
-        });
-
-        const display: DisplayMessage = { role: 'assistant', text: resp.content, tools: [] };
-        messages.value.push(display);
-        transcript.value.push({
-          role: 'assistant',
-          content: resp.content,
-          tool_calls: resp.tool_calls,
-        });
-
-        if (resp.stop_reason !== 'tool_use' || resp.tool_calls.length === 0) return;
-
-        const results = [];
-        for (const call of resp.tool_calls) {
-          const r = await executeTool(call);
-          display.tools.push({ name: toolLabel(call), ok: !r.is_error });
-          results.push({ tool_call_id: call.id, content: r.content, is_error: r.is_error });
-        }
-        transcript.value.push({ role: 'tool', tool_results: results });
+        const more = await streamTurn();
+        if (!more) return;
       }
       messages.value.push({
         role: 'assistant',
@@ -156,6 +136,60 @@ export const useAiStore = defineStore('ai', () => {
     } finally {
       running.value = false;
     }
+  }
+
+  /** Stream one assistant turn; returns true if tools ran and we should loop again. */
+  async function streamTurn(): Promise<boolean> {
+    const display: DisplayMessage = { role: 'assistant', text: '', tools: [] };
+    messages.value.push(display);
+    const toolCalls: AiToolCall[] = [];
+    let stopReason = 'end_turn';
+
+    await aiApi.chatStream(
+      auth.token!,
+      {
+        provider: provider.value,
+        model: modelId.value,
+        messages: transcript.value,
+        context: await buildContext(),
+      },
+      (ev) => {
+        if (ev.type === 'text') {
+          display.text += ev.text;
+        } else if (ev.type === 'tool_start') {
+          display.tools.push({ id: ev.id, name: ev.name, label: ev.name, status: 'running' });
+        } else if (ev.type === 'tool') {
+          const call: AiToolCall = { id: ev.id, name: ev.name, input: ev.input };
+          toolCalls.push(call);
+          const badge = display.tools.find((t) => t.id === ev.id);
+          if (badge) badge.label = toolLabel(call);
+          else
+            display.tools.push({
+              id: ev.id,
+              name: ev.name,
+              label: toolLabel(call),
+              status: 'running',
+            });
+        } else if (ev.type === 'done') {
+          stopReason = ev.stop_reason;
+        } else if (ev.type === 'error') {
+          error.value = ev.message;
+        }
+      }
+    );
+
+    transcript.value.push({ role: 'assistant', content: display.text, tool_calls: toolCalls });
+    if (stopReason !== 'tool_use' || toolCalls.length === 0) return false;
+
+    const results = [];
+    for (const call of toolCalls) {
+      const r = await executeTool(call);
+      const badge = display.tools.find((t) => t.id === call.id);
+      if (badge) badge.status = r.is_error ? 'error' : 'ok';
+      results.push({ tool_call_id: call.id, content: r.content, is_error: r.is_error });
+    }
+    transcript.value.push({ role: 'tool', tool_results: results });
+    return true;
   }
 
   function isHighRisk(call: AiToolCall): boolean {

@@ -7,14 +7,16 @@
 //! undoable — the model proposes tool calls and the editor applies them. High-risk
 //! tools (publish/delete/release) are gated by a client-side confirmation card.
 
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::{extract::State, Extension, Json};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{
-    config::PlatformConfig,
     error::{ApiResult, PlatformError},
     models::Claims,
     AppState,
@@ -70,16 +72,10 @@ pub struct ChatRequest {
     pub context: Option<Value>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ChatResponse {
-    /// Assistant prose for this turn (may be empty when it only calls tools).
-    pub content: String,
-    /// Tools for the client to execute, then send back as `tool_results`.
-    pub tool_calls: Vec<ToolCall>,
-    /// `"tool_use"` when the client must run tools and continue the loop,
-    /// `"end_turn"` when the assistant is done.
-    pub stop_reason: String,
-}
+// The chat handler streams normalized SSE events (see `chat`), rather than
+// returning a single JSON response. Each event's `data` is a JSON object with a
+// `type`: `text` (a prose delta), `tool_start` (id+name as a tool call begins),
+// `tool` (a complete tool call: id/name/input), `done` (stop_reason), or `error`.
 
 // ── Provider catalog (GET /ai/models) ───────────────────────────────────────
 
@@ -195,67 +191,154 @@ fn openrouter_fallback(_e: PlatformError) -> Vec<ModelOption> {
 
 // ── Chat (POST /ai/chat) ────────────────────────────────────────────────────
 
+/// Stream one assistant turn as normalized SSE events. Calls the provider with
+/// `stream: true` and forwards a provider-agnostic event stream to the browser.
 pub async fn chat(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Json(req): Json<ChatRequest>,
-) -> ApiResult<Json<ChatResponse>> {
+) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
     let system = build_system_prompt(req.context.as_ref());
     let tools = tool_specs();
+    let http = state.http_client.clone();
+    let cfg = state.config.clone();
 
-    let resp = match req.provider.as_str() {
-        "anthropic" => {
-            let key = state.config.anthropic_api_key.as_deref().ok_or_else(|| {
-                PlatformError::bad_request("Anthropic provider is not configured")
-            })?;
-            anthropic_chat(
-                &state.http_client,
-                &state.config,
-                key,
-                &req,
-                &system,
-                &tools,
-            )
-            .await
+    let stream = async_stream::stream! {
+        match req.provider.as_str() {
+            "anthropic" => {
+                let Some(key) = cfg.anthropic_api_key.clone() else {
+                    yield evt(err_payload("Anthropic provider is not configured"));
+                    return;
+                };
+                let url = format!("{}/v1/messages", cfg.anthropic_base_url.trim_end_matches('/'));
+                let res = http
+                    .post(&url)
+                    .header("x-api-key", key)
+                    .header("anthropic-version", "2023-06-01")
+                    .json(&anthropic_body(&req, &system, &tools))
+                    .send()
+                    .await;
+                match res {
+                    Ok(r) if r.status().is_success() => {
+                        let mut bytes = r.bytes_stream();
+                        let mut buf: Vec<u8> = Vec::new();
+                        let mut acc: HashMap<u64, ToolAccum> = HashMap::new();
+                        let mut stop = String::from("end_turn");
+                        while let Some(chunk) = bytes.next().await {
+                            let Ok(chunk) = chunk else { break };
+                            buf.extend_from_slice(&chunk);
+                            while let Some(i) = find_sub(&buf, b"\n\n") {
+                                let frame: Vec<u8> = buf.drain(..i + 2).collect();
+                                let frame = String::from_utf8_lossy(&frame);
+                                for p in parse_anthropic_frame(&frame, &mut acc, &mut stop) {
+                                    yield evt(p);
+                                }
+                            }
+                        }
+                        yield evt(json!({ "type": "done", "stop_reason": stop }));
+                    }
+                    Ok(r) => {
+                        let status = r.status();
+                        let body = r.text().await.unwrap_or_default();
+                        yield evt(err_payload(&format!("Anthropic API error ({status}): {body}")));
+                    }
+                    Err(e) => yield evt(err_payload(&format!("Anthropic request failed: {e}"))),
+                }
+            }
+            "openai" => {
+                let Some(key) = cfg.openai_api_key.clone() else {
+                    yield evt(err_payload("OpenAI provider is not configured"));
+                    return;
+                };
+                let url = format!("{}/chat/completions", cfg.openai_base_url.trim_end_matches('/'));
+                let res = http
+                    .post(&url)
+                    .bearer_auth(key)
+                    .json(&openai_body(&req, &system, &tools))
+                    .send()
+                    .await;
+                match res {
+                    Ok(r) if r.status().is_success() => {
+                        let mut bytes = r.bytes_stream();
+                        let mut buf: Vec<u8> = Vec::new();
+                        let mut acc: Vec<ToolAccum> = Vec::new();
+                        let mut started: HashSet<usize> = HashSet::new();
+                        while let Some(chunk) = bytes.next().await {
+                            let Ok(chunk) = chunk else { break };
+                            buf.extend_from_slice(&chunk);
+                            while let Some(i) = find_sub(&buf, b"\n\n") {
+                                let frame: Vec<u8> = buf.drain(..i + 2).collect();
+                                let frame = String::from_utf8_lossy(&frame);
+                                for p in parse_openai_frame(&frame, &mut acc, &mut started) {
+                                    yield evt(p);
+                                }
+                            }
+                        }
+                        // OpenAI streams tool args in fragments; emit each completed call now.
+                        let mut any_tool = false;
+                        for t in &acc {
+                            if t.name.is_empty() {
+                                continue;
+                            }
+                            any_tool = true;
+                            let input: Value =
+                                serde_json::from_str(&t.args).unwrap_or_else(|_| json!({}));
+                            yield evt(json!({ "type": "tool", "id": t.id, "name": t.name, "input": input }));
+                        }
+                        let stop = if any_tool { "tool_use" } else { "end_turn" };
+                        yield evt(json!({ "type": "done", "stop_reason": stop }));
+                    }
+                    Ok(r) => {
+                        let status = r.status();
+                        let body = r.text().await.unwrap_or_default();
+                        yield evt(err_payload(&format!("OpenAI API error ({status}): {body}")));
+                    }
+                    Err(e) => yield evt(err_payload(&format!("OpenAI request failed: {e}"))),
+                }
+            }
+            other => yield evt(err_payload(&format!("Unknown AI provider '{other}'"))),
         }
-        "openai" => {
-            let key =
-                state.config.openai_api_key.as_deref().ok_or_else(|| {
-                    PlatformError::bad_request("OpenAI provider is not configured")
-                })?;
-            openai_chat(
-                &state.http_client,
-                &state.config,
-                key,
-                &req,
-                &system,
-                &tools,
-            )
-            .await
-        }
-        other => {
-            return Err(PlatformError::bad_request(format!(
-                "Unknown AI provider '{other}'"
-            )))
-        }
-    }?;
+    };
 
-    Ok(Json(resp))
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 const MAX_TOKENS: u32 = 8192;
 
+/// Accumulates a streaming tool call (its id, name, and fragmented JSON args).
+#[derive(Default)]
+struct ToolAccum {
+    id: String,
+    name: String,
+    args: String,
+}
+
+/// Wrap a JSON payload as an SSE data event (infallible).
+fn evt(payload: Value) -> Result<Event, Infallible> {
+    Ok(Event::default().data(payload.to_string()))
+}
+
+fn err_payload(message: &str) -> Value {
+    json!({ "type": "error", "message": message })
+}
+
+/// Byte-substring search (for locating `\n\n` SSE frame boundaries).
+fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The `data:` JSON payload of one SSE frame, if present.
+fn sse_data(frame: &str) -> Option<Value> {
+    let line = frame.lines().find_map(|l| l.strip_prefix("data:"))?.trim();
+    if line == "[DONE]" {
+        return None;
+    }
+    serde_json::from_str(line).ok()
+}
+
 // ── Anthropic adapter (Messages API) ────────────────────────────────────────
 
-async fn anthropic_chat(
-    http: &reqwest::Client,
-    cfg: &Arc<PlatformConfig>,
-    api_key: &str,
-    req: &ChatRequest,
-    system: &str,
-    tools: &[Value],
-) -> Result<ChatResponse, PlatformError> {
-    // Anthropic tools: { name, description, input_schema }.
+fn anthropic_body(req: &ChatRequest, system: &str, tools: &[Value]) -> Value {
     let an_tools: Vec<Value> = tools
         .iter()
         .map(|t| {
@@ -266,76 +349,78 @@ async fn anthropic_chat(
             })
         })
         .collect();
-
     let messages: Vec<Value> = req.messages.iter().map(anthropic_message).collect();
-
-    let body = json!({
+    json!({
         "model": req.model,
         "max_tokens": MAX_TOKENS,
         "system": system,
         "tools": an_tools,
         "messages": messages,
-    });
+        "stream": true,
+    })
+}
 
-    let url = format!(
-        "{}/v1/messages",
-        cfg.anthropic_base_url.trim_end_matches('/')
-    );
-    let res = http
-        .post(&url)
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| PlatformError::internal(format!("Anthropic request failed: {e}")))?;
-
-    let status = res.status();
-    let payload: Value = res
-        .json()
-        .await
-        .map_err(|e| PlatformError::internal(format!("Anthropic response decode failed: {e}")))?;
-    if !status.is_success() {
-        let msg = payload["error"]["message"]
-            .as_str()
-            .unwrap_or("unknown error");
-        return Err(PlatformError::internal(format!(
-            "Anthropic API error ({status}): {msg}"
-        )));
-    }
-
-    let mut content = String::new();
-    let mut tool_calls = Vec::new();
-    if let Some(blocks) = payload["content"].as_array() {
-        for block in blocks {
-            match block["type"].as_str() {
-                Some("text") => {
-                    if let Some(t) = block["text"].as_str() {
-                        content.push_str(t);
+/// Parse one Anthropic SSE frame into normalized event payloads, updating the
+/// per-index tool accumulator and the running stop_reason.
+fn parse_anthropic_frame(
+    frame: &str,
+    acc: &mut HashMap<u64, ToolAccum>,
+    stop: &mut String,
+) -> Vec<Value> {
+    let Some(v) = sse_data(frame) else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    match v["type"].as_str() {
+        Some("content_block_start") => {
+            let cb = &v["content_block"];
+            if cb["type"] == "tool_use" {
+                let idx = v["index"].as_u64().unwrap_or(0);
+                let id = cb["id"].as_str().unwrap_or_default().to_string();
+                let name = cb["name"].as_str().unwrap_or_default().to_string();
+                out.push(json!({ "type": "tool_start", "id": id, "name": name }));
+                acc.insert(
+                    idx,
+                    ToolAccum {
+                        id,
+                        name,
+                        args: String::new(),
+                    },
+                );
+            }
+        }
+        Some("content_block_delta") => {
+            let d = &v["delta"];
+            match d["type"].as_str() {
+                Some("text_delta") => {
+                    if let Some(t) = d["text"].as_str() {
+                        out.push(json!({ "type": "text", "text": t }));
                     }
                 }
-                Some("tool_use") => tool_calls.push(ToolCall {
-                    id: block["id"].as_str().unwrap_or_default().to_string(),
-                    name: block["name"].as_str().unwrap_or_default().to_string(),
-                    input: block["input"].clone(),
-                }),
+                Some("input_json_delta") => {
+                    let idx = v["index"].as_u64().unwrap_or(0);
+                    if let (Some(e), Some(pj)) = (acc.get_mut(&idx), d["partial_json"].as_str()) {
+                        e.args.push_str(pj);
+                    }
+                }
                 _ => {}
             }
         }
+        Some("content_block_stop") => {
+            let idx = v["index"].as_u64().unwrap_or(0);
+            if let Some(t) = acc.remove(&idx) {
+                let input: Value = serde_json::from_str(&t.args).unwrap_or_else(|_| json!({}));
+                out.push(json!({ "type": "tool", "id": t.id, "name": t.name, "input": input }));
+            }
+        }
+        Some("message_delta") => {
+            if let Some(sr) = v["delta"]["stop_reason"].as_str() {
+                *stop = sr.to_string();
+            }
+        }
+        _ => {}
     }
-    let stop_reason = if payload["stop_reason"].as_str() == Some("tool_use") {
-        "tool_use"
-    } else {
-        "end_turn"
-    }
-    .to_string();
-
-    Ok(ChatResponse {
-        content,
-        tool_calls,
-        stop_reason,
-    })
+    out
 }
 
 /// Map a normalized message to Anthropic's content-block format.
@@ -381,14 +466,7 @@ fn anthropic_message(m: &ChatMessage) -> Value {
 
 // ── OpenAI-compatible adapter (Chat Completions) ────────────────────────────
 
-async fn openai_chat(
-    http: &reqwest::Client,
-    cfg: &Arc<PlatformConfig>,
-    api_key: &str,
-    req: &ChatRequest,
-    system: &str,
-    tools: &[Value],
-) -> Result<ChatResponse, PlatformError> {
+fn openai_body(req: &ChatRequest, system: &str, tools: &[Value]) -> Value {
     let oa_tools: Vec<Value> = tools
         .iter()
         .map(|t| {
@@ -402,74 +480,62 @@ async fn openai_chat(
             })
         })
         .collect();
-
     let mut messages: Vec<Value> = vec![json!({ "role": "system", "content": system })];
     for m in &req.messages {
         openai_push_message(&mut messages, m);
     }
-
-    let body = json!({
+    json!({
         "model": req.model,
         "max_tokens": MAX_TOKENS,
         "tools": oa_tools,
         "messages": messages,
-    });
+        "stream": true,
+    })
+}
 
-    let url = format!(
-        "{}/chat/completions",
-        cfg.openai_base_url.trim_end_matches('/')
-    );
-    let res = http
-        .post(&url)
-        .bearer_auth(api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| PlatformError::internal(format!("OpenAI request failed: {e}")))?;
-
-    let status = res.status();
-    let payload: Value = res
-        .json()
-        .await
-        .map_err(|e| PlatformError::internal(format!("OpenAI response decode failed: {e}")))?;
-    if !status.is_success() {
-        let msg = payload["error"]["message"]
-            .as_str()
-            .unwrap_or("unknown error");
-        return Err(PlatformError::internal(format!(
-            "OpenAI API error ({status}): {msg}"
-        )));
-    }
-
-    let choice = &payload["choices"][0]["message"];
-    let content = choice["content"].as_str().unwrap_or_default().to_string();
-    let mut tool_calls = Vec::new();
-    if let Some(calls) = choice["tool_calls"].as_array() {
-        for c in calls {
-            let args = c["function"]["arguments"].as_str().unwrap_or("{}");
-            let input = serde_json::from_str(args).unwrap_or_else(|_| json!({}));
-            tool_calls.push(ToolCall {
-                id: c["id"].as_str().unwrap_or_default().to_string(),
-                name: c["function"]["name"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
-                input,
-            });
+/// Parse one OpenAI SSE chunk: emit text deltas + tool_start, and accumulate tool
+/// call fragments (id/name/args stream separately, keyed by index).
+fn parse_openai_frame(
+    frame: &str,
+    acc: &mut Vec<ToolAccum>,
+    started: &mut HashSet<usize>,
+) -> Vec<Value> {
+    let Some(v) = sse_data(frame) else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    let delta = &v["choices"][0]["delta"];
+    if let Some(t) = delta["content"].as_str() {
+        if !t.is_empty() {
+            out.push(json!({ "type": "text", "text": t }));
         }
     }
-    let stop_reason = if tool_calls.is_empty() {
-        "end_turn"
-    } else {
-        "tool_use"
+    if let Some(calls) = delta["tool_calls"].as_array() {
+        for c in calls {
+            let idx = c["index"].as_u64().unwrap_or(0) as usize;
+            while acc.len() <= idx {
+                acc.push(ToolAccum::default());
+            }
+            let e = &mut acc[idx];
+            if let Some(id) = c["id"].as_str() {
+                if !id.is_empty() {
+                    e.id = id.to_string();
+                }
+            }
+            if let Some(name) = c["function"]["name"].as_str() {
+                if !name.is_empty() {
+                    e.name = name.to_string();
+                }
+            }
+            if let Some(a) = c["function"]["arguments"].as_str() {
+                e.args.push_str(a);
+            }
+            if !e.name.is_empty() && started.insert(idx) {
+                out.push(json!({ "type": "tool_start", "id": e.id, "name": e.name }));
+            }
+        }
     }
-    .to_string();
-
-    Ok(ChatResponse {
-        content,
-        tool_calls,
-        stop_reason,
-    })
+    out
 }
 
 fn openai_push_message(out: &mut Vec<Value>, m: &ChatMessage) {

@@ -201,6 +201,11 @@ const router = createRouter({
               component: () => import('@/views/project/ProjectInstancesView.vue'),
             },
             {
+              path: 'integrate',
+              name: 'project-integrate',
+              component: () => import('@/views/project/IntegrateView.vue'),
+            },
+            {
               path: 'settings',
               name: 'project-settings',
               component: () => import('@/views/project/ProjectSettingsView.vue'),

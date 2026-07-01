@@ -22,6 +22,9 @@ export default withMermaid(defineConfig({
   
   // Clean URLs without .html extension
   cleanUrls: true,
+
+  // Internal repo-ops docs that ship in the tree but are not public pages
+  srcExclude: ['DEPLOYMENT.md'],
   
   // Last updated timestamp
   lastUpdated: true,
@@ -54,7 +57,7 @@ export default withMermaid(defineConfig({
           { text: 'Platform', link: '/en/platform/overview' },
           { text: 'Engine', link: '/en/guide/what-is-ordo' },
           { text: 'API', link: '/en/api/http-api' },
-          { text: 'Reference', link: '/en/reference/cli' },
+          { text: 'Reference', link: '/en/reference/server-options' },
           { text: 'Roadmap', link: '/en/roadmap' },
           {
             text: 'Playground',
@@ -68,6 +71,7 @@ export default withMermaid(defineConfig({
               text: 'Platform',
               items: [
                 { text: 'Overview', link: '/en/platform/overview' },
+                { text: 'Quickstart', link: '/en/platform/quickstart' },
                 { text: 'Organizations & Projects', link: '/en/platform/organizations' },
                 { text: 'Studio Editor', link: '/en/platform/studio' },
               ]
@@ -109,7 +113,7 @@ export default withMermaid(defineConfig({
               text: 'Introduction',
               items: [
                 { text: 'What is Ordo?', link: '/en/guide/what-is-ordo' },
-                { text: 'Getting Started', link: '/en/guide/getting-started' },
+                { text: 'Run the Engine', link: '/en/guide/getting-started' },
                 { text: 'Quick Start', link: '/en/guide/quick-start' },
               ]
             },
@@ -158,7 +162,7 @@ export default withMermaid(defineConfig({
             {
               text: 'Reference',
               items: [
-                { text: 'CLI Options', link: '/en/reference/cli' },
+                { text: 'Server Options', link: '/en/reference/server-options' },
                 { text: 'Configuration', link: '/en/reference/configuration' },
                 { text: 'Metrics', link: '/en/reference/metrics' },
                 { text: 'Benchmarks', link: '/en/reference/benchmarks' },
@@ -191,7 +195,7 @@ export default withMermaid(defineConfig({
           { text: '平台', link: '/zh/platform/overview' },
           { text: '引擎', link: '/zh/guide/what-is-ordo' },
           { text: 'API', link: '/zh/api/http-api' },
-          { text: '参考', link: '/zh/reference/cli' },
+          { text: '参考', link: '/zh/reference/server-options' },
           { text: '路线图', link: '/zh/roadmap' },
           {
             text: '演练场',
@@ -205,6 +209,7 @@ export default withMermaid(defineConfig({
               text: '平台',
               items: [
                 { text: '概览', link: '/zh/platform/overview' },
+                { text: '快速上手', link: '/zh/platform/quickstart' },
                 { text: '组织与项目', link: '/zh/platform/organizations' },
                 { text: 'Studio 编辑器', link: '/zh/platform/studio' },
               ]
@@ -246,7 +251,7 @@ export default withMermaid(defineConfig({
               text: '介绍',
               items: [
                 { text: 'Ordo 是什么？', link: '/zh/guide/what-is-ordo' },
-                { text: '开始使用', link: '/zh/guide/getting-started' },
+                { text: '本地运行引擎', link: '/zh/guide/getting-started' },
                 { text: '快速入门', link: '/zh/guide/quick-start' },
               ]
             },
@@ -295,7 +300,7 @@ export default withMermaid(defineConfig({
             {
               text: '参考',
               items: [
-                { text: 'CLI 选项', link: '/zh/reference/cli' },
+                { text: '服务器选项', link: '/zh/reference/server-options' },
                 { text: '配置', link: '/zh/reference/configuration' },
                 { text: '指标', link: '/zh/reference/metrics' },
                 { text: '性能基准', link: '/zh/reference/benchmarks' },

@@ -1,6 +1,8 @@
-# CLI 选项
+# 服务器选项(`ordo-server`)
 
-`ordo-server` 命令行选项的完整参考。
+`ordo-server` 引擎命令行选项的完整参考。
+
+> 找的是 `ordo` 开发者 CLI(项目、`validate`、`push`、`publish`)?那是另一个工具——见 [命令行 (ordo)](/zh/platform/cli)。
 
 ## 用法
 

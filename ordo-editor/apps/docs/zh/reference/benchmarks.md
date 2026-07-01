@@ -2,6 +2,8 @@
 
 Ordo 规则引擎的全面性能基准测试，包括核心引擎微基准测试、HTTP 服务器吞吐量、分布式（NATS 同步）模式，以及与主流规则引擎的正面对比。
 
+> 📊 想直观地看这些数字?见[交互式基准图表](./benchmark-chart)。
+
 > **测试环境**: Apple M1 Pro (10 核), 16 GB RAM, macOS Darwin 25.3.0
 > **工具**: Criterion.rs (微基准测试), hey (HTTP 压测), Docker (NATS)
 > **日期**: 2026-03-11

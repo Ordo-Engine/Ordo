@@ -2,6 +2,9 @@
 
 Ordo Platform is the governance and collaboration layer of Ordo's decision infrastructure. It wraps the execution engine into a team-facing product: organization modeling, contract definitions, change review, multi-environment release, test management, and audit.
 
+> **Want to build something now?** Jump to the [Quickstart](./quickstart) — ship
+> your first decision in five minutes. This page is the mental model behind it.
+
 ## Platform vs. Engine
 
 The Ordo repository ships two independently-running binaries:
@@ -59,6 +62,7 @@ flowchart LR
 
 ## Next
 
+- [Quickstart](./quickstart) — ship your first decision in five minutes
 - [Organizations & Projects](./organizations) — team modeling and RBAC
 - [Fact Catalog](./catalog) — typed inputs and shared concepts
 - [Decision Contracts](./contracts) — input/output constraints

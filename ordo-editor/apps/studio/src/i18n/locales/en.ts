@@ -1,4 +1,21 @@
 export default {
+  ai: {
+    title: 'AI Assistant',
+    send: 'Send',
+    clear: 'Clear',
+    undo: 'Undo AI change',
+    selectModel: 'Select a model',
+    noProvider: 'No AI provider configured',
+    placeholder: 'Describe a rule or ask me to edit…',
+    thinking: 'Thinking…',
+    emptyTitle: 'Build rules by chatting',
+    emptyHint: 'e.g. "Add a branch: if amount > 1000 and VIP, approve".',
+    approve: 'Approve',
+    reject: 'Reject',
+    confirmPublish: 'Publish this ruleset?',
+    confirmDelete: 'Delete this ruleset?',
+    changedFiles: 'Changed:',
+  },
   common: {
     loading: 'Loading...',
     save: 'Save',

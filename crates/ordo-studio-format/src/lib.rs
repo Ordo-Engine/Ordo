@@ -8,10 +8,15 @@
 //! This crate owns all conversion between the two formats so the frontend can
 //! send its natural format and the backend handles the rest.
 
+pub mod concepts;
 pub mod convert;
 pub mod convert_reverse;
 pub mod types;
 
+pub use concepts::{
+    materialize_concepts, studio_draft_to_engine_with_concepts, ConceptDataType, ConceptDefinition,
+    ConceptError, CONCEPT_PRELUDE_STEP_ID,
+};
 pub use convert::ConvertError;
 pub use convert_reverse::engine_to_studio;
 pub use types::*;

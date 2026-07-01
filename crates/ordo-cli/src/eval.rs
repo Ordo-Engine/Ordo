@@ -17,7 +17,7 @@ pub struct EvalArgs {
     input_file: Option<String>,
 }
 
-pub fn run(args: EvalArgs) -> Result<()> {
+pub fn run(args: EvalArgs, json: bool) -> Result<()> {
     let input = load_input(args.input.as_deref(), args.input_file.as_deref())?;
     let ctx = ordo_core::context::Context::new(input);
 
@@ -29,7 +29,11 @@ pub fn run(args: EvalArgs) -> Result<()> {
         .eval(&expr, &ctx)
         .map_err(|e| anyhow::anyhow!("Eval error: {}", e))?;
 
-    println!("{}", format_value(&result));
+    if json {
+        crate::output::emit_json(&serde_json::json!({ "value": result }))?;
+    } else {
+        println!("{}", format_value(&result));
+    }
     Ok(())
 }
 

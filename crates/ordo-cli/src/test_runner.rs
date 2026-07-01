@@ -255,3 +255,18 @@ fn load_tests(path: &Path) -> Result<Vec<TestCase>> {
     };
     Ok(file.into_cases())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_accepts_array_and_wrapped_shapes() {
+        let arr: TestFile =
+            serde_json::from_str(r#"[{"name":"a","input":{},"expect":{"code":"OK"}}]"#).unwrap();
+        assert_eq!(arr.into_cases().len(), 1);
+        let wrapped: TestFile =
+            serde_json::from_str(r#"{"tests":[{"name":"a","input":{},"expect":{}}]}"#).unwrap();
+        assert_eq!(wrapped.into_cases().len(), 1);
+    }
+}

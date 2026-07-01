@@ -1,6 +1,6 @@
 //! `ordo diff` — compare local ruleset files against the platform's drafts.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use ordo_api_client::ApiError;
 use ordo_core::prelude::RuleSet;
@@ -31,7 +31,10 @@ pub async fn run(args: DiffArgs, json: bool) -> Result<()> {
             .get_ruleset(&linked.org_id, &linked.project_id, name)
             .await
         {
-            Ok(r) => Some(canonical_studio(r.draft)?),
+            Ok(r) => Some(
+                canonical_studio(r.draft)
+                    .with_context(|| format!("parsing the server draft for '{name}'"))?,
+            ),
             Err(ApiError::Http { status: 404, .. }) => None,
             Err(e) => return Err(anyhow::anyhow!("{e}")),
         };

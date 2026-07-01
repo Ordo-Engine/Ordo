@@ -1,6 +1,6 @@
 //! `ordo push` — upload local rulesets + catalog + tests to the platform.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use ordo_api_client::{ApiError, Client};
 use serde_json::Value;
@@ -53,7 +53,17 @@ pub async fn run(args: PushArgs, json: bool) -> Result<()> {
         results.push((format!("rulesets/{name}"), status));
     }
 
-    if !args.rulesets_only {
+    // A ruleset conflict/error means this client is stale. Skip the whole-catalog
+    // sync — its delete-server-only pass would destroy entries the stale client
+    // simply hasn't pulled yet. Resolve the ruleset first, then re-push.
+    if !args.rulesets_only && had_error {
+        results.push((
+            "catalog + tests".into(),
+            "skipped — resolve ruleset conflicts (`ordo pull`) first".into(),
+        ));
+    }
+
+    if !args.rulesets_only && !had_error {
         // 2. Facts + concepts (whole-catalog sync: upsert local, delete server-only).
         if let Some(facts) = read_array(&project.facts_path())? {
             let (up, del) = sync_facts(client, proj, &facts).await.map_err(anyerr)?;
@@ -73,9 +83,7 @@ pub async fn run(args: PushArgs, json: bool) -> Result<()> {
         for name in &names {
             let path = project.tests_path(name);
             if let Some(tests) = read_array(&path)? {
-                sync_tests(client, proj, name, &tests)
-                    .await
-                    .map_err(anyerr)?;
+                sync_tests(client, proj, name, &tests).await?;
                 results.push((format!("tests/{name}"), format!("{} synced", tests.len())));
             }
         }
@@ -84,7 +92,8 @@ pub async fn run(args: PushArgs, json: bool) -> Result<()> {
         for name in &names {
             let path = project.root.join("contracts").join(format!("{name}.json"));
             if path.is_file() {
-                let contract: Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+                let contract: Value = serde_json::from_str(&std::fs::read_to_string(&path)?)
+                    .with_context(|| format!("invalid JSON in {}", path.display()))?;
                 client
                     .upsert_contract(proj, name, contract)
                     .await
@@ -119,11 +128,14 @@ fn read_array(path: &std::path::Path) -> Result<Option<Vec<Value>>> {
     if !path.is_file() {
         return Ok(None);
     }
-    let text = std::fs::read_to_string(path)?;
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
     if text.trim().is_empty() {
         return Ok(Some(Vec::new()));
     }
-    Ok(Some(serde_json::from_str(&text)?))
+    serde_json::from_str(&text)
+        .map(Some)
+        .with_context(|| format!("invalid JSON in {}", path.display()))
 }
 
 fn names_of(items: &[Value]) -> HashSet<String> {
@@ -177,13 +189,8 @@ async fn sync_concepts(
     Ok((local.len(), deleted))
 }
 
-async fn sync_tests(
-    client: &Client,
-    proj: &str,
-    ruleset: &str,
-    local: &[Value],
-) -> ordo_api_client::Result<()> {
-    let server = client.list_tests(proj, ruleset).await?;
+async fn sync_tests(client: &Client, proj: &str, ruleset: &str, local: &[Value]) -> Result<()> {
+    let server = client.list_tests(proj, ruleset).await.map_err(anyerr)?;
     let server_by_name: HashMap<String, String> = server
         .iter()
         .filter_map(|t| {
@@ -196,17 +203,28 @@ async fn sync_tests(
     let local_names = names_of(local);
 
     for t in local {
-        let name = t.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+        let name = t.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+            anyhow::anyhow!("a test case in tests/{ruleset}.json is missing a \"name\" field")
+        })?;
         match server_by_name.get(name) {
-            Some(id) => client.update_test(proj, ruleset, id, t.clone()).await?,
+            Some(id) => client
+                .update_test(proj, ruleset, id, t.clone())
+                .await
+                .map_err(anyerr)?,
             None => {
-                client.create_test(proj, ruleset, t.clone()).await?;
+                client
+                    .create_test(proj, ruleset, t.clone())
+                    .await
+                    .map_err(anyerr)?;
             }
         }
     }
     for (name, id) in &server_by_name {
         if !local_names.contains(name) {
-            client.delete_test(proj, ruleset, id).await?;
+            client
+                .delete_test(proj, ruleset, id)
+                .await
+                .map_err(anyerr)?;
         }
     }
     Ok(())

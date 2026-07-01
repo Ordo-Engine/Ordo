@@ -89,7 +89,9 @@ pub(crate) fn validate_one(
                 ok: false,
                 errors: vec![ValidationError {
                     step_id: None,
-                    message: e.to_string(),
+                    // `{:#}` includes the cause chain (e.g. the serde detail of
+                    // *why* the file is malformed), not just the outer context.
+                    message: format!("{e:#}"),
                 }],
             };
         }

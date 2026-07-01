@@ -39,7 +39,7 @@ pub async fn run(_args: PullArgs, json: bool) -> Result<()> {
             .client
             .list_tests(&linked.project_id, &meta.name)
             .await
-            .unwrap_or_default();
+            .map_err(|e| anyhow::anyhow!("failed to fetch tests for '{}': {e}", meta.name))?;
         if !tests.is_empty() {
             std::fs::write(
                 project.tests_path(&meta.name),
@@ -54,7 +54,7 @@ pub async fn run(_args: PullArgs, json: bool) -> Result<()> {
         .client
         .list_contracts(&linked.project_id)
         .await
-        .unwrap_or_default();
+        .map_err(|e| anyhow::anyhow!("failed to fetch contracts: {e}"))?;
     if !contracts.is_empty() {
         std::fs::create_dir_all(project.root.join("contracts"))?;
         for c in &contracts {
@@ -67,12 +67,13 @@ pub async fn run(_args: PullArgs, json: bool) -> Result<()> {
         }
     }
 
-    // catalog — written verbatim as facts.json / concepts.json
+    // catalog — written verbatim as facts.json / concepts.json.
+    // Propagate on error rather than overwriting the local catalog with `[]`.
     let facts = linked
         .client
         .list_facts(&linked.project_id)
         .await
-        .unwrap_or_default();
+        .map_err(|e| anyhow::anyhow!("failed to fetch facts: {e}"))?;
     std::fs::write(
         project.facts_path(),
         format!("{}\n", serde_json::to_string_pretty(&facts)?),
@@ -81,7 +82,7 @@ pub async fn run(_args: PullArgs, json: bool) -> Result<()> {
         .client
         .list_concepts(&linked.project_id)
         .await
-        .unwrap_or_default();
+        .map_err(|e| anyhow::anyhow!("failed to fetch concepts: {e}"))?;
     std::fs::write(
         project.concepts_path(),
         format!("{}\n", serde_json::to_string_pretty(&concepts)?),

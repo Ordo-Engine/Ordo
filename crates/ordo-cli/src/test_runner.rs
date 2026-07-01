@@ -4,22 +4,40 @@ use colored::Colorize;
 use ordo_core::prelude::*;
 use serde::Deserialize;
 
-use crate::runtime::{execute_loaded_rule, load_rule};
+use crate::project::Project;
+use crate::runtime::{execute_loaded_rule, load_rule, LoadedRule};
+use std::path::Path;
 
 #[derive(Args)]
 pub struct TestArgs {
-    /// Rule file (JSON, YAML, or .ordo)
-    #[arg(long, value_name = "FILE")]
-    rule: String,
+    /// Ruleset name to test (project mode). Omit to test every ruleset with tests.
+    name: Option<String>,
 
-    /// Test file (JSON or YAML)
+    /// Standalone rule file instead of a project ruleset (JSON, YAML, or .ordo)
     #[arg(long, value_name = "FILE")]
-    tests: String,
+    rule: Option<String>,
+
+    /// Tests file (default: tests/<name>.json in the project)
+    #[arg(long, value_name = "FILE")]
+    tests: Option<String>,
 }
 
+/// On-disk tests are an array of cases; a legacy `{ "tests": [...] }` wrapper is
+/// also accepted.
 #[derive(Deserialize)]
-struct TestSuite {
-    tests: Vec<TestCase>,
+#[serde(untagged)]
+enum TestFile {
+    Array(Vec<TestCase>),
+    Wrapped { tests: Vec<TestCase> },
+}
+
+impl TestFile {
+    fn into_cases(self) -> Vec<TestCase> {
+        match self {
+            TestFile::Array(v) => v,
+            TestFile::Wrapped { tests } => tests,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -49,47 +67,114 @@ struct CaseResult {
 }
 
 pub fn run(args: TestArgs, json: bool) -> Result<()> {
-    let rule = load_rule(&args.rule)?;
-    let suite = load_tests(&args.tests)?;
-    let total = suite.tests.len();
-    let mut cases = Vec::with_capacity(total);
-
-    for test in &suite.tests {
-        let start = std::time::Instant::now();
-        let result = execute_loaded_rule(&rule, test.input.clone(), false);
-        let duration_us = start.elapsed().as_micros();
-
-        let failures = match result {
-            Ok(result) => collect_failures(&test.expect, &result),
-            Err(e) => vec![format!("execution error: {}", e)],
+    // File mode: an explicit `--rule` runs a standalone rule against a tests file.
+    let suites: Vec<(String, Vec<CaseResult>)> = if let Some(rule_path) = args.rule.as_deref() {
+        let tests_path = args
+            .tests
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--tests <FILE> is required when using --rule"))?;
+        let rule = load_rule(rule_path)?;
+        let cases = run_cases(&rule, &load_tests(Path::new(&tests_path))?);
+        let label = Path::new(rule_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("rule")
+            .to_string();
+        vec![(label, cases)]
+    } else {
+        // Project mode: resolve ruleset(s) in the discovered project.
+        let project = Project::discover(None)?;
+        let explicit = args.name.is_some();
+        let names = match &args.name {
+            Some(n) => vec![crate::project::ruleset_name(n)],
+            None => project.ruleset_names()?,
         };
-        cases.push(CaseResult {
-            name: test.name.clone(),
-            passed: failures.is_empty(),
-            failures,
-            duration_us,
-        });
-    }
+        let mut suites = Vec::new();
+        for name in &names {
+            let tests_path = args
+                .tests
+                .clone()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| project.tests_path(name));
+            if !tests_path.is_file() {
+                if explicit {
+                    anyhow::bail!("no tests file for '{name}' ({})", tests_path.display());
+                }
+                continue;
+            }
+            let mut engine = project.load_engine(name)?;
+            engine
+                .compile()
+                .map_err(|e| anyhow::anyhow!("compile error in {name}: {e}"))?;
+            let cases = run_cases(&LoadedRule::Source(engine), &load_tests(&tests_path)?);
+            suites.push((name.clone(), cases));
+        }
+        suites
+    };
 
-    let passed = cases.iter().filter(|c| c.passed).count();
+    report(suites, json)
+}
+
+fn run_cases(rule: &LoadedRule, tests: &[TestCase]) -> Vec<CaseResult> {
+    tests
+        .iter()
+        .map(|test| {
+            let start = std::time::Instant::now();
+            let result = execute_loaded_rule(rule, test.input.clone(), false);
+            let duration_us = start.elapsed().as_micros();
+            let failures = match result {
+                Ok(r) => collect_failures(&test.expect, &r),
+                Err(e) => vec![format!("execution error: {}", e)],
+            };
+            CaseResult {
+                name: test.name.clone(),
+                passed: failures.is_empty(),
+                failures,
+                duration_us,
+            }
+        })
+        .collect()
+}
+
+fn report(suites: Vec<(String, Vec<CaseResult>)>, json: bool) -> Result<()> {
+    let total: usize = suites.iter().map(|(_, c)| c.len()).sum();
+    let passed: usize = suites
+        .iter()
+        .flat_map(|(_, c)| c)
+        .filter(|c| c.passed)
+        .count();
     let failed = total - passed;
 
     if json {
+        let suite_json: Vec<_> = suites
+            .iter()
+            .map(|(name, cases)| {
+                serde_json::json!({
+                    "ruleset": name,
+                    "passed": cases.iter().filter(|c| c.passed).count(),
+                    "failed": cases.iter().filter(|c| !c.passed).count(),
+                    "cases": cases,
+                })
+            })
+            .collect();
         crate::output::emit_json(&serde_json::json!({
-            "total": total,
-            "passed": passed,
-            "failed": failed,
-            "cases": cases,
+            "total": total, "passed": passed, "failed": failed, "suites": suite_json,
         }))?;
     } else {
-        for c in &cases {
-            let ms = c.duration_us as f64 / 1000.0;
-            if c.passed {
-                println!("{} {} ({:.3}ms)", "--- PASS:".green(), c.name, ms);
-            } else {
-                println!("{} {} ({:.3}ms)", "--- FAIL:".red(), c.name, ms);
-                for f in &c.failures {
-                    println!("    {}", f);
+        let multi = suites.len() > 1;
+        for (name, cases) in &suites {
+            if multi {
+                println!("{}", name.as_str().bold());
+            }
+            for c in cases {
+                let ms = c.duration_us as f64 / 1000.0;
+                if c.passed {
+                    println!("{} {} ({:.3}ms)", "--- PASS:".green(), c.name, ms);
+                } else {
+                    println!("{} {} ({:.3}ms)", "--- FAIL:".red(), c.name, ms);
+                    for f in &c.failures {
+                        println!("    {}", f);
+                    }
                 }
             }
         }
@@ -142,12 +227,17 @@ fn collect_failures(expect: &TestExpectation, result: &ExecutionResult) -> Vec<S
     failures
 }
 
-fn load_tests(path: &str) -> Result<TestSuite> {
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("Failed to read tests: {}", path))?;
-    if path.ends_with(".yaml") || path.ends_with(".yml") {
-        serde_yaml::from_str(&content).context("Failed to parse YAML tests")
+fn load_tests(path: &Path) -> Result<Vec<TestCase>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read tests: {}", path.display()))?;
+    let is_yaml = matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("yaml") | Some("yml")
+    );
+    let file: TestFile = if is_yaml {
+        serde_yaml::from_str(&content).context("failed to parse YAML tests")?
     } else {
-        serde_json::from_str(&content).context("Failed to parse JSON tests")
-    }
+        serde_json::from_str(&content).context("failed to parse JSON tests")?
+    };
+    Ok(file.into_cases())
 }

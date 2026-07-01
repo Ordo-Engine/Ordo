@@ -69,6 +69,21 @@ import type { AiChatRequest, AiStreamEvent, AiProviderOption } from './ai-types'
 
 const BASE = '/api/v1';
 
+/**
+ * Base URL for streamed (SSE) requests. Same-origin rewrites (e.g. a CDN proxy)
+ * buffer streamed responses and deliver the whole reply at once, which defeats
+ * token-by-token streaming. When deployed under an `app.<domain>` host we hit
+ * the `api.<domain>` origin directly instead (CORS is configured server-side).
+ * Local dev keeps the same-origin path — the dev server streams fine.
+ */
+function streamBase(): string {
+  if (typeof window === 'undefined') return BASE;
+  const h = window.location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1') return BASE;
+  if (h.startsWith('app.')) return `${window.location.protocol}//api.${h.slice(4)}/api/v1`;
+  return BASE;
+}
+
 export const systemApi = {
   getConfig(): Promise<SystemConfig> {
     return request('/system/config');
@@ -172,7 +187,7 @@ export const aiApi = {
     onEvent: (ev: AiStreamEvent) => void,
     signal?: AbortSignal
   ): Promise<void> {
-    const resp = await fetch(`${BASE}/ai/chat`, {
+    const resp = await fetch(`${streamBase()}/ai/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

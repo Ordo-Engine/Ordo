@@ -4,6 +4,10 @@ Once a ruleset is published, your application calls the **engine** at runtime to
 get a decision — one request in, one decision out, in sub-microsecond execution
 time. Your app talks to the engine (the hot path), not the control plane.
 
+> In Studio, every project has an **Integrate** tab that generates these calls
+> for you — the endpoint, your project's tenant id, and copy-ready curl / Node /
+> Python / Go snippets, all pre-filled for the ruleset you pick.
+
 ## The decision call
 
 Address a ruleset by name; scope it to your project with the tenant header (your

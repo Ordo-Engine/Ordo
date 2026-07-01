@@ -81,6 +81,13 @@ const tabs = computed(() => [
     active: route.path.endsWith('/instances'),
   },
   {
+    value: 'integrate',
+    label: t('projectNav.integrate'),
+    icon: 'code',
+    to: `${base.value}/integrate`,
+    active: route.path.endsWith('/integrate'),
+  },
+  {
     value: 'settings',
     label: t('projectNav.settings'),
     icon: 'setting',

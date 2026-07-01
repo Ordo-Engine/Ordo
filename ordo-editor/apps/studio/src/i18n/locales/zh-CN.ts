@@ -15,6 +15,10 @@ export default {
     confirmPublish: '发布这个规则集?',
     confirmDelete: '删除这个规则集?',
     changedFiles: '已改动:',
+    stop: '停止',
+    modeAgent: 'Agent',
+    modeAsk: '问答',
+    approveAlways: '本会话都允许',
   },
   common: {
     loading: '加载中...',

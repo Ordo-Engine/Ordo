@@ -1,4 +1,21 @@
 export default {
+  ai: {
+    title: 'AI 助手',
+    send: '发送',
+    clear: '清空',
+    undo: '撤销 AI 改动',
+    selectModel: '选择模型',
+    noProvider: '未配置 AI 服务商',
+    placeholder: '描述一条规则,或让我帮你改…',
+    thinking: '思考中…',
+    emptyTitle: '对话式构建规则',
+    emptyHint: '例如「加一个分支:金额>1000 且 VIP 则通过」。',
+    approve: '批准',
+    reject: '拒绝',
+    confirmPublish: '发布这个规则集?',
+    confirmDelete: '删除这个规则集?',
+    changedFiles: '已改动:',
+  },
   common: {
     loading: '加载中...',
     save: '保存',

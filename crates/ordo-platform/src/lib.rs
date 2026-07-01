@@ -7,6 +7,7 @@ use config::PlatformConfig;
 use store::PlatformStore;
 use template::TemplateStore;
 
+pub mod ai;
 pub mod auth;
 pub mod catalog;
 pub mod config;

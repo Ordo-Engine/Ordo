@@ -18,7 +18,7 @@ use tower_http::{
 use tracing::info;
 
 use ordo_platform::{
-    auth, bootstrap_platform_store, build_app_state, catalog, config::PlatformConfig,
+    ai, auth, bootstrap_platform_store, build_app_state, catalog, config::PlatformConfig,
     connect_platform_store, contract, environment, github, i18n, init_tracing, member, metrics,
     middleware::require_auth, notification, org, project, proxy, publish_existing_tenants, release,
     ruleset_draft, ruleset_history, server_registry, start_server_registry_maintenance,
@@ -89,6 +89,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/auth/me", get(auth::me).put(auth::update_profile))
         .route("/api/v1/auth/refresh", post(auth::refresh))
         .route("/api/v1/auth/change-password", post(auth::change_password))
+        // AI assistant (multi-provider server-side LLM proxy)
+        .route("/api/v1/ai/chat", post(ai::chat))
+        .route("/api/v1/ai/models", get(ai::list_models))
         // Organizations
         .route("/api/v1/orgs", post(org::create_org).get(org::list_orgs))
         .route(

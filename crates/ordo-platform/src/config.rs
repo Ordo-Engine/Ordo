@@ -153,6 +153,34 @@ pub struct PlatformConfig {
         env = "ORDO_GITHUB_CALLBACK_URL"
     )]
     pub github_callback_url: String,
+
+    // ── AI assistant (server-side LLM proxy) ────────────────────────────────
+    /// Anthropic API key for the AI rule assistant. When set, the Anthropic
+    /// provider is offered to the Studio AI sidebar. Keep out of logs/VCS.
+    #[arg(long = "anthropic-api-key", env = "ORDO_ANTHROPIC_API_KEY")]
+    pub anthropic_api_key: Option<String>,
+
+    /// Anthropic API base URL (override for proxies/gateways).
+    #[arg(
+        long = "anthropic-base-url",
+        default_value = "https://api.anthropic.com",
+        env = "ORDO_ANTHROPIC_BASE_URL"
+    )]
+    pub anthropic_base_url: String,
+
+    /// OpenAI (or OpenAI-compatible) API key for the AI rule assistant. Covers
+    /// OpenAI, DeepSeek, local servers, etc. via `openai_base_url`.
+    #[arg(long = "openai-api-key", env = "ORDO_OPENAI_API_KEY")]
+    pub openai_api_key: Option<String>,
+
+    /// OpenAI-compatible API base URL (e.g. https://api.openai.com/v1, or a
+    /// DeepSeek / local-LLM gateway).
+    #[arg(
+        long = "openai-base-url",
+        default_value = "https://api.openai.com/v1",
+        env = "ORDO_OPENAI_BASE_URL"
+    )]
+    pub openai_base_url: String,
 }
 
 impl PlatformConfig {

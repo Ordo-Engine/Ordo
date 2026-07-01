@@ -65,6 +65,7 @@ import type {
   UserInfo,
   UserRoleAssignment,
 } from './types';
+import type { AiChatRequest, AiStreamEvent, AiProviderOption } from './ai-types';
 
 const BASE = '/api/v1';
 
@@ -153,6 +154,67 @@ async function requestText(
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
+
+export const aiApi = {
+  /** Configured providers + their model lists (only providers with a key set). */
+  listModels(token: string): Promise<AiProviderOption[]> {
+    return request('/ai/models', { token });
+  },
+
+  /**
+   * Stream one assistant turn. `onEvent` fires for each normalized SSE event
+   * (text delta / tool_start / tool / done / error). The client executes the tool
+   * calls it receives, then streams the next turn.
+   */
+  async chatStream(
+    token: string,
+    req: AiChatRequest,
+    onEvent: (ev: AiStreamEvent) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const resp = await fetch(`${BASE}/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept-Language': currentLocale(),
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(req),
+      signal,
+    });
+    if (!resp.ok || !resp.body) {
+      let m = `HTTP ${resp.status}`;
+      try {
+        m = (await resp.json()).error || m;
+      } catch {
+        // ignore
+      }
+      throw new Error(m);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!line) continue;
+        const json = line.slice(5).trim();
+        if (!json) continue;
+        try {
+          onEvent(JSON.parse(json) as AiStreamEvent);
+        } catch {
+          // ignore malformed frame
+        }
+      }
+    }
+  },
+};
 
 export const authApi = {
   register(email: string, password: string, display_name: string): Promise<AuthResponse> {

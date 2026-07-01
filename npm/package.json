@@ -1,0 +1,32 @@
+{
+  "name": "@ordo-engine/cli",
+  "version": "0.4.2",
+  "description": "Ordo CLI — author, test, trace, and ship decision rules (rules-as-files, with an MCP server for coding agents)",
+  "bin": {
+    "ordo": "bin/ordo.js"
+  },
+  "scripts": {
+    "postinstall": "node ./install.js"
+  },
+  "files": [
+    "bin/ordo.js",
+    "install.js",
+    "README.md"
+  ],
+  "keywords": [
+    "ordo",
+    "rule-engine",
+    "decision",
+    "mcp",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ordo-Engine/Ordo.git",
+    "directory": "npm"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  }
+}

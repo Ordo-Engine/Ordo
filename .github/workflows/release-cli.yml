@@ -1,0 +1,77 @@
+name: Release CLI
+
+# Cross-compile the `ordo` CLI to static binaries and attach them to a GitHub
+# Release. Trigger by pushing a `cli-v*` tag (e.g. `cli-v0.4.2`) or manually.
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. cli-v0.4.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: ordo-x86_64-unknown-linux-musl
+            cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset: ordo-aarch64-unknown-linux-musl
+            cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset: ordo-x86_64-apple-darwin
+            cross: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: ordo-aarch64-apple-darwin
+            cross: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: ordo-x86_64-pc-windows-msvc.exe
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (musl targets)
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release -p ordo-cli --target ${{ matrix.target }}
+          else
+            cargo build --release -p ordo-cli --target ${{ matrix.target }}
+          fi
+
+      - name: Stage asset
+        shell: bash
+        run: |
+          src="target/${{ matrix.target }}/release/ordo"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then src="${src}.exe"; fi
+          cp "$src" "${{ matrix.asset }}"
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: ${{ matrix.asset }}

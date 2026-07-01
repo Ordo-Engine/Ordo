@@ -145,5 +145,16 @@ your work (everything below runs offline, sub-second).
 4. `ordo test` — run the ruleset's test cases.
 5. `ordo trace <name> --input '{...}'` — inspect the exact path an input takes.
 
+`ordo fmt` formats rule files; `ordo new ruleset|fact|concept <name>` scaffolds.
 Add `--json` to any command for machine-readable output.
+
+## Shipping to the platform (optional)
+`ordo login` → `ordo link` (bind this repo to an org + project) → `ordo push`
+(upload drafts) → `ordo publish <name> --env <env>` (deploy). `ordo pull` fetches
+the server's rulesets + catalog; `ordo diff` compares local vs deployed.
+
+## MCP
+`ordo mcp` runs these tools over MCP so an agent can drive Ordo directly
+(`claude mcp add ordo -- ordo mcp`). Local edits/checks run offline; `publish`
+needs `ordo mcp --allow-publish`.
 "#;

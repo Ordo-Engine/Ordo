@@ -73,6 +73,14 @@ export default withMermaid(defineConfig({
               ]
             },
             {
+              text: 'Develop & Integrate',
+              items: [
+                { text: 'CLI (ordo)', link: '/en/platform/cli' },
+                { text: 'MCP Server', link: '/en/platform/mcp' },
+                { text: 'Runtime Integration', link: '/en/platform/integrate' },
+              ]
+            },
+            {
               text: 'Modeling',
               items: [
                 { text: 'Fact Catalog', link: '/en/platform/catalog' },
@@ -199,6 +207,14 @@ export default withMermaid(defineConfig({
                 { text: '概览', link: '/zh/platform/overview' },
                 { text: '组织与项目', link: '/zh/platform/organizations' },
                 { text: 'Studio 编辑器', link: '/zh/platform/studio' },
+              ]
+            },
+            {
+              text: '开发与接入',
+              items: [
+                { text: '命令行 (ordo)', link: '/zh/platform/cli' },
+                { text: 'MCP 服务', link: '/zh/platform/mcp' },
+                { text: '运行时接入', link: '/zh/platform/integrate' },
               ]
             },
             {

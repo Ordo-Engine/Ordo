@@ -50,6 +50,13 @@ export interface PendingQuestion {
 
 export type AiMode = 'agent' | 'ask';
 
+export type PlanStatus = 'pending' | 'in_progress' | 'completed';
+/** One item in the agent's task checklist (set via the `update_plan` tool). */
+export interface PlanItem {
+  content: string;
+  status: PlanStatus;
+}
+
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -78,6 +85,8 @@ export const useAiStore = defineStore('ai', () => {
   const touchedFiles = ref<string[]>([]);
   /** Files the user pinned as @context — their content is added to every request. */
   const contextFiles = ref<string[]>([]);
+  /** The agent's live task checklist (set via `update_plan`). */
+  const plan = ref<PlanItem[]>([]);
 
   // AbortController for the in-flight streaming request (the Stop button).
   let abortCtrl: AbortController | null = null;
@@ -117,6 +126,7 @@ export const useAiStore = defineStore('ai', () => {
     touchedFiles.value = [];
     fileSnapshots.value.clear();
     contextFiles.value = [];
+    plan.value = [];
     error.value = null;
     pending.value = null;
   }
@@ -314,6 +324,20 @@ export const useAiStore = defineStore('ai', () => {
         markTouched(String(input.path));
         return out;
       }
+      case 'update_plan': {
+        const todos = Array.isArray(input.todos) ? input.todos : [];
+        plan.value = todos.map((t) => {
+          const item = (t ?? {}) as Record<string, unknown>;
+          const status = String(item.status ?? 'pending');
+          return {
+            content: String(item.content ?? ''),
+            status: (['pending', 'in_progress', 'completed'].includes(status)
+              ? status
+              : 'pending') as PlanStatus,
+          };
+        });
+        return 'ok';
+      }
       case 'grep':
         return fs.grepFiles(ctx, String(input.query));
       case 'validate':
@@ -453,6 +477,7 @@ export const useAiStore = defineStore('ai', () => {
     mode,
     touchedFiles,
     contextFiles,
+    plan,
     ready,
     canRevert,
     init,

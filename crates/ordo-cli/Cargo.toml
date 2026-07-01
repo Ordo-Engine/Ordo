@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 ordo-core = { path = "../ordo-core" }
+ordo-studio-format = { path = "../ordo-studio-format" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

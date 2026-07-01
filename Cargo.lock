@@ -2277,6 +2277,7 @@ dependencies = [
  "colored",
  "hashbrown 0.14.5",
  "ordo-core",
+ "ordo-studio-format",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

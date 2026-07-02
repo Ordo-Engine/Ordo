@@ -1430,7 +1430,15 @@ async fn run_rolling_deployment(ctx: RollingDeploymentContext) {
             deployed_by: Some(deployed_by.clone()),
             status: DeploymentStatus::Success,
         };
-        let _ = state.store.create_deployment(&deployment).await;
+        // Don't silently drop this write: a missing Success deployment snapshot
+        // breaks a later rollback-to-this-version (it resolves the snapshot from
+        // the deployment list).
+        if let Err(e) = state.store.create_deployment(&deployment).await {
+            error!(
+                execution_id,
+                "Failed to persist success deployment record: {e}"
+            );
+        }
     }
 
     let entry = RulesetHistoryEntry {

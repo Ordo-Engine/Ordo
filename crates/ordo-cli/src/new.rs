@@ -2,8 +2,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use ordo_core::prelude::RuleSet;
-use ordo_studio_format::engine_to_studio;
+use ordo_studio_format::StudioRuleSet;
 
 use crate::project::Project;
 
@@ -23,18 +22,24 @@ enum NewKind {
     Concept { name: String },
 }
 
-const SKELETON_ENGINE: &str = r#"{
-  "config": { "name": "NAME", "version": "1.0.0", "entry_step": "start" },
-  "steps": {
-    "start": {
-      "id": "start", "name": "Start", "type": "decision",
-      "branches": [], "default_next": "done"
+// Studio-format skeleton. The branch condition is a bare expression string — the
+// concise, hand-authorable form (the whole boolean expression, incl. `&&`/`||`/`!`,
+// goes in one string that ordo-core parses). The structured object form also works.
+const SKELETON_STUDIO: &str = r#"{
+  "config": { "name": "NAME", "version": "1.0.0" },
+  "startStepId": "check",
+  "steps": [
+    {
+      "id": "check", "name": "Check", "type": "decision",
+      "branches": [
+        { "id": "check-b0", "label": "example rule", "condition": "input > 0", "nextStepId": "matched" }
+      ],
+      "defaultNextStepId": "unmatched"
     },
-    "done": {
-      "id": "done", "name": "Done", "type": "terminal",
-      "result": { "code": "OK", "message": "", "output": [] }
-    }
-  }
+    { "id": "matched", "name": "Matched", "type": "terminal", "code": "MATCHED", "message": "", "output": [] },
+    { "id": "unmatched", "name": "Unmatched", "type": "terminal", "code": "UNMATCHED", "message": "", "output": [] }
+  ],
+  "subRules": {}
 }"#;
 
 pub fn run(args: NewArgs, json: bool) -> Result<()> {
@@ -70,9 +75,9 @@ fn new_ruleset(project: &Project, name: &str) -> Result<Vec<String>> {
     std::fs::create_dir_all(project.rulesets_dir())?;
     std::fs::create_dir_all(project.tests_dir())?;
 
-    let engine: RuleSet = serde_json::from_str(&SKELETON_ENGINE.replace("NAME", name))
+    // Parse + re-serialize so the written file is guaranteed valid studio format.
+    let studio: StudioRuleSet = serde_json::from_str(&SKELETON_STUDIO.replace("NAME", name))
         .context("skeleton ruleset is invalid")?;
-    let studio = engine_to_studio(&engine);
     std::fs::write(
         &path,
         format!("{}\n", serde_json::to_string_pretty(&studio)?),

@@ -18,6 +18,43 @@ sequenceDiagram
 
 > `/api/v1/internal/*` are machine-to-machine endpoints authenticated by server tokens — never exposed to browsers or SDKs.
 
+## Org Connect Tokens
+
+An engine is scoped to an **organization** by the token it registers with. Mint a
+**connect token** for an org, hand it to that org's engines, and they register
+into that org — never into a global pool visible to everyone.
+
+```http
+POST   /api/v1/orgs/:oid/connect-tokens      # mint (returns the raw token ONCE)
+GET    /api/v1/orgs/:oid/connect-tokens      # list metadata (never the raw token)
+DELETE /api/v1/orgs/:oid/connect-tokens/:id  # revoke
+```
+
+Point an engine at it via flag or env:
+
+```bash
+ordo-server --platform-connect-token ordo_connect_xxxx, or
+ORDO_CONNECT_TOKEN=ordo_connect_xxxx ordo-server
+```
+
+The engine sends the token as an `x-connect-token` header on registration; the
+platform derives the owning org from it and records the server under that org.
+The token both **authorizes** registration and **scopes** the engine — it
+replaces the global `--platform-registration-secret` for org-scoped setups.
+
+Consequences:
+
+- The [server directory](#server-directory) and the [project binding](#project-binding)
+  picker only show engines registered to an org you belong to.
+- A project may bind **only** to an engine in its own organization; binding to a
+  server from another org is rejected.
+- Revoking a token stops new registrations with it; already-registered servers
+  keep their assigned org (delete the server to remove it).
+
+> **Upgrading an existing engine.** An engine registered before connect tokens
+> (or without one) has no org and is no longer listed under any org. Mint a token,
+> set `ORDO_CONNECT_TOKEN`, and restart the engine — it re-registers into the org.
+
 ## Server Directory
 
 | Operation  | Endpoint                          |

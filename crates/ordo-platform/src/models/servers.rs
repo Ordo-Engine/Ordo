@@ -12,6 +12,16 @@ pub enum ServerStatus {
     Degraded,
 }
 
+/// Metadata for an org connect token (the raw token is only returned once, at
+/// creation, and never listed).
+#[derive(Debug, Clone, Serialize)]
+pub struct ConnectTokenInfo {
+    pub id: String,
+    pub label: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
 impl std::fmt::Display for ServerStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

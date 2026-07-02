@@ -70,8 +70,19 @@ jobs:
       - name: Install Vercel CLI
         run: npm i -g vercel@latest
 
-      # ── Build via Vercel (respects vercel.json: install + wasm + vite build) ──
-      - name: Pull Vercel project settings
+      # Build the Studio ourselves — this runner has Rust + wasm-pack + pnpm, so the
+      # monorepo install + Rust→WASM + vite build all work (Vercel's own `vercel build`
+      # uses the dashboard's framework-default `vite build` and skips the workspace
+      # install, so `vite` isn't found). We then ship a hand-assembled Build Output.
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+        working-directory: ordo-editor
+
+      - name: Build Studio (wasm + vite)
+        run: pnpm --filter @ordo-engine/studio build
+        working-directory: ordo-editor
+
+      - name: Link Vercel project
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
         working-directory: ordo-editor/apps/studio
         env:
@@ -79,13 +90,24 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-      - name: Build (Rust/wasm-pack available in this runner)
-        run: vercel build --prod --token="$VERCEL_TOKEN"
+      # Assemble the Build Output API (v3) from dist. `--prebuilt` ignores vercel.json,
+      # so the /api/v1 proxy + SPA fallback must live in config.json.
+      - name: Assemble prebuilt output
         working-directory: ordo-editor/apps/studio
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          rm -rf .vercel/output
+          mkdir -p .vercel/output/static
+          cp -r dist/. .vercel/output/static/
+          cat > .vercel/output/config.json <<'JSON'
+          {
+            "version": 3,
+            "routes": [
+              { "src": "/api/v1/(.*)", "dest": "https://api.ordoengine.com/api/v1/$1" },
+              { "handle": "filesystem" },
+              { "src": "/(.*)", "dest": "/index.html" }
+            ]
+          }
+          JSON
 
       - name: Deploy prebuilt output
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

@@ -104,6 +104,16 @@ function currentLocale(): string {
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
+/**
+ * Called when an authenticated request returns 401 (the session expired or the
+ * token was revoked). The app registers a handler (clear auth + redirect to
+ * login) so an expired session doesn't leave the UI stuck in a broken shell.
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void): void {
+  onUnauthorized = fn;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit & { token?: string } = {}
@@ -120,6 +130,11 @@ async function request<T>(
 
   const resp = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!resp.ok) {
+    // An authenticated call rejected as unauthorized ⇒ the session is gone.
+    // Not the login/register path (those send no token and 401 = bad creds).
+    if (resp.status === 401 && token) {
+      onUnauthorized?.();
+    }
     let errMsg = `HTTP ${resp.status}`;
     let errCode: string | undefined;
     try {

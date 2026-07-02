@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { projectApi, rulesetDraftApi, subRuleApi } from '@/api/platform-client';
 import { normalizeRuleset } from '@/utils/ruleset';
 import { stripRuntimeGeneratedArtifacts } from '@/utils/ruleset';
@@ -37,6 +38,9 @@ export const useProjectStore = defineStore('project', () => {
   const currentProject = ref<Project | null>(null);
   const rulesets = ref<RuleSetInfo[]>([]);
   const draftMetas = ref<ProjectRulesetMeta[]>([]);
+  // Non-null when the last ruleset load failed — lets the UI distinguish a real
+  // empty project from a load error (which previously both rendered as "empty").
+  const rulesetsError = ref<string | null>(null);
   const openTabs = ref<OpenTab[]>([]);
   const activeTabName = ref<string | null>(null);
   const loading = ref(false);
@@ -109,8 +113,14 @@ export const useProjectStore = defineStore('project', () => {
     if (org) {
       try {
         draftMetas.value = await rulesetDraftApi.list(auth.token, org.id, currentProject.value.id);
-      } catch {
+        rulesetsError.value = null;
+      } catch (e: any) {
+        // Surface the failure instead of silently rendering an empty project —
+        // an empty list must mean "no rulesets", not "the load failed".
+        const msg = e?.message || 'Failed to load rulesets';
+        rulesetsError.value = msg;
         draftMetas.value = [];
+        MessagePlugin.error(msg);
       }
     } else {
       draftMetas.value = [];
@@ -295,6 +305,7 @@ export const useProjectStore = defineStore('project', () => {
     currentProjectId,
     rulesets,
     draftMetas,
+    rulesetsError,
     openTabs,
     activeTabName,
     activeTab,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
@@ -150,6 +150,8 @@ function onResizeMouseup() {
   window.removeEventListener('mousemove', onResizeMousemove);
   window.removeEventListener('mouseup', onResizeMouseup);
 }
+// Unmounting mid-drag would otherwise leak the window listeners.
+onUnmounted(onResizeMouseup);
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 

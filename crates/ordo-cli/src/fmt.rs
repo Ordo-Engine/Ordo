@@ -19,7 +19,7 @@ pub struct FmtArgs {
 pub fn run(args: FmtArgs, json: bool) -> Result<()> {
     let project = Project::discover(None)?;
     let names = match args.name {
-        Some(n) => vec![n],
+        Some(n) => vec![crate::project::ruleset_name(&n)],
         None => project.ruleset_names()?,
     };
 

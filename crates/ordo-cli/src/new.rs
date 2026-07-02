@@ -92,7 +92,8 @@ fn new_catalog_entry(
     name: &str,
 ) -> Result<Vec<String>> {
     let mut items: Vec<serde_json::Value> = if path.is_file() {
-        let text = std::fs::read_to_string(&path)?;
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
         if text.trim().is_empty() {
             Vec::new()
         } else {

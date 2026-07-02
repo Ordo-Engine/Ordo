@@ -100,6 +100,21 @@ function isRuntimeGeneratedStep(
   );
 }
 
+// A branch condition may arrive as a bare expression string (hand-authored via the
+// CLI / a coding agent). Normalize it to the editor's ExpressionCondition so Studio
+// never sees a raw string where it expects a Condition object.
+function normalizeStepConditions(step: any): any {
+  if (!step || step.type !== 'decision' || !Array.isArray(step.branches)) return step;
+  return {
+    ...step,
+    branches: step.branches.map((b: any) =>
+      typeof b?.condition === 'string'
+        ? { ...b, condition: { type: 'expression', expression: b.condition } }
+        : b
+    ),
+  };
+}
+
 function restoreSubRuleStep(step: any): any {
   if (!step || step.type !== 'sub_rule' || typeof step.refName !== 'string') return step;
 
@@ -121,7 +136,8 @@ export function stripRuntimeGeneratedArtifacts(ruleset: RuleSet): RuleSet {
 
   cloned.steps = (cloned.steps ?? [])
     .filter((step: any) => !isRuntimeGeneratedStep(step, patterns))
-    .map(restoreSubRuleStep);
+    .map(restoreSubRuleStep)
+    .map(normalizeStepConditions);
 
   if (cloned.subRules) {
     cloned.subRules = Object.fromEntries(
@@ -143,6 +159,7 @@ function stripRuntimeGeneratedArtifactsFromGraph(graph: any) {
     ...graph,
     steps: (graph.steps ?? [])
       .filter((step: any) => !isRuntimeGeneratedStep(step, graphPatterns))
-      .map(restoreSubRuleStep),
+      .map(restoreSubRuleStep)
+      .map(normalizeStepConditions),
   };
 }

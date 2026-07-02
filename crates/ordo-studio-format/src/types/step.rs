@@ -80,6 +80,10 @@ pub struct StudioBranch {
     pub id: String,
     #[serde(default)]
     pub label: Option<String>,
+    #[serde(
+        deserialize_with = "crate::types::condition::deserialize_condition",
+        serialize_with = "crate::types::condition::serialize_condition"
+    )]
     pub condition: StudioCondition,
     #[serde(rename = "nextStepId")]
     pub next_step_id: String,
@@ -135,4 +139,35 @@ pub struct StudioSubRuleBinding {
 pub struct StudioSubRuleOutput {
     pub parent_var: String,
     pub child_var: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::condition::StudioCondition;
+
+    #[test]
+    fn branch_condition_accepts_bare_expression_string_and_round_trips() {
+        let json = r#"{"id":"b0","condition":"amount <= 10000 && is_vip","nextStepId":"approve"}"#;
+        let branch: StudioBranch = serde_json::from_str(json).unwrap();
+        match &branch.condition {
+            StudioCondition::Expression { expression } => {
+                assert_eq!(expression, "amount <= 10000 && is_vip");
+            }
+            other => panic!("expected Expression, got {other:?}"),
+        }
+        // Round-trips back to a bare string, not the tagged object.
+        let out = serde_json::to_string(&branch).unwrap();
+        assert!(
+            out.contains(r#""condition":"amount <= 10000 && is_vip""#),
+            "condition should re-serialize as a bare string, got: {out}"
+        );
+    }
+
+    #[test]
+    fn branch_condition_still_accepts_structured_object() {
+        let json = r#"{"id":"b0","condition":{"type":"simple","left":{"type":"variable","path":"amount"},"operator":"lte","right":{"type":"literal","value":10000,"valueType":"number"}},"nextStepId":"n"}"#;
+        let branch: StudioBranch = serde_json::from_str(json).unwrap();
+        assert!(matches!(branch.condition, StudioCondition::Simple { .. }));
+    }
 }

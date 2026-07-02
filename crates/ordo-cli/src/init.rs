@@ -131,6 +131,10 @@ your work (everything below runs offline, sub-second).
   `startStepId`, and `steps[]`. Each step is `decision` (ordered `branches`, first
   match wins, plus a default), `action` (assigns variables/outputs), or `terminal`
   (final `code` + `outputs`).
+  - A branch `condition` is a **bare expression string** — the whole boolean
+    expression in one string, e.g. `"amount <= 10000 && is_vip"` (operators
+    `== != > >= < <= && || !`, `in`, `contains`, functions like `len(...)`).
+    Reference facts/concepts/input fields by name. Prefer this concise form.
 - `facts.json` — fact definitions (external inputs): `{ name, data_type, source, null_policy }`.
 - `concepts.json` — derived named expressions: `{ name, data_type, expression, dependencies[] }`.
 - `tests/<name>.json` — an array of `{ name, input, expect: { code?, output? } }` for that ruleset.

@@ -368,24 +368,34 @@ pub async fn publish_draft(
         .await
         .map_err(PlatformError::Internal)?;
 
-    // Inline referenced sub-rule assets into the studio draft (the worker's converter
-    // does not inline). The worker converts studio → engine at push time.
-    let inlined =
-        inline_sub_rules_into_draft(&state, &org_id, &project_id, draft.draft.clone()).await?;
-
-    enqueue_publish_release(
-        &state,
-        &org_id,
-        &project_id,
-        &ruleset_name,
-        &version,
-        inlined,
-        &dep_id,
-        &env,
-        &claims,
-        req.release_note.clone(),
-    )
-    .await?;
+    // Inline sub-rules + enqueue the release. If either fails, the `Dispatched`
+    // deployment created above would otherwise orphan in "published, unconfirmed"
+    // forever, so settle it to `Failed` before returning the error.
+    let enqueue = async {
+        let inlined =
+            inline_sub_rules_into_draft(&state, &org_id, &project_id, draft.draft.clone()).await?;
+        enqueue_publish_release(
+            &state,
+            &org_id,
+            &project_id,
+            &ruleset_name,
+            &version,
+            inlined,
+            &dep_id,
+            &env,
+            &claims,
+            req.release_note.clone(),
+        )
+        .await
+    }
+    .await;
+    if let Err(e) = enqueue {
+        let _ = state
+            .store
+            .update_deployment_status(&dep_id, DeploymentStatus::Failed)
+            .await;
+        return Err(e);
+    }
 
     let deployment = state
         .store
@@ -699,7 +709,8 @@ pub async fn redeploy(
 
     // The stored deployment snapshot already contains inlined sub-rules — roll it out
     // through the release engine, exactly like a fresh publish (async, worker-settled).
-    enqueue_publish_release(
+    // On enqueue failure, settle the `Dispatched` row to `Failed` so it doesn't orphan.
+    if let Err(e) = enqueue_publish_release(
         &state,
         &org_id,
         &project_id,
@@ -711,7 +722,14 @@ pub async fn redeploy(
         &claims,
         req.release_note.clone(),
     )
-    .await?;
+    .await
+    {
+        let _ = state
+            .store
+            .update_deployment_status(&dep_id, DeploymentStatus::Failed)
+            .await;
+        return Err(e);
+    }
 
     let deployment = state
         .store

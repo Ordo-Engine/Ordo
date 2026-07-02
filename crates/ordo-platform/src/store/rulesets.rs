@@ -31,10 +31,14 @@ impl PlatformStore {
         ruleset_name: &str,
     ) -> Result<Vec<RulesetHistoryEntry>> {
         let rows = sqlx::query(
+            // Cap the read: ruleset_history grows monotonically (a row per edit/
+            // publish) and each row carries a full snapshot. Most-recent-first, so
+            // the cap returns the newest entries a UI actually shows.
             "SELECT id, ruleset_name, action, source, created_at, author_id, author_email, author_display_name, snapshot
              FROM ruleset_history
              WHERE project_id = $1 AND ruleset_name = $2
-             ORDER BY created_at DESC",
+             ORDER BY created_at DESC
+             LIMIT 500",
         )
         .bind(project_id)
         .bind(ruleset_name)

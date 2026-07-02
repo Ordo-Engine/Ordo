@@ -206,6 +206,16 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/orgs/:oid/projects/:pid/server",
             axum::routing::put(server_registry::bind_project_server),
         )
+        // Org connect tokens (engines register with one to scope to the org)
+        .route(
+            "/api/v1/orgs/:oid/connect-tokens",
+            get(server_registry::list_connect_tokens)
+                .post(server_registry::create_connect_token),
+        )
+        .route(
+            "/api/v1/orgs/:oid/connect-tokens/:id",
+            axum::routing::delete(server_registry::delete_connect_token),
+        )
         // GitHub OAuth (protected)
         .route("/api/v1/github/connect", get(github::get_connect_url))
         .route("/api/v1/github/status", get(github::get_status))

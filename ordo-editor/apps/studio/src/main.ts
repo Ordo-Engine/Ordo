@@ -5,6 +5,8 @@ import { initWasm } from '@ordo-engine/editor-core';
 import router from './router';
 import App from './App.vue';
 import { i18n } from './i18n';
+import { setUnauthorizedHandler } from './api/platform-client';
+import { useAuthStore } from './stores/auth';
 
 // Styles
 import 'tdesign-vue-next/es/style/index.css';
@@ -25,6 +27,20 @@ async function bootstrap() {
   app.use(router);
   app.use(TDesign);
   app.use(i18n);
+
+  // When an authenticated request 401s (expired/revoked session), clear auth and
+  // bounce to login with a redirect back — otherwise the app is stuck in a broken
+  // shell, silently 401-looping, with no way to recover but a manual logout.
+  const auth = useAuthStore();
+  setUnauthorizedHandler(() => {
+    if (!auth.isLoggedIn) return;
+    auth.logout();
+    const current = router.currentRoute.value;
+    if (current.name !== 'login') {
+      router.replace({ name: 'login', query: { redirect: current.fullPath } });
+    }
+  });
+
   app.mount('#app');
 }
 

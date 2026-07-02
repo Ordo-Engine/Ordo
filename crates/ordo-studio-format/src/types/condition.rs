@@ -1,8 +1,42 @@
 //! Studio condition types (mirrors the TypeScript Condition model)
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::expr::{expr_to_string, StudioExpr};
+
+/// Deserialize a branch condition from EITHER a bare expression string
+/// (`"amount <= 10000 && is_vip"`) or the structured tagged object. A bare string
+/// becomes the `Expression` variant, so humans and coding agents can hand-author
+/// conditions concisely; the whole boolean expression (incl. `&&`/`||`/`!`) lives
+/// in one string that ordo-core parses. The structured object form still works.
+pub fn deserialize_condition<'de, D>(deserializer: D) -> Result<StudioCondition, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StrOrStruct {
+        Str(String),
+        Struct(StudioCondition),
+    }
+    Ok(match StrOrStruct::deserialize(deserializer)? {
+        StrOrStruct::Str(expression) => StudioCondition::Expression { expression },
+        StrOrStruct::Struct(c) => c,
+    })
+}
+
+/// Serialize an `Expression` condition back to a bare string (so a hand-authored
+/// concise condition round-trips as-is through `fmt`/`push`/`pull`); every other
+/// variant serializes as the structured object.
+pub fn serialize_condition<S>(cond: &StudioCondition, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match cond {
+        StudioCondition::Expression { expression } => serializer.serialize_str(expression),
+        other => other.serialize(serializer),
+    }
+}
 
 /// Studio condition — mirrors the frontend `Condition` union type.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -562,7 +562,7 @@ fn bench_loan_rules(c: &mut Criterion) {
     for (name, expr) in &rules {
         // Pre-compile for VM
         let bc_compiler = ExprCompiler::new();
-        let compiled_bc = bc_compiler.compile(expr);
+        let compiled_bc = bc_compiler.compile(expr).unwrap();
 
         // Pre-compile for JIT
         use std::hash::{Hash, Hasher};
@@ -631,7 +631,7 @@ fn bench_order_rules(c: &mut Criterion) {
     for (name, expr) in &rules {
         // Pre-compile for VM
         let bc_compiler = ExprCompiler::new();
-        let compiled_bc = bc_compiler.compile(expr);
+        let compiled_bc = bc_compiler.compile(expr).unwrap();
 
         // Pre-compile for JIT
         use std::hash::{Hash, Hasher};
@@ -694,7 +694,7 @@ fn bench_complexity_scaling(c: &mut Criterion) {
         let expr = create_and_chain(num_conditions);
 
         let bc_compiler = ExprCompiler::new();
-        let compiled_bc = bc_compiler.compile(&expr);
+        let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -756,7 +756,7 @@ fn bench_throughput(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let compiled_jit = {

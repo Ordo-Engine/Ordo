@@ -13,6 +13,12 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
+/// Upper bound on the number of elements/characters a single builtin may
+/// allocate. Guards against a small expression (e.g. `range(0, 1e10)` or
+/// `pad_left("x", 1e10, "0")`) exhausting memory — the step timeout cannot
+/// preempt one long-running builtin, so the cap is enforced inline.
+const MAX_BUILTIN_ELEMENTS: usize = 1_000_000;
+
 /// Function signature type
 pub type FunctionFn = Arc<dyn Fn(&[Value]) -> Result<Value> + Send + Sync>;
 
@@ -137,7 +143,13 @@ impl FunctionRegistry {
             } else {
                 s.len()
             };
-            let result: String = s.chars().skip(start).take(end - start).collect();
+            // `end < start` (or a negative arg coerced to a huge usize) must not
+            // underflow — clamp to an empty selection instead of panicking.
+            let result: String = s
+                .chars()
+                .skip(start)
+                .take(end.saturating_sub(start))
+                .collect();
             Ok(Value::string(result))
         });
 
@@ -214,7 +226,11 @@ impl FunctionRegistry {
 
             for v in arr {
                 match v {
-                    Value::Int(n) => int_sum += n,
+                    Value::Int(n) => {
+                        int_sum = int_sum
+                            .checked_add(*n)
+                            .ok_or_else(|| OrdoError::eval_error("Integer overflow in sum()"))?;
+                    }
                     Value::Float(n) => {
                         has_float = true;
                         float_sum += n;
@@ -396,7 +412,9 @@ impl FunctionRegistry {
             let t1 = require_int("time_diff", &args[0])?;
             let t2 = require_int("time_diff", &args[1])?;
             let unit = require_string("time_diff", &args[2])?;
-            let diff = t1 - t2;
+            let diff = t1
+                .checked_sub(t2)
+                .ok_or_else(|| OrdoError::eval_error("Integer overflow in time_diff()"))?;
             let result = match unit {
                 "seconds" | "s" => diff,
                 "minutes" | "m" => diff / 60,
@@ -417,11 +435,12 @@ impl FunctionRegistry {
             let ts = require_int("date_add", &args[0])?;
             let amount = require_int("date_add", &args[1])?;
             let unit = require_string("date_add", &args[2])?;
+            let overflow = || OrdoError::eval_error("Integer overflow in date_add()");
             let seconds = match unit {
                 "seconds" | "s" => amount,
-                "minutes" | "m" => amount * 60,
-                "hours" | "h" => amount * 3600,
-                "days" | "d" => amount * 86400,
+                "minutes" | "m" => amount.checked_mul(60).ok_or_else(overflow)?,
+                "hours" | "h" => amount.checked_mul(3600).ok_or_else(overflow)?,
+                "days" | "d" => amount.checked_mul(86400).ok_or_else(overflow)?,
                 _ => {
                     return Err(OrdoError::eval_error(format!(
                         "date_add: unknown unit '{}'",
@@ -429,7 +448,7 @@ impl FunctionRegistry {
                     )))
                 }
             };
-            Ok(Value::int(ts + seconds))
+            Ok(Value::int(ts.checked_add(seconds).ok_or_else(overflow)?))
         });
 
         self.register("time_of_day", |args| {
@@ -489,6 +508,11 @@ impl FunctionRegistry {
                 return Ok(Value::string(s));
             }
             let width = raw_width as usize;
+            if width > MAX_BUILTIN_ELEMENTS {
+                return Err(OrdoError::eval_error(format!(
+                    "pad_left: width {width} exceeds maximum of {MAX_BUILTIN_ELEMENTS}"
+                )));
+            }
             let ch = require_string("pad_left", &args[2])?;
             let pad_char = ch.chars().next().unwrap_or(' ');
             if s.len() >= width {
@@ -507,6 +531,11 @@ impl FunctionRegistry {
                 return Ok(Value::string(s));
             }
             let width = raw_width as usize;
+            if width > MAX_BUILTIN_ELEMENTS {
+                return Err(OrdoError::eval_error(format!(
+                    "pad_right: width {width} exceeds maximum of {MAX_BUILTIN_ELEMENTS}"
+                )));
+            }
             let ch = require_string("pad_right", &args[2])?;
             let pad_char = ch.chars().next().unwrap_or(' ');
             if s.len() >= width {
@@ -1101,17 +1130,33 @@ impl FunctionRegistry {
             } else {
                 1
             };
-            let mut result = Vec::new();
+            // Pre-compute the element count and reject oversized ranges before
+            // allocating, so a huge span can't OOM the engine.
+            let span = end as i128 - start as i128;
+            let stride = step as i128;
+            let count = (span / stride).max(0) + if span % stride != 0 { 1 } else { 0 };
+            if count > MAX_BUILTIN_ELEMENTS as i128 {
+                return Err(OrdoError::eval_error(format!(
+                    "range: result of {count} elements exceeds maximum of {MAX_BUILTIN_ELEMENTS}"
+                )));
+            }
+            let mut result = Vec::with_capacity(count.max(0) as usize);
             let mut i = start;
             if step > 0 {
                 while i < end {
                     result.push(Value::int(i));
-                    i += step;
+                    match i.checked_add(step) {
+                        Some(next) => i = next,
+                        None => break,
+                    }
                 }
             } else {
                 while i > end {
                     result.push(Value::int(i));
-                    i += step;
+                    match i.checked_add(step) {
+                        Some(next) => i = next,
+                        None => break,
+                    }
                 }
             }
             Ok(Value::array(result))
@@ -1302,7 +1347,11 @@ impl FunctionRegistry {
 
         for v in arr {
             match v {
-                Value::Int(n) => int_sum += n,
+                Value::Int(n) => {
+                    int_sum = int_sum
+                        .checked_add(*n)
+                        .ok_or_else(|| OrdoError::eval_error("Integer overflow in sum()"))?;
+                }
                 Value::Float(n) => {
                     has_float = true;
                     float_sum += n;
@@ -1472,6 +1521,59 @@ fn compile_regex(pattern: &str) -> Result<regex::Regex> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtins_reject_oversized_allocations() {
+        let r = FunctionRegistry::new();
+        // range: huge span is rejected, not OOM'd
+        assert!(r
+            .call("range", &[Value::int(0), Value::int(10_000_000_000)])
+            .is_err());
+        // a small range still works
+        assert_eq!(
+            r.call("range", &[Value::int(0), Value::int(3)]).unwrap(),
+            Value::array(vec![Value::int(0), Value::int(1), Value::int(2)])
+        );
+        // pad width is capped
+        assert!(r
+            .call(
+                "pad_left",
+                &[
+                    Value::string("x"),
+                    Value::int(10_000_000_000),
+                    Value::string("0")
+                ]
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn builtins_guard_integer_overflow_and_underflow() {
+        let r = FunctionRegistry::new();
+        // sum overflow → error, not panic/wrap
+        assert!(r
+            .call(
+                "sum",
+                &[Value::array(vec![Value::int(i64::MAX), Value::int(1)])]
+            )
+            .is_err());
+        // date_add overflow → error
+        assert!(r
+            .call(
+                "date_add",
+                &[Value::int(i64::MAX), Value::int(1), Value::string("days")]
+            )
+            .is_err());
+        // substring end<start → empty, not underflow panic
+        assert_eq!(
+            r.call(
+                "substring",
+                &[Value::string("hello"), Value::int(3), Value::int(1)]
+            )
+            .unwrap(),
+            Value::string("")
+        );
+    }
 
     #[test]
     fn test_len() {

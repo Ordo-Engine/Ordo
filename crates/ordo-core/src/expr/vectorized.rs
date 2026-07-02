@@ -16,7 +16,7 @@ use super::functions::FunctionRegistry;
 use super::vm::BytecodeVM;
 use super::vm::CompiledExpr;
 use crate::context::{Context, Value};
-use crate::error::Result;
+use crate::error::{OrdoError, Result};
 
 /// Vectorized expression evaluator for batch processing
 pub struct VectorizedEvaluator {
@@ -45,14 +45,24 @@ impl VectorizedEvaluator {
         }
     }
 
-    /// Pre-compile an expression for repeated batch evaluation
+    /// Pre-compile an expression for repeated batch evaluation. A too-complex
+    /// expression simply leaves the evaluator uncompiled (no panic).
     pub fn compile(&mut self, expr: &Expr) {
-        self.compiled = Some(ExprCompiler::new().compile(expr));
+        self.compiled = ExprCompiler::new().compile(expr).ok();
     }
 
     /// Clear the pre-compiled expression
     pub fn clear_compiled(&mut self) {
         self.compiled = None;
+    }
+
+    /// The cached compiled expression, or compile `expr` now. Returns `None` when
+    /// the expression is too complex to compile (rather than panicking).
+    fn compiled_or(&self, expr: &Expr) -> Option<CompiledExpr> {
+        match &self.compiled {
+            Some(c) => Some(c.clone()),
+            None => ExprCompiler::new().compile(expr).ok(),
+        }
     }
 
     /// Evaluate an expression over a batch of contexts
@@ -62,10 +72,12 @@ impl VectorizedEvaluator {
             return Vec::new();
         }
 
-        // Use pre-compiled bytecode if available, otherwise compile once
-        let compiled = match &self.compiled {
-            Some(c) => c.clone(),
-            None => ExprCompiler::new().compile(expr),
+        // Use pre-compiled bytecode if available, otherwise compile once.
+        let Some(compiled) = self.compiled_or(expr) else {
+            return contexts
+                .iter()
+                .map(|_| Err(OrdoError::eval_error("expression too complex to compile")))
+                .collect();
         };
 
         // Execute for each context
@@ -159,10 +171,7 @@ impl VectorizedEvaluator {
     /// Batch evaluation with early termination on first success
     /// Useful for finding matching contexts
     pub fn find_first_match(&mut self, expr: &Expr, contexts: &[Context]) -> Option<usize> {
-        let compiled = match &self.compiled {
-            Some(c) => c.clone(),
-            None => ExprCompiler::new().compile(expr),
-        };
+        let compiled = self.compiled_or(expr)?;
 
         for (idx, ctx) in contexts.iter().enumerate() {
             if let Ok(result) = self.vm.execute(&compiled, ctx) {
@@ -177,9 +186,8 @@ impl VectorizedEvaluator {
     /// Batch evaluation with early termination on first failure
     /// Useful for validation
     pub fn all_match(&mut self, expr: &Expr, contexts: &[Context]) -> bool {
-        let compiled = match &self.compiled {
-            Some(c) => c.clone(),
-            None => ExprCompiler::new().compile(expr),
+        let Some(compiled) = self.compiled_or(expr) else {
+            return false;
         };
 
         for ctx in contexts {
@@ -193,9 +201,8 @@ impl VectorizedEvaluator {
 
     /// Count how many contexts match the expression
     pub fn count_matches(&mut self, expr: &Expr, contexts: &[Context]) -> usize {
-        let compiled = match &self.compiled {
-            Some(c) => c.clone(),
-            None => ExprCompiler::new().compile(expr),
+        let Some(compiled) = self.compiled_or(expr) else {
+            return 0;
         };
 
         contexts
@@ -211,9 +218,8 @@ impl VectorizedEvaluator {
 
     /// Filter contexts that match the expression
     pub fn filter_matches<'a>(&mut self, expr: &Expr, contexts: &'a [Context]) -> Vec<&'a Context> {
-        let compiled = match &self.compiled {
-            Some(c) => c.clone(),
-            None => ExprCompiler::new().compile(expr),
+        let Some(compiled) = self.compiled_or(expr) else {
+            return Vec::new();
         };
 
         contexts
@@ -233,9 +239,8 @@ impl VectorizedEvaluator {
         expr: &Expr,
         contexts: &'a [Context],
     ) -> (Vec<&'a Context>, Vec<&'a Context>) {
-        let compiled = match &self.compiled {
-            Some(c) => c.clone(),
-            None => ExprCompiler::new().compile(expr),
+        let Some(compiled) = self.compiled_or(expr) else {
+            return (Vec::new(), contexts.iter().collect());
         };
 
         let mut matching = Vec::new();

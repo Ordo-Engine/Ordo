@@ -200,7 +200,7 @@ fn bench_bytecode_vm(c: &mut Criterion) {
         .iter()
         .map(|(name, expr)| {
             let compiler = ExprCompiler::new();
-            (*name, compiler.compile(expr))
+            (*name, compiler.compile(expr).unwrap())
         })
         .collect();
 
@@ -293,7 +293,7 @@ fn bench_comparison(c: &mut Criterion) {
     let schema_evaluator = SchemaJITEvaluator::simple().unwrap();
     let vm = BytecodeVM::new();
     let compiler = ExprCompiler::new();
-    let compiled = compiler.compile(&expr);
+    let compiled = compiler.compile(&expr).unwrap();
     let tree_evaluator = Evaluator::new();
 
     // Warm up Schema JIT
@@ -426,7 +426,7 @@ fn bench_field_access_only(c: &mut Criterion) {
     // BytecodeVM field access
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let bc_compiled = bc_compiler.compile(&expr);
+    let bc_compiled = bc_compiler.compile(&expr).unwrap();
 
     group.bench_function("vm_field", |b| {
         b.iter(|| {

@@ -108,6 +108,20 @@ export interface ServerInfo {
   capabilities: CapabilityInfo[];
 }
 
+export interface ConnectTokenInfo {
+  id: string;
+  label: string | null;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface CreateConnectTokenResponse {
+  id: string;
+  /** The raw token — returned only once, on creation. */
+  token: string;
+  label: string | null;
+}
+
 export interface BindServerRequest {
   server_id: string | null;
 }

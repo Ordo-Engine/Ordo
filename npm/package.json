@@ -1,7 +1,7 @@
 {
   "name": "@ordo-engine/cli",
-  "version": "0.4.2",
-  "description": "Ordo CLI — author, test, trace, and ship decision rules (rules-as-files, with an MCP server for coding agents)",
+  "version": "0.4.3",
+  "description": "Ordo CLI \u2014 author, test, trace, and ship decision rules (rules-as-files, with an MCP server for coding agents)",
   "bin": {
     "ordo": "bin/ordo.js"
   },

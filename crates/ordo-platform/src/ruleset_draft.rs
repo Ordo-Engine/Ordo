@@ -30,7 +30,6 @@ use crate::{
         PERM_RULESET_EDIT, PERM_RULESET_PUBLISH, PERM_RULESET_VIEW,
     },
     release::hash_json_value,
-    sync::SyncEvent,
     AppState,
 };
 use axum::{
@@ -302,6 +301,14 @@ pub async fn convert_draft_ruleset(
 // ── Publish ───────────────────────────────────────────────────────────────────
 
 /// POST /api/v1/orgs/:oid/projects/:pid/rulesets/:name/publish
+///
+/// Publishing is **asynchronous** and runs through the release engine: it synthesizes
+/// an auto-approved, all-at-once internal release targeting every server bound to the
+/// environment, hands it to the `ordo-platform-worker`, and returns a `Dispatched`
+/// deployment immediately. The worker pushes the rule over NATS, waits for server
+/// acks, and flips the deployment to `Success`/`Failed` — clients poll
+/// `list_ruleset_deployments` for the final outcome. (Publishing therefore requires
+/// the worker to be running.)
 pub async fn publish_draft(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -317,7 +324,6 @@ pub async fn publish_draft(
     )
     .await?;
 
-    // Load draft
     let draft = state
         .store
         .get_draft_ruleset(&project_id, &ruleset_name)
@@ -325,7 +331,6 @@ pub async fn publish_draft(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Draft ruleset not found"))?;
 
-    // Load target environment
     let env = state
         .store
         .get_environment(&project_id, &req.environment_id)
@@ -333,7 +338,6 @@ pub async fn publish_draft(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Environment not found"))?;
 
-    // Extract version from draft
     let version = draft
         .draft
         .get("config")
@@ -342,7 +346,8 @@ pub async fn publish_draft(
         .unwrap_or("0.0.0")
         .to_string();
 
-    // Create deployment record (queued)
+    // Create the deployment row up front as `Dispatched`; the worker running the
+    // synthesized release flips it to `Success`/`Failed`.
     let dep_id = Uuid::new_v4().to_string();
     let deployment = RulesetDeployment {
         id: dep_id.clone(),
@@ -355,7 +360,7 @@ pub async fn publish_draft(
         snapshot: draft.draft.clone(),
         deployed_at: Utc::now(),
         deployed_by: Some(claims.sub.clone()),
-        status: DeploymentStatus::Queued,
+        status: DeploymentStatus::Dispatched,
     };
     state
         .store
@@ -363,102 +368,24 @@ pub async fn publish_draft(
         .await
         .map_err(PlatformError::Internal)?;
 
-    // Inline referenced sub-rule assets, then convert studio → engine format.
+    // Inline referenced sub-rule assets into the studio draft (the worker's converter
+    // does not inline). The worker converts studio → engine at push time.
     let inlined =
         inline_sub_rules_into_draft(&state, &org_id, &project_id, draft.draft.clone()).await?;
-    let concepts = state
-        .store
-        .get_concepts(&org_id, &project_id)
-        .await
-        .map_err(PlatformError::Internal)?;
-    let engine_json = studio_draft_to_engine_json_with_concepts(&inlined, &concepts)?;
 
-    // Publish via NATS
-    let publish_result = publish_via_nats(
+    enqueue_publish_release(
         &state,
-        &env,
+        &org_id,
         &project_id,
         &ruleset_name,
-        &engine_json,
         &version,
+        inlined,
+        &dep_id,
+        &env,
+        &claims,
+        req.release_note.clone(),
     )
-    .await;
-
-    let final_status = match publish_result {
-        Ok(()) => {
-            // The NATS publish succeeded (the broker accepted/persisted the event),
-            // but that does NOT mean a server has applied it. Confirm by polling the
-            // environment's bound servers for the new version before reporting success.
-            match confirm_published_version(&state, &env, &project_id, &ruleset_name, &version)
-                .await
-            {
-                ConfirmOutcome::Confirmed => DeploymentStatus::Success,
-                ConfirmOutcome::Unconfirmed => {
-                    tracing::warn!(
-                        deployment = %dep_id,
-                        ruleset = %ruleset_name,
-                        version = %version,
-                        "Published to NATS but no bound server confirmed the new version within the window"
-                    );
-                    DeploymentStatus::Dispatched
-                }
-                ConfirmOutcome::NoServers => {
-                    tracing::info!(
-                        deployment = %dep_id,
-                        ruleset = %ruleset_name,
-                        "Published to NATS; environment has no registered servers to confirm against"
-                    );
-                    DeploymentStatus::Dispatched
-                }
-            }
-        }
-        Err(ref e) => {
-            tracing::error!("NATS publish failed for deployment {}: {}", dep_id, e);
-            DeploymentStatus::Failed
-        }
-    };
-
-    state
-        .store
-        .update_deployment_status(&dep_id, final_status.clone())
-        .await
-        .map_err(PlatformError::Internal)?;
-
-    // The publish reached NATS for both Success and Dispatched (only NATS failure is
-    // Failed), so record the published metadata and history in both cases — the
-    // deployment record's status carries the apply-confirmation nuance.
-    if !matches!(final_status, DeploymentStatus::Failed) {
-        // Update draft's published metadata
-        state
-            .store
-            .mark_ruleset_published(&project_id, &ruleset_name, &version)
-            .await
-            .map_err(PlatformError::Internal)?;
-
-        // Append history entry
-        let user = state
-            .store
-            .get_user(&claims.sub)
-            .await
-            .map_err(PlatformError::Internal)?;
-        if let Some(user) = user {
-            let entry = RulesetHistoryEntry {
-                id: Uuid::new_v4().to_string(),
-                ruleset_name: ruleset_name.clone(),
-                action: format!("published to {}", env.name),
-                source: RulesetHistorySource::Publish,
-                created_at: Utc::now(),
-                author_id: claims.sub.clone(),
-                author_email: user.email,
-                author_display_name: user.display_name,
-                snapshot: draft.draft.clone(),
-            };
-            let _ = state
-                .store
-                .append_ruleset_history(&org_id, &project_id, &ruleset_name, &[entry])
-                .await;
-        }
-    }
+    .await?;
 
     let deployment = state
         .store
@@ -467,13 +394,203 @@ pub async fn publish_draft(
         .map_err(PlatformError::Internal)?
         .expect("just created");
 
-    if let DeploymentStatus::Failed = deployment.status {
+    Ok(Json(deployment))
+}
+
+/// Roll a freshly-published draft out through the release engine: synthesize an
+/// auto-approved, all-at-once internal release targeting every server bound to the
+/// environment and enqueue it for the worker, which flips `deployment_id` (created
+/// `Dispatched`) to `Success`/`Failed`.
+///
+/// When the environment has no bound servers there is nothing for the worker to target
+/// (the release engine requires ≥1 server), so we broadcast the rule directly over
+/// NATS and record the publish here — it stays `Dispatched`, as there is no server to
+/// confirm against.
+#[allow(clippy::too_many_arguments)]
+async fn enqueue_publish_release(
+    state: &AppState,
+    org_id: &str,
+    project_id: &str,
+    ruleset_name: &str,
+    version: &str,
+    inlined_studio: serde_json::Value,
+    deployment_id: &str,
+    env: &crate::models::ProjectEnvironment,
+    claims: &Claims,
+    release_note: Option<String>,
+) -> ApiResult<()> {
+    if state.sync_publisher.is_none() {
         return Err(PlatformError::internal(
-            "Publish queued but NATS push failed; deployment marked as failed",
+            "NATS is not configured; cannot publish",
         ));
     }
 
-    Ok(Json(deployment))
+    // No bound servers → broadcast directly and record the publish (stays Dispatched);
+    // there is no target for a release execution and no ack to wait on.
+    if env.server_ids.is_empty() {
+        let concepts = state
+            .store
+            .get_concepts(org_id, project_id)
+            .await
+            .map_err(PlatformError::Internal)?;
+        let engine_json = studio_draft_to_engine_json_with_concepts(&inlined_studio, &concepts)?;
+        publish_via_nats(state, env, project_id, ruleset_name, &engine_json, version)
+            .await
+            .map_err(|e| PlatformError::internal(format!("NATS publish failed: {e}")))?;
+
+        state
+            .store
+            .mark_ruleset_published(project_id, ruleset_name, version)
+            .await
+            .map_err(PlatformError::Internal)?;
+        if let Some(user) = state
+            .store
+            .get_user(&claims.sub)
+            .await
+            .map_err(PlatformError::Internal)?
+        {
+            let entry = RulesetHistoryEntry {
+                id: Uuid::new_v4().to_string(),
+                ruleset_name: ruleset_name.to_string(),
+                action: format!("published to {}", env.name),
+                source: RulesetHistorySource::Publish,
+                created_at: Utc::now(),
+                author_id: claims.sub.clone(),
+                author_email: user.email,
+                author_display_name: user.display_name,
+                snapshot: inlined_studio,
+            };
+            let _ = state
+                .store
+                .append_ruleset_history(org_id, project_id, ruleset_name, &[entry])
+                .await;
+        }
+        return Ok(());
+    }
+
+    let mut bound_servers = Vec::with_capacity(env.server_ids.len());
+    for server_id in &env.server_ids {
+        let server = state
+            .store
+            .get_server(server_id)
+            .await
+            .map_err(PlatformError::Internal)?
+            .ok_or_else(|| PlatformError::not_found("Bound server not found"))?;
+        bound_servers.push(server);
+    }
+
+    let request = build_internal_publish_request(
+        org_id,
+        project_id,
+        ruleset_name,
+        version,
+        inlined_studio,
+        deployment_id,
+        env,
+        claims,
+        release_note,
+    );
+    state
+        .store
+        .create_internal_release_request(&request, None)
+        .await
+        .map_err(PlatformError::Internal)?;
+
+    let user = state
+        .store
+        .get_user(&claims.sub)
+        .await
+        .map_err(PlatformError::Internal)?;
+    let actor = crate::release::user_history_actor(claims, user.as_ref());
+    crate::release::enqueue_release_execution(
+        state,
+        &request,
+        env,
+        &bound_servers,
+        &actor,
+        &claims.sub,
+    )
+    .await
+    .map_err(PlatformError::Internal)?;
+
+    Ok(())
+}
+
+/// Build the auto-approved, all-at-once internal `ReleaseRequest` that backs a direct
+/// publish. `publish_deployment_id` links it to the deployment row the worker settles;
+/// `target_ruleset_snapshot` carries the inlined studio draft the worker pushes.
+#[allow(clippy::too_many_arguments)]
+fn build_internal_publish_request(
+    org_id: &str,
+    project_id: &str,
+    ruleset_name: &str,
+    version: &str,
+    inlined_studio: serde_json::Value,
+    deployment_id: &str,
+    env: &crate::models::ProjectEnvironment,
+    claims: &Claims,
+    release_note: Option<String>,
+) -> crate::models::ReleaseRequest {
+    use crate::models::{
+        ReleaseContentDiffSummary, ReleaseRequest, ReleaseRequestSnapshot, ReleaseRequestStatus,
+        ReleaseVersionDiff, RollbackPolicy, RolloutStrategy, RolloutStrategyKind,
+    };
+
+    let strategy = RolloutStrategy {
+        kind: Some(RolloutStrategyKind::AllAtOnce),
+        ..Default::default()
+    };
+    let affected = env.server_ids.len() as i32;
+    let now = Utc::now();
+
+    ReleaseRequest {
+        id: Uuid::new_v4().to_string(),
+        org_id: org_id.to_string(),
+        project_id: project_id.to_string(),
+        ruleset_name: ruleset_name.to_string(),
+        version: version.to_string(),
+        environment_id: env.id.clone(),
+        environment_name: Some(env.name.clone()),
+        policy_id: None,
+        // Born already executing — direct publish is an ungoverned fast path; the
+        // worker drives it to Completed/Failed. (Governance is intentionally skipped;
+        // the call is still gated by PERM_RULESET_PUBLISH.)
+        status: ReleaseRequestStatus::Executing,
+        title: format!("Publish {ruleset_name} {version}"),
+        change_summary: "Direct publish".to_string(),
+        release_note: release_note.clone(),
+        affected_instance_count: affected,
+        rollout_strategy: strategy.clone(),
+        rollback_version: None,
+        created_by: claims.sub.clone(),
+        created_by_name: None,
+        created_by_email: None,
+        created_at: now,
+        updated_at: now,
+        version_diff: ReleaseVersionDiff {
+            to_version: version.to_string(),
+            changed: true,
+            ..Default::default()
+        },
+        content_diff: ReleaseContentDiffSummary::default(),
+        request_snapshot: ReleaseRequestSnapshot {
+            requester_id: claims.sub.clone(),
+            environment_name: Some(env.name.clone()),
+            rollout_strategy: strategy,
+            rollback_policy: RollbackPolicy {
+                auto_rollback: false,
+                ..Default::default()
+            },
+            affected_instance_count: affected,
+            target_ruleset_snapshot: Some(inlined_studio),
+            publish_deployment_id: Some(deployment_id.to_string()),
+            ..Default::default()
+        },
+        execution_attempts: 0,
+        max_execution_attempts: 1,
+        is_closed: false,
+        approvals: Vec::new(),
+    }
 }
 
 // ── Deployment History ────────────────────────────────────────────────────────
@@ -568,11 +685,11 @@ pub async fn redeploy(
         environment_name: Some(env.name.clone()),
         ruleset_name: ruleset_name.clone(),
         version: original.version.clone(),
-        release_note: req.release_note,
+        release_note: req.release_note.clone(),
         snapshot: original.snapshot.clone(),
         deployed_at: Utc::now(),
         deployed_by: Some(claims.sub.clone()),
-        status: DeploymentStatus::Queued,
+        status: DeploymentStatus::Dispatched,
     };
     state
         .store
@@ -580,47 +697,21 @@ pub async fn redeploy(
         .await
         .map_err(PlatformError::Internal)?;
 
-    // Redeploy uses the stored snapshot (already contains inlined sub-rules).
-    let concepts = state
-        .store
-        .get_concepts(&org_id, &project_id)
-        .await
-        .map_err(PlatformError::Internal)?;
-    let snapshot_engine_json =
-        studio_draft_to_engine_json_with_concepts(&original.snapshot, &concepts)?;
-
-    let result = publish_via_nats(
+    // The stored deployment snapshot already contains inlined sub-rules — roll it out
+    // through the release engine, exactly like a fresh publish (async, worker-settled).
+    enqueue_publish_release(
         &state,
-        &env,
+        &org_id,
         &project_id,
         &ruleset_name,
-        &snapshot_engine_json,
         &original.version,
+        original.snapshot.clone(),
+        &dep_id,
+        &env,
+        &claims,
+        req.release_note.clone(),
     )
-    .await;
-
-    let final_status = if result.is_ok() {
-        // Same confirmation as publish_draft: NATS acceptance ≠ applied on a server.
-        match confirm_published_version(&state, &env, &project_id, &ruleset_name, &original.version)
-            .await
-        {
-            ConfirmOutcome::Confirmed => DeploymentStatus::Success,
-            ConfirmOutcome::Unconfirmed | ConfirmOutcome::NoServers => DeploymentStatus::Dispatched,
-        }
-    } else {
-        tracing::error!(
-            "NATS redeploy publish failed for deployment {}: {:?}",
-            dep_id,
-            result
-        );
-        DeploymentStatus::Failed
-    };
-
-    state
-        .store
-        .update_deployment_status(&dep_id, final_status)
-        .await
-        .map_err(PlatformError::Internal)?;
+    .await?;
 
     let deployment = state
         .store
@@ -1172,78 +1263,6 @@ pub(crate) fn studio_draft_to_engine_json_with_concepts(
         .map_err(|e| PlatformError::internal(format!("Engine serialization failed: {}", e)))
 }
 
-/// Result of confirming a published version was actually applied by servers.
-enum ConfirmOutcome {
-    /// At least one bound server reports the new version is live.
-    Confirmed,
-    /// Servers are bound to the environment but none reported the new version
-    /// within the confirmation window.
-    Unconfirmed,
-    /// The environment has no registered servers to confirm against.
-    NoServers,
-}
-
-/// After a successful NATS publish, poll the environment's bound servers for the
-/// newly published version. NATS acceptance only means the event was queued; this
-/// verifies a server actually applied it before we report success.
-///
-/// Bounded to ~5s total with a short per-request timeout so a slow/dead server
-/// can't hang the publish call. Returns as soon as any server confirms.
-async fn confirm_published_version(
-    state: &AppState,
-    env: &crate::models::ProjectEnvironment,
-    project_id: &str,
-    ruleset_name: &str,
-    version: &str,
-) -> ConfirmOutcome {
-    // Resolve the servers bound to this environment.
-    let mut servers = Vec::new();
-    for server_id in &env.server_ids {
-        if let Ok(Some(server)) = state.store.get_server(server_id).await {
-            servers.push(server);
-        }
-    }
-    if servers.is_empty() {
-        return ConfirmOutcome::NoServers;
-    }
-
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        for server in &servers {
-            let url = format!(
-                "{}/api/v1/rulesets/{}",
-                server.url.trim_end_matches('/'),
-                ruleset_name
-            );
-            let resp = state
-                .http_client
-                .get(&url)
-                .header("X-Tenant-ID", project_id)
-                .timeout(std::time::Duration::from_secs(1))
-                .send()
-                .await;
-            if let Ok(resp) = resp {
-                if resp.status().is_success() {
-                    if let Ok(body) = resp.json::<serde_json::Value>().await {
-                        let applied = body
-                            .get("config")
-                            .and_then(|c| c.get("version"))
-                            .and_then(|v| v.as_str());
-                        if applied == Some(version) {
-                            return ConfirmOutcome::Confirmed;
-                        }
-                    }
-                }
-            }
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return ConfirmOutcome::Unconfirmed;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-    }
-}
-
 async fn publish_via_nats(
     state: &AppState,
     env: &crate::models::ProjectEnvironment,
@@ -1259,21 +1278,22 @@ async fn publish_via_nats(
 
     let json_str = serde_json::to_string(ruleset_json)?;
 
-    let event = SyncEvent::RulePut {
-        tenant_id: project_id.to_string(),
-        name: ruleset_name.to_string(),
-        ruleset_json: json_str,
-        version: version.to_string(),
-        release_execution_id: None,
-        target_server_ids: None,
-    };
-
     let prefix = env
         .nats_subject_prefix
         .as_deref()
         .unwrap_or(&state.config.nats_subject_prefix);
 
-    publisher.publish_to(prefix, event).await
+    publisher
+        .publish_rule_put(
+            prefix,
+            project_id,
+            ruleset_name,
+            json_str,
+            version,
+            None,
+            None,
+        )
+        .await
 }
 
 async fn seed_draft_from_history(

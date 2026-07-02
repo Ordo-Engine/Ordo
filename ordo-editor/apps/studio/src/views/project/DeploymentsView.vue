@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
@@ -25,31 +25,61 @@ const showRedeployDialog = ref(false);
 const selectedDeployment = ref<RulesetDeployment | null>(null);
 const redeployEnvId = ref('');
 
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+async function loadDeployments() {
+  deployments.value = await rulesetDraftApi.listProjectDeployments(
+    auth.token!,
+    orgId,
+    projectId,
+    100
+  );
+  // Publishing is asynchronous (worker-settled): a deployment starts `dispatched`
+  // and flips to `success`/`failed` once servers ack. Poll while any deployment is
+  // still in flight so the status settles without a manual refresh.
+  const pending = deployments.value.some((d) => d.status === 'dispatched' || d.status === 'queued');
+  if (pending && !pollTimer) {
+    pollTimer = setInterval(refreshSilently, 3000);
+  } else if (!pending && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function refreshSilently() {
+  try {
+    await loadDeployments();
+  } catch {
+    // Transient error — keep the existing list and let the next tick retry.
+  }
+}
+
 onMounted(async () => {
   loading.value = true;
   try {
     await envStore.fetchEnvironments(orgId, projectId);
     redeployEnvId.value = envStore.environments.find((env) => env.is_default)?.id ?? '';
-    deployments.value = await rulesetDraftApi.listProjectDeployments(
-      auth.token!,
-      orgId,
-      projectId,
-      100
-    );
+    await loadDeployments();
   } finally {
     loading.value = false;
   }
 });
 
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer);
+});
+
 function statusTheme(status: string) {
   if (status === 'success') return 'success';
   if (status === 'failed') return 'danger';
+  if (status === 'dispatched') return 'primary';
   return 'warning';
 }
 
 function statusLabel(status: string) {
   if (status === 'queued') return t('deployments.statusQueued');
   if (status === 'success') return t('deployments.statusSuccess');
+  if (status === 'dispatched') return t('deployments.statusDispatched');
   return t('deployments.statusFailed');
 }
 

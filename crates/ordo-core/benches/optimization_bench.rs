@@ -189,7 +189,7 @@ fn bench_bytecode_vm(c: &mut Criterion) {
         });
 
         // Bytecode VM
-        let compiled = ExprCompiler::new().compile(&expr);
+        let compiled = ExprCompiler::new().compile(&expr).unwrap();
         group.bench_with_input(
             BenchmarkId::new("bytecode_vm", name),
             &compiled,
@@ -199,7 +199,7 @@ fn bench_bytecode_vm(c: &mut Criterion) {
         // Optimized + Bytecode VM
         let mut optimizer = ExprOptimizer::new();
         let optimized_expr = optimizer.optimize(expr.clone());
-        let compiled_optimized = ExprCompiler::new().compile(&optimized_expr);
+        let compiled_optimized = ExprCompiler::new().compile(&optimized_expr).unwrap();
         group.bench_with_input(
             BenchmarkId::new("optimized_bytecode", name),
             &compiled_optimized,
@@ -242,7 +242,7 @@ fn bench_vectorized(c: &mut Criterion) {
 
         // Sequential: bytecode VM
         let vm = BytecodeVM::new();
-        let compiled = ExprCompiler::new().compile(&expr);
+        let compiled = ExprCompiler::new().compile(&expr).unwrap();
         group.bench_with_input(
             BenchmarkId::new("sequential_bytecode", batch_size),
             &contexts,
@@ -309,7 +309,7 @@ fn bench_compilation(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("compile_bytecode", name),
             &expr,
-            |b, expr| b.iter(|| ExprCompiler::new().compile(black_box(expr))),
+            |b, expr| b.iter(|| ExprCompiler::new().compile(black_box(expr)).unwrap()),
         );
     }
 
@@ -355,7 +355,7 @@ fn bench_throughput(c: &mut Criterion) {
     // Optimized + pre-compiled bytecode
     let mut optimizer = ExprOptimizer::new();
     let optimized = optimizer.optimize(expr.clone());
-    let compiled = ExprCompiler::new().compile(&optimized);
+    let compiled = ExprCompiler::new().compile(&optimized).unwrap();
     let vm = BytecodeVM::new();
     group.bench_function("optimized_bytecode", |b| {
         b.iter(|| {
@@ -392,7 +392,7 @@ fn bench_memory_efficiency(c: &mut Criterion) {
 
     for (name, expr) in expressions {
         // Measure bytecode compilation stats
-        let compiled = ExprCompiler::new().compile(&expr);
+        let compiled = ExprCompiler::new().compile(&expr).unwrap();
         let stats = compiled.stats();
 
         println!(

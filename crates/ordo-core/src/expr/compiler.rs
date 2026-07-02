@@ -8,6 +8,7 @@
 use super::ast::{BinaryOp, Expr, UnaryOp};
 use super::vm::{CompiledExpr, Instruction, Opcode};
 use crate::context::Value;
+use crate::error::OrdoError;
 
 /// Compiler for VM v2 bytecode
 pub struct ExprCompiler {
@@ -15,6 +16,11 @@ pub struct ExprCompiler {
     compiled: CompiledExpr,
     /// Next available register
     next_reg: u8,
+    /// Set when a pool (registers / constants / fields / functions) overflows its
+    /// 256-slot limit. Compilation continues with dummy indices to keep the
+    /// signatures panic-free; `compile()` turns the flag into a clean error before
+    /// the (invalid) bytecode is ever handed back.
+    overflow: bool,
 }
 
 impl Default for ExprCompiler {
@@ -28,29 +34,38 @@ impl ExprCompiler {
         Self {
             compiled: CompiledExpr::new(),
             next_reg: 0,
+            overflow: false,
         }
     }
 
-    /// Compile an expression to v2 bytecode
-    pub fn compile(mut self, expr: &Expr) -> CompiledExpr {
+    /// Compile an expression to v2 bytecode. Returns an error (rather than
+    /// panicking) when the expression is too complex for the 256-slot pools.
+    pub fn compile(mut self, expr: &Expr) -> Result<CompiledExpr, OrdoError> {
         let result_reg = self.compile_expr(expr);
         self.emit(Instruction::new(Opcode::Return, result_reg, 0, 0));
         self.compiled.register_count = self.next_reg;
 
+        if self.overflow {
+            return Err(OrdoError::eval_error(
+                "expression too complex: exceeds the 256 registers/constants/fields/functions limit",
+            ));
+        }
+
         // Apply peephole optimizations
         self.peephole_optimize();
 
-        self.compiled
+        Ok(self.compiled)
     }
 
-    /// Allocate a new register
+    /// Allocate a new register. On overflow past 256 registers, flags the
+    /// compiler and returns a dummy register — `compile()` will surface the error.
     #[inline]
     fn alloc_reg(&mut self) -> u8 {
         let reg = self.next_reg;
-        self.next_reg = self
-            .next_reg
-            .checked_add(1)
-            .expect("register limit exceeded: expression requires more than 256 registers");
+        match self.next_reg.checked_add(1) {
+            Some(next) => self.next_reg = next,
+            None => self.overflow = true,
+        }
         reg
     }
 
@@ -80,10 +95,10 @@ impl ExprCompiler {
             return idx as u8;
         }
         let idx = self.compiled.constants.len();
-        assert!(
-            idx < 256,
-            "constant pool limit exceeded: expression has more than 256 unique constants"
-        );
+        if idx >= 256 {
+            self.overflow = true;
+            return 0;
+        }
         self.compiled.constants.push(value);
         idx as u8
     }
@@ -94,10 +109,10 @@ impl ExprCompiler {
             return idx as u8;
         }
         let idx = self.compiled.fields.len();
-        assert!(
-            idx < 256,
-            "field pool limit exceeded: expression references more than 256 unique fields"
-        );
+        if idx >= 256 {
+            self.overflow = true;
+            return 0;
+        }
         self.compiled.fields.push(name.to_string());
         idx as u8
     }
@@ -108,10 +123,10 @@ impl ExprCompiler {
             return idx as u8;
         }
         let idx = self.compiled.functions.len();
-        assert!(
-            idx < 256,
-            "function pool limit exceeded: expression references more than 256 unique functions"
-        );
+        if idx >= 256 {
+            self.overflow = true;
+            return 0;
+        }
         self.compiled.functions.push(name.to_string());
         idx as u8
     }
@@ -181,10 +196,9 @@ impl ExprCompiler {
                 }
 
                 let func_idx = self.add_function(name);
-                assert!(
-                    args.len() < 256,
-                    "argument count limit exceeded: function call has more than 255 arguments"
-                );
+                if args.len() >= 256 {
+                    self.overflow = true;
+                }
                 // For Call: a=result, b=func_idx, c=arg_count
                 // Arguments are expected in registers [result_reg+1, result_reg+1+arg_count)
                 self.emit(Instruction::new(
@@ -521,9 +535,20 @@ mod tests {
     }
 
     fn compile_and_run(expr: &Expr, ctx: &crate::context::Context) -> crate::error::Result<Value> {
-        let compiled = ExprCompiler::new().compile(expr);
+        let compiled = ExprCompiler::new().compile(expr)?;
         let vm = BytecodeVM::new();
         vm.execute(&compiled, ctx)
+    }
+
+    #[test]
+    fn over_complex_expression_errors_instead_of_panicking() {
+        // A long additive chain needs >256 registers (the allocator never frees).
+        // It must return a clean error, not panic on the 256-register limit.
+        use super::super::parser::ExprParser;
+        let src = format!("a{}", " + a".repeat(300));
+        let expr = ExprParser::parse(&src).expect("parses under the 4096-byte cap");
+        let result = ExprCompiler::new().compile(&expr);
+        assert!(result.is_err(), "expected a compile error, got Ok");
     }
 
     #[test]
@@ -548,7 +573,7 @@ mod tests {
         let expr = Expr::binary(BinaryOp::Gt, Expr::field("age"), Expr::literal(18));
         let ctx = make_ctx(r#"{"age": 25}"#);
 
-        let compiled = ExprCompiler::new().compile(&expr);
+        let compiled = ExprCompiler::new().compile(&expr).unwrap();
 
         // Should have 2 instructions: FieldGtConst + Return
         assert_eq!(compiled.instructions.len(), 2);

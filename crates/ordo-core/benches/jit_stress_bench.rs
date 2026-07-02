@@ -410,7 +410,7 @@ fn bench_complex_rules(c: &mut Criterion) {
 
     for (name, expr) in &rules {
         let bc_compiler = ExprCompiler::new();
-        let compiled_bc = bc_compiler.compile(expr);
+        let compiled_bc = bc_compiler.compile(expr).unwrap();
 
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -448,7 +448,7 @@ fn bench_high_volume(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let compiled_jit = {
@@ -539,7 +539,7 @@ fn bench_rule_pipeline(c: &mut Criterion) {
     // Pre-compile all
     let compiled_bc: Vec<_> = rules
         .iter()
-        .map(|e| ExprCompiler::new().compile(e))
+        .map(|e| ExprCompiler::new().compile(e).unwrap())
         .collect();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
@@ -639,7 +639,7 @@ fn bench_latency_distribution(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let compiled_jit = {

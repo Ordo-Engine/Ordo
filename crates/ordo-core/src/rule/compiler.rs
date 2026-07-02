@@ -169,11 +169,13 @@ fn compile_step(
             })?;
             let bindings = bindings
                 .iter()
-                .map(|(name, expr)| CompiledSubRuleBinding {
-                    name: string_pool.intern(name),
-                    expr: compile_expr(expr, expressions),
+                .map(|(name, expr)| {
+                    Ok(CompiledSubRuleBinding {
+                        name: string_pool.intern(name),
+                        expr: compile_expr(expr, expressions)?,
+                    })
                 })
-                .collect();
+                .collect::<Result<Vec<_>>>()?;
             let outputs = outputs
                 .iter()
                 .map(|(parent_variable, child_variable)| CompiledSubRuleOutput {
@@ -238,21 +240,21 @@ fn compile_condition(
     match condition {
         Condition::Always => Ok(CompiledCondition::Always),
         Condition::Expression(expr) => {
-            let idx = compile_expr(expr, expressions);
+            let idx = compile_expr(expr, expressions)?;
             Ok(CompiledCondition::Expr(idx))
         }
         Condition::ExpressionString(s) => {
             let expr = ExprParser::parse(s)?;
-            let idx = compile_expr(&expr, expressions);
+            let idx = compile_expr(&expr, expressions)?;
             Ok(CompiledCondition::Expr(idx))
         }
     }
 }
 
-fn compile_expr(expr: &Expr, expressions: &mut Vec<crate::expr::CompiledExpr>) -> u32 {
-    let compiled = ExprCompiler::new().compile(expr);
+fn compile_expr(expr: &Expr, expressions: &mut Vec<crate::expr::CompiledExpr>) -> Result<u32> {
+    let compiled = ExprCompiler::new().compile(expr)?;
     expressions.push(compiled);
-    (expressions.len() - 1) as u32
+    Ok((expressions.len() - 1) as u32)
 }
 
 fn compile_actions(
@@ -265,7 +267,7 @@ fn compile_actions(
         match &action.kind {
             ActionKind::SetVariable { name, value } => {
                 let name_idx = string_pool.intern(name);
-                let expr_idx = compile_expr(value, expressions);
+                let expr_idx = compile_expr(value, expressions)?;
                 compiled.push(CompiledAction::SetVariable {
                     name: name_idx,
                     value: expr_idx,
@@ -280,7 +282,7 @@ fn compile_actions(
             }
             ActionKind::Metric { name, value, tags } => {
                 let name_idx = string_pool.intern(name);
-                let expr_idx = compile_expr(value, expressions);
+                let expr_idx = compile_expr(value, expressions)?;
                 let mut compiled_tags = Vec::with_capacity(tags.len());
                 for (k, v) in tags {
                     compiled_tags.push((string_pool.intern(k), string_pool.intern(v)));
@@ -308,7 +310,7 @@ fn compile_actions(
                 let mut compiled_params = Vec::with_capacity(params.len());
                 for (name, expr) in params {
                     compiled_params
-                        .push((string_pool.intern(name), compile_expr(expr, expressions)));
+                        .push((string_pool.intern(name), compile_expr(expr, expressions)?));
                 }
                 compiled.push(CompiledAction::ExternalCall {
                     service: service_idx,
@@ -340,7 +342,7 @@ fn compile_terminal(
     let mut outputs = Vec::with_capacity(result.output.len());
     for (key, expr) in &result.output {
         let key_idx = string_pool.intern(key);
-        let expr_idx = compile_expr(expr, expressions);
+        let expr_idx = compile_expr(expr, expressions)?;
         outputs.push(CompiledOutput {
             key: key_idx,
             expr: expr_idx,

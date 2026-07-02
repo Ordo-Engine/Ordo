@@ -405,7 +405,9 @@ impl ExprOptimizer {
         match op {
             UnaryOp::Not => Some(Value::bool(!value.is_truthy())),
             UnaryOp::Neg => match value {
-                Value::Int(n) => Some(Value::int(-n)),
+                // Don't fold on overflow (i64::MIN) — leave it to the runtime,
+                // which errors cleanly rather than baking a wrapped constant.
+                Value::Int(n) => n.checked_neg().map(Value::int),
                 Value::Float(n) => Some(Value::float(-n)),
                 _ => None,
             },
@@ -441,7 +443,8 @@ impl ExprOptimizer {
         match name {
             // Math functions
             "abs" if args.len() == 1 => match &args[0] {
-                Value::Int(n) => Some(Value::int(n.abs())),
+                // checked_abs: don't fold abs(i64::MIN) to a wrapped value.
+                Value::Int(n) => n.checked_abs().map(Value::int),
                 Value::Float(n) => Some(Value::float(n.abs())),
                 _ => None,
             },

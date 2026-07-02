@@ -212,12 +212,9 @@ impl SchemaJITEvaluator {
             expr.clone()
         };
 
-        // Compile to bytecode
-        let compiler = ExprCompiler::new();
-        let compiled = compiler.compile(&optimized);
-
-        // Cache it
-        {
+        // Compile to bytecode and cache it. Evaluation below uses the tree-walker
+        // regardless, so a too-complex expression simply skips the cache (no panic).
+        if let Ok(compiled) = ExprCompiler::new().compile(&optimized) {
             let mut cache = self.bytecode_cache.write();
             if cache.len() < self.config.max_cache_size {
                 cache.insert(hash, compiled);

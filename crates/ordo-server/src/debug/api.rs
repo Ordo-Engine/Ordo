@@ -281,7 +281,9 @@ pub async fn debug_eval_expression(
 
     // Compile to bytecode
     let compile_start = Instant::now();
-    let compiled = ExprCompiler::new().compile(&expr);
+    let compiled = ExprCompiler::new()
+        .compile(&expr)
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
     let compile_duration_ns = compile_start.elapsed().as_nanos() as u64;
 
     // Build bytecode info

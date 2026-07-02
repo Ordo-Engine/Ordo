@@ -48,6 +48,8 @@ import type {
   RulesetHistoryResponse,
   SaveDraftRequest,
   ServerInfo,
+  ConnectTokenInfo,
+  CreateConnectTokenResponse,
   SetCanaryRequest,
   SaveSubRuleAssetRequest,
   SubRuleAsset,
@@ -635,6 +637,26 @@ export const serverApi = {
 
   delete(token: string, id: string): Promise<void> {
     return request(`/servers/${id}`, { method: 'DELETE', token });
+  },
+};
+
+// ── Org connect tokens ────────────────────────────────────────────────────────
+
+export const connectTokenApi = {
+  list(token: string, orgId: string): Promise<ConnectTokenInfo[]> {
+    return request(`/orgs/${orgId}/connect-tokens`, { token });
+  },
+
+  create(token: string, orgId: string, label?: string): Promise<CreateConnectTokenResponse> {
+    return request(`/orgs/${orgId}/connect-tokens`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ label: label || null }),
+    });
+  },
+
+  delete(token: string, orgId: string, id: string): Promise<void> {
+    return request(`/orgs/${orgId}/connect-tokens/${id}`, { method: 'DELETE', token });
   },
 };
 

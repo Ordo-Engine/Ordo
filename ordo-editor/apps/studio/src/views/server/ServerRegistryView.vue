@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
-import { serverApi } from '@/api/platform-client';
-import type { ServerInfo } from '@/api/types';
+import { serverApi, connectTokenApi } from '@/api/platform-client';
+import type { ServerInfo, ConnectTokenInfo } from '@/api/types';
 import { useAuthStore } from '@/stores/auth';
 
 interface HealthPayload {
@@ -24,7 +24,24 @@ type ServerFilter = 'active' | 'offline' | 'all';
 
 const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
+
+// Connect tokens are org-scoped — only shown on the /orgs/:orgId/servers route.
+const orgId = computed(() => (route.params.orgId as string) || '');
+
+const tokens = ref<ConnectTokenInfo[]>([]);
+const loadingTokens = ref(false);
+const creatingToken = ref(false);
+const revokingTokenId = ref<string | null>(null);
+
+const createDialogVisible = ref(false);
+const newLabel = ref('');
+
+const createdDialogVisible = ref(false);
+const createdToken = ref('');
+const createdLabel = ref<string | null>(null);
+const createdUsage = computed(() => `ORDO_CONNECT_TOKEN=${createdToken.value} ordo-server`);
 
 const loadingServers = ref(false);
 const removingServerId = ref<string | null>(null);
@@ -238,7 +255,81 @@ async function removeServer(server: ServerInfo) {
   });
 }
 
-onMounted(loadServers);
+async function loadTokens() {
+  if (!auth.token || !orgId.value) return;
+  loadingTokens.value = true;
+  try {
+    tokens.value = await connectTokenApi.list(auth.token, orgId.value);
+  } catch {
+    // Caller may lack view permission — keep the section quiet rather than error.
+    tokens.value = [];
+  } finally {
+    loadingTokens.value = false;
+  }
+}
+
+function openCreate() {
+  newLabel.value = '';
+  createDialogVisible.value = true;
+}
+
+async function confirmCreate() {
+  if (!auth.token || !orgId.value) return;
+  creatingToken.value = true;
+  try {
+    const res = await connectTokenApi.create(
+      auth.token,
+      orgId.value,
+      newLabel.value.trim() || undefined
+    );
+    createDialogVisible.value = false;
+    createdToken.value = res.token;
+    createdLabel.value = res.label;
+    createdDialogVisible.value = true;
+    await loadTokens();
+  } catch {
+    MessagePlugin.error(t('settings.connectTokens.createFailed'));
+  } finally {
+    creatingToken.value = false;
+  }
+}
+
+function revokeToken(tok: ConnectTokenInfo) {
+  if (!auth.token || !orgId.value) return;
+  const dialog = DialogPlugin.confirm({
+    header: t('settings.connectTokens.revoke'),
+    body: t('settings.connectTokens.revokeConfirm'),
+    confirmBtn: { content: t('settings.connectTokens.revoke'), theme: 'danger' },
+    cancelBtn: t('common.cancel'),
+    onConfirm: async () => {
+      revokingTokenId.value = tok.id;
+      try {
+        await connectTokenApi.delete(auth.token!, orgId.value, tok.id);
+        tokens.value = tokens.value.filter((x) => x.id !== tok.id);
+        dialog.hide();
+        MessagePlugin.success(t('settings.connectTokens.revoked'));
+      } catch {
+        MessagePlugin.error(t('settings.serverRegistry.removeFailed'));
+      } finally {
+        revokingTokenId.value = null;
+      }
+    },
+  });
+}
+
+async function copyToken(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    MessagePlugin.success(t('settings.connectTokens.copied'));
+  } catch {
+    MessagePlugin.warning(t('settings.connectTokens.copyFailed'));
+  }
+}
+
+onMounted(() => {
+  loadServers();
+  loadTokens();
+});
 </script>
 
 <template>
@@ -260,6 +351,50 @@ onMounted(loadServers);
         {{ t('settings.serverRegistry.refresh') }}
       </t-button>
     </div>
+
+    <section v-if="orgId" class="registry-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">{{ t('settings.connectTokens.title') }}</h2>
+          <p class="panel-desc">{{ t('settings.connectTokens.desc') }}</p>
+        </div>
+        <t-button theme="primary" variant="outline" @click="openCreate">
+          {{ t('settings.connectTokens.create') }}
+        </t-button>
+      </div>
+
+      <div v-if="loadingTokens" class="detail-loading">
+        <t-loading size="small" />
+      </div>
+      <p v-else-if="!tokens.length" class="text-muted token-empty">
+        {{ t('settings.connectTokens.empty') }}
+      </p>
+      <div v-else class="token-list">
+        <div v-for="tok in tokens" :key="tok.id" class="token-row">
+          <div class="token-main">
+            <strong>{{ tok.label || t('settings.connectTokens.unlabeled') }}</strong>
+            <span class="token-meta">
+              {{ t('settings.connectTokens.colCreated') }}: {{ formatTimestamp(tok.created_at) }} ·
+              {{ t('settings.connectTokens.colLastUsed') }}:
+              {{
+                tok.last_used_at
+                  ? formatTimestamp(tok.last_used_at)
+                  : t('settings.connectTokens.never')
+              }}
+            </span>
+          </div>
+          <t-button
+            size="small"
+            theme="danger"
+            variant="text"
+            :loading="revokingTokenId === tok.id"
+            @click="revokeToken(tok)"
+          >
+            {{ t('settings.connectTokens.revoke') }}
+          </t-button>
+        </div>
+      </div>
+    </section>
 
     <section class="registry-panel">
       <div class="toolbar">
@@ -469,6 +604,46 @@ onMounted(loadServers);
         <pre v-if="metricsRawOpen" class="detail-pre">{{ metricsRaw }}</pre>
       </template>
     </t-dialog>
+
+    <t-dialog
+      v-model:visible="createDialogVisible"
+      :header="t('settings.connectTokens.create')"
+      :confirm-btn="{ content: t('settings.connectTokens.create'), loading: creatingToken }"
+      :cancel-btn="t('common.cancel')"
+      width="480px"
+      @confirm="confirmCreate"
+    >
+      <t-input v-model="newLabel" :placeholder="t('settings.connectTokens.labelPlaceholder')" />
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="createdDialogVisible"
+      :header="t('settings.connectTokens.createdTitle')"
+      :cancel-btn="null"
+      :confirm-btn="t('settings.connectTokens.done')"
+      width="640px"
+      destroy-on-close
+      @confirm="createdDialogVisible = false"
+    >
+      <t-alert
+        theme="warning"
+        :message="t('settings.connectTokens.createdWarning')"
+        class="created-warn"
+      />
+      <div class="token-block">
+        <code class="token-value">{{ createdToken }}</code>
+        <t-button size="small" variant="outline" @click="copyToken(createdToken)">
+          {{ t('settings.connectTokens.copy') }}
+        </t-button>
+      </div>
+      <p class="use-hint">{{ t('settings.connectTokens.useHint') }}</p>
+      <div class="token-block">
+        <code class="token-value">{{ createdUsage }}</code>
+        <t-button size="small" variant="outline" @click="copyToken(createdUsage)">
+          {{ t('settings.connectTokens.copy') }}
+        </t-button>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -514,6 +689,94 @@ onMounted(loadServers);
   border-radius: 10px;
   padding: 16px;
   overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ordo-text-primary);
+}
+
+.panel-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ordo-text-secondary);
+  max-width: 640px;
+}
+
+.token-empty {
+  margin: 4px 0 0;
+}
+
+.token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.token-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--ordo-border-color);
+  border-radius: 8px;
+}
+
+.token-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.token-main strong {
+  font-size: 13px;
+  color: var(--ordo-text-primary);
+}
+
+.token-meta {
+  font-size: 12px;
+  color: var(--ordo-text-secondary);
+}
+
+.created-warn {
+  margin-bottom: 14px;
+}
+
+.token-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.token-value {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--ordo-bg-app);
+  border: 1px solid var(--ordo-border-color);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  color: var(--ordo-text-primary);
+  word-break: break-all;
+}
+
+.use-hint {
+  margin: 14px 0 8px;
+  font-size: 13px;
+  color: var(--ordo-text-secondary);
 }
 
 .toolbar {

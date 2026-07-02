@@ -89,12 +89,27 @@ enum Commands {
     },
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() -> Result<()> {
+fn main() {
     let cli = Cli::parse();
     let json = cli.json;
-    match cli.command {
-        // local (synchronous — no network)
+    if let Err(e) = dispatch(cli.command, json) {
+        // Under --json, a hard failure is still machine-readable on stdout so an
+        // agent gets structured output on every path, not just the success one.
+        if json {
+            let _ = output::emit_json(&serde_json::json!({ "error": format!("{e:#}") }));
+        } else {
+            eprintln!("Error: {e:#}");
+        }
+        std::process::exit(1);
+    }
+}
+
+fn dispatch(command: Commands, json: bool) -> Result<()> {
+    match command {
+        // Local commands run with NO ambient async runtime. The embedded engine's
+        // capability invoker uses `reqwest::blocking`, which manages its own runtime;
+        // running these under `#[tokio::main]` would panic when that runtime is
+        // dropped inside an async context. So we keep the local path fully sync.
         Commands::Init(a) => init::run(a, json),
         Commands::New(a) => new::run(a, json),
         Commands::Eval(a) => eval::run(a, json),
@@ -104,25 +119,31 @@ async fn main() -> Result<()> {
         Commands::Test(a) => test_runner::run(a, json),
         Commands::Fmt(a) => fmt::run(a, json),
         Commands::Lint(a) => lint::run(a, json),
-        // platform (async)
-        Commands::Login(a) => login::run(a, json).await,
-        Commands::Whoami => login::whoami(json).await,
-        Commands::Link(a) => link::run(a, json).await,
-        Commands::Pull(a) => pull::run(a, json).await,
-        Commands::Push(a) => push::run(a, json).await,
-        Commands::Publish(a) => publish::run(a, json).await,
-        Commands::Deployments(a) => deployments::run(a, json).await,
-        Commands::Diff(a) => diff::run(a, json).await,
-        Commands::Mcp(a) => {
-            mcp::run(mcp::Policy {
-                allow_publish: a.allow_publish,
-                allow_delete: a.allow_delete,
-            })
-            .await
-        }
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "ordo", &mut std::io::stdout());
             Ok(())
         }
+        // Platform + MCP commands need async; build a runtime only for them.
+        Commands::Login(a) => block_on(login::run(a, json)),
+        Commands::Whoami => block_on(login::whoami(json)),
+        Commands::Link(a) => block_on(link::run(a, json)),
+        Commands::Pull(a) => block_on(pull::run(a, json)),
+        Commands::Push(a) => block_on(push::run(a, json)),
+        Commands::Publish(a) => block_on(publish::run(a, json)),
+        Commands::Deployments(a) => block_on(deployments::run(a, json)),
+        Commands::Diff(a) => block_on(diff::run(a, json)),
+        Commands::Mcp(a) => block_on(mcp::run(mcp::Policy {
+            allow_publish: a.allow_publish,
+            allow_delete: a.allow_delete,
+        })),
     }
+}
+
+/// Run an async command on a dedicated multi-thread runtime.
+fn block_on<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?
+        .block_on(fut)
 }

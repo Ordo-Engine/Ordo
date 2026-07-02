@@ -319,17 +319,19 @@ async fn handle_sync_ruleset_write(
 
             let existed = ruleset_exists_on_engine(state, base_url, project_id, &name).await;
 
+            let ruleset_json = serde_json::to_string(&payload).map_err(|e| {
+                PlatformError::internal(format!("Failed to serialize ruleset: {}", e))
+            })?;
             publisher
-                .publish(SyncEvent::RulePut {
-                    tenant_id: project_id.to_string(),
-                    name: name.clone(),
-                    ruleset_json: serde_json::to_string(&payload).map_err(|e| {
-                        PlatformError::internal(format!("Failed to serialize ruleset: {}", e))
-                    })?,
-                    version,
-                    release_execution_id: None,
-                    target_server_ids: None,
-                })
+                .publish_rule_put(
+                    publisher.default_prefix(),
+                    project_id,
+                    &name,
+                    ruleset_json,
+                    &version,
+                    None,
+                    None,
+                )
                 .await
                 .map_err(|e| {
                     PlatformError::internal(format!(
@@ -439,20 +441,19 @@ async fn handle_sync_ruleset_write(
                 .unwrap_or_default()
                 .to_string();
 
+            let rollback_json = serde_json::to_string(&rollback_ruleset).map_err(|e| {
+                PlatformError::internal(format!("Failed to serialize rollback ruleset: {}", e))
+            })?;
             publisher
-                .publish(SyncEvent::RulePut {
-                    tenant_id: project_id.to_string(),
-                    name: name.clone(),
-                    ruleset_json: serde_json::to_string(&rollback_ruleset).map_err(|e| {
-                        PlatformError::internal(format!(
-                            "Failed to serialize rollback ruleset: {}",
-                            e
-                        ))
-                    })?,
-                    version: to_version.clone(),
-                    release_execution_id: None,
-                    target_server_ids: None,
-                })
+                .publish_rule_put(
+                    publisher.default_prefix(),
+                    project_id,
+                    &name,
+                    rollback_json,
+                    &to_version,
+                    None,
+                    None,
+                )
                 .await
                 .map_err(|e| {
                     PlatformError::internal(format!("Failed to publish rollback to NATS: {}", e))

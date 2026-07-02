@@ -126,6 +126,40 @@ impl NatsPublisher {
         self.publish_to(&self.subject_prefix.clone(), event).await
     }
 
+    /// The default subject prefix (used when no per-environment prefix applies).
+    pub fn default_prefix(&self) -> &str {
+        &self.subject_prefix
+    }
+
+    /// Publish a `RulePut` — the single place every rule-sync write builds the event
+    /// (direct publish, release rollout, and the engine-API proxy). The
+    /// `release_execution_id` and `target_server_ids` pair is set for targeted release
+    /// rollouts (which ack back to the execution) and left `None` for broadcast writes.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn publish_rule_put(
+        &self,
+        prefix: &str,
+        tenant_id: &str,
+        name: &str,
+        ruleset_json: String,
+        version: &str,
+        release_execution_id: Option<String>,
+        target_server_ids: Option<Vec<String>>,
+    ) -> anyhow::Result<()> {
+        self.publish_to(
+            prefix,
+            SyncEvent::RulePut {
+                tenant_id: tenant_id.to_string(),
+                name: name.to_string(),
+                ruleset_json,
+                version: version.to_string(),
+                release_execution_id,
+                target_server_ids,
+            },
+        )
+        .await
+    }
+
     /// Publish to an explicit NATS subject prefix (for multi-environment deployments).
     pub async fn publish_to(&self, prefix: &str, event: SyncEvent) -> anyhow::Result<()> {
         let msg = SyncMessage::new(self.instance_id.clone(), event);

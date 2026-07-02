@@ -302,6 +302,13 @@ pub struct ReleaseRequestSnapshot {
     pub target_ruleset_snapshot: Option<serde_json::Value>,
     #[serde(default)]
     pub sub_rule_dependencies: Vec<ReleaseSubRuleDependency>,
+    /// Set when this release was synthesized by a direct `publish_draft`/`redeploy`
+    /// (an auto-approved, all-at-once internal release). Carries the id of the
+    /// `RulesetDeployment` row the publish handler created up front (status
+    /// `Dispatched`); the worker flips that same row to `Success`/`Failed` instead of
+    /// creating a new one. `None` for governed UI releases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_deployment_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

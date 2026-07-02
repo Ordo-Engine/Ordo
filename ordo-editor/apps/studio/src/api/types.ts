@@ -542,7 +542,7 @@ export interface SaveSubRuleAssetRequest {
 
 // ── Deployments ───────────────────────────────────────────────────────────────
 
-export type DeploymentStatus = 'queued' | 'success' | 'failed';
+export type DeploymentStatus = 'queued' | 'dispatched' | 'success' | 'failed';
 
 export interface RulesetDeployment {
   id: string;

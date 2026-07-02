@@ -246,6 +246,50 @@ impl PlatformStore {
             .expect("just inserted"))
     }
 
+    /// Insert a release_request row verbatim — no policy lookup, no approval seeding,
+    /// no status gating. Used by the direct-publish path, which synthesizes an
+    /// auto-approved, all-at-once internal release so the worker rolls it out through
+    /// the same engine as governed releases. The caller sets the row's fields
+    /// (including `status` and `request_snapshot`).
+    pub async fn create_internal_release_request(
+        &self,
+        request: &ReleaseRequest,
+        current_version: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO release_requests
+             (id, org_id, project_id, ruleset_name, version, environment_id, policy_id, status,
+              title, change_summary, release_note, affected_instance_count, rollback_version,
+              created_by, created_by_name, created_by_email, current_version, version_diff, content_diff,
+              request_snapshot, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                     $18, $19, $20, NOW(), NOW())",
+        )
+        .bind(&request.id)
+        .bind(&request.org_id)
+        .bind(&request.project_id)
+        .bind(&request.ruleset_name)
+        .bind(&request.version)
+        .bind(&request.environment_id)
+        .bind(&request.policy_id)
+        .bind(request.status.to_string())
+        .bind(&request.title)
+        .bind(&request.change_summary)
+        .bind(&request.release_note)
+        .bind(request.affected_instance_count)
+        .bind(&request.rollback_version)
+        .bind(&request.created_by)
+        .bind(&request.created_by_name)
+        .bind(&request.created_by_email)
+        .bind(current_version)
+        .bind(sqlx::types::Json(&request.version_diff))
+        .bind(sqlx::types::Json(&request.content_diff))
+        .bind(sqlx::types::Json(&request.request_snapshot))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn list_release_requests(
         &self,
         org_id: &str,

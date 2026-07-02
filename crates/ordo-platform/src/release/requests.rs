@@ -260,6 +260,7 @@ pub async fn create_release_request(
         affected_instance_count: req.affected_instance_count.unwrap_or_default(),
         target_ruleset_snapshot: Some(target_snapshot.clone()),
         sub_rule_dependencies: inlined.dependencies.clone(),
+        publish_deployment_id: None,
     };
 
     let mut create_req = req;

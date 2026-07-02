@@ -1127,6 +1127,7 @@ export default {
     redeploySuccess: '重新部署成功',
     noDeployments: '暂无发布记录',
     statusQueued: '排队中',
+    statusDispatched: '下发中',
     statusSuccess: '成功',
     statusFailed: '失败',
   },

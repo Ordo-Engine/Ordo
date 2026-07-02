@@ -173,7 +173,7 @@ fn bench_fair_comparison(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let cache = SchemaJITCache::default();
@@ -213,7 +213,7 @@ fn bench_end_to_end(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let cache = SchemaJITCache::default();
@@ -281,7 +281,7 @@ fn bench_cold_cache(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let cache = SchemaJITCache::default();
@@ -368,7 +368,7 @@ fn bench_compilation_amortization(c: &mut Criterion) {
             b.iter(|| {
                 // VM bytecode is cheap to create
                 let bc_compiler = ExprCompiler::new();
-                let compiled = bc_compiler.compile(&expr);
+                let compiled = bc_compiler.compile(&expr).unwrap();
 
                 // Execute N times
                 for _ in 0..n {
@@ -414,7 +414,7 @@ fn bench_realistic_throughput(c: &mut Criterion) {
     let tree_eval = Evaluator::new();
     let vm = BytecodeVM::new();
     let bc_compiler = ExprCompiler::new();
-    let compiled_bc = bc_compiler.compile(&expr);
+    let compiled_bc = bc_compiler.compile(&expr).unwrap();
 
     let mut jit_compiler = SchemaJITCompiler::new().unwrap();
     let cache = SchemaJITCache::default();

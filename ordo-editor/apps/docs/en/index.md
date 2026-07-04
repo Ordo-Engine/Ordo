@@ -3,18 +3,18 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: 'Open-Source Decision Platform'
-  tagline: A unified decision infrastructure — Studio for authoring, Platform for governance, Engine for execution. Three layers, clean separation of concerns.
+  text: 'The deterministic decision layer for AI agents'
+  tagline: The LLM proposes, your rules dispose. A sub-microsecond, JIT-compiled rule engine in Rust — with guardrails for your AI agent you can actually test.
   image:
     src: /logo.png
     alt: Ordo
   actions:
     - theme: brand
+      text: Guard your agent
+      link: /en/platform/guard
+    - theme: alt
       text: Get Started
       link: /en/platform/quickstart
-    - theme: alt
-      text: Platform Docs
-      link: /en/platform/overview
     - theme: alt
       text: Engine Docs
       link: /en/guide/what-is-ordo
@@ -23,6 +23,10 @@ hero:
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
+  - title: Agent Guardrails
+    details: Gate every Claude Code tool call through a local rule that decides allow / deny / ask — deterministically. The policy is a normal Ordo project, so your guardrails have a test suite and an audit log. Install in 5 minutes with npx.
+    link: /en/platform/guard
+    linkText: Guard your agent
   - title: Decision Platform
     details: Organizations, projects, members & RBAC, fact catalog, concept registry, typed contracts, approval & release pipelines, multi-environment rollouts and rollback — built for team-scale decision governance.
     link: /en/platform/overview

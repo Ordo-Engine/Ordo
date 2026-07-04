@@ -79,6 +79,7 @@ export default withMermaid(defineConfig({
             {
               text: 'Develop & Integrate',
               items: [
+                { text: 'Agent Guardrails (guard)', link: '/en/platform/guard' },
                 { text: 'CLI (ordo)', link: '/en/platform/cli' },
                 { text: 'MCP Server', link: '/en/platform/mcp' },
                 { text: 'Runtime Integration', link: '/en/platform/integrate' },
@@ -217,6 +218,7 @@ export default withMermaid(defineConfig({
             {
               text: '开发与接入',
               items: [
+                { text: 'Agent 护栏 (guard)', link: '/zh/platform/guard' },
                 { text: '命令行 (ordo)', link: '/zh/platform/cli' },
                 { text: 'MCP 服务', link: '/zh/platform/mcp' },
                 { text: '运行时接入', link: '/zh/platform/integrate' },

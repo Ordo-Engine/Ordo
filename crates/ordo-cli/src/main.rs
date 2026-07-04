@@ -8,6 +8,7 @@ mod diff;
 mod eval;
 mod exec;
 mod fmt;
+mod guard;
 mod init;
 mod link;
 mod lint;
@@ -60,6 +61,8 @@ enum Commands {
     Fmt(fmt::FmtArgs),
     /// Lint the project's rulesets for graph and style issues
     Lint(lint::LintArgs),
+    /// Agent guardrails — a deterministic policy gate for Claude Code tool calls
+    Guard(guard::GuardArgs),
 
     // ── platform (remote) ──
     /// Log in to the platform
@@ -119,6 +122,7 @@ fn dispatch(command: Commands, json: bool) -> Result<()> {
         Commands::Test(a) => test_runner::run(a, json),
         Commands::Fmt(a) => fmt::run(a, json),
         Commands::Lint(a) => lint::run(a, json),
+        Commands::Guard(a) => guard::run(a, json),
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "ordo", &mut std::io::stdout());
             Ok(())

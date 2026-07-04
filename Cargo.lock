@@ -2320,6 +2320,7 @@ name = "ordo-cli"
 version = "0.4.3"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "clap_complete",
  "colored",

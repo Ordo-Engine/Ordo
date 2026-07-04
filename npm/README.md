@@ -1,7 +1,38 @@
 # Ordo CLI
 
-Author, test, trace, and ship Ordo decision rules — rules-as-files, with a local
-dev loop and an MCP server so your coding agent can drive it.
+Deterministic guardrails for your AI coding agent, and a local dev loop for
+authoring Ordo decision rules as files. Powered by a sub-microsecond Rust rule
+engine.
+
+## Guard your coding agent
+
+```bash
+npx @ordo-engine/cli guard init      # scaffold a policy + wire the Claude Code hook
+```
+
+Every Claude Code tool call now runs through a local rule that decides
+**allow / deny / ask**. When the agent tries something destructive, Ordo stops
+it with a reason:
+
+```text
+⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.0.0 · DENY]
+```
+
+The policy lives in `.ordo-guard/` as a normal Ordo project — so your guardrails
+have a test suite:
+
+```bash
+ordo guard test      # run the policy's own tests
+ordo guard log       # every decision, timestamped and auditable
+```
+
+Edit `.ordo-guard/rulesets/policy.json` in plain expressions
+(`tool == 'Bash' && command contains 'terraform destroy'`), add a test, ship.
+The default policy blocks destructive shell + secret access, asks before
+`git push` / `npm publish`, and fast-paths read-only git. Fails open on any
+internal error (`--fail-closed` to deny instead).
+
+## Author rules as files
 
 ```bash
 npx @ordo-engine/cli init my-rules
@@ -40,6 +71,7 @@ checks run offline; `publish` requires `ordo mcp --allow-publish`.
 
 | | |
 |---|---|
+| `ordo guard init` / `hook` / `test` / `log` | deterministic guardrails for a coding agent |
 | `ordo init [dir]` | scaffold a project |
 | `ordo validate` / `test` / `trace` | check rules offline |
 | `ordo fmt` / `lint` / `new` | format, lint, scaffold |

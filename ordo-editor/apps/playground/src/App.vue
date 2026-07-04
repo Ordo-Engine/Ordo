@@ -49,6 +49,7 @@ import WelcomeModal from './components/WelcomeModal.vue';
 import DebugPage from './pages/DebugPage.vue';
 import { useTour } from './composables/useTour';
 import { useI18n } from './composables/useI18n';
+import { decodeShare, buildShareUrl, type SharePayload } from './utils/share';
 
 // Debug page toggle
 const showDebugPage = ref(false);
@@ -368,11 +369,42 @@ onMounted(() => {
   document.addEventListener('mouseup', handleMouseUp);
   document.addEventListener('keydown', handleKeyDown);
 
+  // A shared link (`#share=…`) opens straight into that ruleset — skip the tour.
+  if (restoreSharedFile()) {
+    return;
+  }
+
   // Show welcome modal for first-time visitors
   if (shouldShowTour()) {
     showWelcome.value = true;
   }
 });
+
+/**
+ * If the page was opened with a `#share=…` fragment, decode it into a new file,
+ * select it, and strip the hash from the URL. Returns true when a shared file
+ * was restored. Malformed hashes are ignored (falls through to the defaults).
+ */
+function restoreSharedFile(): boolean {
+  const payload = decodeShare(window.location.hash);
+  if (!payload) return false;
+
+  const id = `file_${generateId()}`;
+  const newFile: OrdoFile = {
+    id,
+    name: `${payload.name || 'shared'}.ordo`,
+    documentType: payload.documentType,
+    ruleset: payload.ruleset,
+    decisionTable: payload.decisionTable,
+    modified: false,
+  };
+  files.value.push(newFile);
+  selectFile(id);
+
+  // Drop the (long) hash so a refresh/copy doesn't carry it around.
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+  return true;
+}
 
 onUnmounted(() => {
   document.removeEventListener('mousemove', handleMouseMove);
@@ -1280,6 +1312,41 @@ async function handleFileSelect(event: Event) {
   }
 }
 
+// Share the current file as a self-contained URL (state lives in the fragment).
+const shareCopied = ref(false);
+let shareResetTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function shareCurrentFile() {
+  if (!activeFile.value) return;
+
+  const payload: SharePayload = {
+    v: 1,
+    name: activeFile.value.ruleset.config.name || activeFile.value.name.replace(/\.ordo$/i, ''),
+    documentType: activeFile.value.documentType,
+    ruleset: activeFile.value.ruleset,
+    decisionTable: activeFile.value.decisionTable,
+  };
+  const url = buildShareUrl(payload);
+  if (!url) {
+    alert('This ruleset is too large to share via URL. Export it as a file instead.');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    // Clipboard can be blocked (e.g. insecure context) — fall back to a prompt.
+    window.prompt('Copy this share link:', url);
+    return;
+  }
+
+  shareCopied.value = true;
+  if (shareResetTimer) clearTimeout(shareResetTimer);
+  shareResetTimer = setTimeout(() => {
+    shareCopied.value = false;
+  }, 2000);
+}
+
 // Export current file as JSON
 function exportAsJson() {
   if (!activeFile.value) return;
@@ -1723,6 +1790,41 @@ watch(
               <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
+          <!-- Share current file as a URL -->
+          <button
+            class="icon-btn"
+            @click="shareCurrentFile"
+            :disabled="!activeFile"
+            :title="shareCopied ? 'Link copied!' : 'Share as link'"
+          >
+            <svg
+              v-if="!shareCopied"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="18" cy="5" r="3"></circle>
+              <circle cx="6" cy="12" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+            </svg>
+            <svg
+              v-else
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+
           <!-- Export Menu -->
           <div class="export-menu-wrapper">
             <button class="icon-btn" @click="toggleExportMenu" title="Export File">

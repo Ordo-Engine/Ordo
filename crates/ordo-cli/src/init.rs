@@ -116,6 +116,7 @@ pub fn run(args: InitArgs, json: bool) -> Result<()> {
             println!("  {f}");
         }
         println!("\nNext: `ordo validate` · `ordo test` · `ordo trace loan-approval --input '{{\"amount\":5000}}'`");
+        println!("Guard your coding agent's tool calls with `ordo guard init`.");
     }
     Ok(())
 }

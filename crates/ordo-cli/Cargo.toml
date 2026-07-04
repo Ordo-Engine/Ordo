@@ -17,6 +17,7 @@ ordo-api-client = { path = "../ordo-api-client" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
 toml = "0.8"
 dirs = "5"
+chrono = { workspace = true }
 rpassword = "7"
 clap = { workspace = true }
 clap_complete = "4"

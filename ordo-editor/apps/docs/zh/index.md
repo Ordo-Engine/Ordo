@@ -3,18 +3,18 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: '开源决策平台'
-  tagline: 由治理平台与高性能引擎组成的一体化决策基础设施。Studio 编排、平台审计、引擎执行——三层职责清晰分离。
+  text: 'AI Agent 的确定性决策层'
+  tagline: 大模型负责提议，规则负责裁决。用 Rust 写的亚微秒级 JIT 规则引擎——给你的 AI Agent 一套可以真正测试的护栏。
   image:
     src: /logo.png
     alt: Ordo
   actions:
     - theme: brand
+      text: 给 Agent 上护栏
+      link: /zh/platform/guard
+    - theme: alt
       text: 快速上手
       link: /zh/platform/quickstart
-    - theme: alt
-      text: 平台篇
-      link: /zh/platform/overview
     - theme: alt
       text: 引擎篇
       link: /zh/guide/what-is-ordo
@@ -23,6 +23,10 @@ hero:
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
+  - title: Agent 护栏
+    details: 把每一次 Claude Code 工具调用都交给本地规则裁决——放行 / 拒绝 / 询问，完全确定。策略本身就是一个标准的 Ordo 项目，因此你的护栏自带测试套件和审计日志。npx 五分钟装好。
+    link: /zh/platform/guard
+    linkText: 给 Agent 上护栏
   - title: 决策平台
     details: 组织 / 项目 / 成员与角色（RBAC）、事实目录、概念注册、决策契约、审批与发布流水线、多环境与回滚——为团队级决策治理而生。
     link: /zh/platform/overview

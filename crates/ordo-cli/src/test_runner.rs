@@ -211,6 +211,23 @@ fn report(suites: Vec<(String, Vec<CaseResult>)>, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Diff an execution result against an expected code/output, reusing the exact
+/// wording of `ordo test`. Used by `ordo replay` to describe how a decision
+/// flipped against a captured baseline. Returns the (possibly empty) list of
+/// human-readable mismatch descriptions.
+pub(crate) fn diff_result(
+    expected_code: Option<String>,
+    expected_output: Option<Value>,
+    result: &ExecutionResult,
+) -> Vec<String> {
+    let expect = TestExpectation {
+        code: expected_code,
+        message: None,
+        output: expected_output,
+    };
+    collect_failures(&expect, result)
+}
+
 /// Compare an execution result against a test's expectations.
 fn collect_failures(expect: &TestExpectation, result: &ExecutionResult) -> Vec<String> {
     let mut failures = Vec::new();

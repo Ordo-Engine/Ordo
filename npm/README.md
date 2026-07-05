@@ -74,6 +74,7 @@ checks run offline; `publish` requires `ordo mcp --allow-publish`.
 | `ordo guard init` / `hook` / `test` / `log` | deterministic guardrails for a coding agent |
 | `ordo init [dir]` | scaffold a project |
 | `ordo validate` / `test` / `trace` | check rules offline |
+| `ordo replay <captured.jsonl>` | replay recorded decisions; spot flips; `--write-tests` |
 | `ordo fmt` / `lint` / `new` | format, lint, scaffold |
 | `ordo login` / `link` / `pull` / `push` / `publish` | sync with the platform |
 | `ordo mcp` | run as an MCP server (stdio) |

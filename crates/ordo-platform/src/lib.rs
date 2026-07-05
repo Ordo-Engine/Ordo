@@ -8,6 +8,7 @@ use store::PlatformStore;
 use template::TemplateStore;
 
 pub mod ai;
+pub mod analytics;
 pub mod auth;
 pub mod catalog;
 pub mod config;
@@ -153,6 +154,11 @@ pub fn start_server_registry_maintenance(store: Arc<PlatformStore>) -> tokio::ta
             let _ = store.mark_stale_servers_degraded(degraded_threshold).await;
             let _ = store.mark_stale_servers_offline(offline_threshold).await;
             let _ = store.delete_stale_offline_servers(prune_threshold).await;
+
+            // Retain execution-analytics snapshots for 30 days.
+            let _ = store
+                .prune_execution_snapshots(now - chrono::Duration::days(30))
+                .await;
         }
     })
 }

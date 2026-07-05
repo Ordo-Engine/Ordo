@@ -18,11 +18,11 @@ use tower_http::{
 use tracing::info;
 
 use ordo_platform::{
-    ai, auth, bootstrap_platform_store, build_app_state, catalog, config::PlatformConfig,
-    connect_platform_store, contract, environment, github, i18n, init_tracing, member, metrics,
-    middleware::require_auth, notification, org, project, proxy, publish_existing_tenants, release,
-    ruleset_draft, ruleset_history, server_registry, start_server_registry_maintenance,
-    sub_org_member, sub_rules, templates_api, testing, AppState,
+    ai, analytics, auth, bootstrap_platform_store, build_app_state, catalog,
+    config::PlatformConfig, connect_platform_store, contract, environment, github, i18n,
+    init_tracing, member, metrics, middleware::require_auth, notification, org, project, proxy,
+    publish_existing_tenants, release, ruleset_draft, ruleset_history, server_registry,
+    start_server_registry_maintenance, sub_org_member, sub_rules, templates_api, testing, AppState,
 };
 
 #[tokio::main]
@@ -205,6 +205,11 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/orgs/:oid/projects/:pid/server",
             axum::routing::put(server_registry::bind_project_server),
+        )
+        // Rule-execution analytics (call volume, decision distribution, latency)
+        .route(
+            "/api/v1/orgs/:oid/projects/:pid/analytics",
+            get(analytics::get_project_analytics),
         )
         // Org connect tokens (engines register with one to scope to the org)
         .route(

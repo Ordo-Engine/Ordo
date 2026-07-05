@@ -286,6 +286,7 @@ impl NatsSubscriber {
             }
             SyncEvent::ServerRegistered { .. }
             | SyncEvent::ServerHeartbeat { .. }
+            | SyncEvent::ServerExecutionStats { .. }
             | SyncEvent::ReleaseExecutionAck { .. }
             | SyncEvent::ReleaseExecutionFailed { .. } => true,
         }

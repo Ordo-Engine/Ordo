@@ -66,6 +66,7 @@ import type {
   UpdateRoleRequest,
   UserInfo,
   UserRoleAssignment,
+  AnalyticsResponse,
 } from './types';
 import type { AiChatRequest, AiStreamEvent, AiProviderOption } from './ai-types';
 
@@ -652,6 +653,26 @@ export const serverApi = {
 
   delete(token: string, id: string): Promise<void> {
     return request(`/servers/${id}`, { method: 'DELETE', token });
+  },
+};
+
+// ── Execution analytics ───────────────────────────────────────────────────────
+
+export const analyticsApi = {
+  get(
+    token: string,
+    orgId: string,
+    projectId: string,
+    params?: { range?: string; bucket?: number; ruleset?: string }
+  ): Promise<AnalyticsResponse> {
+    const qs = new URLSearchParams();
+    if (params?.range) qs.set('range', params.range);
+    if (params?.bucket != null) qs.set('bucket', String(params.bucket));
+    if (params?.ruleset) qs.set('ruleset', params.ruleset);
+    const q = qs.toString();
+    return request(`/orgs/${orgId}/projects/${projectId}/analytics${q ? `?${q}` : ''}`, {
+      token,
+    });
   },
 };
 

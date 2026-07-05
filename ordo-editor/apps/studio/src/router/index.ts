@@ -201,6 +201,11 @@ const router = createRouter({
               component: () => import('@/views/project/ProjectInstancesView.vue'),
             },
             {
+              path: 'analytics',
+              name: 'project-analytics',
+              component: () => import('@/views/project/AnalyticsView.vue'),
+            },
+            {
               path: 'integrate',
               name: 'project-integrate',
               component: () => import('@/views/project/IntegrateView.vue'),

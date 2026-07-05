@@ -20,6 +20,7 @@ mod project;
 mod publish;
 mod pull;
 mod push;
+mod replay;
 mod runtime;
 mod test_runner;
 mod trace;
@@ -63,6 +64,8 @@ enum Commands {
     Lint(lint::LintArgs),
     /// Agent guardrails — a deterministic policy gate for Claude Code tool calls
     Guard(guard::GuardArgs),
+    /// Replay captured decisions against the current ruleset (spot flips, fixate tests)
+    Replay(replay::ReplayArgs),
 
     // ── platform (remote) ──
     /// Log in to the platform
@@ -123,6 +126,7 @@ fn dispatch(command: Commands, json: bool) -> Result<()> {
         Commands::Fmt(a) => fmt::run(a, json),
         Commands::Lint(a) => lint::run(a, json),
         Commands::Guard(a) => guard::run(a, json),
+        Commands::Replay(a) => replay::run(a, json),
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "ordo", &mut std::io::stdout());
             Ok(())

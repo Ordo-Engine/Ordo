@@ -19,6 +19,7 @@
     "@vue-flow/minimap": "^1.5.4",
     "@vue-flow/node-resizer": "^1.5.0",
     "dagre": "^0.8.5",
+    "echarts": "^6.0.0",
     "pinia": "^2.1.7",
     "tdesign-icons-vue-next": "^0.3.0",
     "tdesign-vue-next": "^1.10.0",

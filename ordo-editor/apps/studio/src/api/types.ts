@@ -971,3 +971,36 @@ export interface ApiError {
   error: string;
   status: number;
 }
+
+// ── Execution analytics ─────────────────────────────────────────────────────
+export interface AnalyticsTotals {
+  calls: number;
+  errors: number;
+  error_rate: number;
+  avg_latency_ms: number;
+  by_code: Record<string, number>;
+}
+
+export interface AnalyticsSeriesPoint {
+  ts: string;
+  calls: number;
+  errors: number;
+  by_code: Record<string, number>;
+}
+
+export interface AnalyticsRulesetSummary {
+  ruleset: string;
+  calls: number;
+  errors: number;
+  error_rate: number;
+  avg_latency_ms: number;
+}
+
+export interface AnalyticsResponse {
+  totals: AnalyticsTotals;
+  series: AnalyticsSeriesPoint[];
+  rulesets: AnalyticsRulesetSummary[];
+  bucket_seconds: number;
+  from: string;
+  to: string;
+}

@@ -63,6 +63,7 @@ async fn build_full_test_app() -> Router {
     let state = AppState {
         store,
         audit_logger,
+        capture: Arc::new(crate::capture::CaptureLogger::new(None, 100)),
         metric_sink,
         executor,
         config,

@@ -9,6 +9,24 @@ use url::Url;
 
 const STREAM_NAME: &str = "ordo-rules";
 
+/// Cumulative execution counters for one ruleset, as reported by an engine
+/// (mirrors `ordo-server`'s `RulesetExecStat`). Values are totals since the
+/// engine started and reset on restart — the analytics layer diffs snapshots.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RulesetExecStat {
+    pub ruleset: String,
+    #[serde(default)]
+    pub exec_success: f64,
+    #[serde(default)]
+    pub exec_error: f64,
+    #[serde(default)]
+    pub terminal: std::collections::BTreeMap<String, f64>,
+    #[serde(default)]
+    pub duration_count: f64,
+    #[serde(default)]
+    pub duration_sum_seconds: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SyncEvent {
@@ -49,6 +67,12 @@ pub enum SyncEvent {
     ServerHeartbeat {
         #[serde(default)]
         server_id: String,
+    },
+    ServerExecutionStats {
+        #[serde(default)]
+        server_id: String,
+        #[serde(default)]
+        rulesets: Vec<RulesetExecStat>,
     },
     ReleaseExecutionAck {
         execution_id: String,
@@ -92,6 +116,9 @@ impl SyncMessage {
             SyncEvent::TenantConfigChanged { .. } => format!("{}.tenants", prefix),
             SyncEvent::ServerRegistered { .. } => format!("{}.control.servers.register", prefix),
             SyncEvent::ServerHeartbeat { .. } => format!("{}.control.servers.heartbeat", prefix),
+            SyncEvent::ServerExecutionStats { .. } => {
+                format!("{}.control.servers.stats", prefix)
+            }
             SyncEvent::ReleaseExecutionAck {
                 execution_id,
                 server_id,
@@ -342,6 +369,8 @@ pub fn start_registry_subscriber(
                     }
                 };
 
+                let captured_at = chrono::DateTime::from_timestamp_millis(sync_msg.timestamp_ms)
+                    .unwrap_or_else(chrono::Utc::now);
                 let result = match sync_msg.event {
                     SyncEvent::ServerRegistered {
                         server_id,
@@ -423,6 +452,37 @@ pub fn start_registry_subscriber(
                             Ok(())
                         } else {
                             store.update_server_heartbeat(&server_id).await.map(|_| ())
+                        }
+                    }
+                    SyncEvent::ServerExecutionStats {
+                        server_id,
+                        rulesets,
+                    } => {
+                        if server_id.is_empty() || rulesets.is_empty() {
+                            Ok(())
+                        } else {
+                            // The engine doesn't know its org — resolve it from the
+                            // registered server row (same keying as heartbeats).
+                            match store.get_server_org(&server_id).await {
+                                Ok(Some(org_id)) => {
+                                    store
+                                        .insert_execution_snapshots(
+                                            &org_id,
+                                            &server_id,
+                                            captured_at,
+                                            &rulesets,
+                                        )
+                                        .await
+                                }
+                                Ok(None) => {
+                                    tracing::debug!(
+                                        "execution stats for unknown/unassigned server {}, skipping",
+                                        server_id
+                                    );
+                                    Ok(())
+                                }
+                                Err(e) => Err(e),
+                            }
                         }
                     }
                     SyncEvent::ReleaseExecutionAck {

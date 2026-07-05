@@ -5,6 +5,26 @@
 
 use ordo_core::prelude::CapabilityDescriptor;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Cumulative execution counters for one ruleset, snapshotted from the engine's
+/// Prometheus registry (values are totals since engine start; they reset to 0
+/// when the engine restarts — the platform diffs consecutive snapshots).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct RulesetExecStat {
+    pub ruleset: String,
+    #[serde(default)]
+    pub exec_success: f64,
+    #[serde(default)]
+    pub exec_error: f64,
+    /// Terminal decision code -> cumulative count (the decision distribution).
+    #[serde(default)]
+    pub terminal: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub duration_count: f64,
+    #[serde(default)]
+    pub duration_sum_seconds: f64,
+}
 
 /// A sync event describing a mutation that occurred on the writer instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +73,13 @@ pub enum SyncEvent {
         #[serde(default)]
         server_id: String,
     },
+    /// A server reported a snapshot of its cumulative execution counters.
+    ServerExecutionStats {
+        #[serde(default)]
+        server_id: String,
+        #[serde(default)]
+        rulesets: Vec<RulesetExecStat>,
+    },
     /// A server acknowledged successful release application.
     ReleaseExecutionAck {
         execution_id: String,
@@ -78,6 +105,7 @@ impl SyncEvent {
             SyncEvent::TenantConfigChanged { .. } => "TenantConfigChanged",
             SyncEvent::ServerRegistered { .. } => "ServerRegistered",
             SyncEvent::ServerHeartbeat { .. } => "ServerHeartbeat",
+            SyncEvent::ServerExecutionStats { .. } => "ServerExecutionStats",
             SyncEvent::ReleaseExecutionAck { .. } => "ReleaseExecutionAck",
             SyncEvent::ReleaseExecutionFailed { .. } => "ReleaseExecutionFailed",
         }
@@ -130,6 +158,9 @@ impl SyncMessage {
             }
             SyncEvent::ServerHeartbeat { .. } => {
                 format!("{}.control.servers.heartbeat", prefix)
+            }
+            SyncEvent::ServerExecutionStats { .. } => {
+                format!("{}.control.servers.stats", prefix)
             }
             SyncEvent::ReleaseExecutionAck {
                 execution_id,

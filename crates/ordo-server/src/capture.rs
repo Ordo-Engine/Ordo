@@ -125,3 +125,88 @@ impl CaptureLogger {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod perf {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    fn sample_value(large: bool) -> Value {
+        let json = if large {
+            // ~4 KB realistic business payload with text fields
+            format!(
+                r#"{{"amount":5000,"is_vip":true,"description":"{}","tags":["a","b","c","d","e","f","g","h"]}}"#,
+                "x".repeat(2000)
+            )
+        } else {
+            r#"{"amount":5000}"#.to_string()
+        };
+        serde_json::from_str(&json).unwrap()
+    }
+
+    fn tmp_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("ordo-capperf-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    // Isolated cost of one capture() call (clone happens at the call site, so we
+    // clone here too to include it), plus the single-mutex throughput ceiling
+    // under N threads all hammering the same logger.
+    //
+    // Run: cargo test -p ordo-server --bin ordo-server capture_throughput -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn capture_throughput() {
+        for large in [false, true] {
+            let tag = if large { "large" } else { "small" };
+            let logger = Arc::new(CaptureLogger::new(Some(tmp_dir(tag)), 100));
+            let input = sample_value(large);
+            let output = sample_value(false);
+
+            // Single-threaded: raw per-call cost.
+            let n = 100_000;
+            let t = Instant::now();
+            for _ in 0..n {
+                let inp = input.clone(); // mirror the hot-path clone
+                logger.capture("r", "t", &inp, "APPROVED", &output, 42, Some("1.2.3.4"));
+            }
+            let dt = t.elapsed();
+            let per_us = dt.as_secs_f64() * 1e6 / n as f64;
+            eprintln!(
+                "[{tag}] 1 thread : {:>9.0} captures/s   {:.2} us/call",
+                n as f64 / dt.as_secs_f64(),
+                per_us
+            );
+
+            // Multi-threaded: the single Mutex serializes — this is the ceiling.
+            for threads in [2usize, 8] {
+                let per_thread = 50_000;
+                let t = Instant::now();
+                let handles: Vec<_> = (0..threads)
+                    .map(|_| {
+                        let l = logger.clone();
+                        let inp = input.clone();
+                        let out = output.clone();
+                        std::thread::spawn(move || {
+                            for _ in 0..per_thread {
+                                let i = inp.clone();
+                                l.capture("r", "t", &i, "APPROVED", &out, 42, Some("1.2.3.4"));
+                            }
+                        })
+                    })
+                    .collect();
+                for h in handles {
+                    h.join().unwrap();
+                }
+                let dt = t.elapsed();
+                let total = (threads * per_thread) as f64;
+                eprintln!(
+                    "[{tag}] {threads} threads: {:>9.0} captures/s (mutex ceiling)",
+                    total / dt.as_secs_f64()
+                );
+            }
+        }
+    }
+}

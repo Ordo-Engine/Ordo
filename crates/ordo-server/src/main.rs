@@ -854,9 +854,11 @@ async fn main() -> anyhow::Result<()> {
 
                 let mut interval = tokio::time::interval(Duration::from_secs(30));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut tick: u64 = 0;
 
                 loop {
                     interval.tick().await;
+                    tick += 1;
 
                     let _ = sync::nats_sync::publish_immediate(
                         &jetstream,
@@ -867,6 +869,25 @@ async fn main() -> anyhow::Result<()> {
                         },
                     )
                     .await;
+
+                    // Report a cumulative execution-counter snapshot every other
+                    // tick (~60s) for the platform's analytics pipeline. Skip when
+                    // nothing has executed yet.
+                    if tick % 2 == 0 {
+                        let rulesets = sync::exec_stats::build_execution_stats();
+                        if !rulesets.is_empty() {
+                            let _ = sync::nats_sync::publish_immediate(
+                                &jetstream,
+                                &subject_prefix,
+                                &instance_id,
+                                sync::event::SyncEvent::ServerExecutionStats {
+                                    server_id: nats_server_id.clone(),
+                                    rulesets,
+                                },
+                            )
+                            .await;
+                        }
+                    }
                 }
             });
 

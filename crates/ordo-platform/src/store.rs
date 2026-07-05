@@ -23,6 +23,7 @@ mod bootstrap;
 mod catalog;
 mod codec;
 mod environments;
+mod execution_metrics;
 mod github;
 mod members;
 mod notifications;
@@ -37,6 +38,7 @@ mod sub_rules;
 mod users;
 
 use self::codec::*;
+pub use self::execution_metrics::ExecutionSnapshot;
 use self::rows::*;
 
 pub use self::releases::NewReleaseHistory;

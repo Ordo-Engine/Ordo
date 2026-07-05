@@ -50,6 +50,7 @@ use tracing::{info, warn};
 mod api;
 mod audit;
 mod capability_registry;
+mod capture;
 mod config;
 pub mod debug;
 mod error;
@@ -87,6 +88,8 @@ use wal::WalManager;
 pub struct AppState {
     pub store: Arc<RwLock<RuleStore>>,
     pub audit_logger: Arc<AuditLogger>,
+    /// Opt-in IO capture logger (no-op unless --capture-io-path is set)
+    pub capture: Arc<capture::CaptureLogger>,
     pub metric_sink: Arc<PrometheusMetricSink>,
     /// Shared executor for rule execution (avoids holding lock during execution)
     pub executor: Arc<RuleExecutor>,
@@ -235,6 +238,18 @@ async fn main() -> anyhow::Result<()> {
         config.audit_dir.clone(),
         config.audit_sample_rate,
     ));
+
+    // Initialize IO capture logger (disabled unless a capture path is configured)
+    let capture = Arc::new(capture::CaptureLogger::new(
+        config.capture_io_path.clone(),
+        config.capture_io_sample_rate,
+    ));
+    if capture.is_enabled() {
+        info!(
+            "IO capture enabled: dir={:?}, sample_rate={}% — captured inputs may contain PII",
+            config.capture_io_path, config.capture_io_sample_rate
+        );
+    }
 
     // Log audit configuration
     if config.audit_dir.is_some() {
@@ -452,6 +467,7 @@ async fn main() -> anyhow::Result<()> {
     if config.http_enabled() {
         let http_store = store.clone();
         let http_audit_logger = audit_logger.clone();
+        let http_capture = capture.clone();
         let http_metric_sink = metric_sink.clone();
         let http_executor = executor.clone();
         let http_config = config.clone();
@@ -468,6 +484,7 @@ async fn main() -> anyhow::Result<()> {
                 http_addr,
                 http_store,
                 http_audit_logger,
+                http_capture,
                 http_metric_sink,
                 http_executor,
                 http_config,
@@ -644,6 +661,7 @@ async fn main() -> anyhow::Result<()> {
                     let rpc_state = AppState {
                         store: store.clone(),
                         audit_logger: audit_logger.clone(),
+                        capture: capture.clone(),
                         metric_sink: metric_sink.clone(),
                         executor: executor.clone(),
                         config: config.clone(),
@@ -953,6 +971,7 @@ async fn start_http_server(
     addr: std::net::SocketAddr,
     store: Arc<RwLock<RuleStore>>,
     audit_logger: Arc<AuditLogger>,
+    capture: Arc<capture::CaptureLogger>,
     metric_sink: Arc<PrometheusMetricSink>,
     executor: Arc<RuleExecutor>,
     config: Arc<ServerConfig>,
@@ -969,6 +988,7 @@ async fn start_http_server(
     let state = AppState {
         store,
         audit_logger,
+        capture,
         metric_sink,
         executor,
         config,

@@ -196,6 +196,18 @@ pub struct ServerConfig {
     #[arg(long, default_value = "10", env = "ORDO_AUDIT_SAMPLE_RATE")]
     pub audit_sample_rate: u8,
 
+    /// IO capture directory (optional; disabled by default).
+    /// When set, each rule execution's full input + output is appended to
+    /// JSON Lines files here (capture-YYYY-MM-DD.jsonl, daily rotation) — the
+    /// shape `ordo replay` consumes to turn production traffic into regression
+    /// tests. NOTE: captured inputs may contain PII; this is opt-in.
+    #[arg(long, env = "ORDO_CAPTURE_IO_PATH")]
+    pub capture_io_path: Option<PathBuf>,
+
+    /// IO capture sampling rate (0-100, default 100 = capture all when enabled).
+    #[arg(long, default_value = "100", env = "ORDO_CAPTURE_IO_SAMPLE_RATE")]
+    pub capture_io_sample_rate: u8,
+
     /// Enable debug/test mode.
     ///
     /// When enabled, additional debug API endpoints are available:
@@ -661,6 +673,8 @@ impl Default for ServerConfig {
             max_versions: 10,
             audit_dir: None,
             audit_sample_rate: 10,
+            capture_io_path: None,
+            capture_io_sample_rate: 100,
             debug_mode: false,
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),

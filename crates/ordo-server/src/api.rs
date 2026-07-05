@@ -461,6 +461,11 @@ pub async fn execute_ruleset(
         }
     }
 
+    // Snapshot the input for replay capture — but only when capture is enabled
+    // AND this request is sampled, so a disabled/unsampled request never clones
+    // (the whole `Value`) on the hot path.
+    let captured_input = state.capture.should_capture().then(|| input.clone());
+
     // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
     let exec_options = if tenant.config.execution_timeout_ms > 0 || request.trace {
         Some(ExecutionOptions {
@@ -509,6 +514,20 @@ pub async fn execute_ruleset(
             // Log audit event (with sampling)
             let source_ip = connect_info.map(|ci| ci.0.ip().to_string());
             let rule_id = format!("{}/{}", tenant.id, name);
+
+            // Capture full IO for replay (only when a clone was taken above).
+            if let Some(ref inp) = captured_input {
+                state.capture.capture(
+                    &name,
+                    &tenant.id,
+                    inp,
+                    &result.code,
+                    &result.output,
+                    result.duration_us,
+                    source_ip.as_deref(),
+                );
+            }
+
             emit_rule_execution_audit(
                 state.executor.capability_invoker(),
                 &state.audit_logger,

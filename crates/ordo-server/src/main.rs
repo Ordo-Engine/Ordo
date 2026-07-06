@@ -825,6 +825,7 @@ async fn main() -> anyhow::Result<()> {
             let nats_server_url = server_url.clone();
             let nats_version = version.clone();
             let nats_capabilities = capability_invoker.list_capabilities();
+            let stats_interval = config.stats_interval_secs.max(1);
             let log_name2 = nats_server_name.clone();
             let log_url2 = nats_server_url.clone();
 
@@ -852,41 +853,47 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await;
 
-                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                // Tick at the (fine) stats interval; send a heartbeat every ~30s
+                // worth of ticks so liveness cadence is unchanged.
+                let mut interval = tokio::time::interval(Duration::from_secs(stats_interval));
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let heartbeat_every = (30 / stats_interval).max(1);
                 let mut tick: u64 = 0;
+                let mut last_stats: Vec<sync::event::RulesetExecStat> = Vec::new();
 
                 loop {
                     interval.tick().await;
                     tick += 1;
 
-                    let _ = sync::nats_sync::publish_immediate(
-                        &jetstream,
-                        &subject_prefix,
-                        &instance_id,
-                        sync::event::SyncEvent::ServerHeartbeat {
-                            server_id: nats_server_id.clone(),
-                        },
-                    )
-                    .await;
+                    if tick % heartbeat_every == 1 {
+                        let _ = sync::nats_sync::publish_immediate(
+                            &jetstream,
+                            &subject_prefix,
+                            &instance_id,
+                            sync::event::SyncEvent::ServerHeartbeat {
+                                server_id: nats_server_id.clone(),
+                            },
+                        )
+                        .await;
+                    }
 
-                    // Report a cumulative execution-counter snapshot every other
-                    // tick (~60s) for the platform's analytics pipeline. Skip when
-                    // nothing has executed yet.
-                    if tick % 2 == 0 {
-                        let rulesets = sync::exec_stats::build_execution_stats();
-                        if !rulesets.is_empty() {
-                            let _ = sync::nats_sync::publish_immediate(
-                                &jetstream,
-                                &subject_prefix,
-                                &instance_id,
-                                sync::event::SyncEvent::ServerExecutionStats {
-                                    server_id: nats_server_id.clone(),
-                                    rulesets,
-                                },
-                            )
-                            .await;
-                        }
+                    // Report a cumulative execution-counter snapshot for the
+                    // analytics pipeline — but only when the counters actually
+                    // changed since the last report, so idle periods cost nothing
+                    // even at a fine interval.
+                    let rulesets = sync::exec_stats::build_execution_stats();
+                    if !rulesets.is_empty() && rulesets != last_stats {
+                        last_stats = rulesets.clone();
+                        let _ = sync::nats_sync::publish_immediate(
+                            &jetstream,
+                            &subject_prefix,
+                            &instance_id,
+                            sync::event::SyncEvent::ServerExecutionStats {
+                                server_id: nats_server_id.clone(),
+                                rulesets,
+                            },
+                        )
+                        .await;
                     }
                 }
             });

@@ -113,12 +113,7 @@ async function handleLogin() {
         </div>
 
         <div class="field">
-          <div class="field-label-row">
-            <label class="field-label">{{ t('auth.passwordLabel') }}</label>
-            <router-link to="/forgot-password" class="forgot-link">{{
-              t('auth.forgotPassword')
-            }}</router-link>
-          </div>
+          <label class="field-label">{{ t('auth.passwordLabel') }}</label>
           <t-input
             v-model="password"
             :placeholder="t('auth.passwordPlaceholder')"
@@ -321,23 +316,6 @@ async function handleLogin() {
   font-size: 13px;
   font-weight: 500;
   color: #374151;
-}
-
-.field-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.forgot-link {
-  font-size: 12px;
-  color: var(--ordo-accent);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.forgot-link:hover {
-  text-decoration: underline;
 }
 
 .submit-btn {

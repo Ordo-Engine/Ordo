@@ -338,6 +338,7 @@ export default {
     emptyTitle: 'No execution data yet',
     emptyHint:
       'Once your connected engine runs traffic it will appear here. This needs the engine to reach the platform over NATS.',
+    errorTitle: "Couldn't load analytics",
   },
   integrate: {
     title: 'Integrate',
@@ -1215,6 +1216,8 @@ export default {
     title: 'Notifications',
     markAllRead: 'Mark all read',
     empty: 'No notifications',
+    error: 'Failed to load notifications',
+    retry: 'Retry',
     unreadOnly: 'Unread only',
     viewInbox: 'View inbox',
     types: {

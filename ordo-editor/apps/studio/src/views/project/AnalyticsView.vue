@@ -207,8 +207,17 @@ onBeforeUnmount(() => {
       </t-card>
     </div>
 
+    <!-- Error state — a failed load must not masquerade as "no traffic yet" -->
+    <t-card v-if="!analytics.loading && analytics.error" class="empty" :bordered="true">
+      <p class="empty-title">{{ t('analytics.errorTitle') }}</p>
+      <p class="empty-hint">{{ analytics.error }}</p>
+      <t-button class="empty-action" theme="default" variant="outline" @click="reload">
+        {{ t('analytics.refresh') }}
+      </t-button>
+    </t-card>
+
     <!-- Empty state -->
-    <t-card v-if="!analytics.loading && !hasData" class="empty" :bordered="true">
+    <t-card v-else-if="!analytics.loading && !hasData" class="empty" :bordered="true">
       <p class="empty-title">{{ t('analytics.emptyTitle') }}</p>
       <p class="empty-hint">{{ t('analytics.emptyHint') }}</p>
     </t-card>
@@ -322,6 +331,9 @@ onBeforeUnmount(() => {
 .empty-hint {
   color: var(--td-text-color-secondary);
   margin: 0;
+}
+.empty-action {
+  margin-top: 16px;
 }
 @media (max-width: 900px) {
   .stat-row {

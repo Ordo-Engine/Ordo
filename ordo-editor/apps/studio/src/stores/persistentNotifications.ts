@@ -21,19 +21,18 @@ export const usePersistentNotificationStore = defineStore('persistentNotificatio
     }
   }
 
+  // Surfaces errors to the caller (throws) so a failed load can render an error
+  // state instead of silently looking like an empty inbox. Background callers
+  // that don't care (e.g. the bell peek) should catch and ignore.
   async function fetchNotifications(orgId: string, unreadOnly = false) {
     if (!auth.token || !orgId) return;
-    try {
-      notifications.value = await notificationApi.list(auth.token, orgId, {
-        unread_only: unreadOnly,
-        limit: 50,
-      });
-      unreadCount.value = unreadOnly
-        ? notifications.value.length
-        : notifications.value.filter((n) => !n.read_at).length;
-    } catch {
-      // ignore
-    }
+    notifications.value = await notificationApi.list(auth.token, orgId, {
+      unread_only: unreadOnly,
+      limit: 50,
+    });
+    unreadCount.value = unreadOnly
+      ? notifications.value.length
+      : notifications.value.filter((n) => !n.read_at).length;
   }
 
   async function markRead(orgId: string, notifId: string) {

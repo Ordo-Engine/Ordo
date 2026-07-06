@@ -330,6 +330,7 @@ export default {
     ruleset: '规则集',
     emptyTitle: '暂无执行数据',
     emptyHint: '已连接的引擎开始有流量后，数据会显示在这里。需要引擎能通过 NATS 连到平台。',
+    errorTitle: '分析数据加载失败',
   },
   integrate: {
     title: '接入',
@@ -1182,6 +1183,8 @@ export default {
     title: '通知',
     markAllRead: '全部标为已读',
     empty: '暂无通知',
+    error: '通知加载失败',
+    retry: '重试',
     unreadOnly: '仅显示未读',
     viewInbox: '查看收件箱',
     types: {

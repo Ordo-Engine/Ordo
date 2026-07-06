@@ -4,7 +4,11 @@ name: Deploy Docs to Custom Domain
 # It can be triggered manually or when docs are updated
 
 on:
-  # Manual trigger with optional version input
+  # Manual trigger only. Docs auto-publish to GitHub Pages via
+  # `deploy-playground.yml`; this custom-domain (docs.ordoengine.com) path is a
+  # manual/optional deploy that needs its own Vercel docs project configured
+  # (the shared VERCEL_PROJECT_ID points at the Studio app, not a docs project),
+  # so it must not run — and fail — on every push.
   workflow_dispatch:
     inputs:
       deploy_target:
@@ -16,14 +20,6 @@ on:
           - vercel
           - netlify
           - cloudflare
-  # Trigger on push/merge to main (docs changes) or release tags
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-    paths:
-      - 'ordo-editor/apps/docs/**'
 
 jobs:
   build:

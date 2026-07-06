@@ -54,29 +54,50 @@ function renderCharts() {
   const d = data.value;
   if (!d) return;
   if (lineChart) {
-    const ts = d.series.map((p) => p.ts.slice(11, 16) || p.ts.slice(0, 10));
+    // Densify: emit every bucket across the full [from, to] window (zero-filled),
+    // so the x-axis spans the whole selected period instead of only the buckets
+    // that happened to have traffic.
+    const bucketMs = Math.max(1, d.bucket_seconds) * 1000;
+    const from = new Date(d.from).getTime();
+    const to = new Date(d.to).getTime();
+    const start = Math.floor(from / bucketMs) * bucketMs;
+    const byTs = new Map(d.series.map((p) => [new Date(p.ts).getTime(), p]));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const fmt = (ms: number) => {
+      const dt = new Date(ms);
+      return d.bucket_seconds >= 86400
+        ? `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+        : `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    };
+    const labels: string[] = [];
+    const calls: number[] = [];
+    const errors: number[] = [];
+    for (let ms = start; ms <= to; ms += bucketMs) {
+      const p = byTs.get(ms);
+      labels.push(fmt(ms));
+      calls.push(p ? p.calls : 0);
+      errors.push(p ? p.errors : 0);
+    }
     lineChart.setOption({
       tooltip: { trigger: 'axis' },
       legend: { data: [t('analytics.calls'), t('analytics.errors')] },
-      grid: { left: 48, right: 16, top: 32, bottom: 28 },
-      xAxis: { type: 'category', data: ts, boundaryGap: false },
+      grid: { left: 48, right: 24, top: 32, bottom: 28 },
+      xAxis: { type: 'category', data: labels, boundaryGap: false },
       yAxis: { type: 'value', minInterval: 1 },
       series: [
         {
           name: t('analytics.calls'),
           type: 'line',
-          smooth: true,
           areaStyle: { opacity: 0.08 },
           showSymbol: false,
-          data: d.series.map((p) => p.calls),
+          data: calls,
         },
         {
           name: t('analytics.errors'),
           type: 'line',
-          smooth: true,
           showSymbol: false,
           itemStyle: { color: '#e34d59' },
-          data: d.series.map((p) => p.errors),
+          data: errors,
         },
       ],
     });
@@ -224,7 +245,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .analytics-page {
-  padding: 16px 24px;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 16px 24px 32px;
 }
 .breadcrumb {
   margin-bottom: 16px;

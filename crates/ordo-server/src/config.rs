@@ -208,6 +208,15 @@ pub struct ServerConfig {
     #[arg(long, default_value = "100", env = "ORDO_CAPTURE_IO_SAMPLE_RATE")]
     pub capture_io_sample_rate: u8,
 
+    /// How often (seconds) to report an execution-stats snapshot to the platform
+    /// for the analytics pipeline. This is also the finest resolution the Studio
+    /// Analytics chart can show (chart granularity = this interval). Default 15s;
+    /// lower it (e.g. 6) for finer charts on a small fleet, raise it for many
+    /// engines. A snapshot is only sent when the counters changed, so idle
+    /// periods cost nothing.
+    #[arg(long, default_value = "15", env = "ORDO_STATS_INTERVAL_SECS")]
+    pub stats_interval_secs: u64,
+
     /// Enable debug/test mode.
     ///
     /// When enabled, additional debug API endpoints are available:
@@ -675,6 +684,7 @@ impl Default for ServerConfig {
             audit_sample_rate: 10,
             capture_io_path: None,
             capture_io_sample_rate: 100,
+            stats_interval_secs: 15,
             debug_mode: false,
             multi_tenancy_enabled: false,
             default_tenant: "default".to_string(),

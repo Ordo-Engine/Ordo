@@ -318,6 +318,7 @@ export default {
     title: 'Execution Analytics',
     subtitle: 'Live decision volume, outcomes, and latency from your connected engines.',
     refresh: 'Refresh',
+    range5m: 'Last 5m',
     range1h: 'Last 1h',
     range24h: 'Last 24h',
     range7d: 'Last 7d',

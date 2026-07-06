@@ -232,10 +232,14 @@ fn parse_range(range: Option<&str>) -> Duration {
     d.clamp(Duration::minutes(5), Duration::days(90))
 }
 
-/// Default bucket width so a window has a sane number of points.
+/// Default bucket width so a window has a sane number of points. The fine tier
+/// (≤15min → 15s) matches the engine's default reporting interval; a client can
+/// pass an explicit `bucket` (e.g. 6) to match a finer engine interval.
 fn default_bucket_seconds(window: Duration) -> i64 {
-    let secs = window.num_seconds().max(60);
-    if secs <= 2 * 3600 {
+    let secs = window.num_seconds().max(15);
+    if secs <= 15 * 60 {
+        15 // ≤15min → 15-second buckets (the fine "recent" view)
+    } else if secs <= 2 * 3600 {
         60 // ≤2h → 1-minute buckets
     } else if secs <= 2 * 86400 {
         3600 // ≤2d → hourly

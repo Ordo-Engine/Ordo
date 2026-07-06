@@ -312,6 +312,7 @@ export default {
     title: '執行分析',
     subtitle: '來自已連接引擎的即時決策量、結果分佈與延遲。',
     refresh: '重新整理',
+    range5m: '近 5 分鐘',
     range1h: '近 1 小時',
     range24h: '近 24 小時',
     range7d: '近 7 天',

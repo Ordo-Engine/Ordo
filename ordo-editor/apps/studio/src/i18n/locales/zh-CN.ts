@@ -312,6 +312,7 @@ export default {
     title: '执行分析',
     subtitle: '来自已连接引擎的实时决策量、结果分布与延迟。',
     refresh: '刷新',
+    range5m: '近 5 分钟',
     range1h: '近 1 小时',
     range24h: '近 24 小时',
     range7d: '近 7 天',

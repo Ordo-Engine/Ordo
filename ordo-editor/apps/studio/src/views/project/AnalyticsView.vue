@@ -16,6 +16,7 @@ const projectId = computed(() => route.params.projectId as string);
 const project = computed(() => projectStore.currentProject);
 
 const rangeOptions = [
+  { label: t('analytics.range5m'), value: '5m' },
   { label: t('analytics.range1h'), value: '1h' },
   { label: t('analytics.range24h'), value: '24h' },
   { label: t('analytics.range7d'), value: '7d' },

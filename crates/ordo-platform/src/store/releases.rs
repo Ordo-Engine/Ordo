@@ -1021,33 +1021,139 @@ impl PlatformStore {
         Ok(count)
     }
 
-    /// On startup, mark any release execution stuck in an active non-terminal state as terminal.
-    /// These are executions where the platform spawned a background task that was killed mid-run.
-    /// Rollback flows become `rollback_failed`; rollout flows become `failed`.
-    pub async fn fail_stuck_active_executions(&self) -> Result<u64> {
+    /// Settle `dispatched` deployment rows whose backing release execution already
+    /// reached a terminal status — the worker died between finishing the execution
+    /// and flipping the deployment row, and a terminal execution is not claimable,
+    /// so nothing else ever settles them. A completed rollout settles to `success`;
+    /// a completed *rollback* (the execution's terminal history row transitioned
+    /// from `rollback_in_progress`) means the publish did not stick, so it settles
+    /// to `failed` like the other terminal states. Idempotent and race-free against
+    /// the worker's own settle: both write the same value derived from the same
+    /// execution status.
+    pub async fn reconcile_dispatched_deployments(&self) -> Result<u64> {
         let result = sqlx::query(
-            "WITH stuck AS (
-                UPDATE release_executions
-                SET status = CASE
-                        WHEN status = 'rollback_in_progress' THEN 'rollback_failed'
-                        ELSE 'failed'
-                    END,
-                    finished_at = NOW()
-                WHERE status IN ('preparing', 'waiting_start', 'rolling_out', 'verifying', 'rollback_in_progress')
-                RETURNING release_request_id, status
-            )
-            UPDATE release_requests
-            SET status = CASE
-                    WHEN EXISTS (
-                        SELECT 1 FROM stuck
-                        WHERE stuck.release_request_id = release_requests.id
-                          AND stuck.status = 'rollback_failed'
-                    ) THEN 'rollback_failed'
-                    ELSE 'failed'
-                END
-            WHERE id IN (SELECT release_request_id FROM stuck)
-              AND status = 'executing'",
+            "UPDATE ruleset_deployments d
+             SET status = CASE
+                     WHEN latest.status = 'completed' AND NOT EXISTS (
+                         SELECT 1 FROM release_request_history h
+                         WHERE h.release_execution_id = latest.id
+                           AND h.action = 'execution_status_changed'
+                           AND h.from_status = 'rollback_in_progress'
+                           AND h.to_status = 'completed'
+                     ) THEN 'success'
+                     ELSE 'failed'
+                 END
+             FROM release_requests r
+             CROSS JOIN LATERAL (
+                 SELECT e.id, e.status
+                 FROM release_executions e
+                 WHERE e.release_request_id = r.id
+                 ORDER BY e.started_at DESC
+                 LIMIT 1
+             ) latest
+             WHERE d.status = 'dispatched'
+               AND r.request_snapshot->>'publish_deployment_id' = d.id
+               AND latest.status IN ('completed', 'failed', 'rollback_failed')",
         )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Repair `executing` release requests whose *latest* execution reached a
+    /// terminal status more than a grace period ago (`finished_before`) — the
+    /// worker died between settling the execution and updating the request. The
+    /// request settles to the status the worker would have written, including
+    /// `rolled_back` when the completed execution arrived via a rollback, and the
+    /// transition is recorded in the request history.
+    pub async fn reconcile_stranded_executing_requests(
+        &self,
+        finished_before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            "WITH latest AS (
+                 SELECT DISTINCT ON (e.release_request_id)
+                        e.release_request_id AS request_id,
+                        e.id AS execution_id,
+                        e.status AS exec_status,
+                        e.finished_at
+                 FROM release_executions e
+                 JOIN release_requests r ON r.id = e.release_request_id
+                 WHERE r.status = 'executing'
+                 ORDER BY e.release_request_id, e.started_at DESC
+             ),
+             repaired AS (
+                 UPDATE release_requests r
+                 SET status = CASE
+                         WHEN l.exec_status = 'failed' THEN 'failed'
+                         WHEN l.exec_status = 'rollback_failed' THEN 'rollback_failed'
+                         WHEN EXISTS (
+                             SELECT 1 FROM release_request_history h
+                             WHERE h.release_execution_id = l.execution_id
+                               AND h.action = 'execution_status_changed'
+                               AND h.from_status = 'rollback_in_progress'
+                               AND h.to_status = 'completed'
+                         ) THEN 'rolled_back'
+                         ELSE 'completed'
+                     END,
+                     updated_at = NOW()
+                 FROM latest l
+                 WHERE r.id = l.request_id
+                   AND r.status = 'executing'
+                   AND l.exec_status IN ('completed', 'failed', 'rollback_failed')
+                   AND l.finished_at IS NOT NULL
+                   AND l.finished_at < $1
+                 RETURNING r.id, l.execution_id, r.status AS to_status
+             )
+             INSERT INTO release_request_history
+                 (id, release_request_id, release_execution_id, instance_id, scope, action,
+                  actor_type, actor_id, actor_name, actor_email, from_status, to_status,
+                  detail, created_at)
+             SELECT gen_random_uuid()::text, repaired.id, repaired.execution_id, NULL,
+                    'request', 'request_status_changed',
+                    'system', 'release_reconciler', 'release_reconciler', NULL,
+                    'executing', repaired.to_status,
+                    jsonb_build_object('reason', 'reconciled_stranded_request'), NOW()
+             FROM repaired",
+        )
+        .bind(finished_before)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Fail `executing` release requests that still have no execution row after a
+    /// grace period (`updated_before`) — the execute call flipped the request to
+    /// `executing` and then died (or the execution insert itself failed), so no
+    /// worker will ever pick it up. Failing it makes the request retryable.
+    pub async fn fail_executionless_executing_requests(
+        &self,
+        updated_before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            "WITH repaired AS (
+                 UPDATE release_requests r
+                 SET status = 'failed', updated_at = NOW()
+                 WHERE r.status = 'executing'
+                   AND r.updated_at < $1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM release_executions e
+                       WHERE e.release_request_id = r.id
+                   )
+                 RETURNING r.id
+             )
+             INSERT INTO release_request_history
+                 (id, release_request_id, release_execution_id, instance_id, scope, action,
+                  actor_type, actor_id, actor_name, actor_email, from_status, to_status,
+                  detail, created_at)
+             SELECT gen_random_uuid()::text, repaired.id, NULL, NULL,
+                    'request', 'request_status_changed',
+                    'system', 'release_reconciler', 'release_reconciler', NULL,
+                    'executing', 'failed',
+                    jsonb_build_object('reason', 'reconciled_executionless_request'), NOW()
+             FROM repaired",
+        )
+        .bind(updated_before)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected())

@@ -934,6 +934,38 @@ impl PlatformStore {
         Ok(Some(item))
     }
 
+    /// True when any release execution targeting the same rollout target
+    /// (project + ruleset + environment) is still active. The per-request unique
+    /// index (`release_executions_one_active_per_request`) can't see across
+    /// requests — each direct publish mints a fresh internal request — so this is
+    /// the guard that refuses a second concurrent rollout of one ruleset onto one
+    /// environment.
+    pub async fn has_active_release_execution_for_target(
+        &self,
+        project_id: &str,
+        ruleset_name: &str,
+        environment_id: &str,
+    ) -> Result<bool> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1
+                 FROM release_executions e
+                 JOIN release_requests r ON r.id = e.release_request_id
+                 WHERE r.project_id = $1
+                   AND r.ruleset_name = $2
+                   AND r.environment_id = $3
+                   AND e.status IN ('preparing', 'waiting_start', 'rolling_out', 'paused',
+                                    'verifying', 'rollback_in_progress')
+             )",
+        )
+        .bind(project_id)
+        .bind(ruleset_name)
+        .bind(environment_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists)
+    }
+
     pub async fn list_worker_claimable_release_executions(
         &self,
         limit: i64,

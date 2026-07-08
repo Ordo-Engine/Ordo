@@ -17,6 +17,16 @@ fn execution_is_active(execution: &ReleaseExecution) -> bool {
     )
 }
 
+/// True when `err` is the `release_executions_one_active_per_request` unique-index
+/// violation — the DB backstop for two concurrent executes of the same request.
+/// The loser of that race should get a 409, not a 500.
+fn is_active_execution_conflict(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<sqlx::Error>()
+        .and_then(|e| e.as_database_error())
+        .and_then(|db| db.constraint())
+        == Some("release_executions_one_active_per_request")
+}
+
 fn instance_is_terminal(status: &ReleaseInstanceStatus) -> bool {
     matches!(
         status,
@@ -391,6 +401,22 @@ pub async fn execute_release_request(
             "Release execution is already in progress",
         ));
     }
+    // Cross-request guard: a *different* request (e.g. a direct publish's internal
+    // request) may already be rolling this ruleset out to this environment.
+    if state
+        .store
+        .has_active_release_execution_for_target(
+            &project_id,
+            &release.ruleset_name,
+            &release.environment_id,
+        )
+        .await
+        .map_err(PlatformError::Internal)?
+    {
+        return Err(PlatformError::conflict(
+            "Another rollout of this ruleset to this environment is already in progress",
+        ));
+    }
     release_request_can_execute(&release.status, execution_attempts)
         .map_err(|err| PlatformError::conflict(err.to_string()))?;
 
@@ -439,7 +465,13 @@ pub async fn execute_release_request(
     let execution =
         enqueue_release_execution(&state, &release, &env, &bound_servers, &actor, &claims.sub)
             .await
-            .map_err(PlatformError::Internal)?;
+            .map_err(|err| {
+                if is_active_execution_conflict(&err) {
+                    PlatformError::conflict("Release execution is already in progress")
+                } else {
+                    PlatformError::Internal(err)
+                }
+            })?;
 
     Ok(Json(execution))
 }

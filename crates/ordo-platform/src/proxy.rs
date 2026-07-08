@@ -178,13 +178,9 @@ fn is_write_method(method: &Method) -> bool {
 /// 2. If the default env has a canary config and `rand < canary_percentage`, route to the canary env.
 /// 3. Otherwise route to the default env's server.
 /// 4. Fall back to the platform's configured `engine_url`.
-pub(crate) async fn resolve_engine_url(
-    state: &AppState,
-    project_id: &str,
-    _org_id: &str,
-) -> String {
+pub(crate) async fn resolve_engine_url(state: &AppState, project_id: &str, org_id: &str) -> String {
     let Ok(Some(prod_env)) = state.store.get_default_environment(project_id).await else {
-        return resolve_fallback_engine_url(state).await;
+        return resolve_fallback_engine_url(state, org_id).await;
     };
 
     // Canary check
@@ -213,16 +209,26 @@ pub(crate) async fn resolve_engine_url(
         return url;
     }
 
-    resolve_fallback_engine_url(state).await
+    resolve_fallback_engine_url(state, org_id).await
 }
 
-async fn resolve_fallback_engine_url(state: &AppState) -> String {
+/// Pick a fallback engine when a project's environment has no usable bound server.
+/// The candidate pool is restricted to this org's own servers plus deliberately
+/// global (unowned) ones — never another org's engine. Otherwise, since the
+/// auto-created `production` env has no server and thus commonly hits this path,
+/// org A's eval traffic (its tenant id and, for ruleset writes, the full payload)
+/// could be shipped to whichever engine registered most recently anywhere — e.g.
+/// org B's. The platform's configured `engine_url` remains the final fallback.
+async fn resolve_fallback_engine_url(state: &AppState, org_id: &str) -> String {
     if let Ok(servers) = state.store.list_servers(None).await {
         if let Some(server) = servers.into_iter().find(|server| {
-            matches!(
-                server.status,
-                crate::models::ServerStatus::Online | crate::models::ServerStatus::Degraded
-            )
+            let same_org_or_global =
+                server.org_id.as_deref() == Some(org_id) || server.org_id.is_none();
+            same_org_or_global
+                && matches!(
+                    server.status,
+                    crate::models::ServerStatus::Online | crate::models::ServerStatus::Degraded
+                )
         }) {
             return server.url;
         }

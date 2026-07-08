@@ -277,10 +277,29 @@ pub async fn delete_connect_token(
     }
 }
 
+/// Authorize a read of `server` by `user_id`. `server_id` is derived from the
+/// engine URL (`derive_server_id` = sha256 of the normalized URL), so it is
+/// guessable — a bare `get_server(id)` with no org check leaks another org's
+/// engine (url, version, capabilities) and, for the metrics/health variants,
+/// lets any authenticated user trigger a control-plane RPC to it. An org-owned
+/// server therefore requires the caller to be a member of that org; a global
+/// (unowned) server stays readable by any authenticated user, matching how
+/// `delete_server` gates only when an org owns the server.
+async fn authorize_server_read(
+    state: &AppState,
+    server: &ServerNode,
+    user_id: &str,
+) -> ApiResult<()> {
+    if let Some(org_id) = &server.org_id {
+        load_org_and_check_role(state, org_id, user_id, Role::Viewer).await?;
+    }
+    Ok(())
+}
+
 /// GET /api/v1/servers/:id
 pub async fn get_server(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<ServerInfo>> {
     let server = state
@@ -289,6 +308,7 @@ pub async fn get_server(
         .await
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Server not found"))?;
+    authorize_server_read(&state, &server, &claims.sub).await?;
     Ok(Json(server.into()))
 }
 
@@ -358,7 +378,7 @@ fn rpc_body_as_text(body: &serde_json::Value) -> String {
 /// GET /api/v1/servers/:id/metrics — request server Prometheus metrics over NATS
 pub async fn get_server_metrics(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> ApiResult<Response> {
     let server = state
@@ -367,6 +387,7 @@ pub async fn get_server_metrics(
         .await
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Server not found"))?;
+    authorize_server_read(&state, &server, &claims.sub).await?;
 
     let rpc = request_server_rpc(&state, &server, "metrics").await?;
     let status =
@@ -384,7 +405,7 @@ pub async fn get_server_metrics(
 /// GET /api/v1/servers/:id/health — request server health over NATS
 pub async fn get_server_health(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let server = state
@@ -393,6 +414,7 @@ pub async fn get_server_health(
         .await
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Server not found"))?;
+    authorize_server_read(&state, &server, &claims.sub).await?;
 
     match request_server_rpc(&state, &server, "health").await {
         Ok(rpc) => {

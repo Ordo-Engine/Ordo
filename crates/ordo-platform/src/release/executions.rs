@@ -37,6 +37,126 @@ fn instance_is_terminal(status: &ReleaseInstanceStatus) -> bool {
     )
 }
 
+/// A permanent failure while assembling a deployment context: a row the execution
+/// depends on (a bound server, the request, its environment, or the draft) is gone
+/// and will not come back on its own. Distinguished from a transient store error
+/// so the worker settles the execution terminally instead of re-claiming it every
+/// poll forever — a claimable status plus a hard error is an infinite loop, since
+/// the spawned task only logs and drops its lock without writing any status.
+#[derive(Debug)]
+struct SetupDependencyMissing(String);
+
+impl std::fmt::Display for SetupDependencyMissing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SetupDependencyMissing {}
+
+/// Either return the built context, or — when the failure is a permanent missing
+/// dependency — settle the execution terminally and stop. Transient errors are
+/// propagated so the next poll retries.
+async fn settle_or_retry_setup_failure(
+    state: &AppState,
+    execution_id: &str,
+    is_rollback: bool,
+    err: anyhow::Error,
+) -> anyhow::Result<()> {
+    if err.downcast_ref::<SetupDependencyMissing>().is_none() {
+        // Transient (e.g. a store/DB blip) — let the next poll re-claim and retry.
+        return Err(err);
+    }
+    warn!(
+        execution_id,
+        "release execution cannot proceed (dependency gone), settling as failed: {err}"
+    );
+    fail_execution_terminally(state, execution_id, is_rollback, &err.to_string()).await;
+    Ok(())
+}
+
+/// Drive an execution to its terminal failed status (`Failed`, or `RollbackFailed`
+/// for a rollback) together with its request and any direct-publish deployment row,
+/// so a rollout whose target vanished doesn't strand as claimable. Best-effort: a
+/// failed settle write is logged and left for the reconciler, never retried into a
+/// loop.
+async fn fail_execution_terminally(
+    state: &AppState,
+    execution_id: &str,
+    is_rollback: bool,
+    reason: &str,
+) {
+    let system_actor = system_history_actor("release_rollout_worker");
+    let Ok(Some(execution)) = state.store.get_release_execution(execution_id).await else {
+        return;
+    };
+    let release_id = execution.request_id.clone();
+    let (exec_terminal, request_terminal) = if is_rollback {
+        (
+            ReleaseExecutionStatus::RollbackFailed,
+            ReleaseRequestStatus::RollbackFailed,
+        )
+    } else {
+        (ReleaseExecutionStatus::Failed, ReleaseRequestStatus::Failed)
+    };
+
+    // Mark still-live instances failed so the UI doesn't show them mid-flight under
+    // a failed execution. Best-effort — an invalid transition is harmless here.
+    for instance in &execution.instances {
+        if !instance_is_terminal(&instance.status) {
+            let _ = update_instance_status_with_history(
+                state,
+                &release_id,
+                execution_id,
+                &instance.id,
+                ReleaseInstanceStatus::Failed,
+                Some(reason),
+                None,
+                &system_actor,
+                "instance_status_changed",
+                serde_json::json!({ "reason": "setup_dependency_missing" }),
+            )
+            .await;
+        }
+    }
+
+    if let Err(e) = update_release_execution_status_with_history(
+        state,
+        &release_id,
+        execution_id,
+        None,
+        exec_terminal,
+        None,
+        &system_actor,
+        serde_json::json!({ "reason": "setup_dependency_missing", "detail": reason }),
+    )
+    .await
+    {
+        error!(execution_id, "Failed to settle stranded execution: {e}");
+    }
+    if let Err(e) = set_release_request_status_with_history(
+        state,
+        &release_id,
+        ReleaseRequestStatus::Executing,
+        request_terminal,
+        &system_actor,
+        serde_json::json!({ "reason": "setup_dependency_missing", "detail": reason }),
+    )
+    .await
+    {
+        error!(execution_id, "Failed to settle stranded request: {e}");
+    }
+
+    if let Ok(Some(release)) = state.store.get_release_request_by_id(&release_id).await {
+        if let Some(deployment_id) = &release.request_snapshot.publish_deployment_id {
+            let _ = state
+                .store
+                .update_deployment_status(deployment_id, DeploymentStatus::Failed)
+                .await;
+        }
+    }
+}
+
 async fn set_release_request_status_with_history(
     state: &AppState,
     release_request_id: &str,
@@ -711,7 +831,12 @@ async fn run_claimed_release_execution(state: AppState, execution_id: &str) -> a
 
     match execution.status {
         ReleaseExecutionStatus::RollbackInProgress => {
-            let ctx = build_rollback_context(state, execution).await?;
+            let ctx = match build_rollback_context(state.clone(), execution).await {
+                Ok(ctx) => ctx,
+                Err(err) => {
+                    return settle_or_retry_setup_failure(&state, execution_id, true, err).await
+                }
+            };
             run_rollback_deployment(ctx).await;
         }
         ReleaseExecutionStatus::Preparing
@@ -722,7 +847,12 @@ async fn run_claimed_release_execution(state: AppState, execution_id: &str) -> a
             {
                 return Ok(());
             }
-            let ctx = build_rolling_context(state, execution).await?;
+            let ctx = match build_rolling_context(state.clone(), execution).await {
+                Ok(ctx) => ctx,
+                Err(err) => {
+                    return settle_or_retry_setup_failure(&state, execution_id, false, err).await
+                }
+            };
             run_rolling_deployment(ctx).await;
         }
         _ => {}
@@ -780,12 +910,16 @@ async fn build_rolling_context(
         .store
         .get_release_request_by_id(&execution.request_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Release request not found"))?;
+        .ok_or_else(|| {
+            anyhow::Error::new(SetupDependencyMissing("Release request not found".into()))
+        })?;
     let env = state
         .store
         .get_environment(&release.project_id, &release.environment_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Environment not found"))?;
+        .ok_or_else(|| {
+            anyhow::Error::new(SetupDependencyMissing("Environment not found".into()))
+        })?;
 
     execution.instances.sort_by(|left, right| {
         left.batch_index
@@ -799,7 +933,12 @@ async fn build_rolling_context(
             .store
             .get_server(&instance.instance_id)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("Bound server {} not found", instance.instance_id))?;
+            .ok_or_else(|| {
+                anyhow::Error::new(SetupDependencyMissing(format!(
+                    "Bound server {} not found",
+                    instance.instance_id
+                )))
+            })?;
         bound_servers.push(server);
     }
 
@@ -810,7 +949,9 @@ async fn build_rolling_context(
             .store
             .get_draft_ruleset(&release.project_id, &release.ruleset_name)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("Draft ruleset not found"))?
+            .ok_or_else(|| {
+                anyhow::Error::new(SetupDependencyMissing("Draft ruleset not found".into()))
+            })?
             .draft
     };
 
@@ -851,19 +992,27 @@ async fn build_rollback_context(
         .store
         .get_release_request_by_id(&execution.request_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Release request not found"))?;
+        .ok_or_else(|| {
+            anyhow::Error::new(SetupDependencyMissing("Release request not found".into()))
+        })?;
     let env = state
         .store
         .get_environment(&release.project_id, &release.environment_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Environment not found"))?;
+        .ok_or_else(|| {
+            anyhow::Error::new(SetupDependencyMissing("Environment not found".into()))
+        })?;
     let rollback_version = execution
         .instances
         .first()
         .map(|instance| instance.target_version.clone())
         .or_else(|| release.version_diff.rollback_version.clone())
         .or_else(|| release.rollback_version.clone())
-        .ok_or_else(|| anyhow::anyhow!("Release request has no rollback version"))?;
+        .ok_or_else(|| {
+            anyhow::Error::new(SetupDependencyMissing(
+                "Release request has no rollback version".into(),
+            ))
+        })?;
     let rollback_deployment = state
         .store
         .list_deployments(&release.project_id, Some(&release.ruleset_name), 50)
@@ -874,7 +1023,11 @@ async fn build_rollback_context(
                 && deployment.version == rollback_version
                 && deployment.status == DeploymentStatus::Success
         })
-        .ok_or_else(|| anyhow::anyhow!("Rollback deployment snapshot not found"))?;
+        .ok_or_else(|| {
+            anyhow::Error::new(SetupDependencyMissing(
+                "Rollback deployment snapshot not found".into(),
+            ))
+        })?;
 
     execution.instances.sort_by(|left, right| {
         left.batch_index
@@ -2973,6 +3126,24 @@ mod tests {
         assert_eq!(normalized["config"]["version"].as_str(), Some("1.2.3"));
         assert!(normalized["steps"].is_object());
         assert!(normalized["steps"].get("done").is_some());
+    }
+
+    #[test]
+    fn setup_dependency_missing_is_distinguished_from_transient_errors() {
+        // The stranded-rollout fix hinges on telling a permanent missing dependency
+        // (settle the execution) apart from a transient store error (retry). Lock in
+        // that discrimination.
+        let permanent = anyhow::Error::new(SetupDependencyMissing(
+            "Bound server srv_x not found".into(),
+        ));
+        assert!(permanent.downcast_ref::<SetupDependencyMissing>().is_some());
+
+        let transient = anyhow::anyhow!("connection reset by peer");
+        assert!(transient.downcast_ref::<SetupDependencyMissing>().is_none());
+
+        // A wrapped sqlx error (the shape a real store blip takes) is also transient.
+        let db: anyhow::Error = anyhow::Error::new(sqlx::Error::PoolClosed);
+        assert!(db.downcast_ref::<SetupDependencyMissing>().is_none());
     }
 
     #[test]

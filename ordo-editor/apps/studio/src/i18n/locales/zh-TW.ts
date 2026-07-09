@@ -120,6 +120,8 @@ export default {
     commandTitle: '搜尋與跳轉',
     noResults: '沒有符合結果',
     switchProject: '切換專案',
+    switchProjectDirtyBody: '目前專案有未儲存的修改,切換專案會捨棄它們。確定繼續嗎?',
+    switchProjectDiscard: '捨棄並切換',
     noProject: '未選擇專案',
     defaultEngine: '預設引擎',
     defaultEngineHint: '未綁定引擎，使用平台路由。',

@@ -127,6 +127,83 @@ function notifIcon(type: string) {
   return 'info-circle';
 }
 
+// ── Bell dropdown: merge server-backed inbox + transient toasts ───────────────
+// The badge counts persistent notifications (release reviews/approvals, polled
+// as a count) plus transient session toasts. The dropdown must therefore render
+// both — otherwise a release-review notification lights the badge but the
+// dropdown opens to "no notifications".
+
+function persistentNotifTitle(type: string, payload: Record<string, unknown>) {
+  const title = (payload.title as string) ?? '';
+  if (type === 'release_review_requested')
+    return t('notifications.types.releaseReviewRequested', { title });
+  if (type === 'release_approved') return t('notifications.types.releaseApproved', { title });
+  if (type === 'release_rejected') return t('notifications.types.releaseRejected', { title });
+  return type;
+}
+
+function persistentNotifIcon(type: string) {
+  if (type === 'release_approved') return 'check-circle';
+  if (type === 'release_rejected') return 'close-circle';
+  if (type === 'release_review_requested') return 'notification';
+  return 'info-circle';
+}
+
+interface BellItem {
+  id: string;
+  icon: string;
+  iconType: string;
+  title: string;
+  message?: string;
+  time: Date;
+  read: boolean;
+  onClick?: () => void;
+}
+
+const bellItems = computed<BellItem[]>(() => {
+  const persistent: BellItem[] = persistentNotifStore.notifications.map((n) => ({
+    id: `p:${n.id}`,
+    icon: persistentNotifIcon(n.type),
+    iconType:
+      n.type === 'release_approved' ? 'success' : n.type === 'release_rejected' ? 'error' : 'info',
+    title: persistentNotifTitle(n.type, n.payload),
+    time: new Date(n.created_at),
+    read: !!n.read_at,
+    onClick: () => {
+      const pid = n.payload.project_id as string | undefined;
+      if (!n.ref_id || !pid || !currentOrgId.value) return;
+      notifOpen.value = false;
+      if (!n.read_at) void persistentNotifStore.markRead(currentOrgId.value, n.id);
+      navigate(`/orgs/${currentOrgId.value}/projects/${pid}/releases`);
+    },
+  }));
+  const transient: BellItem[] = notifStore.notifications.map((n) => ({
+    id: `t:${n.id}`,
+    icon: notifIcon(n.type),
+    iconType: n.type,
+    title: n.title,
+    message: n.message,
+    time: n.timestamp,
+    read: n.read,
+  }));
+  return [...persistent, ...transient].sort((a, b) => b.time.getTime() - a.time.getTime());
+});
+
+const bellUnread = computed(() => persistentNotifStore.unreadCount + notifStore.unreadCount);
+
+function toggleNotif() {
+  notifOpen.value = !notifOpen.value;
+  // Populate the server-backed list on open (polling only keeps the count).
+  if (notifOpen.value && currentOrgId.value) {
+    void persistentNotifStore.fetchNotifications(currentOrgId.value, false).catch(() => {});
+  }
+}
+
+async function handleBellMarkAllRead() {
+  notifStore.markAllRead();
+  if (currentOrgId.value) await persistentNotifStore.markAllRead(currentOrgId.value);
+}
+
 // ── Page info ────────────────────────────────────────────────────────────────
 
 const pageInfo = computed(() => {
@@ -617,20 +694,13 @@ async function handleCreateOrg() {
               class="topbar-pill topbar-pill--icon"
               :class="{
                 'is-open': notifOpen,
-                'has-unread': persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0,
+                'has-unread': bellUnread > 0,
               }"
-              @click="notifOpen = !notifOpen"
+              @click="toggleNotif()"
             >
               <t-icon name="notification" size="16px" />
-              <span
-                v-if="persistentNotifStore.unreadCount > 0 || notifStore.unreadCount > 0"
-                class="notif-badge"
-              >
-                {{
-                  persistentNotifStore.unreadCount + notifStore.unreadCount > 99
-                    ? '99+'
-                    : persistentNotifStore.unreadCount + notifStore.unreadCount
-                }}
+              <span v-if="bellUnread > 0" class="notif-badge">
+                {{ bellUnread > 99 ? '99+' : bellUnread }}
               </span>
             </button>
 
@@ -638,33 +708,34 @@ async function handleCreateOrg() {
               <div class="topbar-dropdown__header">
                 <span>{{ t('shell.notifications') }}</span>
                 <button
-                  v-if="notifStore.unreadCount > 0"
+                  v-if="bellUnread > 0"
                   class="notif-mark-read"
-                  @click="notifStore.markAllRead()"
+                  @click="handleBellMarkAllRead()"
                 >
                   {{ t('shell.markAllRead') }}
                 </button>
               </div>
 
-              <div v-if="notifStore.notifications.length === 0" class="notif-empty">
+              <div v-if="bellItems.length === 0" class="notif-empty">
                 <t-icon name="notification" size="24px" style="opacity: 0.25" />
                 <span>{{ t('shell.noNotifications') }}</span>
               </div>
 
               <div v-else class="notif-list">
                 <div
-                  v-for="n in notifStore.notifications"
+                  v-for="n in bellItems"
                   :key="n.id"
                   class="notif-item"
-                  :class="{ 'notif-item--unread': !n.read }"
+                  :class="{ 'notif-item--unread': !n.read, 'notif-item--clickable': !!n.onClick }"
+                  @click="n.onClick?.()"
                 >
-                  <span class="notif-icon" :class="`notif-icon--${n.type}`">
-                    <t-icon :name="notifIcon(n.type)" size="14px" />
+                  <span class="notif-icon" :class="`notif-icon--${n.iconType}`">
+                    <t-icon :name="n.icon" size="14px" />
                   </span>
                   <div class="notif-content">
                     <div class="notif-title">{{ n.title }}</div>
                     <div v-if="n.message" class="notif-message">{{ n.message }}</div>
-                    <div class="notif-time">{{ formatNotifTime(n.timestamp) }}</div>
+                    <div class="notif-time">{{ formatNotifTime(n.time) }}</div>
                   </div>
                 </div>
               </div>
@@ -1357,6 +1428,10 @@ async function handleCreateOrg() {
 
 .notif-item--unread {
   background: var(--ordo-bg-selected);
+}
+
+.notif-item--clickable {
+  cursor: pointer;
 }
 
 .notif-icon {

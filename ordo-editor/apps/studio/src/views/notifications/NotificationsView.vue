@@ -1,28 +1,40 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { usePersistentNotificationStore } from '@/stores/persistentNotifications';
 import { useOrgStore } from '@/stores/org';
 
 const { t } = useI18n();
+const route = useRoute();
 const router = useRouter();
 const orgStore = useOrgStore();
 const store = usePersistentNotificationStore();
 
-const orgId = computed(() => orgStore.currentOrg?.id ?? '');
+// Prefer the URL's org so a deep link / hard reload loads the right inbox even
+// before the shell has settled on a current org.
+const orgId = computed(
+  () => (route.params.orgId as string | undefined) || orgStore.currentOrg?.id || ''
+);
 const unreadOnly = ref(false);
 const loading = ref(false);
+const error = ref<string | null>(null);
 
-onMounted(async () => {
+async function load() {
   if (!orgId.value) return;
   loading.value = true;
+  error.value = null;
   try {
     await store.fetchNotifications(orgId.value, false);
+  } catch (e) {
+    // Surface the failure instead of rendering it as an empty inbox.
+    error.value = e instanceof Error ? e.message : t('notifications.error');
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(load);
 
 const filtered = computed(() =>
   unreadOnly.value ? store.notifications.filter((n) => !n.read_at) : store.notifications
@@ -95,6 +107,14 @@ function navigateToRelease(n: { ref_id?: string; payload: Record<string, unknown
 
     <div v-if="loading" class="notifications-loading">
       <t-loading />
+    </div>
+
+    <div v-else-if="error" class="notifications-empty">
+      <t-icon name="error-circle" size="48px" style="opacity: 0.3" />
+      <p>{{ error }}</p>
+      <t-button theme="default" variant="outline" size="small" @click="load">
+        {{ t('notifications.retry') }}
+      </t-button>
     </div>
 
     <div v-else-if="filtered.length === 0" class="notifications-empty">

@@ -115,6 +115,18 @@ export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
 }
 
+/**
+ * Fire the session-expired handler when an *authenticated* call is rejected as
+ * unauthorized (the token expired or was revoked). A 401 without a token is a
+ * bad-credentials login attempt, not an expired session, so it's ignored here.
+ * Every fetch path — the shared `request()` and the hand-rolled streaming/draft
+ * fetches — must funnel 401s through this, or an expired session leaves the UI
+ * stuck instead of bouncing to login.
+ */
+function noteUnauthorized(status: number, token?: string): void {
+  if (status === 401 && token) onUnauthorized?.();
+}
+
 async function request<T>(
   path: string,
   options: RequestInit & { token?: string } = {}
@@ -131,11 +143,7 @@ async function request<T>(
 
   const resp = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!resp.ok) {
-    // An authenticated call rejected as unauthorized ⇒ the session is gone.
-    // Not the login/register path (those send no token and 401 = bad creds).
-    if (resp.status === 401 && token) {
-      onUnauthorized?.();
-    }
+    noteUnauthorized(resp.status, token);
     let errMsg = `HTTP ${resp.status}`;
     let errCode: string | undefined;
     try {
@@ -169,6 +177,7 @@ async function requestText(
 
   const resp = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!resp.ok) {
+    noteUnauthorized(resp.status, token);
     let errMsg = `HTTP ${resp.status}`;
     let errCode: string | undefined;
     try {
@@ -216,6 +225,7 @@ export const aiApi = {
       signal,
     });
     if (!resp.ok || !resp.body) {
+      noteUnauthorized(resp.status, token);
       let m = `HTTP ${resp.status}`;
       try {
         m = (await resp.json()).error || m;
@@ -806,6 +816,7 @@ export const rulesetDraftApi = {
       return resp.json() as Promise<DraftConflictResponse>;
     }
     if (!resp.ok) {
+      noteUnauthorized(resp.status, token);
       let errMsg = `HTTP ${resp.status}`;
       let errCode: string | undefined;
       try {

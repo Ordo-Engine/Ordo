@@ -124,6 +124,9 @@ export default {
     commandTitle: 'Search and Jump',
     noResults: 'No matching results',
     switchProject: 'Switch Project',
+    switchProjectDirtyBody:
+      'You have unsaved changes in this project. Switching projects will discard them. Continue?',
+    switchProjectDiscard: 'Discard & switch',
     noProject: 'No project',
     defaultEngine: 'Default Engine',
     defaultEngineHint: 'No engine bound — using platform routing.',

@@ -489,6 +489,23 @@ async fn enqueue_publish_release(
         bound_servers.push(server);
     }
 
+    // Each publish mints a fresh internal request, so the per-request unique index
+    // can't stop two concurrent publishes of the same ruleset from both rolling
+    // out. Refuse while any rollout of this ruleset to this environment is active.
+    // (Check-then-insert: a milliseconds-wide race window remains. Rule pushes are
+    // whole-ruleset overwrites, so the worst case is two rollouts racing and each
+    // server keeping whichever push lands last — never corrupted state.)
+    if state
+        .store
+        .has_active_release_execution_for_target(project_id, ruleset_name, &env.id)
+        .await
+        .map_err(PlatformError::Internal)?
+    {
+        return Err(PlatformError::conflict(
+            "A rollout of this ruleset to this environment is already in progress",
+        ));
+    }
+
     let request = build_internal_publish_request(
         org_id,
         project_id,

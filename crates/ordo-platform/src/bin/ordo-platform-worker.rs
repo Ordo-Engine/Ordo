@@ -17,7 +17,8 @@ use axum::{
 use clap::Parser;
 use ordo_platform::{
     bootstrap_platform_store, build_app_state, config::PlatformConfig, connect_platform_store,
-    init_tracing, metrics, publish_existing_tenants, release, start_server_registry_maintenance,
+    init_tracing, metrics, publish_existing_tenants, release, start_release_reconciliation,
+    start_server_registry_maintenance,
 };
 use tracing::{error, info};
 
@@ -50,8 +51,9 @@ async fn main() -> anyhow::Result<()> {
     metrics::init();
 
     let store = connect_platform_store(&config).await?;
-    bootstrap_platform_store(&store, false).await?;
+    bootstrap_platform_store(&store).await?;
     start_server_registry_maintenance(store.clone());
+    start_release_reconciliation(store.clone());
 
     // Spawn the liveness/metrics server before entering the loop.
     let health_addr = config.worker_health_addr;

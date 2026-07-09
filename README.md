@@ -20,6 +20,10 @@
   <a href="https://discord.gg/Y529FkArhh"><img src="https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
+<p align="center">
+  <img src="images/guard-demo.gif" alt="ordo guard blocking a destructive agent command — deny, ask, allow — with a reason" width="760" />
+</p>
+
 ---
 
 An LLM is non-deterministic: ask it the same thing twice and you can get two answers. That's fine for drafting prose and dangerous the moment an agent touches money, data, or a shell. Ordo is the layer that decides — **allow / deny / ask** — deterministically, from rules that are versioned, tested, and auditable. The agent proposes the action; Ordo disposes.

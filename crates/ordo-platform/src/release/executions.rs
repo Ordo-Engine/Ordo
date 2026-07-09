@@ -1056,6 +1056,26 @@ async fn build_rollback_context(
             ))
         })?;
 
+    // Re-inline sub-rules into the target snapshot before dispatching the rollback.
+    // A direct publish's deployment row stores the un-inlined authored draft, so
+    // rolling it back verbatim would ship a dangling SubRule reference (silently
+    // dropped at studio→engine conversion). Inlining is idempotent, so an
+    // already-inlined snapshot (governed releases) is untouched. A sub-rule that no
+    // longer exists makes the rollback unassemblable — a permanent failure — so map
+    // it to SetupDependencyMissing to settle as RollbackFailed instead of looping.
+    let snapshot = crate::ruleset_draft::inline_sub_rules_into_draft(
+        &state,
+        &release.org_id,
+        &release.project_id,
+        rollback_deployment.snapshot,
+    )
+    .await
+    .map_err(|e| {
+        anyhow::Error::new(SetupDependencyMissing(format!(
+            "Rollback snapshot could not be assembled: {e}"
+        )))
+    })?;
+
     execution.instances.sort_by(|left, right| {
         left.batch_index
             .cmp(&right.batch_index)
@@ -1074,7 +1094,7 @@ async fn build_rollback_context(
         rollback_version,
         env,
         instances: execution.instances,
-        snapshot: rollback_deployment.snapshot,
+        snapshot,
         strategy: execution.strategy,
         actor: system_history_actor("release_worker"),
         release_note: Some(format!("Rollback for release {}", release_request_id)),

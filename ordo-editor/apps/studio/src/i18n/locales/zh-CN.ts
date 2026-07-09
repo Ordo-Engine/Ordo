@@ -120,6 +120,8 @@ export default {
     commandTitle: '搜索与跳转',
     noResults: '没有匹配结果',
     switchProject: '切换项目',
+    switchProjectDirtyBody: '当前项目有未保存的修改,切换项目会丢弃它们。确定继续吗?',
+    switchProjectDiscard: '丢弃并切换',
     noProject: '未选择项目',
     defaultEngine: '默认引擎',
     defaultEngineHint: '未绑定引擎，使用平台路由。',

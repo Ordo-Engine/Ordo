@@ -102,8 +102,21 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function selectProject(project: Project) {
+    const changed = currentProject.value?.id !== project.id;
     currentProject.value = project;
     localStorage.setItem(CURRENT_PROJECT_KEY, project.id);
+    if (changed) {
+      // Switching to a different project: drop the previous project's open tabs,
+      // drafts, and metadata. Otherwise those tabs linger across the switch and a
+      // save writes the old project's ruleset into the new one (silent
+      // cross-project corruption), and the editor's "auto-open first ruleset"
+      // guard (openTabs.length === 0) never fires for the new project.
+      openTabs.value = [];
+      activeTabName.value = null;
+      draftMetas.value = [];
+      rulesets.value = [];
+      rulesetsError.value = null;
+    }
     await fetchRulesets();
   }
 

@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import platformLogo from '@/assets/platform-logo.png';
 import { useAuthStore } from '@/stores/auth';
 import { useOrgStore } from '@/stores/org';
@@ -90,7 +90,24 @@ const projectOptions = computed(() =>
 
 function switchProject(projectId: string) {
   projectPickerOpen.value = false;
-  navigate(`/orgs/${currentOrgId.value}/projects/${projectId}/editor`);
+  if (projectId === currentProjectId.value) return;
+  const target = `/orgs/${currentOrgId.value}/projects/${projectId}/editor`;
+  // Switching projects clears the current project's open tabs (see project
+  // store's selectProject), so warn before discarding any unsaved edits.
+  if (projectStore.openTabs.some((tab) => tab.dirty)) {
+    const dlg = DialogPlugin.confirm({
+      header: t('editor.closeConfirm'),
+      body: t('shell.switchProjectDirtyBody'),
+      confirmBtn: { content: t('shell.switchProjectDiscard'), theme: 'danger' },
+      cancelBtn: t('common.cancel'),
+      onConfirm: () => {
+        dlg.hide();
+        navigate(target);
+      },
+    });
+    return;
+  }
+  navigate(target);
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────

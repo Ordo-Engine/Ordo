@@ -422,7 +422,7 @@ async fn update_batch_schedule_with_history(
 pub async fn list_release_execution_events(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Path((org_id, project_id, _release_id, execution_id)): Path<(String, String, String, String)>,
+    Path((org_id, project_id, release_id, execution_id)): Path<(String, String, String, String)>,
 ) -> ApiResult<Json<Vec<crate::models::ReleaseExecutionEvent>>> {
     require_project_permission(
         &state,
@@ -433,9 +433,26 @@ pub async fn list_release_execution_events(
     )
     .await?;
 
+    // The permission check only proves the caller may view releases in this
+    // org/project; it does NOT prove `release_id`/`execution_id` belong here.
+    // Scope both to the path so a foreign (guessable) id can't be read.
+    let release = state
+        .store
+        .get_release_request(&org_id, &project_id, &release_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
+    let execution = state
+        .store
+        .get_release_execution(&execution_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .filter(|execution| execution.request_id == release.id)
+        .ok_or_else(|| PlatformError::not_found("Release execution not found"))?;
+
     let events = state
         .store
-        .list_release_execution_events(&execution_id)
+        .list_release_execution_events(&execution.id)
         .await
         .map_err(PlatformError::Internal)?;
     Ok(Json(events))
@@ -455,9 +472,19 @@ pub async fn get_release_execution_for_request(
     )
     .await?;
 
+    // Scope release_id to this org/project — the permission check alone doesn't
+    // prove the (guessable) id belongs here, so resolve it through the org+project
+    // scoped getter, which returns None (→ 404) for a foreign release.
+    let release = state
+        .store
+        .get_release_request(&org_id, &project_id, &release_id)
+        .await
+        .map_err(PlatformError::Internal)?
+        .ok_or_else(|| PlatformError::not_found("Release request not found"))?;
+
     let item = state
         .store
-        .find_release_execution_by_request_id(&release_id)
+        .find_release_execution_by_request_id(&release.id)
         .await
         .map_err(PlatformError::Internal)?;
     Ok(Json(item))

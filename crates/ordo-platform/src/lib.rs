@@ -93,10 +93,7 @@ pub async fn connect_platform_store(config: &PlatformConfig) -> anyhow::Result<A
     Ok(Arc::new(PlatformStore::new(pool).await?))
 }
 
-pub async fn bootstrap_platform_store(
-    store: &Arc<PlatformStore>,
-    fail_active_executions: bool,
-) -> anyhow::Result<()> {
+pub async fn bootstrap_platform_store(store: &Arc<PlatformStore>) -> anyhow::Result<()> {
     let orgs = store.list_all_orgs().await.unwrap_or_default();
     for org in &orgs {
         if let Err(e) = store.seed_system_roles(&org.id).await {
@@ -127,18 +124,63 @@ pub async fn bootstrap_platform_store(
         Err(e) => tracing::warn!("fail_stuck_queued_deployments: {}", e),
     }
 
-    if fail_active_executions {
-        match store.fail_stuck_active_executions().await {
-            Ok(n) if n > 0 => tracing::warn!(
-                count = n,
-                "Marked stuck active release executions as failed on startup"
-            ),
-            Ok(_) => {}
-            Err(e) => tracing::warn!("fail_stuck_active_executions: {}", e),
-        }
-    }
-
     Ok(())
+}
+
+/// Periodic repair of release state stranded by a worker crash. The poll loop
+/// already self-heals claimable executions (the session-scoped advisory lock is
+/// released when a dead worker's connection drops), but a *terminal* execution is
+/// not claimable — if the worker died between settling the execution and settling
+/// the surrounding state, nothing else ever repairs:
+/// - `dispatched` deployment rows whose execution already finished,
+/// - `executing` requests whose latest execution already finished,
+/// - `executing` requests that never got an execution row at all.
+///
+/// Spawned by the worker only. Every repair is idempotent, so it also heals rows
+/// stranded before this task existed.
+pub fn start_release_reconciliation(store: Arc<PlatformStore>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let now = chrono::Utc::now();
+
+            match store.reconcile_dispatched_deployments().await {
+                Ok(n) if n > 0 => tracing::warn!(
+                    count = n,
+                    "Settled dispatched deployments whose execution already finished"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("reconcile_dispatched_deployments: {}", e),
+            }
+
+            // Grace periods keep the reconciler far away from the worker's own
+            // settle writes; only rows the worker abandoned are old enough to match.
+            match store
+                .reconcile_stranded_executing_requests(now - chrono::Duration::minutes(5))
+                .await
+            {
+                Ok(n) if n > 0 => tracing::warn!(
+                    count = n,
+                    "Repaired executing requests whose execution already finished"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("reconcile_stranded_executing_requests: {}", e),
+            }
+
+            match store
+                .fail_executionless_executing_requests(now - chrono::Duration::minutes(15))
+                .await
+            {
+                Ok(n) if n > 0 => tracing::warn!(
+                    count = n,
+                    "Failed executing requests that never got an execution"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("fail_executionless_executing_requests: {}", e),
+            }
+        }
+    })
 }
 
 pub fn start_server_registry_maintenance(store: Arc<PlatformStore>) -> tokio::task::JoinHandle<()> {

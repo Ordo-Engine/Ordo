@@ -489,6 +489,23 @@ async fn enqueue_publish_release(
         bound_servers.push(server);
     }
 
+    // Each publish mints a fresh internal request, so the per-request unique index
+    // can't stop two concurrent publishes of the same ruleset from both rolling
+    // out. Refuse while any rollout of this ruleset to this environment is active.
+    // (Check-then-insert: a milliseconds-wide race window remains. Rule pushes are
+    // whole-ruleset overwrites, so the worst case is two rollouts racing and each
+    // server keeping whichever push lands last — never corrupted state.)
+    if state
+        .store
+        .has_active_release_execution_for_target(project_id, ruleset_name, &env.id)
+        .await
+        .map_err(PlatformError::Internal)?
+    {
+        return Err(PlatformError::conflict(
+            "A rollout of this ruleset to this environment is already in progress",
+        ));
+    }
+
     let request = build_internal_publish_request(
         org_id,
         project_id,
@@ -687,6 +704,20 @@ pub async fn redeploy(
         .map_err(PlatformError::Internal)?
         .ok_or_else(|| PlatformError::not_found("Environment not found"))?;
 
+    // Re-inline sub-rules before rolling the snapshot out again. A direct publish
+    // stores the *authored* (un-inlined) draft in its deployment row, and older
+    // rows predate inlining entirely, so dispatching the stored snapshot verbatim
+    // would ship a ruleset whose SubRule steps reference a graph that isn't there
+    // (studio→engine conversion drops the dangling reference silently). Inlining is
+    // idempotent — an already-inlined graph is left untouched (see the
+    // `sub_rules.contains_key` guard in `inline_sub_rules_with_manifest`) — so this
+    // heals old/direct-publish rows and no-ops on already-inlined ones. Do it before
+    // creating the row so a now-missing sub-rule fails fast without orphaning a
+    // `Dispatched` deployment.
+    let inlined =
+        inline_sub_rules_into_draft(&state, &org_id, &project_id, original.snapshot.clone())
+            .await?;
+
     let dep_id = Uuid::new_v4().to_string();
     let deployment = RulesetDeployment {
         id: dep_id.clone(),
@@ -696,7 +727,7 @@ pub async fn redeploy(
         ruleset_name: ruleset_name.clone(),
         version: original.version.clone(),
         release_note: req.release_note.clone(),
-        snapshot: original.snapshot.clone(),
+        snapshot: inlined.clone(),
         deployed_at: Utc::now(),
         deployed_by: Some(claims.sub.clone()),
         status: DeploymentStatus::Dispatched,
@@ -707,16 +738,16 @@ pub async fn redeploy(
         .await
         .map_err(PlatformError::Internal)?;
 
-    // The stored deployment snapshot already contains inlined sub-rules — roll it out
-    // through the release engine, exactly like a fresh publish (async, worker-settled).
-    // On enqueue failure, settle the `Dispatched` row to `Failed` so it doesn't orphan.
+    // Roll it out through the release engine, exactly like a fresh publish (async,
+    // worker-settled). On enqueue failure, settle the `Dispatched` row to `Failed`
+    // so it doesn't orphan.
     if let Err(e) = enqueue_publish_release(
         &state,
         &org_id,
         &project_id,
         &ruleset_name,
         &original.version,
-        original.snapshot.clone(),
+        inlined,
         &dep_id,
         &env,
         &claims,

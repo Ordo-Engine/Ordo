@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let store = connect_platform_store(&config).await?;
-    bootstrap_platform_store(&store, false).await?;
+    bootstrap_platform_store(&store).await?;
     start_server_registry_maintenance(store.clone());
 
     let state = build_app_state(config.clone(), store, false).await?;

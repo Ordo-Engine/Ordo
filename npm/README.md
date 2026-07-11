@@ -7,12 +7,13 @@ engine.
 ## Guard your coding agent
 
 ```bash
-npx @ordo-engine/cli guard init      # scaffold a policy + wire the Claude Code hook
+npx @ordo-engine/cli guard init                        # Claude Code (default)
+npx @ordo-engine/cli guard init --agent codex,cursor    # …and/or Codex CLI, Cursor
 ```
 
-Every Claude Code tool call now runs through a local rule that decides
-**allow / deny / ask**. When the agent tries something destructive, Ordo stops
-it with a reason:
+Every tool call from the hooked agent(s) now runs through the same local rule
+that decides **allow / deny / ask**. When the agent tries something
+destructive, Ordo stops it with a reason:
 
 ```text
 ⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.0.0 · DENY]

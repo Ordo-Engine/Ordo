@@ -233,3 +233,152 @@ fn guard_log_tails_recent_decisions() {
     assert_eq!(entries[0]["decision"], "ask");
     assert_eq!(entries[1]["decision"], "allow");
 }
+
+// ── Multi-agent (Codex CLI / Cursor) ────────────────────────────────────────
+
+#[test]
+fn guard_init_registers_codex_hook_in_codex_shape() {
+    let dir = temp_project("codex-init");
+    let out = run(&dir, &["guard", "init", "--agent", "codex"]);
+    assert_ok(&out, "guard init --agent codex");
+
+    // No Claude file written when only Codex was selected.
+    assert!(!dir.join(".claude/settings.local.json").exists());
+    assert!(dir.join(".codex/hooks.json").is_file());
+
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join(".codex/hooks.json")).unwrap())
+            .unwrap();
+    let entries = settings["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let command = entries[0]["hooks"][0]["command"].as_str().unwrap();
+    assert!(
+        command.ends_with("guard hook --agent codex"),
+        "got command: {command}"
+    );
+}
+
+#[test]
+fn guard_init_registers_cursor_hook_in_cursor_flat_shape() {
+    let dir = temp_project("cursor-init");
+    let out = run(&dir, &["guard", "init", "--agent", "cursor"]);
+    assert_ok(&out, "guard init --agent cursor");
+
+    assert!(dir.join(".cursor/hooks.json").is_file());
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join(".cursor/hooks.json")).unwrap())
+            .unwrap();
+    assert_eq!(settings["version"], 1);
+    let entries = settings["hooks"]["beforeShellExecution"]
+        .as_array()
+        .unwrap();
+    assert_eq!(entries.len(), 1);
+    // Flat shape: no nested "hooks" array, no "type" field.
+    assert!(entries[0].get("hooks").is_none());
+    let command = entries[0]["command"].as_str().unwrap();
+    assert!(
+        command.ends_with("guard hook --agent cursor"),
+        "got command: {command}"
+    );
+}
+
+#[test]
+fn guard_init_registers_multiple_agents_in_one_call() {
+    let dir = temp_project("multi-init");
+    let out = run(
+        &dir,
+        &["guard", "init", "--agent", "claude,codex,cursor", "--json"],
+    );
+    assert_ok(&out, "guard init --agent claude,codex,cursor");
+
+    assert!(dir.join(".claude/settings.local.json").is_file());
+    assert!(dir.join(".codex/hooks.json").is_file());
+    assert!(dir.join(".cursor/hooks.json").is_file());
+
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    // Backward-compat singular "hook" still reflects Claude specifically.
+    assert_eq!(v["hook"]["outcome"], "created");
+    let hooks = v["hooks"].as_array().unwrap();
+    assert_eq!(hooks.len(), 3);
+    let agents: Vec<&str> = hooks.iter().map(|h| h["agent"].as_str().unwrap()).collect();
+    assert_eq!(agents, vec!["claude", "codex", "cursor"]);
+
+    // Re-run: all three idempotently unchanged, still exactly one entry each.
+    let out = run(
+        &dir,
+        &["guard", "init", "--agent", "claude,codex,cursor", "--json"],
+    );
+    assert_ok(&out, "guard init rerun");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    for h in v["hooks"].as_array().unwrap() {
+        assert_eq!(
+            h["outcome"], "unchanged",
+            "agent {} not idempotent",
+            h["agent"]
+        );
+    }
+}
+
+#[test]
+fn guard_hook_agent_codex_speaks_identical_protocol_to_claude() {
+    let dir = temp_project("codex-hook");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+
+    let event = r#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/w","tool_input":{"command":"rm -rf /tmp/x"}}"#;
+    let out = run_stdin(&dir, &["guard", "hook", "--agent", "codex"], event);
+    assert_ok(&out, "guard hook --agent codex");
+
+    let d = decision(&out);
+    assert_eq!(d["hookEventName"], "PreToolUse");
+    assert_eq!(d["permissionDecision"], "deny");
+    assert!(d["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .contains("Destructive"));
+}
+
+#[test]
+fn guard_hook_agent_cursor_parses_flat_event_and_emits_flat_decision() {
+    let dir = temp_project("cursor-hook-deny");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+
+    // Cursor's beforeShellExecution event: no tool_name/tool_input wrapper.
+    let event = r#"{"command":"rm -rf /tmp/x","cwd":"/w","conversation_id":"c1","sandbox":true,"model":"gpt-5","hook_event_name":"beforeShellExecution"}"#;
+    let out = run_stdin(&dir, &["guard", "hook", "--agent", "cursor"], event);
+    assert_ok(&out, "guard hook --agent cursor (deny)");
+
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["permission"], "deny");
+    assert!(v["user_message"].as_str().unwrap().contains("Destructive"));
+    assert!(v["agent_message"].as_str().unwrap().contains("Destructive"));
+    // Cursor's flat shape has no hookSpecificOutput wrapper.
+    assert!(v.get("hookSpecificOutput").is_none());
+
+    let log = std::fs::read_to_string(dir.join(".ordo-guard/log.jsonl")).unwrap();
+    let entry: serde_json::Value = serde_json::from_str(log.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        entry["tool"], "Bash",
+        "Cursor events are normalized to tool=Bash"
+    );
+    assert_eq!(
+        entry["session_id"], "c1",
+        "conversation_id maps to session_id"
+    );
+
+    // Read-only git → allow, still explicit (not silent) on Cursor.
+    let allow_event = r#"{"command":"git status","cwd":"/w"}"#;
+    let out = run_stdin(&dir, &["guard", "hook", "--agent", "cursor"], allow_event);
+    assert_ok(&out, "guard hook --agent cursor (allow)");
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["permission"], "allow");
+
+    // No policy rule matches a plain `ls` → PASS maps to an explicit allow on
+    // Cursor (its schema has no documented "no opinion" outcome), unlike
+    // Claude/Codex where PASS prints nothing.
+    let pass_event = r#"{"command":"ls","cwd":"/w"}"#;
+    let out = run_stdin(&dir, &["guard", "hook", "--agent", "cursor"], pass_event);
+    assert_ok(&out, "guard hook --agent cursor (pass)");
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    assert_eq!(v["permission"], "allow");
+    assert!(v.get("user_message").is_none(), "PASS carries no message");
+}

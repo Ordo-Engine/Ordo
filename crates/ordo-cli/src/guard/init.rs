@@ -1,12 +1,15 @@
-//! `ordo guard init` — scaffold the `.ordo-guard/` policy project and register
-//! the Claude Code PreToolUse hook.
+//! `ordo guard init` — scaffold the `.ordo-guard/` policy project and
+//! register the hook for one or more coding agents (Claude Code, Codex CLI,
+//! Cursor). The policy itself is agent-agnostic; only the hook's wire format
+//! and config file differ per agent — see [`super::Agent`].
 
 use anyhow::{Context, Result};
 use clap::Args;
 use ordo_studio_format::StudioRuleSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use super::settings::{hook_command, register_hook, RegisterOutcome};
+use super::settings::{hook_command, register_cursor_hook, register_hook, RegisterOutcome};
+use super::Agent;
 use crate::project::{ProjectConfig, CONFIG_FILE};
 
 #[derive(Args)]
@@ -15,18 +18,28 @@ pub struct GuardInitArgs {
     #[arg(default_value = ".")]
     dir: String,
 
-    /// Register a portable npx command in the git-shared .claude/settings.json
-    /// instead of an absolute binary path in .claude/settings.local.json
+    /// Register a portable npx command in the git-shared settings file
+    /// instead of an absolute binary path in the machine-local one (Claude
+    /// Code only distinguishes these; Codex/Cursor always write one
+    /// project-local file, but still get the portable command)
     #[arg(long)]
     shared: bool,
 
-    /// Custom hook command to register (overrides both defaults)
+    /// Custom hook command to register (overrides the default for every
+    /// selected agent, taken verbatim)
     #[arg(long, value_name = "CMD")]
     command: Option<String>,
 
     /// Scaffold the policy project only; skip hook registration
     #[arg(long)]
     no_hook: bool,
+
+    /// Coding agent(s) to register the hook for. Repeat the flag or use a
+    /// comma-separated list (`--agent codex,cursor`) to register more than
+    /// one — each gets its own hook command and config file, all evaluating
+    /// the same policy.
+    #[arg(long = "agent", value_enum, value_delimiter = ',', default_values_t = vec![Agent::Claude])]
+    agents: Vec<Agent>,
 }
 
 /// The default policy — deliberately opinionated but small, so the first
@@ -35,7 +48,7 @@ const POLICY_JSON: &str = r#"{
   "config": {
     "name": "policy",
     "version": "1.0.0",
-    "description": "Claude Code tool-call policy. Evaluated by `ordo guard hook` on every PreToolUse event. First matching branch wins; PASS defers to Claude Code's normal permission flow."
+    "description": "Coding-agent tool-call policy. Evaluated by `ordo guard hook` on every pre-tool-call event. First matching branch wins; PASS defers to the agent's normal permission flow."
   },
   "startStepId": "gate",
   "steps": [
@@ -98,6 +111,39 @@ const POLICY_FACTS: &str = r#"[
 ]
 "#;
 
+/// One agent's hook registration, kept around after `settings.rs` writes the
+/// config file so `run()` can render both the human-readable and JSON output.
+struct Registration {
+    agent: Agent,
+    settings_path: PathBuf,
+    command: String,
+    outcome: RegisterOutcome,
+}
+
+/// Where each agent's hook config lives. Claude Code alone distinguishes a
+/// shared (committed) vs. local (gitignored) file; Codex CLI and Cursor each
+/// have a single project-local config per their docs, regardless of
+/// `--shared` (which still controls the *command* — npx vs. absolute path).
+fn settings_path_for(root: &Path, agent: Agent, shared: bool) -> PathBuf {
+    match agent {
+        Agent::Claude => root.join(".claude").join(if shared {
+            "settings.json"
+        } else {
+            "settings.local.json"
+        }),
+        Agent::Codex => root.join(".codex").join("hooks.json"),
+        Agent::Cursor => root.join(".cursor").join("hooks.json"),
+    }
+}
+
+fn outcome_str(o: &RegisterOutcome) -> &'static str {
+    match o {
+        RegisterOutcome::Created => "created",
+        RegisterOutcome::Updated => "updated",
+        RegisterOutcome::Unchanged => "unchanged",
+    }
+}
+
 pub fn run(args: GuardInitArgs, json: bool) -> Result<()> {
     let root = Path::new(&args.dir);
     std::fs::create_dir_all(root)
@@ -111,32 +157,64 @@ pub fn run(args: GuardInitArgs, json: bool) -> Result<()> {
         true
     };
 
-    let registration = if args.no_hook {
-        None
+    // De-dupe in case an agent was named more than once (`--agent claude
+    // --agent claude`), preserving first-seen order.
+    let mut agents = Vec::new();
+    for a in &args.agents {
+        if !agents.contains(a) {
+            agents.push(*a);
+        }
+    }
+
+    let registrations = if args.no_hook {
+        Vec::new()
     } else {
-        let settings_path = root.join(".claude").join(if args.shared {
-            "settings.json"
-        } else {
-            "settings.local.json"
-        });
-        let command = hook_command(args.shared, args.command.clone())?;
-        let outcome = register_hook(&settings_path, &command)?;
-        Some((settings_path, command, outcome))
+        let mut regs = Vec::with_capacity(agents.len());
+        for agent in agents {
+            let settings_path = settings_path_for(root, agent, args.shared);
+            let command = hook_command(args.shared, args.command.clone(), agent)?;
+            let outcome = match agent {
+                Agent::Claude | Agent::Codex => register_hook(&settings_path, &command)?,
+                Agent::Cursor => register_cursor_hook(&settings_path, &command)?,
+            };
+            regs.push(Registration {
+                agent,
+                settings_path,
+                command,
+                outcome,
+            });
+        }
+        regs
     };
 
     if json {
+        // "hook" mirrors the pre-multi-agent single-object contract (Claude's
+        // registration specifically) so existing callers that only ever dealt
+        // with Claude Code keep working unchanged; "hooks" is the full list.
+        let claude_hook = registrations.iter().find(|r| r.agent == Agent::Claude);
+        let hook_json = claude_hook.map(|r| {
+            serde_json::json!({
+                "settings": r.settings_path.display().to_string(),
+                "command": r.command,
+                "outcome": outcome_str(&r.outcome),
+            })
+        });
+        let hooks_json: Vec<_> = registrations
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "agent": r.agent.key(),
+                    "settings": r.settings_path.display().to_string(),
+                    "command": r.command,
+                    "outcome": outcome_str(&r.outcome),
+                })
+            })
+            .collect();
         crate::output::emit_json(&serde_json::json!({
             "policy_dir": guard_dir.display().to_string(),
             "scaffolded": scaffolded,
-            "hook": registration.as_ref().map(|(path, command, outcome)| serde_json::json!({
-                "settings": path.display().to_string(),
-                "command": command,
-                "outcome": match outcome {
-                    RegisterOutcome::Created => "created",
-                    RegisterOutcome::Updated => "updated",
-                    RegisterOutcome::Unchanged => "unchanged",
-                },
-            })),
+            "hook": hook_json,
+            "hooks": hooks_json,
         }))?;
     } else {
         if scaffolded {
@@ -155,22 +233,30 @@ pub fn run(args: GuardInitArgs, json: bool) -> Result<()> {
         } else {
             println!("Guard policy already exists in {}", guard_dir.display());
         }
-        match &registration {
-            Some((path, command, outcome)) => {
-                let verb = match outcome {
+        if registrations.is_empty() {
+            println!("Skipped hook registration (--no-hook)");
+        } else {
+            for r in &registrations {
+                let verb = match r.outcome {
                     RegisterOutcome::Created => "Registered",
                     RegisterOutcome::Updated => "Updated",
                     RegisterOutcome::Unchanged => "Already registered:",
                 };
-                println!("{verb} PreToolUse hook in {}", path.display());
-                println!("  {command}");
+                println!(
+                    "{verb} {} hook for {} in {}",
+                    r.agent.hook_event_name(),
+                    r.agent.label(),
+                    r.settings_path.display()
+                );
+                println!("  {}", r.command);
             }
-            None => println!("Skipped hook registration (--no-hook)"),
         }
         println!(
             "\nNext: `ordo guard test` · edit .ordo-guard/rulesets/policy.json · `ordo guard log`"
         );
-        println!("Restart Claude Code (or run /hooks) to pick up the new hook.");
+        for r in &registrations {
+            println!("{}", r.agent.restart_hint());
+        }
     }
     Ok(())
 }
@@ -207,14 +293,21 @@ fn scaffold(guard_dir: &Path) -> Result<()> {
 const GUARD_AGENTS_MD: &str = r#"# Ordo guard policy
 
 This folder is the tool-call policy for AI coding agents working in the parent
-repo. On every Claude Code PreToolUse event, `ordo guard hook` evaluates
-`rulesets/policy.json` against the event and answers allow / deny / ask;
-any other terminal code (conventionally `PASS`) means "no opinion" and Claude
-Code's normal permission flow applies. Decisions are appended to `log.jsonl`.
+repo. `ordo guard hook` evaluates `rulesets/policy.json` on every pre-tool-call
+event and answers allow / deny / ask; any other terminal code (conventionally
+`PASS`) means "no opinion" and the agent's normal permission flow applies.
+Decisions are appended to `log.jsonl`.
+
+One policy, enforced identically across whichever agents are hooked up —
+`ordo guard init --agent <claude|codex|cursor>` (repeatable/comma-separated;
+default `claude`). Claude Code and Codex CLI speak the same PreToolUse
+protocol; Cursor's `beforeShellExecution` hook only sees shell commands (no
+file-edit visibility), so `file_path`-based rules simply never fire for it.
 
 ## Input the policy sees
 Flattened from the hook event — reference these directly in conditions:
-- `tool` — the tool name (`Bash`, `Read`, `Write`, `Edit`, …)
+- `tool` — the tool name (`Bash`, `Read`, `Write`, `Edit`, …; always `Bash` for
+  Cursor, since it only hooks shell execution)
 - hoisted tool inputs: `command` (Bash), `file_path` (Read/Write/Edit), `url`, …
 - `cwd`, `permission_mode`, `session_id`; the full `tool_input` object is nested.
 
@@ -268,5 +361,31 @@ mod tests {
             .unwrap()
             .iter()
             .any(|f| f["name"] == "command"));
+    }
+
+    #[test]
+    fn settings_path_for_each_agent() {
+        let root = Path::new("/repo");
+        assert_eq!(
+            settings_path_for(root, Agent::Claude, false),
+            Path::new("/repo/.claude/settings.local.json")
+        );
+        assert_eq!(
+            settings_path_for(root, Agent::Claude, true),
+            Path::new("/repo/.claude/settings.json")
+        );
+        // Codex/Cursor: one project-local file regardless of --shared.
+        assert_eq!(
+            settings_path_for(root, Agent::Codex, false),
+            Path::new("/repo/.codex/hooks.json")
+        );
+        assert_eq!(
+            settings_path_for(root, Agent::Codex, true),
+            Path::new("/repo/.codex/hooks.json")
+        );
+        assert_eq!(
+            settings_path_for(root, Agent::Cursor, false),
+            Path::new("/repo/.cursor/hooks.json")
+        );
     }
 }

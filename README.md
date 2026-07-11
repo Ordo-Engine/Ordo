@@ -30,10 +30,11 @@ An LLM is non-deterministic: ask it the same thing twice and you can get two ans
 
 ## Guard your coding agent in 5 minutes
 
-The sharpest place to feel this today: put deterministic guardrails on a coding agent. `ordo guard` runs every Claude Code tool call through a local rule and decides.
+The sharpest place to feel this today: put deterministic guardrails on a coding agent. `ordo guard` hooks into **Claude Code, Codex CLI, and Cursor** and runs every tool call through the same local policy.
 
 ```bash
-npx @ordo-engine/cli guard init      # scaffold the policy + wire the Claude Code hook
+npx @ordo-engine/cli guard init                        # Claude Code (default)
+npx @ordo-engine/cli guard init --agent codex,cursor    # …and/or Codex CLI, Cursor
 ```
 
 Now your agent is gated. When it reaches for something destructive, Ordo stops it — with a reason:

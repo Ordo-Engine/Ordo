@@ -62,7 +62,8 @@ enum Commands {
     Fmt(fmt::FmtArgs),
     /// Lint the project's rulesets for graph and style issues
     Lint(lint::LintArgs),
-    /// Agent guardrails — a deterministic policy gate for Claude Code tool calls
+    /// Agent guardrails — a deterministic policy gate for coding-agent tool
+    /// calls (Claude Code, Codex CLI, Cursor)
     Guard(guard::GuardArgs),
     /// Replay captured decisions against the current ruleset (spot flips, fixate tests)
     Replay(replay::ReplayArgs),

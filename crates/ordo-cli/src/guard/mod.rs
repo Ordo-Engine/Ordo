@@ -1,22 +1,27 @@
-//! `ordo guard` — agent guardrails: a deterministic policy gate for Claude Code
-//! tool calls.
+//! `ordo guard` — agent guardrails: a deterministic policy gate for coding
+//! agents' tool calls (Claude Code, Codex CLI, Cursor).
 //!
-//! Every PreToolUse event is piped through a local Ordo ruleset that decides
-//! allow / deny / ask. The policy lives in `.ordo-guard/` as a normal Ordo
-//! project, so the guardrails themselves have a test suite (`ordo guard test`)
-//! and are trace-debuggable (`ordo trace`), and every decision is appended to a
-//! JSONL audit log (`ordo guard log`).
+//! Every pre-tool-call event is piped through a local Ordo ruleset that
+//! decides allow / deny / ask. The policy lives in `.ordo-guard/` as a normal
+//! Ordo project, so the guardrails themselves have a test suite
+//! (`ordo guard test`) and are trace-debuggable (`ordo trace`), and every
+//! decision is appended to a JSONL audit log (`ordo guard log`). One policy,
+//! enforced identically across whichever agents are hooked up — see
+//! [`agent::Agent`] for the per-agent protocol differences.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use std::path::{Path, PathBuf};
 
+mod agent;
 mod audit;
 mod hook;
 mod init;
 mod log;
 mod settings;
 mod test;
+
+pub(crate) use agent::Agent;
 
 /// Directory holding the guard policy project, relative to the repo root.
 pub const POLICY_DIR_NAME: &str = ".ordo-guard";
@@ -31,9 +36,9 @@ pub struct GuardArgs {
 
 #[derive(Subcommand)]
 enum GuardCmd {
-    /// Scaffold a guard policy project and register the Claude Code hook
+    /// Scaffold a guard policy project and register the agent hook(s)
     Init(init::GuardInitArgs),
-    /// PreToolUse hook executor: reads the event on stdin, prints a decision
+    /// Pre-tool-call hook executor: reads the event on stdin, prints a decision
     Hook(hook::HookArgs),
     /// Show recent guard decisions from the audit log
     Log(log::LogArgs),

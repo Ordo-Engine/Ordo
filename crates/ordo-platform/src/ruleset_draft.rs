@@ -30,6 +30,7 @@ use crate::{
         PERM_RULESET_EDIT, PERM_RULESET_PUBLISH, PERM_RULESET_VIEW,
     },
     release::hash_json_value,
+    store::RULESET_VERSION_BUMP_REQUIRED,
     AppState,
 };
 use axum::{
@@ -138,6 +139,14 @@ pub async fn save_draft(
                 server_seq,
             })))
         }
+        // Editing a published ruleset without bumping its version would silently
+        // overwrite the published draft snapshot in place. This is a 409 the
+        // client can act on (bump the version and retry), not an internal
+        // error — `PlatformError::conflict` routes the exact message through
+        // `error.rs`'s `ruleset.version_bump_required` mapping.
+        Err(e) if e.to_string() == RULESET_VERSION_BUMP_REQUIRED => Err(DraftSaveResponse::Err(
+            PlatformError::conflict(e.to_string()),
+        )),
         Err(e) => Err(DraftSaveResponse::Err(PlatformError::Internal(e))),
     }
 }

@@ -9,6 +9,7 @@ use clap::Args;
 use ordo_core::prelude::RuleSet;
 use ordo_studio_format::{materialize_concepts, ConvertError};
 use serde::Serialize;
+use std::path::Path;
 
 use crate::project::Project;
 
@@ -34,15 +35,35 @@ pub(crate) struct ValidationError {
 
 pub fn run(args: ValidateArgs, json: bool) -> Result<()> {
     let project = Project::discover(None)?;
+    let validating_whole_project = args.name.is_none();
     let names = match args.name {
         Some(n) => vec![crate::project::ruleset_name(&n)],
         None => project.ruleset_names()?,
     };
     let concepts = project.load_concepts()?;
 
-    let mut reports = Vec::with_capacity(names.len());
+    let mut reports = Vec::with_capacity(names.len() + 2);
     for name in &names {
         reports.push(validate_one(&project, name, &concepts));
+    }
+    // Catalog-level (not per-ruleset), but a bad data_type/null_policy here
+    // would otherwise only surface as a 4xx from `ordo push` — same class of
+    // problem `validate_one` already catches for rulesets, extended to the
+    // two files it never touched. Only when validating the whole project —
+    // `ordo validate <one-ruleset>` shouldn't also report on unrelated files.
+    if validating_whole_project {
+        if let Some(report) = validate_catalog_file(&project.facts_path(), "facts.json", |v| {
+            crate::catalog::validate_facts(v)
+        })? {
+            reports.push(report);
+        }
+        if let Some(report) =
+            validate_catalog_file(&project.concepts_path(), "concepts.json", |v| {
+                crate::catalog::validate_concepts(v)
+            })?
+        {
+            reports.push(report);
+        }
     }
 
     let all_ok = reports.iter().all(|r| r.ok);
@@ -160,4 +181,45 @@ pub(crate) fn validate_one(
         ok: errors.is_empty(),
         errors,
     }
+}
+
+/// Validate a catalog file (`facts.json` / `concepts.json`) with `validator`,
+/// wrapped as a `RulesetReport` under `label` — reuses the exact same
+/// report/print/JSON shape as a ruleset, since the CLI output already prints
+/// `✓/✗ <name>` generically. `None` when the file doesn't exist (consistent
+/// with `ordo push`'s "an absent catalog file is skipped, not an error"). A
+/// read/parse failure becomes a failed report rather than aborting the whole
+/// `ordo validate` run, matching how `validate_one` handles an unreadable
+/// ruleset.
+fn validate_catalog_file(
+    path: &Path,
+    label: &str,
+    validator: impl Fn(&[serde_json::Value]) -> Vec<String>,
+) -> Result<Option<RulesetReport>> {
+    let values = match crate::project::read_json_array(path) {
+        Ok(None) => return Ok(None),
+        Ok(Some(v)) => v,
+        Err(e) => {
+            return Ok(Some(RulesetReport {
+                ruleset: label.to_string(),
+                ok: false,
+                errors: vec![ValidationError {
+                    step_id: None,
+                    message: format!("{e:#}"),
+                }],
+            }))
+        }
+    };
+    let errors = validator(&values)
+        .into_iter()
+        .map(|message| ValidationError {
+            step_id: None,
+            message,
+        })
+        .collect::<Vec<_>>();
+    Ok(Some(RulesetReport {
+        ruleset: label.to_string(),
+        ok: errors.is_empty(),
+        errors,
+    }))
 }

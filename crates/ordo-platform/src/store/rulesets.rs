@@ -239,9 +239,7 @@ impl PlatformStore {
             if existing.meta.published_version.is_some()
                 && incoming_version == existing.meta.published_version
             {
-                return Err(anyhow::anyhow!(
-                    "Published ruleset changes require a new version number"
-                ));
+                return Err(anyhow::anyhow!(super::RULESET_VERSION_BUMP_REQUIRED));
             }
             let result = sqlx::query(
                 "UPDATE project_rulesets SET
@@ -445,5 +443,18 @@ mod tests {
 
         let missing = serde_json::json!({ "config": {} });
         assert_eq!(extract_ruleset_version(&missing), None);
+    }
+
+    #[test]
+    fn version_bump_required_message_round_trips_through_anyhow() {
+        // save_draft_ruleset raises this via anyhow::anyhow!(...), and the
+        // ruleset_draft.rs handler routes it to a 409 by matching the error's
+        // rendered text against this exact constant (see its doc comment for
+        // why: that match used to be a hand-typed string literal that had
+        // already drifted out of sync once, silently downgrading the 409 into
+        // a generic 500). Pin the round trip so a refactor can't reintroduce
+        // the drift without a test failing here first.
+        let err = anyhow::anyhow!(crate::store::RULESET_VERSION_BUMP_REQUIRED);
+        assert_eq!(err.to_string(), crate::store::RULESET_VERSION_BUMP_REQUIRED);
     }
 }

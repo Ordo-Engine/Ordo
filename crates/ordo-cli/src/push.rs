@@ -65,24 +65,45 @@ pub async fn run(args: PushArgs, json: bool) -> Result<()> {
 
     if !args.rulesets_only && !had_error {
         // 2. Facts + concepts (whole-catalog sync: upsert local, delete server-only).
-        if let Some(facts) = read_array(&project.facts_path())? {
-            let (up, del) = sync_facts(client, proj, &facts).await.map_err(anyerr)?;
-            results.push(("facts.json".into(), format!("{up} upserted, {del} removed")));
+        // Validated locally first — an invalid data_type/null_policy would
+        // otherwise only surface as a 4xx from the server, after every prior
+        // entry already round-tripped over the network.
+        if let Some(facts) = crate::project::read_json_array(&project.facts_path())? {
+            let errors = crate::catalog::validate_facts(&facts);
+            if errors.is_empty() {
+                let (up, del) = sync_facts(client, proj, &facts).await.map_err(anyerr)?;
+                results.push(("facts.json".into(), format!("{up} upserted, {del} removed")));
+            } else {
+                had_error = true;
+                results.push((
+                    "facts.json".into(),
+                    format!("invalid: {}", errors.join("; ")),
+                ));
+            }
         }
-        if let Some(concepts) = read_array(&project.concepts_path())? {
-            let (up, del) = sync_concepts(client, proj, &concepts)
-                .await
-                .map_err(anyerr)?;
-            results.push((
-                "concepts.json".into(),
-                format!("{up} upserted, {del} removed"),
-            ));
+        if let Some(concepts) = crate::project::read_json_array(&project.concepts_path())? {
+            let errors = crate::catalog::validate_concepts(&concepts);
+            if errors.is_empty() {
+                let (up, del) = sync_concepts(client, proj, &concepts)
+                    .await
+                    .map_err(anyerr)?;
+                results.push((
+                    "concepts.json".into(),
+                    format!("{up} upserted, {del} removed"),
+                ));
+            } else {
+                had_error = true;
+                results.push((
+                    "concepts.json".into(),
+                    format!("invalid: {}", errors.join("; ")),
+                ));
+            }
         }
 
         // 3. Tests (per ruleset, keyed by name).
         for name in &names {
             let path = project.tests_path(name);
-            if let Some(tests) = read_array(&path)? {
+            if let Some(tests) = crate::project::read_json_array(&path)? {
                 sync_tests(client, proj, name, &tests).await?;
                 results.push((format!("tests/{name}"), format!("{} synced", tests.len())));
             }
@@ -122,20 +143,6 @@ pub async fn run(args: PushArgs, json: bool) -> Result<()> {
 
 fn anyerr(e: ApiError) -> anyhow::Error {
     anyhow::anyhow!("{e}")
-}
-
-fn read_array(path: &std::path::Path) -> Result<Option<Vec<Value>>> {
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    if text.trim().is_empty() {
-        return Ok(Some(Vec::new()));
-    }
-    serde_json::from_str(&text)
-        .map(Some)
-        .with_context(|| format!("invalid JSON in {}", path.display()))
 }
 
 fn names_of(items: &[Value]) -> HashSet<String> {

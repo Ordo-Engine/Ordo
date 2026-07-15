@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 
 mod api;
+mod catalog;
 mod config;
 mod deployments;
 mod diff;

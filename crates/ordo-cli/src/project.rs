@@ -33,6 +33,23 @@ pub fn ruleset_name(id: &str) -> String {
     s.strip_suffix(".json").unwrap_or(s).to_string()
 }
 
+/// Read a JSON array file as raw `Value`s (not a typed struct — used where the
+/// caller needs every field, including ones a typed deserialize would drop or
+/// reject). `None` when the file doesn't exist; an empty file is `Some(vec![])`.
+pub fn read_json_array(path: &Path) -> Result<Option<Vec<serde_json::Value>>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    if text.trim().is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    serde_json::from_str(&text)
+        .map(Some)
+        .with_context(|| format!("invalid JSON in {}", path.display()))
+}
+
 /// Project + link configuration, persisted as `ordo.yaml`. The link fields are
 /// populated by `ordo link` (Phase 2) and are safe to commit (ids, not secrets).
 #[derive(Debug, Clone, Serialize, Deserialize)]

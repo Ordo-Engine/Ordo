@@ -91,7 +91,7 @@ cranelift-codegen = "0.110"
 # 并发数据结构
 dashmap = "6"
 crossbeam-channel = "0.5"
-lru = "0.12"
+lru = "0.18"
 
 # Proc macros
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }

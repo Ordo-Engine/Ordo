@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 mod agent;
 mod audit;
+mod context;
 mod hook;
 mod init;
 mod log;

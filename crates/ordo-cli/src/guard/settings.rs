@@ -41,7 +41,7 @@ pub(crate) fn hook_command(shared: bool, custom: Option<String>, agent: Agent) -
         NPX_HOOK_COMMAND.to_string()
     } else {
         let exe = std::env::current_exe().context("cannot determine the ordo binary path")?;
-        let exe = exe.canonicalize().unwrap_or(exe);
+        let exe = canonicalize_plain(exe);
         let exe = if is_ephemeral_install(&exe) {
             match install_stable_copy(&exe) {
                 Ok(stable) => stable,
@@ -65,6 +65,25 @@ pub(crate) fn hook_command(shared: bool, custom: Option<String>, agent: Agent) -
         format!("{quoted} guard hook")
     };
     Ok(with_agent_flag(base, agent))
+}
+
+/// `canonicalize`, minus Windows' verbatim `\\?\` prefix on plain drive
+/// paths: `cmd.exe` and the shells agents run hooks through can't execute or
+/// `cd` into `\\?\C:\…`. UNC and other verbatim forms are kept as-is.
+pub(crate) fn canonicalize_plain(path: std::path::PathBuf) -> std::path::PathBuf {
+    let canonical = path.canonicalize().unwrap_or(path);
+    strip_verbatim_drive(canonical)
+}
+
+fn strip_verbatim_drive(path: std::path::PathBuf) -> std::path::PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        let mut chars = rest.chars();
+        if matches!(chars.next(), Some(c) if c.is_ascii_alphabetic()) && chars.next() == Some(':') {
+            return std::path::PathBuf::from(rest);
+        }
+    }
+    path
 }
 
 const NPX_HOOK_COMMAND: &str = "npx -y @ordo-engine/cli guard hook";
@@ -368,6 +387,22 @@ mod tests {
         let entries = root["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["hooks"][0]["command"], "/new/ordo guard hook");
+    }
+
+    #[test]
+    fn verbatim_drive_prefix_is_stripped() {
+        assert_eq!(
+            strip_verbatim_drive(PathBuf::from(r"\\?\C:\a\ordo.exe")),
+            PathBuf::from(r"C:\a\ordo.exe")
+        );
+        assert_eq!(
+            strip_verbatim_drive(PathBuf::from(r"\\?\UNC\srv\share\ordo.exe")),
+            PathBuf::from(r"\\?\UNC\srv\share\ordo.exe")
+        );
+        assert_eq!(
+            strip_verbatim_drive(PathBuf::from("/usr/bin/ordo")),
+            PathBuf::from("/usr/bin/ordo")
+        );
     }
 
     #[test]

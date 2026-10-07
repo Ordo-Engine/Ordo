@@ -71,7 +71,7 @@ impl Report {
 
 pub fn run(args: DoctorArgs, json: bool) -> Result<()> {
     let root = PathBuf::from(&args.dir);
-    let root = root.canonicalize().unwrap_or(root);
+    let root = super::settings::canonicalize_plain(root);
     let mut report = Report(Vec::new());
 
     let policy_dir = args.policy_dir.as_ref().map(PathBuf::from).or_else(|| {
@@ -269,11 +269,17 @@ fn probe(root: &Path, agent: Agent, command: &str) -> Result<Probe> {
         }),
         Agent::Cursor => serde_json::json!({ "command": PROBE_COMMAND, "cwd": root }),
     };
-    let mut cmd = if cfg!(windows) {
+    #[cfg(windows)]
+    let mut cmd = {
+        // Passed verbatim: std's argument quoting would turn the quotes
+        // around a spaced path into `\"`, which cmd.exe doesn't understand.
+        use std::os::windows::process::CommandExt;
         let mut c = Command::new("cmd");
-        c.arg("/C").arg(command);
+        c.arg("/C").raw_arg(command);
         c
-    } else {
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
         let mut c = Command::new("sh");
         c.arg("-c").arg(command);
         c

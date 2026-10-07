@@ -38,10 +38,24 @@ pub(crate) fn hook_command(shared: bool, custom: Option<String>, agent: Agent) -
         return Ok(cmd);
     }
     let base = if shared {
-        "npx -y @ordo-engine/cli guard hook".to_string()
+        NPX_HOOK_COMMAND.to_string()
     } else {
         let exe = std::env::current_exe().context("cannot determine the ordo binary path")?;
         let exe = exe.canonicalize().unwrap_or(exe);
+        let exe = if is_ephemeral_install(&exe) {
+            match install_stable_copy(&exe) {
+                Ok(stable) => stable,
+                Err(e) => {
+                    eprintln!(
+                        "warning: could not copy ordo out of the npx cache ({e:#}); \
+                         registering the portable npx command instead"
+                    );
+                    return Ok(with_agent_flag(NPX_HOOK_COMMAND.to_string(), agent));
+                }
+            }
+        } else {
+            exe
+        };
         let path = exe.display().to_string();
         let quoted = if path.contains(char::is_whitespace) {
             format!("\"{path}\"")
@@ -50,11 +64,76 @@ pub(crate) fn hook_command(shared: bool, custom: Option<String>, agent: Agent) -
         };
         format!("{quoted} guard hook")
     };
-    Ok(match agent {
+    Ok(with_agent_flag(base, agent))
+}
+
+const NPX_HOOK_COMMAND: &str = "npx -y @ordo-engine/cli guard hook";
+
+fn with_agent_flag(base: String, agent: Agent) -> String {
+    match agent {
         Agent::Claude => base,
         Agent::Codex => format!("{base} --agent codex"),
         Agent::Cursor => format!("{base} --agent cursor"),
-    })
+    }
+}
+
+/// npx runs the binary out of its package cache (`…/_npx/<hash>/…`), which
+/// `npm cache clean` or a later npx run can delete. A hook pointing there
+/// then fails to spawn, and agents treat a hook that can't run as
+/// non-blocking — guard would be silently off.
+pub(crate) fn is_ephemeral_install(exe: &Path) -> bool {
+    exe.components().any(|c| c.as_os_str() == "_npx")
+}
+
+/// Copy the running binary to `~/.ordo/bin/` (write-then-rename, so a hook
+/// already running the old copy is unaffected) and return the new path.
+fn install_stable_copy(exe: &Path) -> Result<std::path::PathBuf> {
+    let home = dirs::home_dir().context("cannot determine the home directory")?;
+    let dir = home.join(".ordo").join("bin");
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    let name = if cfg!(windows) { "ordo.exe" } else { "ordo" };
+    let dest = dir.join(name);
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::copy(exe, &tmp).with_context(|| format!("failed to write {}", tmp.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &dest) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("failed to replace {}", dest.display()));
+    }
+    Ok(dest)
+}
+
+/// The guard hook commands registered in an agent config file (any shape
+/// `register_hook` / `register_cursor_hook` writes). Missing or unreadable
+/// files yield an empty list.
+pub(crate) fn registered_commands(settings_path: &Path, agent: Agent) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(settings_path) else {
+        return Vec::new();
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let event = agent.hook_event_name();
+    let entries = root["hooks"][event].as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for entry in &entries {
+        let hooks = match agent {
+            Agent::Cursor => vec![entry.clone()],
+            Agent::Claude | Agent::Codex => entry["hooks"].as_array().cloned().unwrap_or_default(),
+        };
+        for hook in hooks {
+            if let Some(cmd) = hook["command"].as_str() {
+                if cmd.contains(COMMAND_MARKER) {
+                    out.push(cmd.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Merge the PreToolUse hook entry into `settings_path` (Claude Code's
@@ -289,6 +368,36 @@ mod tests {
         let entries = root["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["hooks"][0]["command"], "/new/ordo guard hook");
+    }
+
+    #[test]
+    fn npx_cache_paths_are_ephemeral() {
+        assert!(is_ephemeral_install(Path::new(
+            "/root/.npm/_npx/a7874a686ff5fe79/node_modules/@ordo-engine/cli/bin/ordo-native"
+        )));
+        assert!(!is_ephemeral_install(Path::new("/usr/local/bin/ordo")));
+        assert!(!is_ephemeral_install(Path::new(
+            "/home/u/my_npx_tools/ordo"
+        )));
+    }
+
+    #[test]
+    fn registered_commands_reads_every_agent_shape() {
+        let path = temp_settings("read");
+        let _ = std::fs::remove_file(&path);
+        register_hook(&path, "/bin/ordo guard hook").unwrap();
+        assert_eq!(
+            registered_commands(&path, Agent::Claude),
+            ["/bin/ordo guard hook"]
+        );
+        let cursor = path.with_file_name("hooks.json");
+        let _ = std::fs::remove_file(&cursor);
+        register_cursor_hook(&cursor, "/bin/ordo guard hook --agent cursor").unwrap();
+        assert_eq!(
+            registered_commands(&cursor, Agent::Cursor),
+            ["/bin/ordo guard hook --agent cursor"]
+        );
+        assert!(registered_commands(Path::new("/nonexistent/x.json"), Agent::Claude).is_empty());
     }
 
     #[test]

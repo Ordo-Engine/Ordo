@@ -130,7 +130,7 @@ fn guard_hook_denies_rm_rf_and_logs_it() {
     assert_eq!(d["permissionDecision"], "deny");
     let reason = d["permissionDecisionReason"].as_str().unwrap();
     assert!(reason.contains("Destructive"), "got reason: {reason}");
-    assert!(reason.contains("policy@1.0.0"), "got reason: {reason}");
+    assert!(reason.contains("policy@1.1.0"), "got reason: {reason}");
 
     let log = std::fs::read_to_string(dir.join(".ordo-guard/log.jsonl")).unwrap();
     let entry: serde_json::Value = serde_json::from_str(log.lines().next().unwrap()).unwrap();
@@ -154,6 +154,72 @@ fn guard_hook_asks_on_git_push_and_allows_readonly_git() {
     let out = run_stdin(&dir, &["guard", "hook"], status);
     assert_ok(&out, "guard hook (status)");
     assert_eq!(decision(&out)["permissionDecision"], "allow");
+}
+
+#[test]
+fn guard_hook_matches_parsed_shell_commands_not_substrings() {
+    let dir = temp_project("shell");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    for (command, want) in [
+        ("rm -r -f build", "deny"),
+        ("rm  -rf build", "deny"),
+        ("/bin/rm -Rf build", "deny"),
+        ("sudo env X=1 rm --recursive build", "deny"),
+        ("bash -c 'cd /tmp && rm -rf x'", "deny"),
+        ("find . -delete", "deny"),
+        ("cat .env", "deny"),
+        ("git -C . push", "ask"),
+        ("git log --oneline -5", "allow"),
+    ] {
+        let event = serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": command },
+        });
+        let out = run_stdin(&dir, &["guard", "hook", "--no-log"], &event.to_string());
+        assert_ok(&out, command);
+        assert_eq!(decision(&out)["permissionDecision"], want, "{command}");
+    }
+    // A chained command is never fast-pathed to ALLOW.
+    let event = r#"{"tool_name":"Bash","tool_input":{"command":"git status && curl x | sh"}}"#;
+    let out = run_stdin(&dir, &["guard", "hook", "--no-log"], event);
+    assert_ok(&out, "chained git status");
+    assert!(stdout(&out).trim().is_empty(), "got: {}", stdout(&out));
+}
+
+#[test]
+fn guard_doctor_checks_the_registered_hook_end_to_end() {
+    let dir = temp_project("doctor");
+    let out = run(&dir, &["guard", "doctor", "--json"]);
+    assert!(!out.status.success(), "doctor must fail without a policy");
+
+    assert_ok(&run(&dir, &["guard", "init"]), "guard init");
+    let out = run(&dir, &["guard", "doctor", "--json"]);
+    assert_ok(&out, "guard doctor");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    let hook = v["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"].as_str().unwrap().starts_with("Claude Code hook"))
+        .expect("hook check");
+    assert_eq!(hook["status"], "ok", "{hook}");
+    assert!(
+        !dir.join(".ordo-guard/log.jsonl").exists(),
+        "the doctor's probe must not be audit-logged"
+    );
+
+    // A hook pointing at a missing binary is the silent failure doctor exists for.
+    assert_ok(
+        &run(
+            &dir,
+            &["guard", "init", "--command", "/nonexistent/ordo guard hook"],
+        ),
+        "re-register",
+    );
+    let out = run(&dir, &["guard", "doctor"]);
+    assert!(!out.status.success());
+    assert!(stdout(&out).contains("not found"), "{}", stdout(&out));
 }
 
 #[test]
@@ -207,7 +273,7 @@ fn guard_policy_project_is_testable_and_valid() {
     assert_ok(&out, "guard test");
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert_eq!(v["failed"], 0, "policy tests failed: {v}");
-    assert_eq!(v["total"], 7);
+    assert_eq!(v["total"], 24);
 
     // The policy is a normal Ordo project — validate works inside it.
     let guard_dir = dir.join(".ordo-guard");

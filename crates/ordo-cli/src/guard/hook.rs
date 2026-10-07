@@ -23,6 +23,7 @@ use std::path::Path;
 
 use super::audit::{self, AuditEntry};
 use super::context::{self, Status, TaskContext};
+use super::shell;
 use super::Agent;
 use crate::project::Project;
 use crate::runtime::{execute_loaded_rule, LoadedRule};
@@ -41,7 +42,7 @@ pub struct HookArgs {
     #[arg(long)]
     fail_closed: bool,
 
-    /// Skip the audit-log append
+    /// Skip the audit-log append (also: `ORDO_GUARD_NO_LOG=1`)
     #[arg(long)]
     no_log: bool,
 
@@ -122,7 +123,8 @@ struct Decision {
     duration_us: u64,
 }
 
-pub fn run(args: HookArgs, _json: bool) -> Result<()> {
+pub fn run(mut args: HookArgs, _json: bool) -> Result<()> {
+    args.no_log |= std::env::var_os("ORDO_GUARD_NO_LOG").is_some_and(|v| !v.is_empty());
     if std::io::stdin().is_terminal() {
         anyhow::bail!(
             "`ordo guard hook` reads a pre-tool-call event on stdin — it is meant to be \
@@ -220,6 +222,9 @@ const RESERVED_TASK_KEYS: [&str; 3] = ["task", "task_context", "rel_path"];
 ///
 /// Task context adds `task_context` (always), plus `task` and `rel_path` (the
 /// edited path relative to the task root) when the context is active.
+///
+/// A `Bash` call also gets the structured shell facts from `shell::analyze`
+/// (`programs`, `subcommands`, `argv`, `commands`, `words`, `shell_parse`).
 fn build_policy_input(event: &HookEvent, ctx: &TaskContext) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("tool".into(), event.tool_name.clone().into());
@@ -251,6 +256,7 @@ fn build_policy_input(event: &HookEvent, ctx: &TaskContext) -> serde_json::Value
             if !value.is_null()
                 && !map.contains_key(key)
                 && !RESERVED_TASK_KEYS.contains(&key.as_str())
+                && !shell::FACT_KEYS.contains(&key.as_str())
             {
                 map.insert(key.clone(), value.clone());
             }
@@ -259,7 +265,20 @@ fn build_policy_input(event: &HookEvent, ctx: &TaskContext) -> serde_json::Value
     if !event.tool_input.is_null() {
         map.insert("tool_input".into(), event.tool_input.clone());
     }
+    add_shell_facts(&mut map);
     serde_json::Value::Object(map)
+}
+
+/// Add the shell facts for a `Bash` call's `command`. Shared with
+/// `ordo guard test`, so a test case written as `{tool, command}` sees
+/// exactly what the live hook would; facts a case sets explicitly win.
+pub(crate) fn add_shell_facts(map: &mut serde_json::Map<String, serde_json::Value>) {
+    if map.get("tool").and_then(|t| t.as_str()) != Some("Bash") || map.contains_key("programs") {
+        return;
+    }
+    if let Some(command) = map.get("command").and_then(|c| c.as_str()) {
+        shell::analyze(command).insert_into(map);
+    }
 }
 
 fn decide(

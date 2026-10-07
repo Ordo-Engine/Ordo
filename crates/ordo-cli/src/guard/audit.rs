@@ -23,6 +23,15 @@ pub(crate) struct AuditEntry {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// Task-context status (`active`, `mismatch`, …); omitted when there is
+    /// no `context.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// `sha256:<hex>` of the `context.json` the decision was made under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_hash: Option<String>,
 }
 
 pub(crate) fn append(policy_dir: &Path, entry: &AuditEntry) {
@@ -73,6 +82,9 @@ mod tests {
             duration_us: 42,
             summary: "s".into(),
             cwd: None,
+            task_context: None,
+            task_id: None,
+            context_hash: None,
         }
     }
 

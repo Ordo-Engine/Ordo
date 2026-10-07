@@ -93,6 +93,8 @@ conditions:
 | `permission_mode` | `"default"`          | Claude Code / Codex CLI permission mode; absent on Cursor |
 | `session_id`      | `"c1a2…"`             | Cursor's `conversation_id` maps into this field too       |
 | `tool_input`      | `{ … }`              | the full, nested tool input                                |
+| `task_context`    | `"active"`           | always set — see [Task context](#task-context)              |
+| `task`, `rel_path` | `{ … }`, `"src/a.ts"` | only when a task context is active                        |
 
 Any other key inside `tool_input` is hoisted to the top level too, so a new tool
 is usable in conditions without a code change.
@@ -121,7 +123,7 @@ match wins. Terminal codes map to decisions: `DENY`, `ASK`, `ALLOW`, and `PASS`
 
 The expression language has `== != > >= < <=`, `&&` `||` `!`, `in`, `contains`,
 and functions like `starts_with(s, prefix)`, `ends_with(s, suffix)`, and
-`regex_match(pattern, s)`.
+`regex_match(pattern, s)`, and `glob_match(pattern_or_patterns, s)`.
 
 ::: warning `regex_match` argument order
 The **pattern comes first**: `regex_match('rm\\s+-rf', command)`, not the other
@@ -130,6 +132,70 @@ way around.
 
 The decision reason shown to the agent comes from the matched terminal's
 `message` (or a `reason` output field, if you set one).
+
+## Task context
+
+A tool-call event says nothing about *the task* the agent is working on, so a
+policy can say "never run `terraform destroy`" but not "for this task, only
+touch `src/auth/`". To scope a task, write `.ordo-guard/context.json` (by
+hand, or from a task-planning tool) and keep one hand-written policy that
+reads it:
+
+```json
+{
+  "root": "/abs/path/to/repo",
+  "session_id": "optional: only this agent session",
+  "expires_at": "2026-10-08T00:00:00Z",
+  "task": { "id": "login-signup", "touches": ["src/auth/**", "db/schema.sql"] }
+}
+```
+
+`task` is passed through as-is: put whatever your policy needs in it. The
+context only applies when it is bound to the event:
+
+| Check        | Rule                                                                     |
+| ------------ | ------------------------------------------------------------------------ |
+| `root`       | the event's `cwd` must be inside it (default: the repo holding `.ordo-guard/`) |
+| `session_id` | if set, must equal the event's session id                                |
+| `expires_at` | if set (RFC 3339), must be in the future                                 |
+
+When it applies, the input gains `task` and `rel_path`: the edited file
+(`file_path` / `notebook_path`) relative to `root`, `/`-separated, with `.`
+and `..` resolved. Paths outside the root come back as `../…`. The input
+*always* carries `task_context`, so the policy can decide what "no usable
+task" means:
+
+| `task_context` | Meaning                                                    |
+| -------------- | ----------------------------------------------------------- |
+| `active`       | context applied: `task` and `rel_path` are set              |
+| `absent`       | no `context.json`                                           |
+| `mismatch`     | wrong `cwd` (outside `root`) or wrong session               |
+| `expired`      | past `expires_at`                                           |
+| `invalid`      | unreadable or malformed (a warning goes to stderr)          |
+
+Put the scope rule *after* your base rules, so `rm -rf` and secret access are
+still denied inside the task:
+
+```json
+{
+  "id": "gate-scope",
+  "label": "stay inside the task scope",
+  "condition": "task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)",
+  "nextStepId": "ask_scope"
+}
+```
+
+`glob_match` takes one pattern or an array of patterns (true if any
+matches). Its `*` also matches `/`, so `src/auth/*` covers subdirectories
+too; avoid patterns that start with a wildcard (`**`, `*/…`), since those
+also match `../` paths outside the root.
+
+Every audit-log entry made under a context records `task_context`,
+`task_id`, and `context_hash` (`sha256:` of the exact `context.json`), so a
+decision can be traced back to the task definition that was active. Like the
+rest of guard, the check is on tool *calls*: it compares path strings and
+does not resolve symlinks, and a `Bash` command can still write anywhere.
+Pair a scope rule with an `ASK` on `Bash` if that matters for the task.
 
 ## Test your guardrails
 

@@ -75,6 +75,8 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 | `permission_mode` | `"default"`         | Claude Code/Codex 权限模式；Cursor 上不存在     |
 | `session_id`      | `"c1a2…"`           | Cursor 的 `conversation_id` 也映射到这个字段    |
 | `tool_input`      | `{ … }`             | 完整的嵌套工具输入                              |
+| `task_context`    | `"active"`          | 始终存在，见[任务上下文](#任务上下文)            |
+| `task`、`rel_path` | `{ … }`、`"src/a.ts"` | 仅在任务上下文生效时出现                  |
 
 `tool_input` 里的其他键也会被提升到顶层，所以出现新工具时无需改代码即可在条件里使用。
 
@@ -99,13 +101,68 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 ```
 
 表达式语言支持 `== != > >= < <=`、`&&` `||` `!`、`in`、`contains`，以及
-`starts_with(s, prefix)`、`ends_with(s, suffix)`、`regex_match(pattern, s)` 等函数。
+`starts_with(s, prefix)`、`ends_with(s, suffix)`、`regex_match(pattern, s)`、`glob_match(模式或模式数组, s)` 等函数。
 
 ::: warning `regex_match` 的参数顺序
 **模式在前**：`regex_match('rm\\s+-rf', command)`，不要写反。
 :::
 
 展示给 Agent 的决策原因来自命中的终结节点 `message`（或你设置的 `reason` 输出字段）。
+
+## 任务上下文
+
+工具调用事件里没有“当前任务”的信息，所以策略能写“永远不准 `terraform destroy`”，却写不出
+“这个任务只许改 `src/auth/`”。要按任务限定范围，就写一个 `.ordo-guard/context.json`
+（手写或由任务规划工具生成），再用一份手写策略去读它：
+
+```json
+{
+  "root": "/abs/path/to/repo",
+  "session_id": "可选：只对这个 Agent 会话生效",
+  "expires_at": "2026-10-08T00:00:00Z",
+  "task": { "id": "login-signup", "touches": ["src/auth/**", "db/schema.sql"] }
+}
+```
+
+`task` 原样透传，策略需要什么就放什么。只有和事件绑定上时上下文才生效：
+
+| 检查         | 规则                                                       |
+| ------------ | ----------------------------------------------------------- |
+| `root`       | 事件的 `cwd` 必须在它之内（默认：`.ordo-guard/` 所在的仓库）   |
+| `session_id` | 若设置，必须等于事件的会话 id                                |
+| `expires_at` | 若设置（RFC 3339），必须尚未过期                             |
+
+生效时，输入里会多出 `task` 和 `rel_path`：被编辑文件（`file_path` / `notebook_path`）
+相对 `root` 的路径，用 `/` 分隔，`.` 和 `..` 已解析；root 之外的路径会是 `../…`。
+输入里**始终**带有 `task_context`，由策略决定“没有可用任务”时怎么办：
+
+| `task_context` | 含义                                       |
+| -------------- | ------------------------------------------ |
+| `active`       | 已生效：`task` 和 `rel_path` 已设置         |
+| `absent`       | 没有 `context.json`                        |
+| `mismatch`     | `cwd` 不在 `root` 内，或会话不匹配          |
+| `expired`      | 已过 `expires_at`                          |
+| `invalid`      | 无法读取或格式错误（stderr 会有警告）       |
+
+把范围规则放在基础规则**之后**，这样任务内的 `rm -rf`、读取密钥依然会被拒绝：
+
+```json
+{
+  "id": "gate-scope",
+  "label": "限定在任务范围内",
+  "condition": "task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)",
+  "nextStepId": "ask_scope"
+}
+```
+
+`glob_match` 接受单个模式或模式数组（任一匹配即为 true）。它的 `*` 也会匹配 `/`，
+所以 `src/auth/*` 同样覆盖子目录；避免以通配符开头的模式（`**`、`*/…`），它们也会匹配
+root 之外的 `../` 路径。
+
+在上下文下产生的每条审计日志都会记录 `task_context`、`task_id` 和 `context_hash`
+（对应 `context.json` 的 `sha256:`），因此每个决策都能追溯到当时生效的任务定义。
+和 guard 的其他部分一样，这里检查的是工具*调用*：只比较路径字符串、不解析符号链接，
+`Bash` 命令仍然可以写到任何地方。如果任务需要，给 `Bash` 配一条 `ASK` 规则。
 
 ## 测试你的护栏
 

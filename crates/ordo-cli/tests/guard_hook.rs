@@ -382,3 +382,128 @@ fn guard_hook_agent_cursor_parses_flat_event_and_emits_flat_decision() {
     assert_eq!(v["permission"], "allow");
     assert!(v.get("user_message").is_none(), "PASS carries no message");
 }
+
+/// Add a task-scope rule after the scaffolded base rules: with an active task
+/// context, writes outside `task.touches` ask. Base rules (rm -rf, secrets)
+/// keep running first, so one policy holds both.
+fn add_scope_rule(dir: &std::path::Path) {
+    let path = dir.join(".ordo-guard/rulesets/policy.json");
+    let mut policy: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let branches = policy["steps"][0]["branches"].as_array_mut().unwrap();
+    branches.insert(
+        2,
+        serde_json::json!({
+            "id": "gate-scope", "label": "stay inside the task scope",
+            "condition": "task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)",
+            "nextStepId": "ask_scope"
+        }),
+    );
+    policy["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "ask_scope", "name": "Ask outside task scope", "type": "terminal",
+            "code": "ASK", "message": "Edit is outside the current task's scope", "output": []
+        }));
+    std::fs::write(&path, serde_json::to_string_pretty(&policy).unwrap()).unwrap();
+}
+
+#[test]
+fn guard_hook_applies_task_context_scope() {
+    let dir = temp_project("task-ctx");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    add_scope_rule(&dir);
+    let root = dir.to_str().unwrap();
+    std::fs::write(
+        dir.join(".ordo-guard/context.json"),
+        serde_json::json!({
+            "root": root,
+            "task": { "id": "login-signup", "touches": ["src/auth/**", "db/schema.sql"] }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let edit = |cwd: &str, file: &str| {
+        serde_json::json!({
+            "tool_name": "Edit", "cwd": cwd, "tool_input": { "file_path": file }
+        })
+        .to_string()
+    };
+
+    // In scope → the policy has no opinion.
+    let out = run_stdin(&dir, &["guard", "hook"], &edit(root, "src/auth/login.ts"));
+    assert_ok(&out, "in-scope edit");
+    assert_eq!(stdout(&out), "", "in-scope edit must PASS silently");
+
+    // Out of scope, relative and absolute (outside the root) → ask.
+    for file in [
+        "src/billing/pay.ts",
+        "/etc/hosts",
+        "src/auth/../../billing/x.ts",
+    ] {
+        let out = run_stdin(&dir, &["guard", "hook"], &edit(root, file));
+        assert_ok(&out, "out-of-scope edit");
+        let d = decision(&out);
+        assert_eq!(d["permissionDecision"], "ask", "{file}");
+        assert!(d["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("task's scope"));
+    }
+
+    // Base rules still win.
+    let rm = serde_json::json!({
+        "tool_name": "Bash", "cwd": root, "tool_input": { "command": "rm -rf src/auth" }
+    })
+    .to_string();
+    assert_eq!(
+        decision(&run_stdin(&dir, &["guard", "hook"], &rm))["permissionDecision"],
+        "deny"
+    );
+
+    // A cwd outside the root does not get the task context.
+    let out = run_stdin(
+        &dir,
+        &["guard", "hook"],
+        &edit("/elsewhere", "src/billing/pay.ts"),
+    );
+    assert_ok(&out, "edit outside the root");
+    assert_eq!(stdout(&out), "");
+
+    // The audit log ties each decision to the task and the exact context file.
+    let log = std::fs::read_to_string(dir.join(".ordo-guard/log.jsonl")).unwrap();
+    let entries: Vec<serde_json::Value> = log
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(entries[0]["task_context"], "active");
+    assert_eq!(entries[0]["task_id"], "login-signup");
+    assert!(entries[0]["context_hash"]
+        .as_str()
+        .unwrap()
+        .starts_with("sha256:"));
+    assert_eq!(entries.last().unwrap()["task_context"], "mismatch");
+}
+
+#[test]
+fn guard_hook_warns_and_ignores_invalid_task_context() {
+    let dir = temp_project("task-ctx-invalid");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    add_scope_rule(&dir);
+    std::fs::write(dir.join(".ordo-guard/context.json"), "{ not json").unwrap();
+
+    let event = serde_json::json!({
+        "tool_name": "Edit", "cwd": dir.to_str().unwrap(),
+        "tool_input": { "file_path": "src/billing/pay.ts" }
+    })
+    .to_string();
+    let out = run_stdin(&dir, &["guard", "hook"], &event);
+    assert_ok(&out, "guard hook");
+    assert_eq!(stdout(&out), "");
+    assert!(
+        stderr(&out).contains("ignoring task context"),
+        "{}",
+        stderr(&out)
+    );
+}

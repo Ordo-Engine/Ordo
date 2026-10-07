@@ -310,6 +310,10 @@ Flattened from the hook event — reference these directly in conditions:
   Cursor, since it only hooks shell execution)
 - hoisted tool inputs: `command` (Bash), `file_path` (Read/Write/Edit), `url`, …
 - `cwd`, `permission_mode`, `session_id`; the full `tool_input` object is nested.
+- `task_context` (`active`/`absent`/`mismatch`/`expired`/`invalid`), plus `task`
+  and `rel_path` (edited path relative to the task root) when a
+  `context.json` task context is active — e.g.
+  `task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)`.
 
 Missing fields are *lenient*: a condition referencing an absent field is false,
 so a `command`-based rule is safely skipped for non-Bash tools. Careful with

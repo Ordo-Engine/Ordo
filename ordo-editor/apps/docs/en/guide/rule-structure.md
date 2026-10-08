@@ -1,6 +1,6 @@
 # Rule Structure
 
-Ordo rules are defined using a **Step Flow Model** - a series of connected steps that form a decision tree.
+Ordo rules use a **Step Flow Model**: a series of connected steps that form a decision tree.
 
 ## Rule Definition
 
@@ -239,9 +239,9 @@ A loan approval rule:
 
 ## Best Practices
 
-1. **Use descriptive step IDs**: `check_vip_status` is better than `step1`
-2. **Add step names**: Makes traces and debugging easier
-3. **Order branches by specificity**: Most specific conditions first
-4. **Always have a default_next**: Ensures deterministic execution
-5. **Keep rules focused**: One rule per business decision
-6. **Version your rules**: Use semantic versioning for tracking changes
+1. Use descriptive step IDs: `check_vip_status` is better than `step1`.
+2. Add step names. They make traces and debugging easier.
+3. Order branches by specificity, most specific conditions first.
+4. Always set a `default_next` so execution is deterministic.
+5. Keep rules focused: one rule per business decision.
+6. Version your rules with semantic versioning.

@@ -67,7 +67,7 @@ job "ordo-server" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/pama-lee/ordo-server:latest"
+        image = "ghcr.io/ordo-engine/ordo:latest"
         ports = ["http", "grpc"]
       }
 

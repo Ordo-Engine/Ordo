@@ -97,8 +97,8 @@ Ordo provides Kubernetes-compatible health check endpoints:
 
 The readiness probe performs:
 
-1. **Store lock** — Attempts to acquire a read lock with a 2-second timeout
-2. **Disk writable** — Writes a `.health_probe` test file to `--rules-dir` (if configured)
+1. Store lock: attempts to acquire a read lock with a 2-second timeout
+2. Disk writable: writes a `.health_probe` test file to `--rules-dir` (if configured)
 
 ```yaml
 # Kubernetes probe configuration
@@ -314,7 +314,7 @@ ordo-server \
 
 ## Security Considerations
 
-1. **Bind to localhost in development**: Use `127.0.0.1` instead of `0.0.0.0`
-2. **Use TLS in production**: Configure reverse proxy with TLS
-3. **Restrict audit log access**: Audit logs may contain sensitive data
-4. **Set appropriate file permissions**: For rules and audit directories
+1. Bind to localhost in development: use `127.0.0.1` instead of `0.0.0.0`.
+2. Use TLS in production: put a reverse proxy with TLS in front.
+3. Restrict audit log access: audit logs may contain sensitive data.
+4. Set appropriate file permissions on the rules and audit directories.

@@ -2,7 +2,7 @@
 
 A decision contract is a ruleset's "type signature": it declares which fields the rule expects to read, which result codes it must emit, and which fields each result carries.
 
-Contracts decouple rules from callers — apps call against the contract, authors write against it, and the platform validates both ends agree before each release.
+Contracts decouple rules from callers. Apps call against the contract, authors write against it, and the platform checks that both sides agree before each release.
 
 ## Contract Shape
 
@@ -51,5 +51,5 @@ The contract's `input.fields` reference names and types from the [fact catalog](
 
 Contracts carry a `version` field that follows SemVer:
 
-- **patch / minor** — adding optional fields, adding `output.code`, relaxing validation: non-breaking.
-- **major** — removing fields, type changes, removing output codes: breaking. Release requests will require an explicit ack.
+- patch / minor: adding optional fields, adding `output.code`, relaxing validation. Non-breaking.
+- major: removing fields, type changes, removing output codes. Breaking; release requests require an explicit acknowledgement.

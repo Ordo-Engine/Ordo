@@ -2,7 +2,7 @@
 
 <img src="/integration/kubernetes.png" alt="Kubernetes Logo" width="120" style="margin-bottom: 20px;" />
 
-Ordo 可以轻松部署到 [Kubernetes](https://kubernetes.io/) 集群中。作为一个无状态服务（Stateless Service），Ordo 非常适合在 K8s 环境中运行。
+Ordo 服务是无状态的，可以直接部署到 [Kubernetes](https://kubernetes.io/) 集群。
 
 ## 部署清单
 
@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: ordo-server
-          image: ghcr.io/pama-lee/ordo-server:latest
+          image: ghcr.io/ordo-engine/ordo:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -87,7 +87,7 @@ spec:
 - **健康检查**：配置了 Liveness 和 Readiness 探针，均指向 `/health` 端点。
 - **端口**：容器暴露 8080 (HTTP) 和 50051 (gRPC)。
 - **资源限制**：建议根据实际负载调整 CPU 和内存限制。
-- **水平扩展**：可以通过修改 `replicas` 数量轻松扩展服务实例。
+- **水平扩展**：修改 `replicas` 即可增减实例。
 
 ## 部署命令
 

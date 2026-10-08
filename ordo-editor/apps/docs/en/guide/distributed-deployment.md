@@ -1,6 +1,6 @@
 # Distributed Deployment
 
-Ordo supports a **single-writer, multi-reader** distributed deployment model. One writer instance handles all rule mutations, while multiple reader instances serve read and execute requests. Rule changes propagate automatically via file watching (same machine) or NATS JetStream (across machines).
+Ordo supports a single-writer, multi-reader deployment model. One writer instance handles all rule mutations, while multiple reader instances serve read and execute requests. Rule changes propagate automatically via file watching (same machine) or NATS JetStream (across machines).
 
 ## Architecture Overview
 
@@ -38,10 +38,10 @@ flowchart TB
 
 | Principle                       | Description                                                                                                 |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **Single-writer, multi-reader** | One writer instance handles mutations; readers reject writes with `409 Conflict` and redirect to the writer |
-| **Zero execution-path impact**  | Sync only affects the admin plane (rule CRUD). The `Arc<RuleSet>` execution path is unchanged               |
-| **Graceful degradation**        | If the sync channel disconnects, all instances continue serving with their local cache                      |
-| **Backward compatible**         | Without sync flags, behavior is identical to a standalone instance                                          |
+| Single-writer, multi-reader     | One writer instance handles mutations; readers reject writes with `409 Conflict` and redirect to the writer |
+| Zero execution-path impact      | Sync only affects the admin plane (rule CRUD). The `Arc<RuleSet>` execution path is unchanged               |
+| Graceful degradation            | If the sync channel disconnects, all instances continue serving with their local cache                      |
+| Backward compatible             | Without sync flags, behavior is identical to a standalone instance                                          |
 
 ## Instance Roles
 
@@ -65,10 +65,10 @@ ordo-server --role writer --rules-dir ./rules --nats-url nats://localhost:4222
 
 ### Reader
 
-**Read-only** — serves GET and execute requests. Rejects all write operations with:
+Read-only. Serves GET and execute requests and rejects all write operations with:
 
-- **HTTP**: `409 Conflict` with `{"error": "read_only", "writer": "http://..."}`
-- **gRPC**: `FAILED_PRECONDITION` status
+- HTTP: `409 Conflict` with `{"error": "read_only", "writer": "http://..."}`
+- gRPC: `FAILED_PRECONDITION` status
 
 ```bash
 ordo-server --role reader --nats-url nats://localhost:4222 --writer-addr http://writer:8080
@@ -78,7 +78,7 @@ ordo-server --role reader --nats-url nats://localhost:4222 --writer-addr http://
 
 Ordo offers two sync mechanisms that can be used independently or together:
 
-### 1. File Watcher (Phase 1 — Same Machine)
+### 1. File Watcher (Phase 1: Same Machine)
 
 For deployments where writer and readers share a filesystem (same machine or NFS mount):
 
@@ -91,16 +91,16 @@ ordo-server --role reader --rules-dir /shared/rules --watch-rules \
   --writer-addr http://localhost:8080
 ```
 
-**How it works:**
+How it works:
 
 1. Writer persists rule changes to `--rules-dir`
 2. Reader's file watcher detects changes (200ms debounce)
 3. Reader hot-reloads the modified rule into memory
 4. Self-write suppression prevents the writer from reloading its own writes
 
-**Fallback:** If the native file watcher fails, a 30-second polling loop automatically activates.
+If the native file watcher fails, Ordo falls back to a 30-second polling loop.
 
-### 2. NATS JetStream (Phase 2 — Across Machines)
+### 2. NATS JetStream (Phase 2: Across Machines)
 
 For multi-machine deployments using [NATS](https://nats.io) as the event transport:
 
@@ -120,10 +120,10 @@ ordo-server --role reader --rules-dir /data/rules \
   --writer-addr http://writer:8080
 ```
 
-**How it works:**
+How it works:
 
 1. Writer publishes `SyncEvent` to NATS JetStream after each mutation
-2. Each reader has a **durable pull consumer** — events are replayed from the last acknowledged position on restart
+2. Each reader has a durable pull consumer, so on restart events are replayed from the last acknowledged position
 3. Echo suppression: each instance has a unique `--instance-id`; messages from self are skipped
 4. Idempotent dedup: the reader compares the event version against the local ruleset version
 
@@ -153,7 +153,7 @@ sequenceDiagram
 ```
 
 ::: tip Combining Both Mechanisms
-You can enable both file watching and NATS sync for redundancy. NATS provides fast, real-time propagation, while the file watcher serves as a fallback for eventually-consistent sync.
+You can enable both file watching and NATS sync for redundancy. NATS propagates changes in real time, and the file watcher is an eventually consistent fallback.
 :::
 
 ## Configuration Reference
@@ -163,14 +163,14 @@ You can enable both file watching and NATS sync for redundancy. NATS provides fa
 | Flag            | Env Var            | Default      | Description                                        |
 | --------------- | ------------------ | ------------ | -------------------------------------------------- |
 | `--role`        | `ORDO_ROLE`        | `standalone` | Instance role: `standalone`, `writer`, or `reader` |
-| `--writer-addr` | `ORDO_WRITER_ADDR` | —            | Writer address included in reader 409 responses    |
+| `--writer-addr` | `ORDO_WRITER_ADDR` | none         | Writer address included in reader 409 responses    |
 | `--watch-rules` | `ORDO_WATCH_RULES` | `false`      | Enable file-system watching for live rule reload   |
 
 ### NATS Sync
 
 | Flag                    | Env Var                    | Default      | Description                                                 |
 | ----------------------- | -------------------------- | ------------ | ----------------------------------------------------------- |
-| `--nats-url`            | `ORDO_NATS_URL`            | —            | NATS server URL (e.g. `nats://localhost:4222`)              |
+| `--nats-url`            | `ORDO_NATS_URL`            | none         | NATS server URL (e.g. `nats://localhost:4222`)              |
 | `--nats-subject-prefix` | `ORDO_NATS_SUBJECT_PREFIX` | `ordo.rules` | Subject prefix for sync events                              |
 | `--instance-id`         | `ORDO_INSTANCE_ID`         | random       | Unique instance ID for consumer naming and echo suppression |
 
@@ -188,7 +188,7 @@ Without this flag, `--nats-url` is accepted but has no effect.
 
 ### Topology 1: Same Machine, Multiple Ports
 
-Simplest setup. Uses file watching for sync.
+The simplest setup. Uses file watching for sync.
 
 ```bash
 # Writer on port 8080
@@ -210,7 +210,7 @@ flowchart LR
 
 ### Topology 2: Multi-Machine with NATS
 
-Production-grade setup. Requires a NATS server (or cluster).
+For production. Requires a NATS server (or cluster).
 
 ```bash
 # Machine 1: Writer
@@ -319,9 +319,9 @@ The following events are published to NATS JetStream:
 | `RuleDeleted`         | Rule deleted                          | `{prefix}.{tenant_id}.{name}` |
 | `TenantConfigChanged` | Tenant config created/updated/deleted | `{prefix}.tenants`            |
 
-**JetStream stream**: `ordo-rules`
-**Message retention**: 7 days (Limits retention policy)
-**Consumer**: Durable pull consumer named `ordo-{instance-id}`
+- JetStream stream: `ordo-rules`
+- Message retention: 7 days (Limits retention policy)
+- Consumer: durable pull consumer named `ordo-{instance-id}`
 
 ### Event Envelope
 
@@ -403,7 +403,7 @@ curl http://reader:8080/api/v1/rulesets/my-rule
 
 ## Building with NATS Support
 
-NATS sync is behind a feature flag to keep the default binary lean:
+NATS sync is behind a feature flag to keep the default binary small:
 
 ```bash
 # Build with NATS support

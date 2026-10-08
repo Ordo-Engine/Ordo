@@ -3,106 +3,93 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: 'AI Agent 的确定性决策层'
-  tagline: 大模型负责提议，规则负责裁决。用 Rust 写的亚微秒级 JIT 规则引擎——给你的 AI Agent 一套可以真正测试的护栏。
+  text: '把业务规则从代码里拿出来'
+  tagline: 用 JSON 或 YAML 写规则，配上测试和版本，改规则不用重新发版。Rust 引擎，单次执行在微秒级。人能写，AI 也能写。
   image:
     src: /logo.png
     alt: Ordo
   actions:
     - theme: brand
-      text: 给 Agent 上护栏
-      link: /zh/platform/guard
-    - theme: alt
       text: 快速上手
-      link: /zh/platform/quickstart
+      link: /zh/guide/quick-start
     - theme: alt
-      text: 引擎篇
-      link: /zh/guide/what-is-ordo
+      text: 在线试用
+      link: https://ordo-engine.github.io/Ordo/
     - theme: alt
       text: GitHub
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - title: Agent 护栏
-    details: 把每一次 Claude Code 工具调用都交给本地规则裁决——放行 / 拒绝 / 询问，完全确定。策略本身就是一个标准的 Ordo 项目，因此你的护栏自带测试套件和审计日志。npx 五分钟装好。
-    link: /zh/platform/guard
-    linkText: 给 Agent 上护栏
-  - title: 决策平台
-    details: 组织 / 项目 / 成员与角色（RBAC）、事实目录、概念注册、决策契约、审批与发布流水线、多环境与回滚——为团队级决策治理而生。
-    link: /zh/platform/overview
-    linkText: 查看平台文档
-  - title: Studio 编辑器
-    details: 三种编辑模式（流程图 / 表单 / JSON）、决策表、子规则、模板实例化、测试套件管理与执行追踪面板。
-    linkText: 查看 Studio
-    link: /zh/platform/studio
-  - title: 发布与环境治理
-    details: 草稿 → 审批 → 发布 → 灰度 → 回滚。可配置的审批策略、变更对比、按环境分别下发，所有动作进入审计日志。
-    link: /zh/platform/releases
-    linkText: 发布流程
-  - title: 高性能引擎
-    details: 亚微秒级规则执行，字节码 VM + Cranelift JIT、表达式优化器。HTTP / gRPC / Unix Socket / WASM 多协议接入。
+  - title: 规则是文件
+    details: 判断分支、决策表、子规则都写在 JSON 或 YAML 里，和代码一起进 git，可以 review，可以 diff。表达式语言是受限的，没有循环，也不能改外部状态，AI 生成的规则也能被校验。
+    link: /zh/guide/rule-structure
+    linkText: 规则结构
+  - title: 先测试，再上线
+    details: 每个规则集带自己的测试用例，ordo test 在本地和 CI 里都能跑。执行过程可以逐步追踪，看清每个结果是怎么得出来的。
+    link: /zh/platform/testing
+    linkText: 测试规则
+  - title: 哪里都能跑
+    details: 字节码虚拟机加 Cranelift JIT。可以通过 HTTP、gRPC、Unix Socket 调用，也能编译成 WASM 在浏览器里跑，或者直接嵌进 Rust 程序。
     link: /zh/guide/execution-model
     linkText: 执行模型
-  - title: 类型与契约
-    details: 项目级事实目录、可复用概念、带类型的输入/输出契约。Studio 与 CLI 共用同一份契约定义。
-    link: /zh/platform/catalog
-    linkText: 事实与契约
-  - title: 多区域部署
-    details: 平台中央治理 + 区域化引擎集群。服务器注册、健康检查、按项目路由的执行代理，支持单 binary 与容器化部署。
-    link: /zh/platform/server-registry
-    linkText: 服务器注册
 ---
 
-## 架构概览
+## 一条规则长什么样
 
-```mermaid
-flowchart TB
-  Studio["Studio (浏览器)"]
-  CLI["ordo-cli"]
-  SDK["SDK / 业务系统"]
-  Platform["ordo-platform<br/>治理 · 草稿 · 审批 · 发布"]
-  Server["ordo-server 集群<br/>HTTP · gRPC · UDS"]
-  Core["ordo-core 引擎<br/>VM + JIT + 子规则 + 追踪"]
+按会员等级和订单金额定折扣，写成一张决策表：
 
-  Studio --> Platform
-  CLI --> Platform
-  SDK --> Server
-  Platform -- "发布事件 (NATS / 直接同步)" --> Server
-  Server --> Core
+```yaml
+config:
+  name: discount
+  version: 1.0.0
+  entry_step: pick_rate
+steps:
+  pick_rate:
+    id: pick_rate
+    name: 选折扣率
+    type: decision_table
+    inputs: [user.tier, order.amount]
+    outputs: [rate]
+    rules:
+      - when: [gold, ">= 1000"]
+        then: [0.15]
+      - when: [gold, "*"]
+        then: [0.10]
+      - when: ["*", ">= 1000"]
+        then: [0.05]
+    default: [0]
+    next_step: done
+  done:
+    id: done
+    name: 完成
+    type: terminal
+    result:
+      code: OK
+      output:
+        - [rate, $rate]
+        - [pay, "order.amount * (1 - $rate)"]
 ```
 
-Ordo 的文档分为两大部分：
-
-- **平台篇**——面向使用 Ordo Platform / Studio 治理决策的团队：组织建模、契约、发布流程、测试管理。
-- **引擎篇**——面向需要直接集成 ordo-core / ordo-server 的开发者：规则结构、表达式语法、HTTP / gRPC / WASM API。
-
-## 快速示例
-
-```json
-{
-  "config": {
-    "name": "discount-check",
-    "version": "1.0.0",
-    "entry_step": "check_vip"
-  },
-  "steps": {
-    "check_vip": {
-      "id": "check_vip",
-      "name": "Check VIP Status",
-      "type": "decision",
-      "branches": [{ "condition": "user.vip == true", "next_step": "vip_discount" }],
-      "default_next": "normal_discount"
-    },
-    "vip_discount": {
-      "id": "vip_discount",
-      "type": "terminal",
-      "result": { "code": "VIP", "message": "20% discount" }
-    },
-    "normal_discount": {
-      "id": "normal_discount",
-      "type": "terminal",
-      "result": { "code": "NORMAL", "message": "5% discount" }
-    }
-  }
+```bash
+$ ordo exec --rule discount.yaml --input '{"user":{"tier":"gold"},"order":{"amount":1200}}'
+code:    OK
+output:  {
+  "rate": 0.15,
+  "pay": 1020.0
 }
 ```
+
+改折扣只需要改这张表，再跑一遍测试。调用方的代码不用动。
+
+## 用在哪里
+
+- 定价、优惠、积分：规则常改，又必须算对。
+- 风控、准入、审批：每次判断都要能解释、能审计。
+- 路由与分配：订单、工单、支付通道的分派逻辑。
+- AI Agent 的权限边界：[Ordo Guard](/zh/platform/guard) 用同一个引擎，在 Claude Code、Codex CLI、Cursor 执行命令前做放行、拒绝或询问的判断。
+
+## 从哪里开始
+
+- 第一次用：[快速上手](/zh/guide/quick-start)，五分钟写出并运行第一条规则。
+- 想了解概念：[Ordo 是什么](/zh/guide/what-is-ordo)。
+- 团队协作和可视化编辑：[Studio 与平台](/zh/platform/overview)。

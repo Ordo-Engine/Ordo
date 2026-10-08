@@ -1,56 +1,59 @@
 # What is Ordo?
 
-**Ordo** (Latin for "order") is an open-source decision platform for teams who need to **own their decision logic** — not scatter it across codebases, spreadsheets, and tribal knowledge.
+Ordo is an open-source rule engine. You write business rules as JSON or YAML files, and Ordo validates, tests, runs and traces them. The name is Latin for "order".
 
-It has three layers:
+## The problem it solves
 
-- **Engine** — sub-microsecond rule execution, JIT-compiled via Cranelift, runs everywhere (HTTP · gRPC · WASM · CLI).
-- **Platform** — org and project management, fact catalog, decision contracts, version history, rule templates.
-- **Studio** — visual flow editor, test case management, one-click template instantiation.
+How a discount is calculated, whether an order goes through, who gets a ticket: rules like these usually live as `if/else` branches spread across services. Over time:
 
-## Why a Decision Platform?
+- Nobody can say which rules exist or where they are.
+- Changing a threshold means changing code and shipping a release.
+- A single rule is hard to test on its own, and hard to explain when it gives a surprising answer.
 
-Most teams start with a rule engine. Then they realize the hard part isn't execution speed — it's knowing what rules exist, who changed them, whether they still work, and how to hand them off to a new engineer.
+With AI writing more of the code, these branches grow faster and get harder to review.
 
-Ordo addresses the full lifecycle:
+Ordo moves the rules out of the code and into rule files. Callers pass in data and get a result back. The rules themselves can be changed, tested, reviewed and released on their own.
 
-| Stage       | What Ordo provides                                        |
-| ----------- | --------------------------------------------------------- |
-| **Author**  | Studio flow editor, decision tables, template library     |
-| **Test**    | Per-ruleset test cases, run in CI, export to YAML         |
-| **Govern**  | Fact catalog, typed contracts, version history, audit log |
-| **Execute** | Fast engine, hot reload, multi-tenancy                    |
-| **Observe** | Execution traces, Prometheus metrics, structured logs     |
+## Core concepts
 
-## Architecture
+A **ruleset** is a graph of steps. Execution starts at the entry step and ends at a terminal step. The step types are:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Platform (ordo-platform)                  │
-│  Org · Project · Fact Catalog · Contracts · Templates · Tests│
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                      Studio (apps/studio)                    │
-│         Flow Editor · Test Runner · Template Library         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                     Engine (ordo-server)                     │
-│   HTTP REST · gRPC · Unix Socket · Prometheus metrics        │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                      ordo-core (Rust)                        │
-│   Interpreter · Bytecode VM · Cranelift JIT · WASM           │
-└─────────────────────────────────────────────────────────────┘
-```
+| Step | What it does |
+| --- | --- |
+| `decision` | Checks conditions in order and follows the first branch that matches |
+| `decision_table` | Matches rows of a table against the input and sets output variables |
+| `action` | Sets variables, writes logs and so on, then moves to the next step |
+| `sub_rule` | Calls a reusable sub-rule |
+| `terminal` | Ends execution and returns a result code and outputs |
 
-## Use Cases
+**Expressions** appear in conditions and outputs, for example `order.amount >= 1000 && user.tier == "gold"`. The expression language is small on purpose: no loops, no side effects, predictable run time. See [Expression Syntax](./expression-syntax).
 
-Ordo is a good fit whenever business logic needs to be **visible, testable, and changeable** without a full deploy:
+**Input validation** with `input_schema` declares the fields and types a rule needs. A missing field or a wrong type returns an error instead of quietly taking the wrong branch. Money can use the `decimal` type for exact arithmetic. See [Rule Structure](./rule-structure).
 
-- **Risk & compliance** — credit scoring, fraud detection, KYC, regulatory policy
-- **Pricing & promotions** — dynamic pricing, discount rules, campaign eligibility
-- **Routing & assignment** — order routing, payment channel selection, load decisions
-- **Access & eligibility** — loan approval, feature flags, subscription tier logic
+## Ways to run it
+
+The same rule file runs in several ways:
+
+- **CLI**: `ordo exec`, `ordo test` and `ordo trace` for local development and CI. See [CLI](/en/platform/cli).
+- **Service**: `ordo-server` serves HTTP, gRPC and a Unix socket, with live reload, versioning and multi-tenancy. See [HTTP API](/en/api/http-api).
+- **Embedded**: use `ordo-core` directly from Rust, or compile to [WebAssembly](/en/api/wasm) and run it in the browser.
+
+When a team needs visual editing, approvals and multiple environments, add [Studio & Platform](/en/platform/overview). The engine is fully usable without it.
+
+## Working with AI
+
+Rules are structured files and the expression language is small, so a rule an AI writes can be compiled and checked with `ordo validate`, tested with `ordo test`, and, when the result is wrong, inspected with `ordo trace` to see which path it took. `ordo mcp` exposes these as tools to a coding agent.
+
+[Ordo Guard](/en/platform/guard) is an example from the other direction: it uses Ordo rules to decide whether each tool call a coding agent makes is allowed, denied or needs a confirmation.
+
+## Good fit, poor fit
+
+A good fit: decision logic that changes often, must be exact, and has to be explained and audited, such as pricing, promotions, risk, eligibility, approvals and routing.
+
+A poor fit: long-running processes with waits and human steps (use a workflow engine), and general computation that needs loops or heavy data processing.
+
+## Next steps
+
+- [Quick Start](./quick-start): write and run a first rule in five minutes
+- [Rule Structure](./rule-structure): the full rule file format
+- [Decision Table](./decision-table): rules as tables

@@ -4,12 +4,11 @@ outline: [2, 3]
 
 # Roadmap
 
-> Ordo is decision infrastructure for modern software teams.
-> This roadmap outlines what we're building and where we're heading.
+> This page lists what we're building next and in what order.
 
 ## Current State (v0.x)
 
-Ordo already ships a production-grade core:
+What Ordo ships today:
 
 | Module            | Capabilities                                                                                       |
 | ----------------- | -------------------------------------------------------------------------------------------------- |
@@ -28,11 +27,11 @@ Ordo already ships a production-grade core:
 
 ## Milestone 1: First Decision <Badge type="tip" text="v0.5" />
 
-**Goal**: A new user goes from sign-up to executing their first rule in under 5 minutes.
+Goal: a new user goes from sign-up to executing their first rule in under 5 minutes.
 
 ### Rule Templates
 
-Pre-built industry templates — each includes a complete RuleSet, pre-defined Facts & Concepts, sample input data, and a side-by-side "from if/else to Ordo" migration guide.
+Pre-built industry templates. Each includes a complete RuleSet, pre-defined Facts & Concepts, sample input data, and a side-by-side "from if/else to Ordo" migration guide.
 
 | Template           | Scenario                                   | Showcases                       |
 | ------------------ | ------------------------------------------ | ------------------------------- |
@@ -57,17 +56,17 @@ No-signup, browser-only experience:
 - Pre-loaded template RuleSet
 - Live editing + instant execution
 - Execution Trace visualization
-- Clear CTA to sign up when ready
+- A sign-up link for when you're ready
 
 ---
 
 ## Milestone 2: Deploy & Connect <Badge type="tip" text="v0.6" />
 
-**Goal**: Edit rules in Studio, publish with one click, and your SDK calls get the update instantly.
+Goal: edit rules in Studio, publish with one click, and your SDK calls get the update immediately.
 
 ### Publish Pipeline
 
-Explicit separation between **draft** (editing in Studio) and **deployment** (live on Engine):
+Drafts (editing in Studio) are kept separate from deployments (live on Engine):
 
 ```
 Edit in Studio → Click "Publish" → Validation runs
@@ -76,15 +75,15 @@ Edit in Studio → Click "Publish" → Validation runs
 
 - Diff preview before publishing
 - Version history with rollback capability
-- "Save" (draft) vs "Publish" (deploy) — clearly separated
+- Separate "Save" (draft) and "Publish" (deploy) actions
 
 ### Environment Management
 
 Configure multiple environments per project:
 
-- **Development** — auto-deploy on publish (fast iteration)
-- **Staging** — manual push (testing)
-- **Production** — requires confirmation (safe releases)
+- Development: auto-deploy on publish (fast iteration)
+- Staging: manual push (testing)
+- Production: requires confirmation (safe releases)
 
 Each environment points to a different Engine instance with health monitoring.
 
@@ -92,7 +91,7 @@ Each environment points to a different Engine instance with health monitoring.
 
 Unified docs site with:
 
-- **30-second integration snippets** for Go, Java, Python
+- 30-second integration snippets for Go, Java, Python
 - Quick-start tutorials (from zero to calling your first rule)
 - REST and gRPC API reference
 - Error handling best practices
@@ -101,16 +100,16 @@ Unified docs site with:
 
 ## Milestone 3: Observe <Badge type="tip" text="v0.7" />
 
-**Goal**: See how your rules perform in production at a glance.
+Goal: see how your rules perform in production.
 
 ### Execution Dashboard
 
 Real-time monitoring per project:
 
-- **Metrics**: QPS, P50/P99 latency, error rate
-- **Trend charts**: 1h / 24h / 7d views
-- **Hit distribution**: which terminal results are being reached and how often
-- **Recent anomalies**: expression errors, timeouts, unexpected patterns
+- Metrics: QPS, P50/P99 latency, error rate
+- Trend charts: 1h / 24h / 7d views
+- Hit distribution: which terminal results are being reached and how often
+- Recent anomalies: expression errors, timeouts, unexpected patterns
 
 ### Trace Explorer
 
@@ -135,7 +134,7 @@ Configurable alerts with webhook notification:
 
 ## Milestone 4: Govern <Badge type="tip" text="v0.8" />
 
-**Goal**: Rule changes follow a controlled, auditable process.
+Goal: rule changes follow a controlled, auditable process.
 
 ### Change Requests
 
@@ -170,11 +169,11 @@ Every significant operation is recorded:
 
 ## Milestone 5: Decision Topology <Badge type="tip" text="v0.9" />
 
-**Goal**: Organization-level visibility into all decision points.
+Goal: organization-level visibility into all decision points.
 
 ### Decision Service
 
-A new concept layer — the **deployable unit of decision-making capability**:
+A new concept layer. A **Decision Service** is the deployable unit of decision-making:
 
 ```
 Organization
@@ -194,13 +193,13 @@ Interactive organization-wide graph:
 - Color-coded health status (active / degraded / error)
 - Click to drill down into any service
 - Search by owner, tag, or status
-- "What if" — highlight blast radius when a Fact or Concept changes
+- "What if": highlight the blast radius when a Fact or Concept changes
 
 ---
 
 ## Milestone 6: Ordo Cloud <Badge type="tip" text="v1.0" />
 
-**Goal**: Managed platform — sign up and start making decisions, zero infrastructure required.
+Goal: a managed platform. Sign up and run decisions without operating any infrastructure.
 
 ### What Cloud Adds
 
@@ -208,13 +207,13 @@ Interactive organization-wide graph:
 | --------------------------------------------- | ------------------ | ------------------ |
 | Rule editing & publishing                     | :white_check_mark: | :white_check_mark: |
 | Self-managed Engine                           | :white_check_mark: | :white_check_mark: |
-| **Hosted Engine** (shared or dedicated)       | —                  | :white_check_mark: |
-| **Bring your own Engine** (register to Cloud) | —                  | :white_check_mark: |
-| **Real-time collaborative editing**           | —                  | :white_check_mark: |
-| **SSO / SAML**                                | —                  | :white_check_mark: |
-| **Long-term metrics & custom dashboards**     | —                  | :white_check_mark: |
-| **Compliance report export**                  | —                  | :white_check_mark: |
-| **SLA guarantee + priority support**          | —                  | :white_check_mark: |
+| Hosted Engine (shared or dedicated)           | No                 | :white_check_mark: |
+| Bring your own Engine (register to Cloud)     | No                 | :white_check_mark: |
+| Real-time collaborative editing               | No                 | :white_check_mark: |
+| SSO / SAML                                    | No                 | :white_check_mark: |
+| Long-term metrics & custom dashboards         | No                 | :white_check_mark: |
+| Compliance report export                      | No                 | :white_check_mark: |
+| SLA guarantee + priority support              | No                 | :white_check_mark: |
 
 ---
 
@@ -239,20 +238,20 @@ Timelines are directional, not commitments. Priorities may shift based on commun
 
 ## Design Principles
 
-**Each milestone is independently valuable.** You don't need governance (M4) to benefit from deployment (M2).
+Each milestone is useful on its own. You don't need governance (M4) to benefit from deployment (M2).
 
-**Progressive adoption.** Start with one ruleset replacing your most painful if/else. Add governance, monitoring, and topology when your organization is ready.
+Adopt it gradually. Start with one ruleset that replaces your most painful if/else. Add governance, monitoring, and topology when your organization is ready.
 
-**Open by default.** Milestones 1–5 are fully open source under the MIT license. Ordo Cloud adds managed hosting and enterprise features on top.
+Open by default. Milestones 1–5 are open source under the MIT license. Ordo Cloud adds managed hosting and enterprise features on top.
 
 ---
 
 ## Get Involved
 
-We'd love your input on what to prioritize:
+Tell us what to prioritize:
 
-- **Feature requests & feedback**: [GitHub Issues](https://github.com/Ordo-Engine/Ordo/issues)
-- **Community**: [Discord](https://discord.gg/Y529FkArhh)
-- **Contribute**: Check out our [Contributing Guide](https://github.com/Ordo-Engine/Ordo/blob/main/CONTRIBUTING.md)
+- Feature requests & feedback: [GitHub Issues](https://github.com/Ordo-Engine/Ordo/issues)
+- Community: [Discord](https://discord.gg/Y529FkArhh)
+- Contribute: see the [Contributing Guide](https://github.com/Ordo-Engine/Ordo/blob/main/CONTRIBUTING.md)
 
-Share your use case — hearing how you're thinking about using Ordo directly shapes what we build next.
+Your use cases shape what we build next.

@@ -1,6 +1,6 @@
 # 规则结构
 
-Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系列连接的步骤构成了一个决策树。
+Ordo 规则用**步骤流模型**（Step Flow Model）定义：一组相互连接的步骤构成一棵决策树。
 
 ## 规则定义
 
@@ -21,19 +21,19 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 }
 ```
 
-### 配置部分 (Config)
+### 配置部分（Config）
 
 | 字段          | 类型   | 必填 | 描述                      |
 | ------------- | ------ | ---- | ------------------------- |
 | `name`        | string | 是   | 规则的唯一标识符          |
-| `version`     | string | 是   | 语义化版本 (例如 "1.0.0") |
+| `version`     | string | 是   | 语义化版本（例如 "1.0.0"） |
 | `description` | string | 否   | 人类可读的描述            |
 | `entry_step`  | string | 是   | 第一个要执行的步骤 ID     |
 | `input_schema` | array | 否   | 声明的输入字段，执行前校验（见下文） |
 
-### 输入声明 (Input Schema)
+### 输入声明（Input Schema）
 
-声明规则需要的输入字段，让错误输入被拒绝，而不是悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。
+声明规则需要的输入字段后，错误的输入会被拒绝，不会悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。
 
 ```json
 "input_schema": [
@@ -53,13 +53,13 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 
 所有问题一次性返回。HTTP 返回 `400`，code 为 `INVALID_INPUT`，例如 `Invalid input: applicant.age: required field is missing`；gRPC 返回 `INVALID_ARGUMENT`。Studio 编辑器里的输入声明是同一结构（也接受 `inputSchema` 写法）。
 
-### 步骤部分 (Steps)
+### 步骤部分（Steps）
 
-步骤 ID 到步骤定义的映射。每个步骤必须有一个唯一的 ID。
+步骤 ID 到步骤定义的映射。每个步骤的 ID 必须唯一。
 
 ## 步骤类型
 
-### 决策步骤 (Decision Step)
+### 决策步骤（Decision Step）
 
 评估条件并分支到不同的步骤：
 
@@ -88,9 +88,9 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | `name`         | string | 否   | 人类可读的名称                 |
 | `type`         | string | 是   | 必须是 `"decision"`            |
 | `branches`     | array  | 是   | 基于条件的分支列表             |
-| `default_next` | string | 是   | 如果没有分支匹配，则执行此步骤 |
+| `default_next` | string | 是   | 没有分支匹配时执行此步骤 |
 
-### 动作步骤 (Action Step)
+### 动作步骤（Action Step）
 
 设置变量后跳到 `next_step`，之后用 `$name` 读取变量：
 
@@ -107,9 +107,9 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 }
 ```
 
-`value` 是表达式字符串，写法和分支条件一样。JSON AST 形式（`{"Binary": {"op": "Mul", ...}}`）依然可用，保存后的规则集也以这种形式存储。终结步骤的 `output`、指标值和子规则绑定同样支持表达式字符串。
+`value` 是表达式字符串，写法和分支条件一样。JSON AST 形式（`{"Binary": {"op": "Mul", ...}}`）仍然可用，保存后的规则集也以这种形式存储。终结步骤的 `output`、指标值和子规则绑定同样支持表达式字符串。
 
-### 终结步骤 (Terminal Step)
+### 终结步骤（Terminal Step）
 
 结束执行并返回结果：
 
@@ -135,18 +135,18 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | `type`   | string | 是   | 必须是 `"terminal"` |
 | `result` | object | 是   | 要返回的结果        |
 
-### 结果对象 (Result Object)
+### 结果对象（Result Object）
 
 | 字段      | 类型   | 必填 | 描述                                   |
 | --------- | ------ | ---- | -------------------------------------- |
-| `code`    | string | 是   | 结果代码 (例如 "APPROVED", "REJECTED") |
+| `code`    | string | 是   | 结果代码（例如 "APPROVED"、"REJECTED"） |
 | `message` | string | 否   | 人类可读的消息                         |
 | `output`  | array  | 否   | `[名称, 表达式]` 列表，如 `["total", "round($subtotal * (1 - $discount), 2)"]` |
 | `data`    | object | 否   | 额外的输出数据                         |
 
 ## 分支条件
 
-分支按顺序评估。第一个匹配的条件获胜。
+分支按顺序求值，第一个匹配的条件生效。
 
 ```json
 {
@@ -161,7 +161,7 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 
 ## 完整示例
 
-一个贷款审批规则：
+贷款审批规则示例：
 
 ```json
 {
@@ -239,9 +239,9 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 
 ## 最佳实践
 
-1.  **使用描述性的步骤 ID**：`check_vip_status` 优于 `step1`
-2.  **添加步骤名称**：使追踪和调试更容易
-3.  **按特异性排序分支**：最具体的条件放在最前面
-4.  **始终有一个 default_next**：确保确定性执行
-5.  **保持规则专注**：每个业务决策一个规则
-6.  **版本化规则**：使用语义化版本跟踪变更
+1.  使用描述性的步骤 ID：`check_vip_status` 优于 `step1`
+2.  添加步骤名称：便于追踪和调试
+3.  按具体程度排序分支：最具体的条件放在最前面
+4.  始终设置 default_next：保证执行结果确定
+5.  每个业务决策一个规则
+6.  用语义化版本号跟踪规则变更

@@ -1,18 +1,18 @@
 # Decision Table
 
-The Decision Table is a spreadsheet-like editing mode for defining rule logic, complementing the existing Flow diagram and Form views.
+The Decision Table is a spreadsheet-like editing mode for rule logic, alongside the Flow diagram and Form views.
 
 ## Overview
 
-Decision tables provide a compact, tabular representation of business rules. Each row represents a rule with input conditions and output values, making it easy to review and maintain large sets of rules at a glance.
+A decision table shows business rules as a compact table. Each row is a rule with input conditions and output values, which makes large rule sets easier to review and maintain.
 
 ### Three Editing Modes
 
-The visual editor supports three editing modes that can be switched seamlessly:
+The visual editor has three editing modes, and you can switch between them at any time:
 
-- **Form** — Traditional form-based editing with fields and dropdowns
-- **Flow** — Visual flow diagram showing the step graph
-- **Table** — Spreadsheet-like decision table (new)
+- Form: form-based editing with fields and dropdowns
+- Flow: a flow diagram of the step graph
+- Table: a spreadsheet-like decision table (new)
 
 Data is automatically synchronized when switching between modes.
 
@@ -50,17 +50,17 @@ Each input cell can use one of five condition types:
 
 ### Column Operations
 
-- **Add Input Column** — Select a schema field path as a new input condition
-- **Add Output Column** — Define a new output field
-- **Import from Schema** — Bulk-import columns from the ruleset's schema definition
-- **Remove Column** — Click the column header menu to remove
+- **Add Input Column**: select a schema field path as a new input condition
+- **Add Output Column**: define a new output field
+- **Import from Schema**: bulk-import columns from the ruleset's schema definition
+- **Remove Column**: open the column header menu and remove the column
 
 ### Row Operations
 
-- **Add Row** — Append a new rule row
-- **Duplicate Row** — Copy an existing row
-- **Delete Row** — Remove a row
-- **Reorder** — Drag rows to change priority order
+- **Add Row**: append a new rule row
+- **Duplicate Row**: copy an existing row
+- **Delete Row**: remove a row
+- Reorder: drag rows to change priority order
 
 ### Hit Policies
 
@@ -78,8 +78,8 @@ Only `first` hit policy is currently supported for bidirectional conversion with
 
 The decision table supports bidirectional conversion with the Step graph model:
 
-- **Table → Flow**: `compileTableToSteps()` converts the table into a Decision step with branches pointing to Terminal steps
-- **Flow → Table**: `decompileStepsToTable()` analyzes the step graph and extracts it into table form
+- Table → Flow: `compileTableToSteps()` converts the table into a Decision step with branches pointing to Terminal steps
+- Flow → Table: `decompileStepsToTable()` analyzes the step graph and extracts it into table form
 
 This conversion is automatic when switching between Table and Flow modes.
 

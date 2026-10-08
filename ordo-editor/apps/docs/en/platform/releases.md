@@ -37,7 +37,7 @@ POST /api/v1/orgs/:oid/projects/:pid/releases
 
 The platform will:
 
-1. Run any test suites attached to the ruleset — failures block creation.
+1. Run any test suites attached to the ruleset. Failures block creation.
 2. Generate a [diff](https://github.com/Ordo-Engine/Ordo) against the current active version in each target environment (step add/remove, branch deltas, contract diff).
 3. Evaluate [release policies](#release-policy) to determine required reviewers.
 
@@ -63,9 +63,9 @@ API: `/api/v1/orgs/:oid/projects/:pid/release-policies`.
 
 ## Approvals
 
-- `POST .../releases/:rid/approve` — approve
-- `POST .../releases/:rid/reject` — reject (with reason)
-- `GET  /api/v1/orgs/:oid/releases/pending-for-me` — list pending for me
+- `POST .../releases/:rid/approve`: approve
+- `POST .../releases/:rid/reject`: reject (with reason)
+- `GET  /api/v1/orgs/:oid/releases/pending-for-me`: list pending for me
 
 ## Execution & Canary
 
@@ -73,7 +73,7 @@ API: `/api/v1/orgs/:oid/projects/:pid/release-policies`.
 POST .../releases/:rid/execute
 ```
 
-On execute, the platform syncs rules to the target ordo-server cluster. Canary is first-class:
+On execute, the platform syncs rules to the target ordo-server cluster. Canary releases use these endpoints:
 
 | Operation        | Endpoint                                              |
 | ---------------- | ----------------------------------------------------- |
@@ -88,7 +88,7 @@ Per-environment canary config: `PUT /api/v1/orgs/:oid/projects/:pid/environments
 
 ## Rollback
 
-Any released release can be rolled back in one click: the platform finds the last stable version from history and **creates a new** rollback release that is auto-approved (preserving the audit trail) — never a silent overwrite.
+Any completed release can be rolled back in one click. The platform finds the last stable version in history and creates a new, auto-approved rollback release. Nothing is overwritten, so the audit trail stays intact.
 
 ## Preview
 
@@ -96,4 +96,4 @@ Any released release can be rolled back in one click: the platform finds the las
 POST .../releases/preview
 ```
 
-See diffs and policy evaluation without creating a release — handy for a final pre-release check.
+Shows diffs and policy evaluation without creating a release. Use it as a final check before releasing.

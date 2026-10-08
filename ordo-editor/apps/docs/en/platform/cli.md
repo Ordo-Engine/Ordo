@@ -1,9 +1,8 @@
 # CLI (`ordo`)
 
-The `ordo` CLI brings decision rules into your development workflow. A project is
-a folder of files you edit like source code, check locally (offline, sub-second),
-and sync to the platform. It's designed to be equally usable by a person and by
-an AI coding agent.
+The `ordo` CLI manages decision rules as files. A project is a folder you edit
+like source code, check locally (offline, in under a second), and sync to the
+platform. People and AI coding agents use it the same way.
 
 ## Install
 
@@ -23,7 +22,7 @@ Every command supports `--json` for machine-readable output.
 
 ## A decision project on disk
 
-`ordo init` scaffolds a project — a tree of files that mirrors the Studio model:
+`ordo init` scaffolds a project as a tree of files that mirrors the Studio model:
 
 ```text
 ordo.yaml              project + link config
@@ -35,7 +34,7 @@ contracts/<name>.json  decision contract
 AGENTS.md              guidance for coding agents
 ```
 
-Put this folder in git — rules now get PRs, review, and CI like any code.
+Put this folder in git so rules go through PRs, review, and CI like other code.
 
 ## The local loop (offline)
 
@@ -50,12 +49,12 @@ ordo lint                     # graph + style checks
 ordo new ruleset|fact|concept <name>
 ```
 
-`validate`, `test`, and `trace` run entirely locally against the embedded
-engine — no network, no server. Concepts are materialized the same way the
-platform does, so a local run matches production.
+`validate`, `test`, and `trace` run locally against the embedded engine, with
+no network or server. Concepts are materialized the same way the platform does
+it, so a local run matches production.
 
-`ordo trace` is the debugging tool: it prints the exact path an input takes
-through the steps, which is invaluable when a decision isn't what you expected.
+`ordo trace` prints the exact path an input takes through the steps. Use it
+when a decision isn't what you expected.
 
 ```text
 $ ordo trace loan-approval --input '{"amount":5000}'
@@ -80,13 +79,13 @@ ordo diff                                   # local vs the server's draft
 ```
 
 `push` is a full sync: rulesets, facts, concepts, per-ruleset tests, and
-contracts (`--rulesets-only` limits it). It uses optimistic locking — if the
-server has newer changes you'll be told to `ordo pull` first.
+contracts (`--rulesets-only` limits it). It uses optimistic locking: if the
+server has newer changes, it tells you to `ordo pull` first.
 
 ### CI
 
-Because the local commands are offline and return proper exit codes, they drop
-straight into CI:
+The local commands work offline and return proper exit codes, so you can run
+them in CI:
 
 ```yaml
 - run: npx @ordo-engine/cli validate
@@ -96,7 +95,7 @@ straight into CI:
 ### Config & environment
 
 Auth and API URL live in `~/.ordo/config.toml` (chmod 600). For CI, set
-`ORDO_TOKEN` and `ORDO_API_URL` instead — they override the file.
+`ORDO_TOKEN` and `ORDO_API_URL` instead; they override the file.
 
 ## Drive it from an AI agent
 

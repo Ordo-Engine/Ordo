@@ -1,12 +1,12 @@
 # Performance Benchmarks
 
-Comprehensive performance benchmarks for the Ordo rule engine, including core engine microbenchmarks, HTTP server throughput, distributed (NATS sync) mode, and head-to-head comparisons against mainstream rule engines.
+Performance benchmarks for the Ordo rule engine: core engine microbenchmarks, HTTP server throughput, distributed (NATS sync) mode, and comparisons with other rule engines.
 
-> 📊 Prefer to explore the numbers visually? See the [interactive benchmark chart](./benchmark-chart).
+> To explore the numbers visually, see the [interactive benchmark chart](./benchmark-chart).
 
-> **Test Environment**: Apple M1 Pro (10 cores), 16 GB RAM, macOS Darwin 25.3.0
-> **Tools**: Criterion.rs (microbenchmarks), hey (HTTP load testing), Docker (NATS)
-> **Date**: 2026-03-11
+> Test environment: Apple M1 Pro (10 cores), 16 GB RAM, macOS Darwin 25.3.0
+> Tools: Criterion.rs (microbenchmarks), hey (HTTP load testing), Docker (NATS)
+> Date: 2026-03-11
 
 ---
 
@@ -27,18 +27,18 @@ Comprehensive performance benchmarks for the Ordo rule engine, including core en
 
 ## 2. Core Engine Microbenchmarks
 
-Pure rule evaluation speed measured with Criterion.rs — no HTTP, no middleware, no I/O. Each engine evaluates an equivalent 4-branch decision rule (`score >= 90 / 70 / 50 / default`) with input `{"score": 75}` hitting the second branch.
+Pure rule evaluation speed measured with Criterion.rs, with no HTTP, middleware, or I/O. Each engine evaluates an equivalent 4-branch decision rule (`score >= 90 / 70 / 50 / default`) with input `{"score": 75}` hitting the second branch.
 
 ### 2.1 Rust Engine Comparison
 
 | Engine                            | Time per eval | Relative | Theoretical single-core QPS |
 | --------------------------------- | ------------- | -------- | --------------------------- |
-| Native Rust `if/else` (ceiling)   | 3.5 ns        | —        | 285,000,000                 |
+| Native Rust `if/else` (ceiling)   | 3.5 ns        | n/a      | 285,000,000                 |
 | **Ordo** (bytecode VM)            | **573 ns**    | **1.0x** | **1,746,000**               |
 | Rhai (AST interpreter)            | 728 ns        | 0.79x    | 1,374,000                   |
 | Zen Engine / GoRules (graph eval) | 4,200 ns      | 0.14x    | 238,000                     |
 
-**Key takeaway**: Ordo's bytecode VM is 7.3x faster than Zen Engine and 1.27x faster than Rhai at the core evaluation level.
+Ordo's bytecode VM is 7.3x faster than Zen Engine and 1.27x faster than Rhai at the core evaluation level.
 
 ### 2.2 Ordo Detailed Microbenchmarks
 
@@ -86,7 +86,7 @@ Pure rule evaluation speed measured with Criterion.rs — no HTTP, no middleware
 
 All tests use `hey` with 10-second duration. The server runs in release mode with `--log-level error` to minimize I/O noise.
 
-### 3.1 Standalone Mode — Concurrency Sweep
+### 3.1 Standalone Mode: Concurrency Sweep
 
 Single Ordo instance, 4-branch decision rule, input `{"input":{"score":75}}`.
 
@@ -100,7 +100,7 @@ Single Ordo instance, 4-branch decision rule, input `{"input":{"score":75}}`.
 | **200**     | **62,511** | 3.18 ms     | 2.78 ms | 7.00 ms | 9.90 ms | 39.2 ms | 309% |
 | 500         | 60,577     | 8.25 ms     | 6.60 ms | 20.4 ms | 29.2 ms | 76.3 ms | 289% |
 
-**Saturation point**: ~60K QPS (stable from concurrency 50–200, latency degrades at 500).
+Saturation point: ~60K QPS (stable from concurrency 50–200, latency degrades at 500).
 
 ### 3.2 Distributed Mode (Writer + Reader + NATS JetStream)
 
@@ -126,7 +126,7 @@ Writer on `:8080`, Reader on `:8081`, NATS on `:4222` (Docker, 1 CPU, 256 MB).
 | 100         | 59,680 | 1.68 ms | 1.50 ms | 5.10 ms |
 | 200         | 60,204 | 3.32 ms | 2.80 ms | 10.7 ms |
 
-**NATS sync has zero hot-path overhead** — Writer/Reader QPS matches Standalone mode.
+NATS sync adds no hot-path overhead: Writer/Reader QPS matches Standalone mode.
 
 #### Simultaneous Writer + Reader (100 concurrency each)
 
@@ -134,7 +134,7 @@ Writer on `:8080`, Reader on `:8081`, NATS on `:4222` (Docker, 1 CPU, 256 MB).
 | ------------ | ---------- | ---- | ------- |
 | Writer       | 40,992     | 193% | 30.9 MB |
 | Reader       | 42,090     | 205% | 23.6 MB |
-| **Combined** | **83,082** | —    | 54.5 MB |
+| **Combined** | **83,082** | n/a  | 54.5 MB |
 
 On separate machines, each Reader adds ~60K QPS linearly.
 
@@ -173,7 +173,7 @@ All engines evaluate equivalent 4-branch logic. Each engine runs on its standard
 | json-rules-engine         | Node.js  | 17,205     | 2.91 ms | 2.60 ms | 6.10 ms | 110.5 ms |
 | Grule                     | Go       | 6,547      | 7.63 ms | 7.40 ms | 16.2 ms | 39.0 ms  |
 
-> Go `net/http` hardcoded is the theoretical ceiling (no rule engine, just `if/else` + JSON codec). Ordo reaches **83%** of it.
+> Go `net/http` hardcoded is the theoretical ceiling (no rule engine, just `if/else` + JSON codec). Ordo reaches 83% of it.
 
 #### At 200 concurrency
 
@@ -195,7 +195,7 @@ All engines evaluate equivalent 4-branch logic. Each engine runs on its standard
 | OPA               | 26.1 MB    | 50.7 MB     | 442% |
 | json-rules-engine | 32.6 MB    | 122.1 MB    | 112% |
 
-### 4.2 Rust Engines — Core Engine Speed (no HTTP)
+### 4.2 Rust Engines: Core Engine Speed (no HTTP)
 
 Measured with Criterion.rs. Each engine evaluates an equivalent 4-branch decision rule.
 
@@ -214,7 +214,7 @@ Measured with Criterion.rs. Each engine evaluates an equivalent 4-branch decisio
 | Allocations per eval   | Near-zero (pre-compiled)                            | Clone decision graph each time                     | New Scope + variable copies                |
 | Expression compilation | One-time compile to bytecode                        | Per-eval parse + interpret                         | One-time compile to AST                    |
 
-### 4.3 Rust Engines — HTTP Comparison (actix-web for Zen/Rhai)
+### 4.3 Rust Engines: HTTP Comparison (actix-web for Zen/Rhai)
 
 To test HTTP-level throughput fairly, Zen and Rhai are wrapped in actix-web (keepalive enabled, same as Ordo's Axum).
 
@@ -226,11 +226,11 @@ To test HTTP-level throughput fairly, Zen and Rhai are wrapped in actix-web (kee
 
 At HTTP level, Zen/Rhai show higher raw QPS because:
 
-1. **Minimal handler** — They receive flat JSON, run a trivial eval, return minimal JSON. No middleware, no rule store, no audit, no tenant checks.
-2. **actix-web thread-per-core model** — Lower overhead for simple handlers than Axum's work-stealing tokio runtime.
-3. **Ordo does more per request** — Rule store lookup (DashMap), middleware chain (tenant, role, audit sampling, request timeout), `duration_us` timing, structured response with `output` field.
+1. Minimal handler: they receive flat JSON, run a trivial eval, and return minimal JSON. No middleware, rule store, audit, or tenant checks.
+2. actix-web's thread-per-core model has lower overhead for simple handlers than Axum's work-stealing tokio runtime.
+3. Ordo does more per request: rule store lookup (DashMap), middleware chain (tenant, role, audit sampling, request timeout), `duration_us` timing, structured response with `output` field.
 
-**CPU efficiency (100 concurrency)**:
+CPU efficiency (100 concurrency):
 
 | Engine           | QPS     | CPU  | QPS/core   |
 | ---------------- | ------- | ---- | ---------- |
@@ -264,9 +264,9 @@ Full end-to-end validation of NATS JetStream sync between Writer and Reader inst
 
 ### 6.1 Executor Timeout Hot-Path Regression
 
-**Root cause**: `default_timeout_ms` was changed from `0` to `5000`, causing `Instant::elapsed()` (a syscall, ~20-30ns on macOS) to be called every step in the executor hot loop.
+Root cause: `default_timeout_ms` was changed from `0` to `5000`, causing `Instant::elapsed()` (a syscall, ~20-30ns on macOS) to be called every step in the executor hot loop.
 
-**Fix**: Amortized timeout checking — skip the first 16 steps, then check every 16th step:
+Fix: amortized timeout checking. Skip the first 16 steps, then check every 16th step:
 
 ```rust
 // crates/ordo-core/src/rule/executor.rs
@@ -294,13 +294,13 @@ let (step_result, step_duration) = if tracing {
 
 Same amortized timeout fix applied to `compiled_executor.rs`.
 
-**Impact**: `minimal_compiled` recovered from 398ns → 361ns, batch throughput from 2.50M → 2.70M ops/sec.
+Impact: `minimal_compiled` recovered from 398ns → 361ns, batch throughput from 2.50M → 2.70M ops/sec.
 
 ### 6.2 Server 30-Second Auto-Shutdown Bug
 
-**Root cause**: In `main.rs`, `tokio::time::timeout(shutdown_timeout, join_all(tasks))` started the 30-second countdown from server startup, not from receiving a shutdown signal. The server would unconditionally exit after 30 seconds.
+Root cause: In `main.rs`, `tokio::time::timeout(shutdown_timeout, join_all(tasks))` started the 30-second countdown from server startup, not from receiving a shutdown signal. The server would unconditionally exit after 30 seconds.
 
-**Fix**: Restructured to use `tokio::select!` — wait for either shutdown signal or unexpected task exit, only start the timeout countdown after a signal is received:
+Fix: use `tokio::select!` to wait for either a shutdown signal or an unexpected task exit, and start the timeout countdown only after a signal is received:
 
 ```rust
 let all_tasks = futures::future::join_all(tasks);

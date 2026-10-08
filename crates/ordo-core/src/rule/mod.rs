@@ -9,6 +9,7 @@
 mod compiled;
 mod compiled_executor;
 mod compiler;
+mod decision_table;
 mod executor;
 mod input_schema;
 mod metrics;
@@ -34,6 +35,7 @@ pub use compiled::{
 };
 pub use compiled_executor::CompiledRuleExecutor;
 pub use compiler::RuleSetCompiler;
+pub use decision_table::{Aggregate, CompiledTableRow, DecisionTable, HitPolicy, TableRule};
 pub use executor::{
     BatchExecutionResult, ExecutionOptions, ExecutionResult, RuleExecutor, SingleExecutionResult,
 };

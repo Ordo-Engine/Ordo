@@ -14,7 +14,9 @@
 use ordo_core::{
     context::Value as CoreValue,
     expr::{BinaryOp, Expr, UnaryOp},
-    rule::{ActionKind, Branch, Condition, RuleSet, Step, StepKind, SubRuleGraph},
+    rule::{
+        ActionKind, Aggregate, Branch, Condition, HitPolicy, RuleSet, Step, StepKind, SubRuleGraph,
+    },
 };
 
 use crate::types::{
@@ -189,6 +191,45 @@ fn step_kind_to_studio(step_id: &str, kind: &StepKind) -> StudioStepKind {
                 })
                 .collect(),
         },
+
+        StepKind::DecisionTable(table) => {
+            let to_json = |v: &CoreValue| core_value_to_json(v);
+            StudioStepKind::DecisionTable {
+                hit_policy: Some(
+                    match table.hit_policy {
+                        HitPolicy::First => "first",
+                        HitPolicy::Collect => "collect",
+                    }
+                    .to_string(),
+                ),
+                aggregate: table.aggregate.map(|a| {
+                    match a {
+                        Aggregate::Sum => "sum",
+                        Aggregate::Count => "count",
+                        Aggregate::Min => "min",
+                        Aggregate::Max => "max",
+                    }
+                    .to_string()
+                }),
+                inputs: table.inputs.clone(),
+                outputs: table.outputs.clone(),
+                rules: table
+                    .rules
+                    .iter()
+                    .map(|rule| {
+                        serde_json::json!({
+                            "when": rule.when.iter().map(to_json).collect::<Vec<_>>(),
+                            "then": rule.then.iter().map(to_json).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect(),
+                default: table
+                    .default
+                    .as_ref()
+                    .map(|cells| cells.iter().map(to_json).collect()),
+                next_step_id: table.next_step.clone(),
+            }
+        }
 
         StepKind::SubRule {
             ref_name,

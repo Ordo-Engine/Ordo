@@ -158,6 +158,10 @@ fn compile_step(
                 data: compiled.data,
             })
         }
+        StepKind::DecisionTable(_) => Err(OrdoError::parse_error(format!(
+            "Step '{}': decision_table steps cannot be compiled to the .ordo format yet",
+            step.id
+        ))),
         StepKind::SubRule {
             ref_name,
             bindings,

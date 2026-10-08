@@ -50,6 +50,21 @@ pub enum StudioStepKind {
         #[serde(default)]
         output: Vec<StudioOutputField>,
     },
+    /// Decision table. Cells use the engine's decision table syntax; see
+    /// `ordo_core::rule::DecisionTable`.
+    DecisionTable {
+        #[serde(rename = "hitPolicy", default, skip_serializing_if = "Option::is_none")]
+        hit_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        aggregate: Option<String>,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+        rules: Vec<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<Vec<serde_json::Value>>,
+        #[serde(rename = "nextStepId")]
+        next_step_id: String,
+    },
     #[serde(rename = "sub_rule")]
     SubRule {
         #[serde(rename = "refName")]

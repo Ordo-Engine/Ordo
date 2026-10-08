@@ -84,6 +84,7 @@ impl Step {
             StepKind::Action { next_step, .. } => vec![next_step.clone()],
             StepKind::Terminal { .. } => vec![],
             StepKind::SubRule { next_step, .. } => vec![next_step.clone()],
+            StepKind::DecisionTable(table) => vec![table.next_step.clone()],
         }
     }
 
@@ -200,6 +201,9 @@ pub enum StepKind {
         /// Step to continue after the sub-rule completes
         next_step: String,
     },
+
+    /// Decision table step - matches rows against inputs and sets output variables
+    DecisionTable(Box<super::decision_table::DecisionTable>),
 }
 
 /// Inline sub-rule graph embedded in a RuleSet

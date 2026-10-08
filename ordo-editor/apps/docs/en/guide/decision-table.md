@@ -71,7 +71,7 @@ Each input cell can use one of five condition types:
 | `collect` | Collects outputs from all matching rows into a list |
 
 ::: tip
-Only `first` hit policy is currently supported for bidirectional conversion with the Flow diagram.
+Only `first` hit policy is currently supported for bidirectional conversion with the Flow diagram. Rule files can also contain [decision table steps](#decision-table-steps-in-rule-files) that the engine evaluates directly, including `collect`.
 :::
 
 ## Conversion Between Modes
@@ -121,3 +121,55 @@ const steps = compileTableToSteps(table, 'my-rule');
 // Convert steps back to table
 const recovered = decompileStepsToTable(steps);
 ```
+
+## Decision Table Steps in Rule Files
+
+Rule files (JSON or YAML) can contain a decision table directly, as a step of type `decision_table`. The engine evaluates it natively; no editor is needed.
+
+```json
+{
+  "id": "discount",
+  "name": "Discount",
+  "type": "decision_table",
+  "hit_policy": "first",
+  "inputs": ["customer.tier", "order.amount"],
+  "outputs": ["discount", "reason"],
+  "rules": [
+    { "when": ["gold", ">= 1000"], "then": [0.15, "Gold, large order"] },
+    { "when": [["silver", "bronze"], "100..999"], "then": [0.05, "= customer.tier + \" tier\""] }
+  ],
+  "default": [0, "No discount"],
+  "next_step": "price"
+}
+```
+
+`inputs` are expressions, one per column. `outputs` are variable names: after the step runs, later steps read them as `$discount` and `$reason`.
+
+### Input Cells
+
+| Cell                              | Matches when                                      |
+| --------------------------------- | ------------------------------------------------- |
+| `"*"`, `"-"`, `""` or `null`      | always                                            |
+| `"gold"`, `42`, `true`            | the input equals the value                        |
+| `["silver", "bronze"]`            | the input is one of the values                    |
+| `">= 1000"`, `"< 18"`, `"!= \"x\""` | the comparison holds (right side is an expression) |
+| `"in [...]"`, `"not in [...]"`    | membership                                        |
+| `"18..65"`                        | inclusive numeric range                           |
+| `"= <expression>"`                | the boolean expression is true (any fields)       |
+
+A plain string is compared literally. To compare with a string that starts with an operator or with `in `, write `"== \"in stock\""`.
+
+### Output Cells
+
+A cell is a literal value (`0.15`, `"Gold"`, `null`, an array or an object), or `"= <expression>"` to compute it, e.g. `"= order.amount * 0.1"`.
+
+### Hit Policies
+
+| `hit_policy`      | Result                                                                                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `first` (default) | The first matching row sets the outputs. With no match, `default` is used; without a `default` the execution fails instead of continuing with missing values.           |
+| `collect`         | Every matching row, in order. Each output becomes an array, or one value when `aggregate` is `sum`, `count`, `min` or `max` (e.g. adding up risk scores from all rules). |
+
+With `collect` and no matching row, outputs are `[]`, `sum` is `0`, `count` is `0`, and `min`/`max` are `null`.
+
+Decision table steps cannot be compiled to the binary `.ordo` format yet.

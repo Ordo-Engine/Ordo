@@ -1,0 +1,96 @@
+{
+  "config": {
+    "name": "fraud-scoring",
+    "version": "1.0.0",
+    "description": "Card payment risk: add up risk signals into a score, then allow, challenge, or block.",
+    "inputSchema": [
+      { "name": "amount", "type": "decimal", "required": true },
+      { "name": "account_age_days", "type": "number", "required": true },
+      { "name": "txn_count_1h", "type": "number", "defaultValue": 0 },
+      { "name": "ip_country", "type": "string", "required": true },
+      { "name": "card_country", "type": "string", "required": true },
+      { "name": "new_device", "type": "boolean", "defaultValue": false },
+      { "name": "on_blocklist", "type": "boolean", "defaultValue": false }
+    ]
+  },
+  "startStepId": "blocklist",
+  "steps": [
+    {
+      "id": "blocklist",
+      "name": "Blocklist",
+      "type": "decision",
+      "branches": [{"id": "listed", "condition": "on_blocklist", "nextStepId": "block_listed"}],
+      "defaultNextStepId": "signals"
+    },
+    {
+      "id": "signals",
+      "name": "Risk signals",
+      "type": "decision_table",
+      "hitPolicy": "collect",
+      "inputs": ["amount", "account_age_days", "txn_count_1h", "new_device", "ip_country == card_country"],
+      "outputs": ["signal", "points"],
+      "rules": [
+        { "when": [">= 5000", "-", "-", "-", "-"], "then": ["large_amount", 30] },
+        {
+          "when": ["= amount >= 1000 && amount < 5000", "-", "-", "-", "-"],
+          "then": ["medium_amount", 10]
+        },
+        { "when": ["-", "< 7", "-", "-", "-"], "then": ["new_account", 25] },
+        { "when": ["-", "7..29", "-", "-", "-"], "then": ["young_account", 10] },
+        { "when": ["-", "-", ">= 5", "-", "-"], "then": ["velocity", 20] },
+        { "when": ["-", "-", "-", true, "-"], "then": ["new_device", 15] },
+        { "when": ["-", "-", "-", "-", false], "then": ["country_mismatch", 20] }
+      ],
+      "nextStepId": "score"
+    },
+    {
+      "id": "score",
+      "name": "Score",
+      "type": "action",
+      "assignments": [{"name": "score", "value": "sum($points)"}],
+      "nextStepId": "band"
+    },
+    {
+      "id": "band",
+      "name": "Risk band",
+      "type": "decision",
+      "branches": [
+        { "id": "high", "condition": "$score >= 70", "nextStepId": "block" },
+        { "id": "medium", "condition": "$score >= 40", "nextStepId": "challenge" }
+      ],
+      "defaultNextStepId": "allow"
+    },
+    {
+      "id": "allow",
+      "name": "Allow",
+      "type": "terminal",
+      "code": "ALLOW",
+      "message": "Low risk",
+      "output": [{"name": "score", "value": "$score"}, {"name": "signals", "value": "$signal"}]
+    },
+    {
+      "id": "challenge",
+      "name": "Challenge",
+      "type": "terminal",
+      "code": "CHALLENGE",
+      "message": "Ask for 3-D Secure or OTP",
+      "output": [{"name": "score", "value": "$score"}, {"name": "signals", "value": "$signal"}]
+    },
+    {
+      "id": "block",
+      "name": "Block",
+      "type": "terminal",
+      "code": "BLOCK",
+      "message": "High risk",
+      "output": [{"name": "score", "value": "$score"}, {"name": "signals", "value": "$signal"}]
+    },
+    {
+      "id": "block_listed",
+      "name": "Block: blocklist",
+      "type": "terminal",
+      "code": "BLOCK",
+      "message": "Card or account is on the blocklist",
+      "output": [{"name": "score", "value": "100"}, {"name": "signals", "value": "[\"blocklist\"]"}]
+    }
+  ]
+}

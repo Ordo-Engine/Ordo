@@ -1,0 +1,103 @@
+{
+  "config": {
+    "name": "promo-stacking",
+    "version": "1.0.0",
+    "description": "Checkout promotions: which offers apply, how they stack, and the discount cap.",
+    "inputSchema": [
+      { "name": "cart_total", "type": "decimal", "required": true },
+      { "name": "member_tier", "type": "string", "defaultValue": "none" },
+      { "name": "coupon_code", "type": "string", "defaultValue": "" },
+      { "name": "is_first_order", "type": "boolean", "defaultValue": false },
+      { "name": "has_sale_items", "type": "boolean", "defaultValue": false }
+    ]
+  },
+  "startStepId": "eligible",
+  "steps": [
+    {
+      "id": "eligible",
+      "name": "Minimum spend",
+      "type": "decision",
+      "branches": [{"id": "too_small", "condition": "cart_total < 50", "nextStepId": "no_promo"}],
+      "defaultNextStepId": "offers"
+    },
+    {
+      "id": "offers",
+      "name": "Matching offers",
+      "type": "decision_table",
+      "hitPolicy": "collect",
+      "inputs": ["member_tier", "coupon_code", "is_first_order", "cart_total", "has_sale_items"],
+      "outputs": ["offer", "amount"],
+      "rules": [
+        {
+          "when": ["gold", "-", "-", "-", false],
+          "then": ["member_gold_10pct", "= round(cart_total * 0.10, 2)"]
+        },
+        {
+          "when": ["silver", "-", "-", "-", false],
+          "then": ["member_silver_5pct", "= round(cart_total * 0.05, 2)"]
+        },
+        { "when": ["-", "-", true, "-", "-"], "then": ["first_order_20", "= decimal(\"20\")"] },
+        { "when": ["-", "-", "-", ">= 300", "-"], "then": ["spend_300_save_30", "= decimal(\"30\")"] },
+        {
+          "when": ["-", "SAVE50", false, ">= 200", "-"],
+          "then": ["coupon_save50", "= decimal(\"50\")"]
+        }
+      ],
+      "nextStepId": "stack"
+    },
+    {
+      "id": "stack",
+      "name": "Stack and cap",
+      "type": "action",
+      "assignments": [
+        { "name": "raw_discount", "value": "sum($amount)" },
+        { "name": "cap", "value": "round(cart_total * 0.25, 2)" },
+        { "name": "discount", "value": "min($raw_discount, $cap)" }
+      ],
+      "nextStepId": "any_offer"
+    },
+    {
+      "id": "any_offer",
+      "name": "Any offer?",
+      "type": "decision",
+      "branches": [
+        { "id": "none", "condition": "len($offer) == 0", "nextStepId": "no_promo" },
+        { "id": "capped", "condition": "$raw_discount > $cap", "nextStepId": "capped" }
+      ],
+      "defaultNextStepId": "applied"
+    },
+    {
+      "id": "applied",
+      "name": "Promotions applied",
+      "type": "terminal",
+      "code": "PROMO_APPLIED",
+      "message": "Promotions applied",
+      "output": [
+        { "name": "offers", "value": "$offer" },
+        { "name": "discount", "value": "$discount" },
+        { "name": "pay", "value": "cart_total - $discount" }
+      ]
+    },
+    {
+      "id": "capped",
+      "name": "Promotions capped",
+      "type": "terminal",
+      "code": "PROMO_CAPPED",
+      "message": "Discount capped at 25% of the cart",
+      "output": [
+        { "name": "offers", "value": "$offer" },
+        { "name": "discount", "value": "$discount" },
+        { "name": "uncapped", "value": "$raw_discount" },
+        { "name": "pay", "value": "cart_total - $discount" }
+      ]
+    },
+    {
+      "id": "no_promo",
+      "name": "No promotion",
+      "type": "terminal",
+      "code": "NO_PROMO",
+      "message": "No promotion applies",
+      "output": [{"name": "discount", "value": "decimal(\"0\")"}, {"name": "pay", "value": "cart_total"}]
+    }
+  ]
+}

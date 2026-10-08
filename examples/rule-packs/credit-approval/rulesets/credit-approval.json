@@ -1,0 +1,169 @@
+{
+  "config": {
+    "name": "credit-approval",
+    "version": "1.0.0",
+    "description": "Personal loan pre-approval: hard rules, debt-to-income, risk grade, amount cap.",
+    "inputSchema": [
+      {
+        "name": "applicant",
+        "type": "object",
+        "required": true,
+        "fields": [
+          { "name": "age", "type": "number", "required": true },
+          { "name": "credit_score", "type": "number", "required": true },
+          { "name": "monthly_income", "type": "decimal", "required": true },
+          { "name": "monthly_debt", "type": "decimal", "defaultValue": 0 }
+        ]
+      },
+      {
+        "name": "loan",
+        "type": "object",
+        "required": true,
+        "fields": [
+          { "name": "amount", "type": "decimal", "required": true },
+          { "name": "term_months", "type": "number", "required": true }
+        ]
+      }
+    ]
+  },
+  "startStepId": "hard_rules",
+  "steps": [
+    {
+      "id": "hard_rules",
+      "name": "Hard rules",
+      "type": "decision",
+      "branches": [
+        { "id": "underage", "condition": "applicant.age < 18", "nextStepId": "reject_age" },
+        {
+          "id": "low_score",
+          "condition": "applicant.credit_score < 550",
+          "nextStepId": "reject_score"
+        },
+        {
+          "id": "no_income",
+          "condition": "applicant.monthly_income <= 0",
+          "nextStepId": "reject_income"
+        }
+      ],
+      "defaultNextStepId": "affordability"
+    },
+    {
+      "id": "affordability",
+      "name": "Monthly payment and DTI",
+      "type": "action",
+      "assignments": [
+        { "name": "monthly_payment", "value": "round(loan.amount / loan.term_months, 2)" },
+        {
+          "name": "dti",
+          "value": "round((applicant.monthly_debt + $monthly_payment) / applicant.monthly_income, 4)"
+        }
+      ],
+      "nextStepId": "grade"
+    },
+    {
+      "id": "grade",
+      "name": "Risk grade",
+      "type": "decision_table",
+      "hitPolicy": "first",
+      "inputs": ["applicant.credit_score", "$dti"],
+      "outputs": ["grade", "decision", "apr", "reason"],
+      "rules": [
+        { "when": ["-", "> 0.50"], "then": ["E", "REJECTED", "0", "dti"] },
+        { "when": [">= 750", "<= 0.30"], "then": ["A", "APPROVED", "0.045", ""] },
+        { "when": [">= 700", "<= 0.40"], "then": ["B", "APPROVED", "0.065", ""] },
+        { "when": [">= 650", "-"], "then": ["C", "MANUAL_REVIEW", "0.089", "grade"] },
+        { "when": [">= 600", "-"], "then": ["D", "MANUAL_REVIEW", "0.119", "grade"] }
+      ],
+      "default": ["E", "REJECTED", "0", "grade"],
+      "nextStepId": "route"
+    },
+    {
+      "id": "route",
+      "name": "Route",
+      "type": "decision",
+      "branches": [
+        { "id": "rejected", "condition": "$decision == \"REJECTED\"", "nextStepId": "reject_grade" },
+        {
+          "id": "over_cap",
+          "condition": "$decision == \"APPROVED\" && loan.amount > applicant.monthly_income * 10",
+          "nextStepId": "manual_cap"
+        },
+        { "id": "approved", "condition": "$decision == \"APPROVED\"", "nextStepId": "approve" }
+      ],
+      "defaultNextStepId": "manual"
+    },
+    {
+      "id": "approve",
+      "name": "Approve",
+      "type": "terminal",
+      "code": "APPROVED",
+      "message": "Auto approved",
+      "output": [
+        { "name": "grade", "value": "$grade" },
+        { "name": "apr", "value": "decimal($apr)" },
+        { "name": "monthly_payment", "value": "$monthly_payment" },
+        { "name": "dti", "value": "$dti" }
+      ]
+    },
+    {
+      "id": "manual",
+      "name": "Manual review",
+      "type": "terminal",
+      "code": "MANUAL_REVIEW",
+      "message": "Grade needs an underwriter",
+      "output": [
+        { "name": "grade", "value": "$grade" },
+        { "name": "reason", "value": "$reason" },
+        { "name": "dti", "value": "$dti" }
+      ]
+    },
+    {
+      "id": "manual_cap",
+      "name": "Manual review (amount)",
+      "type": "terminal",
+      "code": "MANUAL_REVIEW",
+      "message": "Amount above 10x monthly income",
+      "output": [
+        { "name": "grade", "value": "$grade" },
+        { "name": "reason", "value": "\"amount_cap\"" },
+        { "name": "dti", "value": "$dti" }
+      ]
+    },
+    {
+      "id": "reject_age",
+      "name": "Reject: age",
+      "type": "terminal",
+      "code": "REJECTED",
+      "message": "Applicant is under 18",
+      "output": [{"name": "reason", "value": "\"age\""}]
+    },
+    {
+      "id": "reject_score",
+      "name": "Reject: score",
+      "type": "terminal",
+      "code": "REJECTED",
+      "message": "Credit score below 550",
+      "output": [{"name": "reason", "value": "\"credit_score\""}]
+    },
+    {
+      "id": "reject_income",
+      "name": "Reject: income",
+      "type": "terminal",
+      "code": "REJECTED",
+      "message": "No verifiable income",
+      "output": [{"name": "reason", "value": "\"income\""}]
+    },
+    {
+      "id": "reject_grade",
+      "name": "Reject: grade",
+      "type": "terminal",
+      "code": "REJECTED",
+      "message": "Risk grade too low",
+      "output": [
+        { "name": "grade", "value": "$grade" },
+        { "name": "reason", "value": "$reason" },
+        { "name": "dti", "value": "$dti" }
+      ]
+    }
+  ]
+}

@@ -34,7 +34,10 @@ fn rule_packs_validate_lint_and_pass_their_tests() {
         .filter(|p| p.join("ordo.yaml").is_file())
         .collect();
     packs.sort();
-    assert!(packs.len() >= 3, "expected at least 3 rule packs, found {packs:?}");
+    assert!(
+        packs.len() >= 3,
+        "expected at least 3 rule packs, found {packs:?}"
+    );
 
     for pack in &packs {
         assert_ok(pack, &["validate"]);

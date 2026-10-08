@@ -1,0 +1,93 @@
+[
+  {
+    "name": "regular customer, small purchase",
+    "input": { "amount": "89.90", "account_age_days": 400, "ip_country": "US", "card_country": "US" },
+    "expect": { "code": "ALLOW", "output": {"score": 0, "signals": []} }
+  },
+  {
+    "name": "medium amount alone is fine",
+    "input": { "amount": "1200", "account_age_days": 400, "ip_country": "US", "card_country": "US" },
+    "expect": { "code": "ALLOW", "output": {"score": 10, "signals": ["medium_amount"]} }
+  },
+  {
+    "name": "new account on a new device is challenged",
+    "input": {
+      "amount": "300",
+      "account_age_days": 2,
+      "new_device": true,
+      "ip_country": "US",
+      "card_country": "US"
+    },
+    "expect": { "code": "CHALLENGE", "output": {"score": 40, "signals": ["new_account", "new_device"]} }
+  },
+  {
+    "name": "large amount from abroad is challenged",
+    "input": { "amount": "6000", "account_age_days": 400, "ip_country": "SG", "card_country": "US" },
+    "expect": { "code": "CHALLENGE", "output": {"score": 50, "signals": ["large_amount", "country_mismatch"]} }
+  },
+  {
+    "name": "just under 5000 counts as medium",
+    "input": {
+      "amount": "4999.99",
+      "account_age_days": 400,
+      "ip_country": "SG",
+      "card_country": "US",
+      "new_device": true
+    },
+    "expect": {
+      "code": "CHALLENGE",
+      "output": { "score": 45, "signals": ["medium_amount", "new_device", "country_mismatch"] }
+    }
+  },
+  {
+    "name": "new account, new device, abroad, medium amount is blocked",
+    "input": {
+      "amount": "4999.99",
+      "account_age_days": 3,
+      "ip_country": "SG",
+      "card_country": "US",
+      "new_device": true
+    },
+    "expect": {
+      "code": "BLOCK",
+      "output": { "score": 70, "signals": ["medium_amount", "new_account", "new_device", "country_mismatch"] }
+    }
+  },
+  {
+    "name": "burst of transactions plus large amount is challenged",
+    "input": {
+      "amount": "5000",
+      "account_age_days": 60,
+      "txn_count_1h": 6,
+      "ip_country": "US",
+      "card_country": "US"
+    },
+    "expect": { "code": "CHALLENGE", "output": {"score": 50, "signals": ["large_amount", "velocity"]} }
+  },
+  {
+    "name": "young account plus everything else is blocked",
+    "input": {
+      "amount": "5000",
+      "account_age_days": 10,
+      "txn_count_1h": 5,
+      "ip_country": "US",
+      "card_country": "US",
+      "new_device": true
+    },
+    "expect": {
+      "code": "BLOCK",
+      "output": { "score": 75, "signals": ["large_amount", "young_account", "velocity", "new_device"] }
+    }
+  },
+  {
+    "name": "blocklist wins regardless of score",
+    "input": {
+      "amount": "5",
+      "account_age_days": 900,
+      "ip_country": "US",
+      "card_country": "US",
+      "on_blocklist": true
+    },
+    "expect": { "code": "BLOCK", "output": {"score": 100, "signals": ["blocklist"]} }
+  }
+]

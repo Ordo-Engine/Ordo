@@ -1,0 +1,118 @@
+[
+  {
+    "name": "grade A, auto approved",
+    "input": {
+      "applicant": { "age": 35, "credit_score": 780, "monthly_income": "12000", "monthly_debt": "1500" },
+      "loan": { "amount": "60000", "term_months": 36 }
+    },
+    "expect": {
+      "code": "APPROVED",
+      "output": { "apr": 0.045, "dti": 0.2639, "grade": "A", "monthly_payment": 1666.67 }
+    }
+  },
+  {
+    "name": "grade B, auto approved",
+    "input": {
+      "applicant": { "age": 29, "credit_score": 720, "monthly_income": "10000", "monthly_debt": "1000" },
+      "loan": { "amount": "36000", "term_months": 36 }
+    },
+    "expect": {
+      "code": "APPROVED",
+      "output": { "apr": 0.065, "dti": 0.2, "grade": "B", "monthly_payment": 1000 }
+    }
+  },
+  {
+    "name": "score 750 with DTI 0.31 drops to grade B",
+    "input": {
+      "applicant": { "age": 41, "credit_score": 750, "monthly_income": "10000", "monthly_debt": "2100" },
+      "loan": { "amount": "36000", "term_months": 36 }
+    },
+    "expect": {
+      "code": "APPROVED",
+      "output": { "apr": 0.065, "dti": 0.31, "grade": "B", "monthly_payment": 1000 }
+    }
+  },
+  {
+    "name": "grade C goes to an underwriter",
+    "input": {
+      "applicant": { "age": 35, "credit_score": 680, "monthly_income": "8000" },
+      "loan": { "amount": "30000", "term_months": 24 }
+    },
+    "expect": { "code": "MANUAL_REVIEW", "output": {"dti": 0.1563, "grade": "C", "reason": "grade"} }
+  },
+  {
+    "name": "grade D goes to an underwriter",
+    "input": {
+      "applicant": { "age": 52, "credit_score": 610, "monthly_income": "9000", "monthly_debt": "500" },
+      "loan": { "amount": "12000", "term_months": 24 }
+    },
+    "expect": { "code": "MANUAL_REVIEW", "output": {"dti": 0.1111, "grade": "D", "reason": "grade"} }
+  },
+  {
+    "name": "score 550-599 is declined",
+    "input": {
+      "applicant": { "age": 52, "credit_score": 580, "monthly_income": "9000" },
+      "loan": { "amount": "12000", "term_months": 24 }
+    },
+    "expect": { "code": "REJECTED", "output": {"dti": 0.0556, "grade": "E", "reason": "grade"} }
+  },
+  {
+    "name": "good score but amount above 10x income",
+    "input": {
+      "applicant": { "age": 33, "credit_score": 790, "monthly_income": "5000" },
+      "loan": { "amount": "60000", "term_months": 60 }
+    },
+    "expect": { "code": "MANUAL_REVIEW", "output": {"dti": 0.2, "grade": "A", "reason": "amount_cap"} }
+  },
+  {
+    "name": "DTI 0.48 is reviewed, not declined",
+    "input": {
+      "applicant": { "age": 45, "credit_score": 760, "monthly_income": "4000", "monthly_debt": "920" },
+      "loan": { "amount": "24000", "term_months": 24 }
+    },
+    "expect": { "code": "MANUAL_REVIEW", "output": {"dti": 0.48, "grade": "C", "reason": "grade"} }
+  },
+  {
+    "name": "DTI above 50% is declined",
+    "input": {
+      "applicant": { "age": 45, "credit_score": 760, "monthly_income": "4000", "monthly_debt": "1500" },
+      "loan": { "amount": "24000", "term_months": 24 }
+    },
+    "expect": { "code": "REJECTED", "output": {"dti": 0.625, "grade": "E", "reason": "dti"} }
+  },
+  {
+    "name": "under 18 is declined",
+    "input": {
+      "applicant": { "age": 17, "credit_score": 800, "monthly_income": "3000" },
+      "loan": { "amount": "1000", "term_months": 12 }
+    },
+    "expect": { "code": "REJECTED", "output": {"reason": "age"} }
+  },
+  {
+    "name": "score below 550 is declined",
+    "input": {
+      "applicant": { "age": 30, "credit_score": 549, "monthly_income": "9000" },
+      "loan": { "amount": "1000", "term_months": 12 }
+    },
+    "expect": { "code": "REJECTED", "output": {"reason": "credit_score"} }
+  },
+  {
+    "name": "zero income is declined",
+    "input": {
+      "applicant": { "age": 30, "credit_score": 700, "monthly_income": "0" },
+      "loan": { "amount": "1000", "term_months": 12 }
+    },
+    "expect": { "code": "REJECTED", "output": {"reason": "income"} }
+  },
+  {
+    "name": "money stays exact: 1000.10 over 3 months",
+    "input": {
+      "applicant": { "age": 30, "credit_score": 800, "monthly_income": "20000.00" },
+      "loan": { "amount": "1000.10", "term_months": 3 }
+    },
+    "expect": {
+      "code": "APPROVED",
+      "output": { "apr": 0.045, "dti": 0.0167, "grade": "A", "monthly_payment": 333.37 }
+    }
+  }
+]

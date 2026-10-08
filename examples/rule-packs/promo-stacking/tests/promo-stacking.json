@@ -1,0 +1,72 @@
+[
+  {
+    "name": "cart under 50 gets nothing",
+    "input": { "cart_total": "49.99", "member_tier": "gold", "is_first_order": true },
+    "expect": { "code": "NO_PROMO", "output": {"discount": 0, "pay": 49.99} }
+  },
+  {
+    "name": "no matching offer",
+    "input": { "cart_total": "120" },
+    "expect": { "code": "NO_PROMO", "output": {"discount": 0, "pay": 120} }
+  },
+  {
+    "name": "gold member 10%",
+    "input": { "cart_total": "200", "member_tier": "gold" },
+    "expect": {
+      "code": "PROMO_APPLIED",
+      "output": { "discount": 20, "offers": ["member_gold_10pct"], "pay": 180 }
+    }
+  },
+  {
+    "name": "silver member stacks with first order",
+    "input": { "cart_total": "150", "member_tier": "silver", "is_first_order": true },
+    "expect": {
+      "code": "PROMO_APPLIED",
+      "output": { "discount": 27.5, "offers": ["member_silver_5pct", "first_order_20"], "pay": 122.5 }
+    }
+  },
+  {
+    "name": "SAVE50 coupon at 250",
+    "input": { "cart_total": "250", "coupon_code": "SAVE50" },
+    "expect": { "code": "PROMO_APPLIED", "output": {"discount": 50, "offers": ["coupon_save50"], "pay": 200} }
+  },
+  {
+    "name": "SAVE50 below 200 does not apply",
+    "input": { "cart_total": "199", "coupon_code": "SAVE50" },
+    "expect": { "code": "NO_PROMO", "output": {"discount": 0, "pay": 199} }
+  },
+  {
+    "name": "SAVE50 does not combine with the first order offer",
+    "input": { "cart_total": "250", "coupon_code": "SAVE50", "is_first_order": true },
+    "expect": { "code": "PROMO_APPLIED", "output": {"discount": 20, "offers": ["first_order_20"], "pay": 230} }
+  },
+  {
+    "name": "member discount skips carts with sale items",
+    "input": { "cart_total": "320", "member_tier": "gold", "has_sale_items": true },
+    "expect": {
+      "code": "PROMO_APPLIED",
+      "output": { "discount": 30, "offers": ["spend_300_save_30"], "pay": 290 }
+    }
+  },
+  {
+    "name": "three offers stack and hit the 25% cap",
+    "input": { "cart_total": "320", "member_tier": "gold", "is_first_order": true },
+    "expect": {
+      "code": "PROMO_CAPPED",
+      "output": {
+        "discount": 80,
+        "offers": ["member_gold_10pct", "first_order_20", "spend_300_save_30"],
+        "pay": 240,
+        "uncapped": 82
+      }
+    }
+  },
+  {
+    "name": "10% of 199.95 rounds to 20.00",
+    "input": { "cart_total": "199.95", "member_tier": "gold" },
+    "expect": {
+      "code": "PROMO_APPLIED",
+      "output": { "discount": 20, "offers": ["member_gold_10pct"], "pay": 179.95 }
+    }
+  }
+]

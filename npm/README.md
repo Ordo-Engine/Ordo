@@ -69,7 +69,7 @@ claude mcp add ordo -- ordo mcp
 ```
 
 This exposes `list_files`, `read_file`, `grep`, `write_file`, `delete_file`,
-`validate`, `run_tests`, `trace`, and `publish` to the agent. Local edits and
+`validate`, `run_tests`, `trace`, `impact`, and `publish` to the agent. Local edits and
 checks run offline; `publish` requires `ordo mcp --allow-publish`.
 
 ## Commands
@@ -79,6 +79,7 @@ checks run offline; `publish` requires `ordo mcp --allow-publish`.
 | `ordo guard init` / `hook` / `test` / `log` / `doctor` | deterministic guardrails for a coding agent |
 | `ordo init [dir]` | scaffold a project |
 | `ordo validate` / `test` / `trace` | check rules offline |
+| `ordo impact <ruleset>` | which decisions an edit changed vs git `HEAD` (tests + boundary probes) |
 | `ordo replay <captured.jsonl>` | replay recorded decisions; spot flips; `--write-tests` |
 | `ordo fmt` / `lint` / `new` | format, lint, scaffold |
 | `ordo login` / `link` / `pull` / `push` / `publish` | sync with the platform |

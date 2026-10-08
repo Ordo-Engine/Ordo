@@ -136,6 +136,14 @@ your work (everything below runs offline, sub-second).
     expression in one string, e.g. `"amount <= 10000 && is_vip"` (operators
     `== != > >= < <= && || !`, `in`, `contains`, functions like `len(...)`).
     Reference facts/concepts/input fields by name. Prefer this concise form.
+  - A `decision_table` step replaces a ladder of branches: `inputs` (column
+    expressions), `outputs` (variable names, read later as `$name`), `rules[]` of
+    `{ when: [cell per input], then: [value per output] }`, `hitPolicy`
+    (`first` or `collect`), optional `default`, and `nextStepId`. A `when` cell
+    is a literal (`"gold"`, `700`), a comparison (`">= 500"`), or `"-"` (any).
+  - `config.inputSchema` declares the input fields
+    (`[{ "name", "type", "required" }]`; type `number|string|boolean|decimal|...`).
+    Inputs that don't match are rejected before any rule runs. Use `decimal` for money.
 - `facts.json` — fact definitions (external inputs): `{ name, data_type, source, null_policy }`.
 - `concepts.json` — derived named expressions: `{ name, data_type, expression, dependencies[] }`.
 - `tests/<name>.json` — an array of `{ name, input, expect: { code?, output? } }` for that ruleset.
@@ -149,6 +157,11 @@ your work (everything below runs offline, sub-second).
 3. `ordo validate` — compile every condition; fix reported errors.
 4. `ordo test` — run the ruleset's test cases.
 5. `ordo trace <name> --input '{...}'` — inspect the exact path an input takes.
+6. `ordo impact <name>` — before you call the change done: runs the last
+   committed version (git `HEAD`) and your edit over the tests plus boundary
+   probes around every threshold, and lists each decision that changed. Check
+   that every change listed is one you meant, and add a test for it. Pass
+   `--inputs <file.jsonl>` to include real cases.
 
 `ordo fmt` formats rule files; `ordo new ruleset|fact|concept <name>` scaffolds.
 Add `--json` to any command for machine-readable output.
@@ -161,5 +174,5 @@ the server's rulesets + catalog; `ordo diff` compares local vs deployed.
 ## MCP
 `ordo mcp` runs these tools over MCP so an agent can drive Ordo directly
 (`claude mcp add ordo -- ordo mcp`). Local edits/checks run offline; `publish`
-needs `ordo mcp --allow-publish`.
+needs `ordo mcp --allow-publish`. The `impact` tool is step 6 above.
 "#;

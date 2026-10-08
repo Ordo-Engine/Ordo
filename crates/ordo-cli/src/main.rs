@@ -10,6 +10,7 @@ mod eval;
 mod exec;
 mod fmt;
 mod guard;
+mod impact;
 mod init;
 mod link;
 mod lint;
@@ -68,6 +69,9 @@ enum Commands {
     Guard(guard::GuardArgs),
     /// Replay captured decisions against the current ruleset (spot flips, fixate tests)
     Replay(replay::ReplayArgs),
+    /// Show which decisions an edit changed: baseline (git HEAD) vs working tree
+    /// over tests, captured inputs, and boundary probes
+    Impact(impact::ImpactArgs),
 
     // ── platform (remote) ──
     /// Log in to the platform
@@ -129,6 +133,7 @@ fn dispatch(command: Commands, json: bool) -> Result<()> {
         Commands::Lint(a) => lint::run(a, json),
         Commands::Guard(a) => guard::run(a, json),
         Commands::Replay(a) => replay::run(a, json),
+        Commands::Impact(a) => impact::run(a, json),
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "ordo", &mut std::io::stdout());
             Ok(())

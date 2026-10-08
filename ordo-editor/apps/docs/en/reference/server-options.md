@@ -3,7 +3,7 @@
 Complete reference for the `ordo-server` engine's command-line options.
 
 > Looking for the `ordo` developer CLI (projects, `validate`, `push`, `publish`)?
-> That's a different tool — see [CLI (ordo)](/en/platform/cli).
+> That's a different tool; see [CLI (ordo)](/en/platform/cli).
 
 ## Usage
 
@@ -220,9 +220,9 @@ ordo-server --role reader --writer-addr http://writer-node:8080
 | **Values**  | `standalone`, `writer`, `reader` |
 | **Env**     | `ORDO_ROLE`                      |
 
-- `standalone` — Full read/write access (default single-node mode)
-- `writer` — Full read/write access, serves as the primary write node
-- `reader` — Read-only; write requests (`POST`/`PUT`/`DELETE` on rulesets, tenants, config) return `409 Conflict` with the writer address
+- `standalone`: full read/write access (default single-node mode)
+- `writer`: full read/write access; serves as the primary write node
+- `reader`: read-only; write requests (`POST`/`PUT`/`DELETE` on rulesets, tenants, config) return `409 Conflict` with the writer address
 
 ### --writer-addr
 
@@ -274,8 +274,8 @@ ordo-server --role writer --nats-url nats://localhost:4222
 | **Env**     | `ORDO_NATS_URL` |
 | **Feature** | `nats-sync`     |
 
-When set on a **writer**: publishes rule changes to NATS JetStream.
-When set on a **reader**: subscribes to receive rule updates.
+On a writer, publishes rule changes to NATS JetStream.
+On a reader, subscribes to receive rule updates.
 
 ### --nats-subject-prefix
 

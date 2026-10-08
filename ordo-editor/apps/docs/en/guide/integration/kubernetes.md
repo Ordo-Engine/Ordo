@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: ordo-server
-          image: ghcr.io/pama-lee/ordo-server:latest
+          image: ghcr.io/ordo-engine/ordo:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

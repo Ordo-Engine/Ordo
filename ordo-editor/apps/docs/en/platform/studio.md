@@ -1,13 +1,13 @@
 # Studio Editor
 
-Studio is Ordo Platform's visual editor — a browser-native app. It offers three equivalent views over the same ruleset, kept in sync in real time.
+Studio is Ordo Platform's visual editor, running in the browser. It offers three equivalent views of the same ruleset, kept in sync in real time.
 
 ## Three Authoring Modes
 
 ### Flow
 
 - Blueprint-style canvas built on Vue Flow.
-- Node types: **Decision** (branching), **Action** (assignments + external calls), **Terminal** (output), **SubRule** (sub-rule call).
+- Node types: Decision (branching), Action (assignments + external calls), Terminal (output), SubRule (sub-rule call).
 - Pin shapes: triangles for execution flow, circles for data flow.
 - Multi-incoming: multiple upstream nodes can land on the same target input pin; duplicates are auto-deduped.
 - Compatible target pins highlight while dragging; trace replay colorizes nodes.
@@ -23,11 +23,11 @@ Studio is Ordo Platform's visual editor — a browser-native app. It offers thre
 - Schema validation and expression highlighting built in.
 - Useful for Git/CI imports or bulk find-and-replace.
 
-> All three modes synchronize through a shared [editor-store](/en/guide/editor-store) (Pinia / framework-agnostic). Any change is reflected in the other views immediately and pushed onto the undo stack.
+Any change in one mode shows up in the other views immediately and is pushed onto the undo stack.
 
 ## Trace Panel
 
-Before releasing, paste a JSON context into Studio and click "Try run" → the platform calls ordo-server's trace API → for each step you get:
+Before releasing, paste a JSON context into Studio and click **Try run**. The platform calls ordo-server's trace API and shows, for each step:
 
 - Input/output snapshots
 - Which branch matched
@@ -39,7 +39,7 @@ Trace results overlay each flow node via [ExecutionAnnotation](https://github.co
 
 ## Test Integration
 
-Each test case can be edited, run individually, or run as a batch — all from inside Studio. Color-coded results:
+In Studio you can edit each test case and run it on its own or as part of a batch. Results are color-coded:
 
 - Green: actual matches expected
 - Red: mismatch, with an inline diff
@@ -49,9 +49,9 @@ See [Test Management](./testing).
 
 ## Templates & Sub-Rules
 
-- **Templates** — clone a complete project (rules + contracts + facts + tests) from Marketplace or the built-in template library in one click.
-- **Sub-Rule assets** — extract common snippets (KYC, risk scoring) at the project level and reuse them across rulesets; updating once propagates everywhere.
+- Templates: clone a complete project (rules + contracts + facts + tests) from Marketplace or the built-in template library in one click.
+- Sub-Rule assets: extract common snippets (KYC, risk scoring) at the project level and reuse them across rulesets. An update applies to every ruleset that uses the asset.
 
 ## i18n
 
-Studio and the docs are fully translated into English, Simplified Chinese, and Traditional Chinese. Switch language from the top-right corner.
+Studio and the docs are translated into English, Simplified Chinese, and Traditional Chinese. Switch language from the top-right corner.

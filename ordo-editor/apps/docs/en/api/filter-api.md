@@ -1,6 +1,6 @@
 # Data Filter API
 
-Generate a database filter expression directly from a ruleset — push rule logic into your query layer instead of fetching all rows and evaluating each one.
+Generate a database filter expression from a ruleset. The rule logic runs in your query layer, so you don't fetch every row and evaluate each one.
 
 ## The Problem
 
@@ -48,11 +48,11 @@ Content-Type: application/json
 
 | Field            | Type                             | Required | Description                                                                                                                                  |
 | ---------------- | -------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `known_input`    | object                           | ✅       | Fields already known at query time (e.g. current user session). Supports nested paths: `{"user": {"id": "alice"}}` is accessed as `user.id`. |
-| `target_results` | string[]                         | ✅       | Result codes that mean "match". Paths leading to any other terminal are ignored.                                                             |
-| `format`         | `"sql"` \| `"json"` \| `"mongo"` | —        | Output format. Default: `"sql"`.                                                                                                             |
-| `field_mapping`  | object                           | —        | Maps rule field paths to database column names. Unmapped fields default to the path with `.` replaced by `_`.                                |
-| `max_paths`      | number                           | —        | Maximum paths to collect before stopping. Default: `100`. `0` means unlimited.                                                               |
+| `known_input`    | object                           | Yes      | Fields already known at query time (e.g. current user session). Supports nested paths: `{"user": {"id": "alice"}}` is accessed as `user.id`. |
+| `target_results` | string[]                         | Yes      | Result codes that mean "match". Paths leading to any other terminal are ignored.                                                             |
+| `format`         | `"sql"` \| `"json"` \| `"mongo"` | No       | Output format. Default: `"sql"`.                                                                                                             |
+| `field_mapping`  | object                           | No       | Maps rule field paths to database column names. Unmapped fields default to the path with `.` replaced by `_`.                                |
+| `max_paths`      | number                           | No       | Maximum paths to collect before stopping. Default: `100`. `0` means unlimited.                                                               |
 
 ## Response
 
@@ -72,7 +72,7 @@ Content-Type: application/json
 | `always_matches` | bool                     | Every possible input matches. Skip the WHERE clause entirely (e.g. admin users).                                                                                |
 | `never_matches`  | bool                     | No input can ever match. Return an empty result immediately.                                                                                                    |
 | `truncated`      | bool                     | The `max_paths` limit was reached before the full graph was explored. `always_matches` is also `true` to avoid false negatives. Increase `max_paths` and retry. |
-| `unknown_fields` | string[]                 | Rule fields that remained unresolved — they appear as columns in the filter.                                                                                    |
+| `unknown_fields` | string[]                 | Rule fields that remained unresolved. They appear as columns in the filter.                                                                                     |
 
 ## How It Works
 
@@ -83,18 +83,18 @@ Given `known_input`, every field reference in the rule graph is substituted:
 - `user.role == "admin"` where `user.role = "viewer"` → `false` → branch eliminated
 - `doc.owner_id == user.id` where `user.id = "alice"` → `doc.owner_id == "alice"` → kept as filter condition
 
-The constant-folding optimizer runs after substitution, so composite expressions like `user.subscription == "premium" && doc.tier in ["free", "standard"]` are correctly folded when `subscription` is known.
+The constant-folding optimizer runs after substitution, so composite expressions like `user.subscription == "premium" && doc.tier in ["free", "standard"]` are folded when `subscription` is known.
 
 ### Graph Traversal
 
 The rule graph is traversed depth-first from the entry step:
 
-- **Decision step**: each branch condition is partially evaluated
+- Decision step: each branch condition is partially evaluated
   - Always-false → branch skipped; its negation accumulates toward the default path
   - Always-true → branch taken immediately; subsequent branches are dead code
   - Unknown → branch included with its condition; negation flows to later branches
-- **Action step**: transparent pass-through (variable mutations are not tracked; downstream fields are treated as unknown DB columns, producing a superset filter)
-- **Terminal step**: if `result.code` is in `target_results`, the accumulated conditions become a path
+- Action step: transparent pass-through (variable mutations are not tracked; downstream fields are treated as unknown DB columns, producing a superset filter)
+- Terminal step: if `result.code` is in `target_results`, the accumulated conditions become a path
 
 Conditions within a path are ANDed; multiple paths are ORed.
 
@@ -118,7 +118,7 @@ check_role
 └── default → denied  (DENY)
 ```
 
-**Admin — `always_matches: true`, no WHERE clause needed:**
+Admin: `always_matches: true`, so no WHERE clause is needed.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/rulesets/doc_access/filter \
@@ -129,7 +129,7 @@ curl -X POST http://localhost:8080/api/v1/rulesets/doc_access/filter \
 { "filter": "TRUE", "always_matches": true }
 ```
 
-**Moderator — only published/review documents:**
+Moderator: only published/review documents.
 
 ```json
 {
@@ -137,7 +137,7 @@ curl -X POST http://localhost:8080/api/v1/rulesets/doc_access/filter \
 }
 ```
 
-**Free member alice — owner or public docs only:**
+Free member alice: owner or public docs only.
 
 The `subscription = "free"` folds `user.subscription == "premium"` to false, eliminating the premium-tier path.
 
@@ -147,7 +147,7 @@ The `subscription = "free"` folds `user.subscription == "premium"` to false, eli
 }
 ```
 
-**Premium member bob — three paths:**
+Premium member bob: three paths.
 
 ```json
 {
@@ -155,7 +155,7 @@ The `subscription = "free"` folds `user.subscription == "premium"` to false, eli
 }
 ```
 
-**Unknown role (guest) — `never_matches: true`:**
+Unknown role (guest): `never_matches: true`.
 
 ```json
 { "filter": null, "never_matches": true }
@@ -165,7 +165,7 @@ The `subscription = "free"` folds `user.subscription == "premium"` to false, eli
 
 Use `"format": "mongo"` to get a MongoDB aggregation pipeline `$match` stage. The result is a JSON object you can pass directly to `db.collection.aggregate([{ $match: filter }])`.
 
-**Free member alice:**
+Free member alice:
 
 ```json
 {
@@ -178,7 +178,7 @@ Use `"format": "mongo"` to get a MongoDB aggregation pipeline `$match` stage. Th
 }
 ```
 
-**Supported operators:**
+Supported operators:
 
 | Expression                | `$match` output                             |
 | ------------------------- | ------------------------------------------- |
@@ -196,7 +196,7 @@ Use `"format": "mongo"` to get a MongoDB aggregation pipeline `$match` stage. Th
 | `a && b`                  | `{ "$and": [a, b] }`                        |
 | `a \|\| b`                | `{ "$or": [a, b] }`                         |
 | Multiple paths            | `{ "$or": [...] }`                          |
-| Always matches            | `{}` (empty — no filter)                    |
+| Always matches            | `{}` (empty, no filter)                     |
 | Never matches             | `{ "$expr": false }`                        |
 
 Regex metacharacters in string literals are automatically escaped.
@@ -222,7 +222,7 @@ Use `"format": "json"` for a structured predicate tree that ORMs and front-end c
 }
 ```
 
-**Supported node types:**
+Supported node types:
 
 | Type                          | Key fields          | Meaning                    |
 | ----------------------------- | ------------------- | -------------------------- |
@@ -233,8 +233,8 @@ Use `"format": "json"` for a structured predicate tree that ORMs and front-end c
 | `contains`                    | `field`, `value`    | Substring / array contains |
 | `is_null` `not_null`          | `field`             | NULL check                 |
 | `starts_with` `ends_with`     | `field`, `value`    | Prefix / suffix            |
-| `always`                      | —                   | No filter needed           |
-| `never`                       | —                   | Empty result               |
+| `always`                      | none                | No filter needed           |
+| `never`                       | none                | Empty result               |
 
 ## SQL Generation Reference
 
@@ -267,5 +267,5 @@ String literals are single-quote escaped (`'` → `''`). LIKE pattern literals a
 
 ## Known Limitations
 
-- **Action step mutations**: `SetVariable` side-effects are not tracked. Downstream conditions referencing mutated variables are treated as unknown columns — the filter may be a superset. Application-level execution handles the final filtering.
-- **Depth limit**: 50 steps maximum traversal depth (hard limit, prevents infinite loops in cyclic graphs).
+- Action step mutations: `SetVariable` side-effects are not tracked. Downstream conditions referencing mutated variables are treated as unknown columns, so the filter may be a superset. Application-level execution handles the final filtering.
+- Depth limit: 50 steps maximum traversal depth (hard limit, prevents infinite loops in cyclic graphs).

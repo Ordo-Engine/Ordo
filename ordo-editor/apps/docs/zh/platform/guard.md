@@ -1,10 +1,10 @@
-# Agent 护栏 (`ordo guard`)
+# Agent 护栏（`ordo guard`）
 
-大模型是非确定性的——同一个问题问两遍，可能得到两个答案。用来起草文字没问题，但一旦 Agent 要跑 shell、改文件、调 API，这种不确定就变得危险。`ordo guard` 在你的编码 Agent 前面加一层**确定性决策层**：每一次工具调用都交给本地的 Ordo 规则裁决——**放行 / 拒绝 / 询问**。
+大模型的输出不确定，同一个问题问两遍可能得到两个答案。起草文字时这无所谓，但 Agent 要跑 shell、改文件、调 API 时就有风险。`ordo guard` 在编码 Agent 前面加一层**确定性决策层**：每次工具调用都由本地的 Ordo 规则判定为放行、拒绝或询问。
 
-它和随手写的 `if` 判断或手搓白名单的区别在于：策略本身就是一个**标准的 Ordo 项目**，所以你的护栏自带测试套件、可以 trace 调试，而且每一次决策都会写进审计日志。
+策略本身是一个标准的 Ordo 项目，所以护栏有测试套件，可以 trace 调试，每次决策都写进审计日志。这是它和手写 `if` 判断或白名单的区别。
 
-一份策略，接到哪个 Agent 上就在哪个 Agent 上生效：
+同一份策略可以接到多个 Agent 上：
 
 | Agent           | 钩子                    | 配置文件                  | 覆盖范围                                    |
 | --------------- | ------------------------ | -------------------------- | -------------------------------------------- |
@@ -12,13 +12,12 @@
 | **Codex CLI**   | `PreToolUse`              | `.codex/hooks.json`        | 目前仅 Bash（上游限制）                       |
 | **Cursor**      | `beforeShellExecution`    | `.cursor/hooks.json`       | 仅 shell 命令                                 |
 
-Claude Code 和 Codex CLI 走的是同一套信封格式，同一条规则在两边行为一致。Cursor
-只能看到 shell 命令，所以基于 `file_path`/`url` 的规则在 Cursor 上永远不会触发——
-Cursor 事件的 `tool` 恒为 `"Bash"`。
+Claude Code 和 Codex CLI 使用同一套信封格式，同一条规则在两边行为一致。Cursor
+只能看到 shell 命令，Cursor 事件的 `tool` 恒为 `"Bash"`，所以基于 `file_path`/`url` 的规则在 Cursor 上不会触发。
 
 ## 安装（五分钟）
 
-在你想加护栏的仓库里：
+在要加护栏的仓库里运行：
 
 ```bash
 npx @ordo-engine/cli guard init                        # Claude Code（默认）
@@ -27,15 +26,15 @@ npx @ordo-engine/cli guard init --agent cursor          # Cursor
 npx @ordo-engine/cli guard init --agent claude,codex,cursor   # 一次接三个
 ```
 
-`--agent` 可重复传（`--agent codex --agent cursor`）或逗号分隔；每个选中的 Agent
-各自拿到自己的钩子命令和配置文件，但评估的是同一份
-`.ordo-guard/rulesets/policy.json`。它做两件事：
+`--agent` 可以重复传（`--agent codex --agent cursor`），也可以逗号分隔。每个选中的 Agent
+有各自的钩子命令和配置文件，但评估的是同一份
+`.ordo-guard/rulesets/policy.json`。这条命令做两件事：
 
-1. 生成 `.ordo-guard/`——一个 Ordo 项目，包含 `rulesets/policy.json`、
-   `tests/policy.json`、`facts.json` 和一份 `AGENTS.md`。只生成一次，各 Agent 共用。
-2. 为每个选中的 Agent 注册钩子（具体文件见上表）。
+1. 生成 `.ordo-guard/`。这是一个 Ordo 项目，包含 `rulesets/policy.json`、
+   `tests/policy.json`、`facts.json` 和一份 `AGENTS.md`，只生成一次，各 Agent 共用。
+2. 为每个选中的 Agent 注册钩子（文件见上表）。
 
-重启对应的 Agent（Claude Code 可运行 `/hooks`）让它生效，然后确认整条链路是通的：
+重启对应的 Agent（Claude Code 可运行 `/hooks`）使其生效，然后检查整条链路：
 
 ```bash
 ordo guard doctor
@@ -44,51 +43,54 @@ ordo guard doctor
 # ✔ Claude Code hook (.claude/settings.local.json): answers `rm -rf /` with deny
 ```
 
-此后每一次工具调用都会走你的策略：
+之后每次工具调用都会经过策略：
 
 ```text
 $ (Agent 尝试) rm -r -f ./build
 ⛔ 已被策略拒绝：Destructive shell command blocked by policy [policy@1.1.0 · DENY]
 ```
 
-默认策略会拦截破坏性 shell（递归 `rm`、`find -delete`、`dd`、`mkfs`、`shred`）和密钥访问
-（`.env`、`.pem`、`id_rsa`、aws 凭证，无论走文件工具、`Grep` 还是 shell 参数），在
-`git push` / `npm publish` / `git reset --hard` / `git clean`、以及修改护栏或 Agent 钩子配置之前询问，
-对单条只读 git 命令快速放行，其余一律交回 Agent 的正常权限流程。shell 规则匹配的是*解析后*的命令
-（见 [Shell 命令](#shell-命令)），所以 `rm -rf`、`rm -r -f`、`/bin/rm -Rf`、
-`sudo env X=1 rm --recursive` 和 `bash -c 'rm -rf x'` 命中的是同一条规则。
+默认策略的行为：
+
+- 拦截破坏性 shell（递归 `rm`、`find -delete`、`dd`、`mkfs`、`shred`）和密钥访问
+  （`.env`、`.pem`、`id_rsa`、aws 凭证，不论通过文件工具、`Grep` 还是 shell 参数）。
+- 在 `git push` / `npm publish` / `git reset --hard` / `git clean` 之前，以及修改护栏或 Agent 钩子配置之前询问。
+- 单条只读 git 命令直接放行。
+- 其余调用交回 Agent 的正常权限流程。
+
+shell 规则匹配的是*解析后*的命令（见 [Shell 命令](#shell-命令)），所以 `rm -rf`、`rm -r -f`、`/bin/rm -Rf`、
+`sudo env X=1 rm --recursive` 和 `bash -c 'rm -rf x'` 命中同一条规则。
 
 ::: tip 通过 npx 运行
-`npx` 是从它的包缓存里运行二进制的，`npm cache clean` 会把它删掉，而 Agent 遇到程序不存在的钩子会静默跳过。
-所以 `guard init` 从 npx 缓存运行时，会把二进制复制到 `~/.ordo/bin/ordo` 并注册这个路径。升级后重新运行一次
+`npx` 从包缓存里运行二进制，`npm cache clean` 会把它删掉，而 Agent 找不到钩子程序时会静默跳过。
+因此 `guard init` 从 npx 缓存运行时，会把二进制复制到 `~/.ordo/bin/ordo` 并注册这个路径。升级后重新运行一次
 `guard init` 即可刷新。
 :::
 
 ::: tip 团队共享
-默认注册用的是各 Agent 本地、git 忽略的配置文件里的绝对路径。若想给整个团队提交一份
-可移植的钩子，加上 `--shared`——它会注册 `npx -y @ordo-engine/cli guard hook`
-（Codex/Cursor 会带上对应的 `--agent` 后缀）到该 Agent 的共享/已提交配置里。只有
-Claude Code 区分共享与本地文件（`.claude/settings.json` 对 `.claude/settings.local.json`）；
-Codex CLI 和 Cursor 各自只有一个项目本地文件，但 `--shared` 仍会切换成可移植命令。
+默认注册的是各 Agent 本地、被 git 忽略的配置文件里的绝对路径。要给团队提交一份
+可移植的钩子，加上 `--shared`。它会把 `npx -y @ordo-engine/cli guard hook`
+（Codex/Cursor 带上对应的 `--agent` 后缀）注册到该 Agent 的共享配置里。只有
+Claude Code 区分共享与本地文件（`.claude/settings.json` 和 `.claude/settings.local.json`）。
+Codex CLI 和 Cursor 各自只有一个项目本地文件，`--shared` 在这两者上只切换成可移植命令。
 :::
 
 ::: warning Cursor 的决策信封
-Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，没有明确的
-"不表态"语义——所以和 Claude Code / Codex CLI（未命中规则时 stdout 保持空、交回 Agent
-自己的流程）不同，Cursor 上未命中任何策略规则会显式返回 `allow`，而不是保持静默。
+Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，没有“不表态”的语义。
+Claude Code 和 Codex CLI 在未命中规则时 stdout 保持为空，交回 Agent 自己的流程；Cursor 上未命中任何规则时会显式返回 `allow`。
 :::
 
 ## 策略能看到的输入
 
-钩子会把 Agent 的事件拍平成同一个输入对象——不管是哪个 Agent 触发的，形状都一样，
-所以规则只需写一次，到哪都一致。在条件里直接引用这些字段：
+钩子把 Agent 的事件拍平成同一个输入对象。不管哪个 Agent 触发，结构都一样，
+规则只需写一次。在条件里直接引用这些字段：
 
 | 字段              | 示例                | 说明                                          |
 | ----------------- | ------------------- | ---------------------------------------------- |
-| `tool`            | `"Bash"`、`"Edit"`  | 工具名——Cursor 事件恒为 `"Bash"`               |
-| `command`         | `"git push origin"` | Bash——从 `tool_input` 提升上来                 |
-| `file_path`       | `"src/main.rs"`     | Read/Write/Edit——已提升（仅 Claude Code/Codex）|
-| `url`             | `"https://…"`       | WebFetch——已提升（仅 Claude Code/Codex）       |
+| `tool`            | `"Bash"`、`"Edit"`  | 工具名。Cursor 事件恒为 `"Bash"`               |
+| `command`         | `"git push origin"` | Bash，从 `tool_input` 提升上来                 |
+| `file_path`       | `"src/main.rs"`     | Read/Write/Edit，已提升（仅 Claude Code/Codex）|
+| `url`             | `"https://…"`       | WebFetch，已提升（仅 Claude Code/Codex）       |
 | `cwd`             | `"/repo"`           | 工作目录                                        |
 | `permission_mode` | `"default"`         | Claude Code/Codex 权限模式；Cursor 上不存在     |
 | `session_id`      | `"c1a2…"`           | Cursor 的 `conversation_id` 也映射到这个字段    |
@@ -97,19 +99,19 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 | `task`、`rel_path` | `{ … }`、`"src/a.ts"` | 仅在任务上下文生效时出现                  |
 | `programs`、`subcommands`、`argv`、`commands`、`words`、`shell_parse` | | 仅 Bash，见 [Shell 命令](#shell-命令) |
 
-`tool_input` 里的其他键也会被提升到顶层，所以出现新工具时无需改代码即可在条件里使用。
+`tool_input` 里的其他键也会提升到顶层，新工具出现时不用改代码就能在条件里使用。
 
 ::: warning 缺失字段是宽松的
-条件引用一个**不存在**的字段时结果为 `false`，所以基于 `command` 的规则对非 Bash 工具会
-被安全跳过。注意取反：当 `command` 缺失时，`!(command contains 'x')` **也**是 false。建议先
-用工具名兜底：`tool == 'Bash' && !(command contains 'x')`。
+条件引用不存在的字段时结果为 `false`，所以基于 `command` 的规则对非 Bash 工具会
+被跳过。取反时要注意：`command` 缺失时，`!(command contains 'x')` 同样是 false。建议先
+用工具名限定：`tool == 'Bash' && !(command contains 'x')`。
 :::
 
 ## Shell 命令
 
 对 `command` 做子串匹配很容易绕过：`command contains 'rm -rf'` 拦不住 `rm -r -f`、`rm  -rf`（两个空格）和
-`rm -Rf`。所以对每个 `Bash` 调用，钩子还会像 POSIX shell 一样解析 `command`——引号和转义、`&&` `||` `;` `|` `&`、
-子 shell、`$(…)` 和反引号、`bash -c '…'` 和 `eval` 的内容、heredoc（正文是数据，不是命令）——剥掉 `sudo`、
+`rm -Rf`。因此钩子会像 POSIX shell 一样解析每个 `Bash` 调用的 `command`，处理引号和转义、`&&` `||` `;` `|` `&`、
+子 shell、`$(…)` 和反引号、`bash -c '…'` 和 `eval` 的内容，以及 heredoc（正文视为数据，不当作命令）。解析时剥掉 `sudo`、
 `doas`、`env`、`nohup`、`nice`、`timeout`、`xargs`、`command` 等包装，然后加上这些字段：
 
 | 字段          | `sudo git -C web push && rm -rf /tmp/x` 的结果 | 用法                              |
@@ -130,18 +132,18 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 }
 ```
 
-这是静态分析，不会执行：变量、alias 和 shell 函数它都看不到，所以它是提高门槛，而不是堵死所有路。
+这是静态分析，不执行命令。它看不到变量、alias 和 shell 函数，只能提高绕过的门槛，不能堵住所有路径。
 
 ::: warning 一个缺失字段会让整个条件为假
-`rm` 执行了的话 `'-r' in argv.rm` 没问题；但如果没有 `rm`，`argv.rm` 就不存在，*整个*条件都是假，
-连本来能命中的 `||` 分支也一样。每次查找前先守卫（`'rm' in programs && '-r' in argv.rm`），
-读取不同字段的备选条件请拆成不同的分支。
+命令里有 `rm` 时，`'-r' in argv.rm` 正常工作；没有 `rm` 时 `argv.rm` 不存在，*整个*条件为假，
+包括本来能命中的 `||` 分支。每次查找前先加判断（`'rm' in programs && '-r' in argv.rm`），
+读取不同字段的备选条件拆成不同的分支。
 :::
 
 ## 编写规则
 
-分支条件是朴素的表达式字符串，从上到下求值——首个匹配生效。终结节点的 code 映射到决策：
-`DENY`、`ASK`、`ALLOW`，而 `PASS`（或任何其他 code）= 不表态。
+分支条件是普通的表达式字符串，从上到下求值，第一个匹配的生效。终结节点的 code 对应决策：
+`DENY`、`ASK`、`ALLOW`；`PASS`（或其他任何 code）表示不表态。
 
 ```json
 {
@@ -156,17 +158,17 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 `starts_with(s, prefix)`、`ends_with(s, suffix)`、`regex_match(pattern, s)`、`glob_match(模式或模式数组, s)` 等函数。
 
 ::: warning `regex_match` 的参数顺序和反斜杠
-**模式在前**：`regex_match('[.]pem$', file_path)`，不要写反。表达式字符串里的反斜杠是转义符
-（`'\s'` 传到正则时只剩 `s`），所以请用 `[.]` 和空格，而不是 `\.` 和 `\s`。
+模式在前：`regex_match('[.]pem$', file_path)`，不要写反。表达式字符串里的反斜杠是转义符
+（`'\s'` 传到正则时只剩 `s`），所以用 `[.]` 和空格，不要用 `\.` 和 `\s`。
 :::
 
-展示给 Agent 的决策原因来自命中的终结节点 `message`（或你设置的 `reason` 输出字段）。
+Agent 看到的决策原因来自命中的终结节点 `message`（或你设置的 `reason` 输出字段）。
 
 ## 任务上下文
 
-工具调用事件里没有“当前任务”的信息，所以策略能写“永远不准 `terraform destroy`”，却写不出
-“这个任务只许改 `src/auth/`”。要按任务限定范围，就写一个 `.ordo-guard/context.json`
-（手写或由任务规划工具生成），再用一份手写策略去读它：
+工具调用事件里没有“当前任务”的信息，所以策略能写“永远不准 `terraform destroy`”，写不出
+“这个任务只许改 `src/auth/`”。要按任务限定范围，写一个 `.ordo-guard/context.json`
+（手写或由任务规划工具生成），再用一份手写策略读取它：
 
 ```json
 {
@@ -177,7 +179,7 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 }
 ```
 
-`task` 原样透传，策略需要什么就放什么。只有和事件绑定上时上下文才生效：
+`task` 原样透传，策略需要什么就放什么。上下文只有和事件匹配时才生效：
 
 | 检查         | 规则                                                       |
 | ------------ | ----------------------------------------------------------- |
@@ -185,9 +187,9 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 | `session_id` | 若设置，必须等于事件的会话 id                                |
 | `expires_at` | 若设置（RFC 3339），必须尚未过期                             |
 
-生效时，输入里会多出 `task` 和 `rel_path`：被编辑文件（`file_path` / `notebook_path`）
-相对 `root` 的路径，用 `/` 分隔，`.` 和 `..` 已解析；root 之外的路径会是 `../…`。
-输入里**始终**带有 `task_context`，由策略决定“没有可用任务”时怎么办：
+生效时，输入里会多出 `task` 和 `rel_path`。`rel_path` 是被编辑文件（`file_path` / `notebook_path`）
+相对 `root` 的路径，用 `/` 分隔，`.` 和 `..` 已解析；root 之外的路径形如 `../…`。
+输入里始终带有 `task_context`，由策略决定没有可用任务时怎么处理：
 
 | `task_context` | 含义                                       |
 | -------------- | ------------------------------------------ |
@@ -197,7 +199,7 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 | `expired`      | 已过 `expires_at`                          |
 | `invalid`      | 无法读取或格式错误（stderr 会有警告）       |
 
-把范围规则放在基础规则**之后**，这样任务内的 `rm -rf`、读取密钥依然会被拒绝：
+把范围规则放在基础规则之后，这样任务内的 `rm -rf` 和密钥读取仍会被拒绝：
 
 ```json
 {
@@ -208,18 +210,18 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 }
 ```
 
-`glob_match` 接受单个模式或模式数组（任一匹配即为 true）。它的 `*` 也会匹配 `/`，
-所以 `src/auth/*` 同样覆盖子目录；避免以通配符开头的模式（`**`、`*/…`），它们也会匹配
+`glob_match` 接受单个模式或模式数组（任一匹配即为 true）。它的 `*` 也匹配 `/`，
+所以 `src/auth/*` 同样覆盖子目录。避免以通配符开头的模式（`**`、`*/…`），它们也会匹配
 root 之外的 `../` 路径。
 
-在上下文下产生的每条审计日志都会记录 `task_context`、`task_id` 和 `context_hash`
-（对应 `context.json` 的 `sha256:`），因此每个决策都能追溯到当时生效的任务定义。
-和 guard 的其他部分一样，这里检查的是工具*调用*：只比较路径字符串、不解析符号链接，
-`Bash` 命令仍然可以写到任何地方。如果任务需要，给 `Bash` 配一条 `ASK` 规则。
+上下文生效期间，每条审计日志都会记录 `task_context`、`task_id` 和 `context_hash`
+（`context.json` 的 `sha256:`），每个决策都能追溯到当时的任务定义。
+和 guard 的其他部分一样，这里检查的是工具*调用*：只比较路径字符串，不解析符号链接，
+`Bash` 命令仍然可以写到任何地方。任务需要时，给 `Bash` 配一条 `ASK` 规则。
 
-## 测试你的护栏
+## 测试护栏
 
-因为策略是一个真正的 Ordo 项目，在 `tests/policy.json` 里加一条用例：
+策略是一个 Ordo 项目，所以可以在 `tests/policy.json` 里加用例：
 
 ```json
 {
@@ -238,7 +240,7 @@ ordo guard test
 # …
 ```
 
-`ordo guard test` 会像线上钩子一样从 `command` 推导出 [shell 字段](#shell-命令)，所以用例只需写 `tool` 和 `command`。
+`ordo guard test` 会和线上钩子一样从 `command` 推导出 [shell 字段](#shell-命令)，用例只需写 `tool` 和 `command`。
 
 查看线上钩子对某个事件的回答：
 
@@ -248,7 +250,7 @@ echo '{"tool_name":"Bash","tool_input":{"command":"git -C web push"}}' | ordo gu
 
 ## 审计日志
 
-每一次决策都会追加到 `.ordo-guard/log.jsonl`（git 忽略）：
+每次决策都追加到 `.ordo-guard/log.jsonl`（被 git 忽略）：
 
 ```bash
 ordo guard log --tail 20
@@ -259,21 +261,21 @@ ordo guard log --json | jq 'select(.decision=="deny")'
 
 ## 默认失败即放行
 
-如果护栏自己出了问题——策略缺失、规则编译不过、事件格式错误——钩子会**失败即放行**：
+护栏自身出错时（策略缺失、规则编译失败、事件格式错误），钩子默认**失败即放行**：
 在 stderr 打一行警告，stdout 保持静默，工具调用照常走 Agent 的正常流程。（在 Cursor 上，
-"静默"意味着显式返回 `allow` 而非空 stdout——见前文提示。）坏掉的护栏绝不该卡死你的 Agent。
-在注册的命令里加 `--fail-closed` 可反转此行为，改为内部出错时拒绝。
+“静默”指显式返回 `allow`，而不是空 stdout，见前文提示。）护栏坏了不应卡住 Agent。
+在注册的命令里加 `--fail-closed` 可以反转此行为，内部出错时改为拒绝。
 
-失败即放行，或者钩子程序已经不存在（所有 Agent 都会静默跳过），都意味着你可能根本没发现护栏已经失效。
-`ordo guard doctor` 会逐项检查：策略能求值、测试通过、钩子已注册、钩子程序存在，并且按 Agent 的方式实际运行
-每个已注册的钩子，确认它对 `rm -rf /` 的回答。护栏没在保护仓库时它返回非零，所以也可以放进 CI 或 pre-commit。
+失败即放行，或者钩子程序已不存在（所有 Agent 都会静默跳过），都可能让你没发现护栏已经失效。
+`ordo guard doctor` 会逐项检查：策略能求值、测试通过、钩子已注册、钩子程序存在，并按 Agent 的方式实际运行
+每个已注册的钩子，确认它对 `rm -rf /` 的回答。护栏没有生效时它返回非零，可以放进 CI 或 pre-commit。
 
 ### 升级已有策略
 
-`ordo guard init` 从不覆盖已存在的 `.ordo-guard/`，所以用旧版 CLI 初始化过的仓库会一直停在旧的默认策略上
-（0.6.0 之前的默认策略按 `command` 子串匹配，`rm -r -f` 能直接绕过；`doctor` 会对此给出警告）。
-`ordo guard upgrade` 会替换所有仍是旧版默认、没被改过的文件：策略、它的测试和 `AGENTS.md`。
-你改过的文件默认保留不动；加 `--force` 才会替换，旧文件另存为 `<文件>.bak`。`--dry-run` 只显示会改什么。
+`ordo guard init` 不会覆盖已存在的 `.ordo-guard/`，所以用旧版 CLI 初始化的仓库会停留在旧的默认策略上
+（0.6.0 之前的默认策略按 `command` 子串匹配，`rm -r -f` 可以绕过；`doctor` 会对此给出警告）。
+`ordo guard upgrade` 会替换所有仍是旧版默认、未被修改的文件：策略、策略的测试和 `AGENTS.md`。
+你改过的文件默认保留；加 `--force` 才会替换，旧文件另存为 `<文件>.bak`。`--dry-run` 只显示会改动什么。
 
 ```bash
 ordo guard upgrade --dry-run
@@ -283,11 +285,11 @@ ordo guard test && ordo guard doctor
 
 ## 局限
 
-Guard 是**纵深防御，不是沙箱**。它看到的是工具*调用*，不是其副作用，shell 解析也看不穿变量和脚本：
-默认策略会在 `sed -i … .ordo-guard/…` 之前询问，但拦不住一个修改同一文件的脚本。请把它和 Agent 自身的权限系统
-叠加使用，不要把它当成对抗恶意进程的安全边界。
+Guard 是纵深防御，不是沙箱。它看到的是工具*调用*，看不到调用的副作用，shell 解析也看不穿变量和脚本。
+例如默认策略会在 `sed -i … .ordo-guard/…` 之前询问，但拦不住一个修改同一文件的脚本。请把它和 Agent 自身的权限系统
+叠加使用，不要把它当作对抗恶意进程的安全边界。
 
-各 Agent 目前的已知缺口（都是上游限制，非 `ordo guard` 能绕开的）：Codex CLI 的
+各 Agent 目前的已知缺口（均为上游限制，`ordo guard` 无法绕开）：Codex CLI 的
 `PreToolUse` 目前只对 Bash 触发（Read/Write/Edit/MCP 调用尚不触发）；Cursor 的
-`beforeShellExecution` 只能看到 shell 命令（完全没有文件编辑钩子），所以基于文件路径的
-规则在 Cursor 上无法触达。
+`beforeShellExecution` 只能看到 shell 命令，没有文件编辑钩子，所以基于文件路径的
+规则在 Cursor 上不会生效。

@@ -1,6 +1,6 @@
 # Test Management
 
-The platform gives every ruleset its own test suite — same YAML format as ordo-cli, with a single source of truth across Studio, CLI, and CI.
+Every ruleset on the platform has its own test suite. It uses the same YAML format as ordo-cli, so Studio, the CLI, and CI share one set of cases.
 
 ## Case Structure
 
@@ -37,7 +37,7 @@ cases:
 
 ## Coupling with Releases
 
-When a [release request](./releases) is created, the platform automatically runs all test cases for the affected rulesets. **Any failure blocks creation of the release request.**
+When a [release request](./releases) is created, the platform automatically runs all test cases for the affected rulesets. Any failure blocks creation of the release request.
 
 You can disable `auto_run_tests` in a release policy to skip this gate, but production usually shouldn't.
 
@@ -50,7 +50,7 @@ You can disable `auto_run_tests` in a release policy to skip this gate, but prod
 ordo test --rules ./rulesets --tests ./tests --reporter junit > junit.xml
 ```
 
-Output formats: JUnit XML, JSON, TAP — all directly consumable by GitHub Actions / GitLab CI.
+Output formats: JUnit XML, JSON, TAP. GitHub Actions and GitLab CI can read all three directly.
 
 ## Trace & Failure Diagnosis
 
@@ -60,4 +60,4 @@ When a test fails, the platform returns the full execution trace. Click the resu
 - The last branch that matched before the divergence
 - Each action node's assignment trail
 
-See [Studio Editor — Trace Panel](./studio#trace-panel).
+See [Studio Editor: Trace Panel](./studio#trace-panel).

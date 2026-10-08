@@ -1,6 +1,6 @@
 # Rule Drafts
 
-The platform never pushes ruleset edits straight to the execution cluster — they go into a **draft** first. Drafts are the foundation of Studio collaboration and the release pipeline.
+The platform never pushes ruleset edits straight to the execution cluster. Edits go into a **draft** first. Studio collaboration and the release pipeline both work on drafts.
 
 ## Lifecycle
 
@@ -64,7 +64,7 @@ Each release snapshots a read-only history entry:
 GET /api/v1/projects/:pid/rulesets/:name/history
 ```
 
-You can preview any version's diff in Studio and roll back with one click (which actually creates a new release for full audit, never a silent overwrite).
+You can preview any version's diff in Studio and roll back with one click. A rollback creates a new release so it shows up in the audit log; it never overwrites history.
 
 ## Related API
 

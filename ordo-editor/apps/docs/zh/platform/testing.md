@@ -1,6 +1,6 @@
 # 测试管理
 
-平台为每个规则集提供独立的测试套件——和 ordo-cli 用同一份 YAML 格式，覆盖 Studio、CLI、CI 三处入口。
+平台为每个规则集提供独立的测试套件，格式与 ordo-cli 使用的 YAML 相同，可以在 Studio、CLI 和 CI 中运行。
 
 ## 用例结构
 
@@ -38,27 +38,27 @@ cases:
 
 ## 与发布的联动
 
-发布请求创建时（[发布流程](./releases)），平台会自动跑被涉及规则集的全部测试用例。**任何用例失败都会阻断发布请求的创建**。
+创建发布请求时（见[发布流程](./releases)），平台会自动运行相关规则集的全部测试用例。任何用例失败，发布请求都无法创建。
 
-可在发布策略里关闭 `auto_run_tests` 跳过校验，但生产环境通常不建议这么做。
+可以在发布策略里关闭 `auto_run_tests` 跳过这一步，但生产环境不建议这样做。
 
 ## CI 集成
 
-- 平台导出 YAML 文件直接 commit 到代码仓库。
-- ordo-cli 在 PR 阶段运行：
+- 从平台导出 YAML 文件，提交到代码仓库。
+- 在 PR 阶段用 ordo-cli 运行：
 
 ```bash
 ordo test --rules ./rulesets --tests ./tests --reporter junit > junit.xml
 ```
 
-输出格式：JUnit XML、JSON、TAP，可直接喂给 GitHub Actions / GitLab CI。
+支持的输出格式有 JUnit XML、JSON 和 TAP，可以直接用于 GitHub Actions / GitLab CI。
 
 ## Trace 与失败诊断
 
-测试用例运行失败时，平台返回完整的执行 trace，Studio 中点开测试结果即可看到：
+测试用例失败时，平台返回完整的执行 trace。在 Studio 中打开测试结果可以看到：
 
 - 期望的 output code 与实际命中的 code
 - 失败前命中的最后一条分支
 - 每个 action 节点的赋值过程
 
-详见 [Studio 编辑器 - 执行追踪](./studio#执行追踪面板)。
+详见 [Studio 编辑器：执行追踪](./studio#执行追踪面板)。

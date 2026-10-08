@@ -1,32 +1,34 @@
 # Quickstart
 
-Ship your first decision in five minutes — create a project, author a rule from a
-template, try it on sample input, publish it, and call it from your app. There's
-no engine to install; the platform runs one for you.
+This page takes you from an empty project to a published rule your app can
+call, in about five minutes: create a project, author a rule from a template,
+try it on sample input, publish it, and call it. You don't install an engine;
+the platform runs one for you.
 
 > New to Ordo? Skim the [Platform Overview](./overview) for the mental model
 > (model → author → test → release → run). This page is the hands-on path.
 
-There are two ways in. Pick one — they produce the same result and you can switch
-anytime: the [CLI](./cli) pulls what you build in [Studio](./studio), and Studio
+There are two ways in. Both produce the same result and you can switch at any
+time: the [CLI](./cli) pulls what you build in [Studio](./studio), and Studio
 shows what you push from the CLI.
 
-- **Studio (web)** — click-to-build in the browser. Best for a first look.
-- **CLI (local)** — rules-as-files in your git repo, driven by you or an AI coding agent.
+- Studio (web): build in the browser. Best for a first look.
+- CLI (local): rules as files in your git repo, driven by you or an AI coding agent.
 
-## Path A — Studio (web)
+## Path A: Studio (web)
 
 ### 1. Create a project
 
-Sign in to Studio, create an **organization**, then a **project** inside it. A
+Sign in to Studio, create an organization, then a project inside it. A
 project is the unit that owns your facts, concepts, rulesets, environments, and
 the engine it runs on. See [Organizations & Projects](./organizations).
 
 ### 2. Start from a template
 
-New ruleset → pick **Loan Approval** (or Ecommerce Coupon). You get a working
-decision graph — a decision step on `amount`, terminals for approve/reject — and
-the [Fact Catalog](./catalog) is pre-filled with the inputs it reads.
+Click **New ruleset** and pick Loan Approval (or Ecommerce Coupon). You get a
+working decision graph with a decision step on `amount` and terminals for
+approve and reject. The [Fact Catalog](./catalog) is pre-filled with the inputs
+it reads.
 
 ### 3. Try it
 
@@ -36,19 +38,19 @@ Open the trace panel, paste a sample input, and **Try run**:
 { "amount": 5000, "is_vip": true }
 ```
 
-You'll see the matched branch, the full path, per-step timing, and the terminal
-`code` / `output`. This is the same engine that serves production —
+You see the matched branch, the full path, per-step timing, and the terminal
+`code` / `output`. It runs on the same engine that serves production.
 [Studio Editor](./studio) covers the three views and the trace panel.
 
 ### 4. Publish
 
-Open a release to an environment (start with **staging**). Tests and a diff run
-automatically; once approved, the platform delivers the rule to that
+Open a release to an environment (start with staging). Tests and a diff run
+automatically. Once the release is approved, the platform delivers the rule to that
 environment's engine. See [Release Pipeline](./releases).
 
 ### 5. Call it
 
-Your app calls the engine at runtime — see [Runtime Integration](./integrate):
+Your app calls the engine at runtime (see [Runtime Integration](./integrate)):
 
 ```bash
 POST https://<engine>/api/v1/execute/loan-approval
@@ -60,10 +62,10 @@ Body:   { "input": { "amount": 5000, "is_vip": true } }
 { "code": "APPROVED", "output": { "approved": true }, "duration_us": 6 }
 ```
 
-## Path B — CLI (local, git-native)
+## Path B: CLI (local, git-native)
 
-Everything above, as files in your repo. Nothing to install — `npx` fetches a
-prebuilt binary.
+The same steps, as files in your repo. There is nothing to install: `npx`
+fetches a prebuilt binary.
 
 ### 1. Scaffold + local loop (offline)
 
@@ -75,8 +77,8 @@ ordo test         # run the ruleset's test cases
 ordo trace loan-approval --input '{"amount":5000,"is_vip":true}'
 ```
 
-`validate` / `test` / `trace` run on an embedded engine — offline, sub-second, and
-concept-identical to production. See [CLI](./cli).
+`validate` / `test` / `trace` run on an embedded engine. They work offline,
+finish in under a second, and evaluate concepts the same way production does. See [CLI](./cli).
 
 ### 2. Connect to the platform
 
@@ -93,13 +95,13 @@ ordo publish loan-approval --env staging
 claude mcp add ordo -- ordo mcp
 ```
 
-Now your coding agent has Ordo as native tools — it reads, writes, validates,
-tests, and traces rules on the local project, and proposes releases you approve.
+Your coding agent can now read, write, validate, test, and trace rules in the
+local project, and propose releases for you to approve.
 See [MCP Server](./mcp).
 
 ### 4. Call it
 
-Same runtime call as Path A → [Runtime Integration](./integrate).
+Same runtime call as Path A. See [Runtime Integration](./integrate).
 
 ## What you built
 
@@ -112,7 +114,7 @@ Same runtime call as Path A → [Runtime Integration](./integrate).
 
 ## Next
 
-- [Fact Catalog](./catalog) · [Decision Contracts](./contracts) — model typed inputs and I/O
-- [Release Pipeline](./releases) — review, canary, rollback
-- [Test Management](./testing) — cases, suites, CI
-- [Runtime Integration](./integrate) — REST, gRPC, and the official SDKs
+- [Fact Catalog](./catalog) · [Decision Contracts](./contracts): model typed inputs and I/O
+- [Release Pipeline](./releases): review, canary, rollback
+- [Test Management](./testing): cases, suites, CI
+- [Runtime Integration](./integrate): REST, gRPC, and the official SDKs

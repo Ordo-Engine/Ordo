@@ -1,6 +1,6 @@
 # Expression Syntax
 
-Ordo uses a powerful expression language for defining conditions in rules.
+Conditions, outputs and assignments are all written as expressions. This page lists the syntax they support.
 
 ## Basic Syntax
 

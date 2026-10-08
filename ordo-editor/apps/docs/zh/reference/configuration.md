@@ -1,6 +1,6 @@
 # 配置
 
-本文档记录了 Ordo 服务器的所有配置选项。
+本文列出 Ordo 服务器的所有配置选项。
 
 ## 服务器配置
 
@@ -27,7 +27,7 @@
 | 选项     | CLI 标志              | 默认值 | 描述                |
 | -------- | --------------------- | ------ | ------------------- |
 | 审计目录 | `--audit-dir`         | 无     | 审计日志目录        |
-| 采样率   | `--audit-sample-rate` | `10`   | 执行采样率 (0-100%) |
+| 采样率   | `--audit-sample-rate` | `10`   | 执行采样率（0-100%） |
 
 ## 签名配置
 
@@ -51,7 +51,7 @@
 
 ### Writer/Reader 部署
 
-Ordo 支持 Writer/Reader 分布式部署模式，分离读写流量：
+Ordo 支持 Writer/Reader 分布式部署，把读写流量分开：
 
 ```bash
 # Writer 节点 — 处理所有规则 CRUD 操作
@@ -64,7 +64,7 @@ ordo-server --role reader \
   --watch-rules
 ```
 
-当 Reader 收到写请求时，返回 `409 Conflict` 并附带 Writer 地址：
+Reader 收到写请求时，返回 `409 Conflict` 并附带 Writer 地址：
 
 ```json
 {
@@ -76,7 +76,7 @@ ordo-server --role reader \
 
 ### 文件监控
 
-启用 `--watch-rules` 后，Ordo 会监控规则目录的文件变更：
+启用 `--watch-rules` 后，Ordo 会监控规则目录中的文件变更：
 
 - 使用原生操作系统文件事件（macOS 上的 FSEvents，Linux 上的 inotify）
 - 200ms 防抖处理快速连续变更
@@ -85,7 +85,7 @@ ordo-server --role reader \
 
 ## 健康检查端点
 
-Ordo 提供 Kubernetes 兼容的健康检查端点：
+Ordo 提供与 Kubernetes 兼容的健康检查端点：
 
 | 端点             | 类型     | 描述                                   |
 | ---------------- | -------- | -------------------------------------- |
@@ -97,8 +97,8 @@ Ordo 提供 Kubernetes 兼容的健康检查端点：
 
 就绪探针执行以下检查：
 
-1. **Store 锁** — 尝试在 2 秒超时内获取读锁
-2. **磁盘可写** — 向 `--rules-dir` 写入 `.health_probe` 测试文件（如已配置）
+1. Store 锁：尝试在 2 秒内获取读锁
+2. 磁盘可写：向 `--rules-dir` 写入 `.health_probe` 测试文件（如已配置）
 
 ```yaml
 # Kubernetes 探针配置
@@ -134,7 +134,7 @@ ordo-server \
 
 ## 运行时配置
 
-某些设置可以通过 API 在运行时更改：
+部分设置可以通过 API 在运行时修改：
 
 ### 审计采样率
 
@@ -152,7 +152,7 @@ curl -X PUT http://localhost:8080/api/v1/config/audit-sample-rate \
 
 ### 环境变量
 
-在 Docker 中运行时，可以使用环境变量：
+在 Docker 中运行时，可以用环境变量配置：
 
 ```dockerfile
 ENV ORDO_HTTP_ADDR=0.0.0.0:8080
@@ -294,7 +294,7 @@ job "ordo-server" {
 
 ### 高吞吐量
 
-为了获得最大吞吐量：
+追求最大吞吐量时：
 
 ```bash
 ordo-server \
@@ -304,7 +304,7 @@ ordo-server \
 
 ### 调试
 
-用于故障排除：
+排查问题时：
 
 ```bash
 ordo-server \
@@ -314,7 +314,7 @@ ordo-server \
 
 ## 安全注意事项
 
-1.  **开发环境中绑定到 localhost**：使用 `127.0.0.1` 而不是 `0.0.0.0`
-2.  **生产环境使用 TLS**：配置带有 TLS 的反向代理
-3.  **限制审计日志访问**：审计日志可能包含敏感数据
-4.  **设置合适的文件权限**：针对规则和审计目录
+1.  开发环境绑定到 localhost：使用 `127.0.0.1`，不要用 `0.0.0.0`
+2.  生产环境使用 TLS：配置带 TLS 的反向代理
+3.  限制审计日志的访问：审计日志可能包含敏感数据
+4.  为规则目录和审计目录设置合适的文件权限

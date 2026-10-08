@@ -1,12 +1,12 @@
 # Runtime Integration
 
-Once a ruleset is published, your application calls the **engine** at runtime to
-get a decision — one request in, one decision out, in sub-microsecond execution
+Once a ruleset is published, your application calls the engine at runtime to
+get a decision: one request in, one decision out, with sub-microsecond execution
 time. Your app talks to the engine (the hot path), not the control plane.
 
-> In Studio, every project has an **Integrate** tab that generates these calls
-> for you — the endpoint, your project's tenant id, and copy-ready curl / Node /
-> Python / Go snippets, all pre-filled for the ruleset you pick.
+> In Studio, every project has an **Integrate** tab that generates these calls:
+> the endpoint, your project's tenant id, and curl / Node / Python / Go snippets
+> pre-filled for the ruleset you pick.
 
 ## The decision call
 
@@ -55,31 +55,31 @@ The `sdk/go` and `sdk/java` clients speak gRPC (`OrdoService.Execute`) with the
 
 ## Transports
 
-The engine exposes the same execution over three transports — pick per latency
-and environment:
+The engine exposes the same execution over three transports. Pick one based on
+latency and environment:
 
 | Transport               | Use it for                                          |
 | ----------------------- | --------------------------------------------------- |
-| **HTTP REST** (`:8080`) | The default — easy from any language/service        |
+| **HTTP REST** (`:8080`) | The default; easy from any language/service         |
 | **gRPC** (`:50051`)     | High-throughput services; the Go/Java SDKs use it   |
-| **Unix Domain Socket**  | Co-located caller on the same host — lowest latency |
+| **Unix Domain Socket**  | Co-located caller on the same host; lowest latency  |
 
 See the [HTTP API](/en/api/http-api) and [gRPC API](/en/api/grpc-api) references
 for the full request/response schemas.
 
 ## Where the engine runs
 
-- **Managed** — the platform runs the engine; your published rules are callable
+- Managed: the platform runs the engine, and your published rules are callable
   without you hosting anything.
-- **Self-hosted** — run `ordo-server` in your own network and connect it to the
-  platform with a [connect token](/en/platform/server-registry). Ordo's engine
-  is built for internal, trusted networks (auth/TLS are available but optional),
-  so you can keep decisioning entirely inside your infrastructure.
+- Self-hosted: run `ordo-server` in your own network and connect it to the
+  platform with a [connect token](/en/platform/server-registry). The engine is
+  designed for internal, trusted networks (auth/TLS are available but optional),
+  so decisions can stay entirely inside your infrastructure.
 
 ## Facts vs. input
 
-A ruleset's conditions reference **input fields**, **facts**, and **concepts**.
-Concepts are derived and computed by the engine. Facts are external inputs — in
+A ruleset's conditions reference input fields, facts, and concepts.
+Concepts are derived and computed by the engine. Facts are external inputs; in
 a runtime call you supply them in the `input` object (a fact that isn't supplied
 evaluates as missing/null, not an error). Model the contract of each ruleset in
 its [decision contract](/en/platform/contracts).

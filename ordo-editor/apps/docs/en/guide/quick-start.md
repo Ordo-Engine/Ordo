@@ -1,174 +1,136 @@
 # Quick Start
 
-Let's create and execute your first rule in under 5 minutes.
+This page walks you through writing a discount rule, running it, adding tests, and calling it over HTTP. You need Node.js 18 or later. No Rust toolchain required.
 
-> This is the raw **engine** REST path — you author a ruleset by hand and `POST`
-> it to a running `ordo-server`. Using the platform instead? The
-> [Platform Quickstart](/en/platform/quickstart) covers projects, Studio, and
-> publishing.
-
-## Create a Rule
-
-Create a simple discount rule that gives VIP users 20% off:
+## 1. Install the CLI
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/rulesets \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": {
-      "name": "discount-check",
-      "version": "1.0.0",
-      "entry_step": "check_vip"
+npm install -g @ordo-engine/cli
+ordo --version
+```
+
+If you'd rather not install globally, replace `ordo` below with `npx @ordo-engine/cli`.
+
+## 2. Create a rules project
+
+```bash
+ordo init my-rules && cd my-rules
+```
+
+The project comes with a sample rule, `loan-approval`. Rules live in `rulesets/` and tests in `tests/`.
+
+## 3. Write a rule
+
+Create `rulesets/discount.json`. It picks a discount rate from the membership tier and order amount, then computes the amount to pay:
+
+```json
+{
+  "config": { "name": "discount", "version": "1.0.0", "entry_step": "pick_rate" },
+  "steps": {
+    "pick_rate": {
+      "id": "pick_rate",
+      "name": "Pick discount rate",
+      "type": "decision_table",
+      "inputs": ["user.tier", "order.amount"],
+      "outputs": ["rate"],
+      "rules": [
+        { "when": ["gold", ">= 1000"], "then": [0.15] },
+        { "when": ["gold", "*"],       "then": [0.10] },
+        { "when": ["*", ">= 1000"],    "then": [0.05] }
+      ],
+      "default": [0],
+      "next_step": "done"
     },
-    "steps": {
-      "check_vip": {
-        "id": "check_vip",
-        "name": "Check VIP Status",
-        "type": "decision",
-        "branches": [
-          {
-            "condition": "user.vip == true",
-            "next_step": "vip_discount"
-          }
-        ],
-        "default_next": "normal_discount"
-      },
-      "vip_discount": {
-        "id": "vip_discount",
-        "name": "VIP Discount",
-        "type": "terminal",
-        "result": {
-          "code": "VIP",
-          "message": "20% discount applied",
-          "discount": 0.20
-        }
-      },
-      "normal_discount": {
-        "id": "normal_discount",
-        "name": "Normal Discount",
-        "type": "terminal",
-        "result": {
-          "code": "NORMAL",
-          "message": "5% discount applied",
-          "discount": 0.05
-        }
+    "done": {
+      "id": "done",
+      "name": "Done",
+      "type": "terminal",
+      "result": {
+        "code": "OK",
+        "output": [
+          ["rate", "$rate"],
+          ["pay", "order.amount * (1 - $rate)"]
+        ]
       }
     }
-  }'
-```
-
-Response:
-
-```json
-{
-  "status": "created",
-  "name": "discount-check"
-}
-```
-
-## Execute the Rule
-
-### VIP User
-
-```bash
-curl -X POST http://localhost:8080/api/v1/execute/discount-check \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "user": {
-        "id": "u123",
-        "vip": true
-      }
-    }
-  }'
-```
-
-Response:
-
-```json
-{
-  "code": "VIP",
-  "message": "20% discount applied",
-  "output": {
-    "discount": 0.2
-  },
-  "duration_us": 2
-}
-```
-
-### Non-VIP User
-
-```bash
-curl -X POST http://localhost:8080/api/v1/execute/discount-check \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "user": {
-        "id": "u456",
-        "vip": false
-      }
-    }
-  }'
-```
-
-Response:
-
-```json
-{
-  "code": "NORMAL",
-  "message": "5% discount applied",
-  "output": {
-    "discount": 0.05
-  },
-  "duration_us": 1
-}
-```
-
-## Enable Tracing
-
-Add `"trace": true` to see the execution path:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/execute/discount-check \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": { "user": { "vip": true } },
-    "trace": true
-  }'
-```
-
-Response includes execution trace:
-
-```json
-{
-  "code": "VIP",
-  "message": "20% discount applied",
-  "output": { "discount": 0.2 },
-  "duration_us": 3,
-  "trace": {
-    "path": "check_vip -> vip_discount",
-    "steps": [
-      { "id": "check_vip", "name": "Check VIP Status", "duration_us": 1 },
-      { "id": "vip_discount", "name": "VIP Discount", "duration_us": 0 }
-    ]
   }
 }
 ```
 
-## List Rules
+`pick_rate` is a decision table. Rows are matched top to bottom and the first match wins; `*` matches anything, and `default` applies when no row matches. `done` is a terminal step, and `$rate` is the variable the table set. See [Decision Table](./decision-table) for the full syntax.
+
+## 4. Run it
 
 ```bash
-curl http://localhost:8080/api/v1/rulesets
+ordo validate
+ordo trace discount --input '{"user":{"tier":"gold"},"order":{"amount":1200}}'
 ```
 
-## Delete a Rule
+```text
+code:    OK
+output:  {
+  "rate": 0.15,
+  "pay": 1020.0
+}
+
+path:    pick_rate -> done
+```
+
+`validate` compiles every rule and reports errors. `trace` runs the rule and lists each step it went through.
+
+## 5. Add tests
+
+Create `tests/discount.json`:
+
+```json
+[
+  {
+    "name": "gold member, large order",
+    "input": { "user": { "tier": "gold" }, "order": { "amount": 1200 } },
+    "expect": { "code": "OK", "output": { "rate": 0.15, "pay": 1020.0 } }
+  },
+  {
+    "name": "regular member, small order",
+    "input": { "user": { "tier": "silver" }, "order": { "amount": 300 } },
+    "expect": { "code": "OK", "output": { "rate": 0, "pay": 300 } }
+  }
+]
+```
 
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/rulesets/discount-check
+ordo test
 ```
 
-## Next Steps
+From now on, run `ordo test` after every rule change. Add it to CI and a broken rule can't be merged.
 
-- [Rule Structure](./rule-structure) - Learn about step types and branching
-- [Expression Syntax](./expression-syntax) - Write complex conditions
-- [HTTP API Reference](../api/http-api) - Full API documentation
+## 6. Call it as a service
+
+Applications call rules through `ordo-server`. Start it with Docker:
+
+```bash
+docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
+```
+
+Upload the rule, then execute it:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/rulesets \
+  -H 'Content-Type: application/json' \
+  -d @rulesets/discount.json
+
+curl -X POST http://localhost:8080/api/v1/execute/discount \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"user":{"tier":"gold"},"order":{"amount":1200}}}'
+```
+
+```json
+{ "code": "OK", "message": "", "output": { "rate": 0.15, "pay": 1020.0 }, "duration_us": 12 }
+```
+
+To load rules from a directory and keep version history, see [Rule Persistence](./persistence). For other ways to run the server, see [Install & Run](./getting-started).
+
+## Next steps
+
+- [Rule Structure](./rule-structure): every step type and field
+- [Expression Syntax](./expression-syntax): what you can write in conditions and outputs
+- [HTTP API](/en/api/http-api): the full API

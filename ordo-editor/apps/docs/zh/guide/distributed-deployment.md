@@ -1,6 +1,6 @@
 # 分布式部署
 
-Ordo 支持**单写多读**的分布式部署模型。一个 Writer 实例负责所有规则变更，多个 Reader 实例提供只读和执行服务。规则变更通过文件监控（同机部署）或 NATS JetStream（跨机部署）自动传播。
+Ordo 支持**单写多读**的分布式部署：一个 Writer 实例处理所有规则变更，多个 Reader 实例提供只读和执行服务。规则变更通过文件监控（同机部署）或 NATS JetStream（跨机部署）自动传播。
 
 ## 架构总览
 
@@ -41,7 +41,7 @@ flowchart TB
 | **单写多读**       | 一个 Writer 实例处理变更；Reader 拒绝写入并返回 `409 Conflict`，附带 Writer 地址 |
 | **零执行路径影响** | 同步仅在管理面（规则 CRUD）生效，`Arc<RuleSet>` 的执行路径保持不变               |
 | **优雅降级**       | 同步通道断开时，所有实例继续用本地缓存提供服务，只是无法接收新规则               |
-| **向后兼容**       | 不加同步参数时行为与当前完全一致                                                 |
+| **向后兼容**       | 不加同步参数时，行为与之前相同                                                 |
 
 ## 实例角色
 
@@ -49,7 +49,7 @@ flowchart TB
 
 ### Standalone（默认）
 
-当前的单节点模式，完全读写，无同步。
+单节点模式，可读可写，不做同步。
 
 ```bash
 ordo-server --rules-dir ./rules
@@ -57,7 +57,7 @@ ordo-server --rules-dir ./rules
 
 ### Writer
 
-接受所有变更操作（PUT/POST/DELETE），并将变更发布给 Reader。
+接受所有变更操作（PUT/POST/DELETE），并把变更发布给 Reader。
 
 ```bash
 ordo-server --role writer --rules-dir ./rules --nats-url nats://localhost:4222
@@ -65,7 +65,7 @@ ordo-server --role writer --rules-dir ./rules --nats-url nats://localhost:4222
 
 ### Reader
 
-**只读模式** — 提供 GET 和 execute 服务，拒绝所有写操作：
+只读模式，提供 GET 和 execute 服务，拒绝所有写操作：
 
 - **HTTP**：返回 `409 Conflict`，Body 为 `{"error": "read_only", "writer": "http://..."}`
 - **gRPC**：返回 `FAILED_PRECONDITION` 状态
@@ -76,9 +76,9 @@ ordo-server --role reader --nats-url nats://localhost:4222 --writer-addr http://
 
 ## 同步机制
 
-Ordo 提供两种同步机制，可以独立使用或组合使用：
+Ordo 提供两种同步机制，可以单独使用，也可以组合使用：
 
-### 1. 文件监控（Phase 1 — 同机部署）
+### 1. 文件监控（Phase 1：同机部署）
 
 适用于 Writer 和 Reader 共享文件系统的场景（同机或 NFS 挂载）：
 
@@ -91,18 +91,18 @@ ordo-server --role reader --rules-dir /shared/rules --watch-rules \
   --writer-addr http://localhost:8080
 ```
 
-**工作原理：**
+工作原理：
 
 1. Writer 将规则变更持久化到 `--rules-dir`
 2. Reader 的文件监控检测到变更（200ms 防抖窗口）
 3. Reader 热加载修改后的规则到内存
 4. 自身写入抑制：Writer 不会重复加载自己刚写入的文件
 
-**降级策略：** 如果原生文件监控启动失败，自动切换到 30 秒全量扫描轮询。
+降级策略：原生文件监控启动失败时，自动切换为每 30 秒全量扫描一次。
 
-### 2. NATS JetStream（Phase 2 — 跨机部署）
+### 2. NATS JetStream（Phase 2：跨机部署）
 
-适用于多机部署，使用 [NATS](https://nats.io) 作为事件传输通道：
+适用于多机部署，用 [NATS](https://nats.io) 传输事件：
 
 ```bash
 # Writer（机器 1）
@@ -120,12 +120,12 @@ ordo-server --role reader --rules-dir /data/rules \
   --writer-addr http://writer:8080
 ```
 
-**工作原理：**
+工作原理：
 
 1. Writer 在每次变更成功后，将 `SyncEvent` 发布到 NATS JetStream
-2. 每个 Reader 拥有一个**持久化拉取消费者**（durable pull consumer）— 重启后从上次确认的位置继续消费
+2. 每个 Reader 有一个持久化拉取消费者（durable pull consumer），重启后从上次确认的位置继续消费
 3. 回声抑制：每个实例有唯一的 `--instance-id`，跳过来自自身的消息
-4. 幂等去重：Reader 比较事件版本号与本地规则版本，仅应用更新的
+4. 幂等去重：Reader 比较事件版本号与本地规则版本，只应用更新的版本
 
 ```mermaid
 sequenceDiagram
@@ -153,7 +153,7 @@ sequenceDiagram
 ```
 
 ::: tip 组合使用两种机制
-可以同时启用文件监控和 NATS 同步以实现冗余。NATS 提供快速实时传播，文件监控作为最终一致性的后备方案。
+可以同时启用文件监控和 NATS 同步作为冗余。NATS 负责实时传播，文件监控作为最终一致性的后备。
 :::
 
 ## 配置参考
@@ -163,14 +163,14 @@ sequenceDiagram
 | 参数            | 环境变量           | 默认值       | 说明                                         |
 | --------------- | ------------------ | ------------ | -------------------------------------------- |
 | `--role`        | `ORDO_ROLE`        | `standalone` | 实例角色：`standalone`、`writer` 或 `reader` |
-| `--writer-addr` | `ORDO_WRITER_ADDR` | —            | Writer 地址，包含在 Reader 的 409 响应中     |
+| `--writer-addr` | `ORDO_WRITER_ADDR` | 无           | Writer 地址，包含在 Reader 的 409 响应中     |
 | `--watch-rules` | `ORDO_WATCH_RULES` | `false`      | 启用文件系统监控实现实时规则热加载           |
 
 ### NATS 同步
 
 | 参数                    | 环境变量                   | 默认值       | 说明                                          |
 | ----------------------- | -------------------------- | ------------ | --------------------------------------------- |
-| `--nats-url`            | `ORDO_NATS_URL`            | —            | NATS 服务器地址（如 `nats://localhost:4222`） |
+| `--nats-url`            | `ORDO_NATS_URL`            | 无           | NATS 服务器地址（如 `nats://localhost:4222`） |
 | `--nats-subject-prefix` | `ORDO_NATS_SUBJECT_PREFIX` | `ordo.rules` | 同步事件的 Subject 前缀                       |
 | `--instance-id`         | `ORDO_INSTANCE_ID`         | 随机生成     | 唯一实例 ID，用于消费者命名和回声抑制         |
 
@@ -181,14 +181,14 @@ NATS 同步需要在编译时启用 `nats-sync` 特性：
 cargo build --release --features nats-sync
 ```
 
-不启用此特性时，`--nats-url` 参数可以接受但不会生效。
+不启用此特性时，`--nats-url` 参数会被接受，但不生效。
 :::
 
 ## 部署拓扑
 
 ### 拓扑 1：同机多端口
 
-最简部署方式，使用文件监控同步。
+最简单的部署方式，用文件监控同步。
 
 ```bash
 # Writer 监听 8080
@@ -210,7 +210,7 @@ flowchart LR
 
 ### 拓扑 2：多机 NATS 部署
 
-生产级部署，需要一个 NATS 服务器（或集群）。
+适合生产环境，需要一个 NATS 服务器（或集群）。
 
 ```bash
 # 机器 1：Writer
@@ -319,13 +319,13 @@ spec:
 | `RuleDeleted`         | 规则删除       | `{prefix}.{tenant_id}.{name}` |
 | `TenantConfigChanged` | 租户配置变更   | `{prefix}.tenants`            |
 
-**JetStream Stream 名称**：`ordo-rules`
-**消息保留时间**：7 天（Limits 保留策略）
-**消费者**：持久化拉取消费者，命名为 `ordo-{instance-id}`
+- JetStream Stream 名称：`ordo-rules`
+- 消息保留时间：7 天（Limits 保留策略）
+- 消费者：持久化拉取消费者，命名为 `ordo-{instance-id}`
 
 ### 事件信封
 
-每条消息包含一个信封，携带回声抑制的元数据：
+每条消息带有一个信封，其中包含用于回声抑制的元数据：
 
 ```json
 {
@@ -355,11 +355,11 @@ ordo-server --role reader --multi-tenancy-enabled \
   --nats-url nats://nats:4222
 ```
 
-NATS Subject 遵循 `ordo.rules.{tenant_id}.{rule_name}` 格式，支持按租户过滤。
+NATS Subject 的格式为 `ordo.rules.{tenant_id}.{rule_name}`，可以按租户过滤。
 
 ## 优雅降级
 
-Ordo 优先保证可用性而非严格一致性：
+Ordo 优先保证可用性，不追求严格一致：
 
 | 场景                      | 行为                                                                        |
 | ------------------------- | --------------------------------------------------------------------------- |
@@ -403,7 +403,7 @@ curl http://reader:8080/api/v1/rulesets/my-rule
 
 ## 编译 NATS 支持
 
-NATS 同步通过 Feature Flag 控制，保持默认二进制文件精简：
+NATS 同步由 Feature Flag 控制，默认二进制不包含它，以减小体积：
 
 ```bash
 # 编译带 NATS 支持的版本
@@ -415,7 +415,7 @@ cargo build --release
 
 ## 启动 NATS 服务器
 
-如果还没有 NATS 服务器，启用 JetStream 模式启动一个：
+如果还没有 NATS 服务器，可以用 JetStream 模式启动一个：
 
 ```bash
 # Docker
@@ -425,4 +425,4 @@ docker run -d --name nats -p 4222:4222 nats:latest -js
 nats-server -js
 ```
 
-详细的集群部署请参考 [NATS 官方文档](https://docs.nats.io/running-a-nats-service/introduction/installation)。
+集群部署详见 [NATS 官方文档](https://docs.nats.io/running-a-nats-service/introduction/installation)。

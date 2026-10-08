@@ -44,6 +44,7 @@ ordo init my-rules && cd my-rules
 ordo validate                 # compile every condition, structured errors
 ordo test                     # run the ruleset's test cases
 ordo trace loan-approval --input '{"amount":5000}'   # show the execution path
+ordo impact loan-approval     # which decisions changed since the last commit
 ordo fmt                      # canonically format rule files
 ordo lint                     # graph + style checks
 ordo new ruleset|fact|concept <name>
@@ -62,6 +63,35 @@ code:    APPROVED
 output:  { "approved": true, "amount": 5000 }
 path:    check_amount -> approve
 ```
+
+### See which decisions an edit changed
+
+`ordo test` tells you whether the existing cases still pass. `ordo impact` runs
+the last committed version (git `HEAD`) and your edited version side by side
+and lists every input whose result changed.
+
+It uses three kinds of input: the test cases, real cases passed with
+`--inputs` (JSONL, the same shape `ordo replay` reads), and boundary probes.
+For every comparison like `amount <= 10000`, and every decision-table cell, it
+tries a value just below, at, and just above the threshold. A change shows up
+even when no test sits near it.
+
+```text
+$ ordo impact loan-approval        # 10000 changed to 15000; ordo test still passes
+impact loan-approval  (HEAD → working tree)
+  8 inputs: 2 tests, 0 captured, 6 boundary probes
+
+  REJECTED → APPROVED  3 inputs
+
+CHANGED probe:amount=10001  {"amount":10001}
+    code: REJECTED → APPROVED
+    output.approved: false → true
+...
+```
+
+Use `--base <rev>` to compare against another commit, or `--base-file` to
+compare against a file. `--json` gives agents structured output, and
+`--fail-on-change` exits non-zero when anything changed, for CI.
 
 ## Sync with the platform
 
@@ -114,7 +144,7 @@ ordo completions zsh > ~/.zfunc/_ordo    # bash | zsh | fish | powershell | elvi
 | Group      | Commands                                                                    |
 | ---------- | --------------------------------------------------------------------------- |
 | Scaffold   | `init`, `new`                                                               |
-| Local loop | `validate`, `test`, `trace`, `exec`, `eval`, `fmt`, `lint`                  |
+| Local loop | `validate`, `test`, `trace`, `impact`, `exec`, `eval`, `fmt`, `lint`        |
 | Platform   | `login`, `whoami`, `link`, `pull`, `push`, `publish`, `deployments`, `diff` |
 | Agent      | `mcp`                                                                       |
 | Misc       | `completions`                                                               |

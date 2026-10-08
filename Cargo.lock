@@ -2405,7 +2405,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-api-client"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "ordo-studio-format",
  "reqwest 0.12.28",
@@ -2416,7 +2416,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-cli"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",

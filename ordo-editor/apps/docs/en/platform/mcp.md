@@ -17,7 +17,7 @@ inside a decision project (the folder created by [`ordo init`](/en/platform/cli)
 
 ## Tools
 
-The server exposes nine tools. The read, edit and check tools work on the local
+The server exposes ten tools. The read, edit and check tools work on the local
 project files and the embedded engine, offline. Only `publish` reaches the
 platform.
 
@@ -31,6 +31,7 @@ platform.
 | `validate`    | Compile a ruleset, structured errors              |
 | `run_tests`   | Run a ruleset's test cases                        |
 | `trace`       | Execute an input and return the step-by-step path |
+| `impact`      | List the decisions that changed since a commit    |
 | `publish`     | Deploy a ruleset to an environment                |
 
 ## Safety
@@ -53,8 +54,10 @@ than deploying. The agent can propose a release, but a person decides.
    `write_file` to add `rulesets/loan-approval.json`.
 3. It calls `validate` and `run_tests`, fixing anything that fails.
 4. It calls `trace` to confirm a sample input takes the expected path.
-5. With `--allow-publish`, it can `publish`. Otherwise it hands off to you.
+5. It calls `impact` to check that every changed decision was meant (see
+   [CLI](./cli)).
+6. With `--allow-publish`, it can `publish`. Otherwise it hands off to you.
 
-`validate`/`test`/`trace` run offline in under a second, so the agent's
+`validate`/`test`/`trace`/`impact` run offline in under a second, so the agent's
 edit → check loop is fast. Results match what the platform would produce,
 because concepts are materialized the same way.

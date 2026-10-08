@@ -13,7 +13,7 @@ claude mcp add ordo -- ordo mcp
 
 ## 工具
 
-服务提供九个工具。读、写和检查类工具都在本地项目文件和内嵌引擎上运行，离线且即时返回；只有 `publish` 会连接平台。
+服务提供十个工具。读、写和检查类工具都在本地项目文件和内嵌引擎上运行，离线且即时返回；只有 `publish` 会连接平台。
 
 | 工具          | 作用                              |
 | ------------- | --------------------------------- |
@@ -25,6 +25,7 @@ claude mcp add ordo -- ordo mcp
 | `validate`    | 编译规则，结构化报错               |
 | `run_tests`   | 跑规则的测试用例                  |
 | `trace`       | 对某输入执行并返回逐步路径        |
+| `impact`      | 和上次提交比，列出结果变了的决策  |
 | `publish`     | 把规则发布到某环境                |
 
 ## 安全
@@ -44,6 +45,7 @@ ordo mcp --allow-delete      # 允许删除 ruleset 文件
 2. agent 用 `list_files` / `read_file` 了解项目结构，再用 `write_file` 添加 `rulesets/loan-approval.json`。
 3. agent 调用 `validate` 和 `run_tests`，修复失败项。
 4. agent 调用 `trace`，确认样例输入走的是预期路径。
-5. 如果开启了 `--allow-publish`，agent 可以调用 `publish`；否则交给你发布。
+5. agent 调用 `impact`，确认变了的决策都是有意为之（见 [CLI](./cli)）。
+6. 如果开启了 `--allow-publish`，agent 可以调用 `publish`；否则交给你发布。
 
-`validate`/`test`/`trace` 离线运行，耗时在一秒以内，所以 agent 修改和检查的循环很快，结果也和平台一致（概念的物化方式相同）。
+`validate`/`test`/`trace`/`impact` 离线运行，耗时在一秒以内，所以 agent 修改和检查的循环很快，结果也和平台一致（概念的物化方式相同）。

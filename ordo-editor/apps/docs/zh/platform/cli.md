@@ -41,6 +41,7 @@ ordo init my-rules && cd my-rules
 ordo validate                 # 编译每个条件,结构化报错
 ordo test                     # 跑规则的测试用例
 ordo trace loan-approval --input '{"amount":5000}'   # 展示执行路径
+ordo impact loan-approval     # 和上次提交比，哪些决策变了
 ordo fmt                      # 规范化格式化规则文件
 ordo lint                     # 图 + 风格检查
 ordo new ruleset|fact|concept <name>
@@ -56,6 +57,27 @@ code:    APPROVED
 output:  { "approved": true, "amount": 5000 }
 path:    check_amount -> approve
 ```
+
+### 改完规则，看哪些决策变了
+
+`ordo test` 只能告诉你已有用例还过不过。`ordo impact` 把上一次提交（git `HEAD`）的版本和你改过的版本各跑一遍，列出结果变了的每一条输入。
+
+输入有三类：测试用例、`--inputs` 传入的真实案例（JSONL，格式同 `ordo replay`），以及自动生成的边界探测。规则里每出现一处 `amount <= 10000` 这样的比较，或决策表里的一个格子，都会在阈值下方、正好、上方各试一次。所以就算没有测试覆盖到阈值附近，改动也会被发现。
+
+```text
+$ ordo impact loan-approval        # 把 10000 改成了 15000，ordo test 仍然通过
+impact loan-approval  (HEAD → working tree)
+  8 inputs: 2 tests, 0 captured, 6 boundary probes
+
+  REJECTED → APPROVED  3 inputs
+
+CHANGED probe:amount=10001  {"amount":10001}
+    code: REJECTED → APPROVED
+    output.approved: false → true
+...
+```
+
+`--base <rev>` 换一个对比的提交，`--base-file` 直接和某个文件比。`--json` 输出给 agent 读，`--fail-on-change` 在有变化时返回非零，可以放进 CI。
 
 ## 与平台同步
 
@@ -102,7 +124,7 @@ ordo completions zsh > ~/.zfunc/_ordo    # bash | zsh | fish | powershell | elvi
 | 分组     | 命令                                                                        |
 | -------- | --------------------------------------------------------------------------- |
 | 脚手架   | `init`、`new`                                                               |
-| 本地校验 | `validate`、`test`、`trace`、`exec`、`eval`、`fmt`、`lint`                  |
+| 本地校验 | `validate`、`test`、`trace`、`impact`、`exec`、`eval`、`fmt`、`lint`        |
 | 平台     | `login`、`whoami`、`link`、`pull`、`push`、`publish`、`deployments`、`diff` |
 | Agent    | `mcp`                                                                       |
 | 其它     | `completions`                                                               |

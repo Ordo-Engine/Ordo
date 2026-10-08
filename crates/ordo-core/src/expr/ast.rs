@@ -60,7 +60,12 @@ pub enum UnaryOp {
 }
 
 /// Expression AST node
+///
+/// Deserializes from either the AST form (`{"Field": "amount"}`) or an
+/// expression string (`"amount * 0.9"`), which is parsed on load. It always
+/// serializes as the AST form.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub enum Expr {
     /// Literal value
     Literal(Value),
@@ -99,6 +104,42 @@ pub enum Expr {
 
     /// Coalesce (return first non-null value)
     Coalesce(Vec<Expr>),
+}
+
+impl Serialize for Expr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Expr::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Expr {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ExprVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ExprVisitor {
+            type Value = Expr;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an expression string or an expression AST object")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, source: &str) -> Result<Expr, E> {
+                crate::expr::ExprParser::parse(source)
+                    .map_err(|e| E::custom(format!("invalid expression `{source}`: {e}")))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Expr, A::Error> {
+                Expr::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            }
+
+            // YAML writes externally tagged enums as `!Variant value`
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(self, data: A) -> Result<Expr, A::Error> {
+                Expr::deserialize(serde::de::value::EnumAccessDeserializer::new(data))
+            }
+        }
+
+        deserializer.deserialize_any(ExprVisitor)
+    }
 }
 
 impl Expr {

@@ -90,6 +90,25 @@ Evaluates conditions and branches to different steps:
 | `branches`     | array  | Yes      | List of condition-based branches     |
 | `default_next` | string | Yes      | Step to execute if no branch matches |
 
+### Action Step
+
+Sets variables, then continues to `next_step`. Variables are read later as `$name`:
+
+```json
+{
+  "id": "calc",
+  "name": "Calculate Total",
+  "type": "action",
+  "actions": [
+    { "action": "set_variable", "name": "subtotal", "value": "price * qty" },
+    { "action": "set_variable", "name": "discount", "value": "if vip then 0.15 else 0" }
+  ],
+  "next_step": "done"
+}
+```
+
+`value` is an expression string, written the same way as a branch condition. The JSON AST form (`{"Binary": {"op": "Mul", ...}}`) is still accepted, and saved rulesets are stored in that form. The same applies to terminal `output` values, metric values and sub-rule bindings.
+
 ### Terminal Step
 
 Ends execution and returns a result:
@@ -122,6 +141,7 @@ Ends execution and returns a result:
 | --------- | ------ | -------- | ------------------------------------------ |
 | `code`    | string | Yes      | Result code (e.g., "APPROVED", "REJECTED") |
 | `message` | string | No       | Human-readable message                     |
+| `output`  | array  | No       | `[name, expression]` pairs, e.g. `["total", "round($subtotal * (1 - $discount), 2)"]` |
 | `data`    | object | No       | Additional output data                     |
 
 ## Branch Conditions

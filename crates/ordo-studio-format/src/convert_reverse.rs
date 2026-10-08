@@ -428,7 +428,7 @@ fn parse_value_token(token: &str) -> StudioExpr {
 
 // ── Engine Expr → StudioExpr (inverse of convert_expr) ──────────────────────────
 
-fn expr_to_studio(expr: &Expr) -> StudioExpr {
+pub(crate) fn expr_to_studio(expr: &Expr) -> StudioExpr {
     match expr {
         Expr::Literal(v) => StudioExpr::Literal {
             value: core_value_to_json(v),

@@ -90,6 +90,25 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | `branches`     | array  | 是   | 基于条件的分支列表             |
 | `default_next` | string | 是   | 如果没有分支匹配，则执行此步骤 |
 
+### 动作步骤 (Action Step)
+
+设置变量后跳到 `next_step`，之后用 `$name` 读取变量：
+
+```json
+{
+  "id": "calc",
+  "name": "计算总价",
+  "type": "action",
+  "actions": [
+    { "action": "set_variable", "name": "subtotal", "value": "price * qty" },
+    { "action": "set_variable", "name": "discount", "value": "if vip then 0.15 else 0" }
+  ],
+  "next_step": "done"
+}
+```
+
+`value` 是表达式字符串，写法和分支条件一样。JSON AST 形式（`{"Binary": {"op": "Mul", ...}}`）依然可用，保存后的规则集也以这种形式存储。终结步骤的 `output`、指标值和子规则绑定同样支持表达式字符串。
+
 ### 终结步骤 (Terminal Step)
 
 结束执行并返回结果：
@@ -122,6 +141,7 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | --------- | ------ | ---- | -------------------------------------- |
 | `code`    | string | 是   | 结果代码 (例如 "APPROVED", "REJECTED") |
 | `message` | string | 否   | 人类可读的消息                         |
+| `output`  | array  | 否   | `[名称, 表达式]` 列表，如 `["total", "round($subtotal * (1 - $discount), 2)"]` |
 | `data`    | object | 否   | 额外的输出数据                         |
 
 ## 分支条件

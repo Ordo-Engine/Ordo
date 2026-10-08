@@ -5,8 +5,10 @@ use serde::{Deserialize, Serialize};
 /// Studio expression — mirrors the frontend `Expr` union type.
 ///
 /// JSON uses `{ "type": "literal", "value": 42, "valueType": "number" }` etc.
+/// An expression string such as `"amount * 0.9"` is also accepted and parsed
+/// into this form on load; it always serializes as the object form.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", remote = "Self")]
 pub enum StudioExpr {
     Literal {
         value: serde_json::Value,
@@ -39,6 +41,41 @@ pub enum StudioExpr {
         name: String,
         args: Vec<StudioExpr>,
     },
+}
+
+impl Serialize for StudioExpr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        StudioExpr::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StudioExpr {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct StudioExprVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for StudioExprVisitor {
+            type Value = StudioExpr;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an expression string or an expression object")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, source: &str) -> Result<StudioExpr, E> {
+                ordo_core::expr::ExprParser::parse(source)
+                    .map(|expr| crate::convert_reverse::expr_to_studio(&expr))
+                    .map_err(|e| E::custom(format!("invalid expression `{source}`: {e}")))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<StudioExpr, A::Error> {
+                StudioExpr::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            }
+        }
+
+        deserializer.deserialize_any(StudioExprVisitor)
+    }
 }
 
 /// Convert a `StudioExpr` to an expression string that ordo-core can parse.

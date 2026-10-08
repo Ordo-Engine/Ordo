@@ -245,11 +245,15 @@ pub enum Condition {
     /// Always true
     Always,
 
+    /// Expression string (will be parsed on each evaluation unless compile() is called)
+    ///
+    /// Listed before `Expression` so a JSON string stays a string here: `Expr`
+    /// also accepts expression strings, and conditions keep their source text
+    /// until `compile()`.
+    ExpressionString(String),
+
     /// Expression condition (pre-compiled)
     Expression(Expr),
-
-    /// Expression string (will be parsed on each evaluation unless compile() is called)
-    ExpressionString(String),
 }
 
 impl Condition {

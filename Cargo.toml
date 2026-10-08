@@ -35,6 +35,9 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# 精确十进制（金额）
+rust_decimal = { version = "1.36", default-features = false, features = ["std"] }
+
 # 高性能数据结构
 hashbrown = { version = "0.14", features = ["serde"] }
 smallvec = "1"

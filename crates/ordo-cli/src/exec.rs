@@ -121,15 +121,7 @@ fn inject_external_data(input: &mut Value, data_files: &[String]) -> Result<()> 
         _ => {
             anyhow::bail!(
                 "--data requires input to be a JSON object, got {}",
-                match input {
-                    Value::Array(_) => "array",
-                    Value::Null => "null",
-                    Value::Bool(_) => "bool",
-                    Value::Int(_) => "int",
-                    Value::Float(_) => "float",
-                    Value::String(_) => "string",
-                    Value::Object(_) => unreachable!(),
-                }
+                input.type_name()
             );
         }
     }

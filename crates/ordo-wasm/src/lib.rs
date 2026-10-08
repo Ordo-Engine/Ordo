@@ -434,6 +434,11 @@ fn collect_expr_analysis(
                     supported_features.push("numeric_literal".to_string());
                 }
             }
+            Value::Decimal(_) => {
+                if !unsupported_features.contains(&"decimal_literal".to_string()) {
+                    unsupported_features.push("decimal_literal".to_string());
+                }
+            }
             Value::String(_) => {
                 if !unsupported_features.contains(&"string_literal".to_string()) {
                     unsupported_features.push("string_literal".to_string());
@@ -695,6 +700,24 @@ fn analyze_ruleset_jit_compatibility(ruleset: &RuleSet) -> JITRulesetAnalysis {
                 }
                 StepKind::Terminal { .. } => {
                     // Terminal steps typically don't have complex expressions to analyze.
+                }
+                StepKind::DecisionTable(table) => {
+                    for (row_idx, row) in table.compiled_rules.iter().enumerate() {
+                        if let Some(expr) = &row.condition {
+                            let analysis = analyze_expr_jit_compatibility(expr);
+                            record_analysis(
+                                expressions,
+                                compatible_count,
+                                incompatible_count,
+                                all_fields,
+                                &scoped_step_id,
+                                &step.name,
+                                format!("row:{row_idx}"),
+                                format!("{:?}", expr),
+                                analysis,
+                            );
+                        }
+                    }
                 }
                 StepKind::SubRule {
                     ref_name, bindings, ..

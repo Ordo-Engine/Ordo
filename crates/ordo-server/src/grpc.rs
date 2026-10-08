@@ -275,7 +275,12 @@ impl OrdoService for OrdoGrpcService {
             })
             .await
             .map_err(|e| Status::internal(format!("Execution task panicked: {}", e)))?
-            .map_err(|e| Status::internal(format!("Execution error: {}", e)))?;
+            .map_err(|e| match e {
+                ordo_core::error::OrdoError::InvalidInput { .. } => {
+                    Status::invalid_argument(e.to_string())
+                }
+                e => Status::internal(format!("Execution error: {}", e)),
+            })?;
 
             // Build response
             let trace = build_execution_trace(result.trace.as_ref(), req.include_trace);

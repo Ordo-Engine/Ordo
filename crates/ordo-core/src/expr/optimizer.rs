@@ -262,7 +262,7 @@ impl ExprOptimizer {
     /// Fold division
     fn fold_div(&self, left: &Value, right: &Value) -> Option<Value> {
         match (left, right) {
-            (Value::Int(a), Value::Int(b)) if *b != 0 => Some(Value::int(a / b)),
+            (Value::Int(a), Value::Int(b)) if *b != 0 => Some(crate::context::int_div(*a, *b)),
             (Value::Float(a), Value::Float(b)) if *b != 0.0 => Some(Value::float(a / b)),
             (Value::Int(a), Value::Float(b)) if *b != 0.0 => Some(Value::float(*a as f64 / b)),
             (Value::Float(a), Value::Int(b)) if *b != 0 => Some(Value::float(a / *b as f64)),

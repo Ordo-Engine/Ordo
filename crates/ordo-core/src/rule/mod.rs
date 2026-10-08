@@ -9,7 +9,9 @@
 mod compiled;
 mod compiled_executor;
 mod compiler;
+mod decision_table;
 mod executor;
+mod input_schema;
 mod metrics;
 mod model;
 mod step;
@@ -33,9 +35,11 @@ pub use compiled::{
 };
 pub use compiled_executor::CompiledRuleExecutor;
 pub use compiler::RuleSetCompiler;
+pub use decision_table::{Aggregate, CompiledTableRow, DecisionTable, HitPolicy, TableRule};
 pub use executor::{
     BatchExecutionResult, ExecutionOptions, ExecutionResult, RuleExecutor, SingleExecutionResult,
 };
+pub use input_schema::{apply_input_schema, InputField, InputFieldType};
 pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
 pub use model::{FieldMissingBehavior, RuleSet, RuleSetConfig};
 pub use step::{

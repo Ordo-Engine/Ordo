@@ -29,6 +29,29 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | `version`     | string | 是   | 语义化版本 (例如 "1.0.0") |
 | `description` | string | 否   | 人类可读的描述            |
 | `entry_step`  | string | 是   | 第一个要执行的步骤 ID     |
+| `input_schema` | array | 否   | 声明的输入字段，执行前校验（见下文） |
+
+### 输入声明 (Input Schema)
+
+声明规则需要的输入字段，让错误输入被拒绝，而不是悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。
+
+```json
+"input_schema": [
+  { "name": "applicant", "type": "object", "required": true, "fields": [
+    { "name": "age", "type": "number", "required": true },
+    { "name": "credit_score", "type": "number", "required": true }
+  ]},
+  { "name": "channel", "type": "string", "defaultValue": "online" },
+  { "name": "items", "type": "array", "itemType": { "name": "item", "type": "object" } }
+]
+```
+
+- `type`：`string`、`number`（整数或小数）、`decimal`（精确小数，用于金额；数字和数字字符串会被转换）、`boolean`、`array`、`object` 或 `any`。
+- `required`：字段必须存在且不为 `null`。
+- `defaultValue`：字段缺失或为 `null` 时使用的默认值。
+- `fields` / `itemType`：嵌套对象字段和数组元素按同样规则校验。
+
+所有问题一次性返回。HTTP 返回 `400`，code 为 `INVALID_INPUT`，例如 `Invalid input: applicant.age: required field is missing`；gRPC 返回 `INVALID_ARGUMENT`。Studio 编辑器里的输入声明是同一结构（也接受 `inputSchema` 写法）。
 
 ### 步骤部分 (Steps)
 
@@ -67,6 +90,25 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | `branches`     | array  | 是   | 基于条件的分支列表             |
 | `default_next` | string | 是   | 如果没有分支匹配，则执行此步骤 |
 
+### 动作步骤 (Action Step)
+
+设置变量后跳到 `next_step`，之后用 `$name` 读取变量：
+
+```json
+{
+  "id": "calc",
+  "name": "计算总价",
+  "type": "action",
+  "actions": [
+    { "action": "set_variable", "name": "subtotal", "value": "price * qty" },
+    { "action": "set_variable", "name": "discount", "value": "if vip then 0.15 else 0" }
+  ],
+  "next_step": "done"
+}
+```
+
+`value` 是表达式字符串，写法和分支条件一样。JSON AST 形式（`{"Binary": {"op": "Mul", ...}}`）依然可用，保存后的规则集也以这种形式存储。终结步骤的 `output`、指标值和子规则绑定同样支持表达式字符串。
+
 ### 终结步骤 (Terminal Step)
 
 结束执行并返回结果：
@@ -99,6 +141,7 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | --------- | ------ | ---- | -------------------------------------- |
 | `code`    | string | 是   | 结果代码 (例如 "APPROVED", "REJECTED") |
 | `message` | string | 否   | 人类可读的消息                         |
+| `output`  | array  | 否   | `[名称, 表达式]` 列表，如 `["total", "round($subtotal * (1 - $discount), 2)"]` |
 | `data`    | object | 否   | 额外的输出数据                         |
 
 ## 分支条件

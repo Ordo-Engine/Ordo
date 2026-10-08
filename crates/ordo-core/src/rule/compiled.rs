@@ -1054,6 +1054,13 @@ fn read_value_with_depth(cursor: &mut Cursor<'_>, depth: usize) -> Result<Value>
         1 => Ok(Value::Bool(read_u8(cursor)? != 0)),
         2 => Ok(Value::Int(read_i64(cursor)?)),
         3 => Ok(Value::Float(read_f64(cursor)?)),
+        7 => {
+            let mut bytes = [0u8; 16];
+            for b in bytes.iter_mut() {
+                *b = read_u8(cursor)?;
+            }
+            Ok(Value::Decimal(rust_decimal::Decimal::deserialize(bytes)))
+        }
         4 => Ok(Value::string(read_string(cursor)?)),
         5 => {
             let len = read_u32(cursor)? as usize;
@@ -1148,6 +1155,10 @@ fn write_value(out: &mut Vec<u8>, value: &Value) {
         Value::Float(v) => {
             write_u8(out, 3);
             write_f64(out, *v);
+        }
+        Value::Decimal(v) => {
+            write_u8(out, 7);
+            out.extend_from_slice(&v.serialize());
         }
         Value::String(v) => {
             write_u8(out, 4);

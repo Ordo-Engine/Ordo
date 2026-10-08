@@ -130,15 +130,30 @@ abs(5)                  # 5
 abs(balance)            # 正数余额
 ```
 
-### round(number)
+### round(number, digits?)
 
-四舍五入到最近的整数。
+四舍五入（远离零方向）。只传一个参数时返回整数；传 `digits`（0–15）时保留对应小数位，按书写的十进制值舍入（`1.005` 会进位，尽管它的二进制值略小于 1.005）。
 
 ```
 round(3.4)              # 3
 round(3.5)              # 4
-round(3.6)              # 4
+round(-3.5)             # -4
+round(1.005, 2)         # 1.01
+round(19.99 * 0.85, 2)  # 16.99
 ```
+
+### decimal(value)
+
+把数字或数字字符串转成精确小数，用于金额计算。只要有 decimal 参与，运算结果就保持 decimal，不会有浮点误差。
+
+```
+decimal(0.1) + 0.2           # 0.3（精确）
+decimal("19.99") * 3         # 59.97
+round(decimal("2.675"), 2)   # 2.68
+type(decimal(1))             # "decimal"
+```
+
+decimal 与整数、浮点数按数值比较（`decimal("10.00") == 10` 为 `true`），JSON 输出为数字。超过约 15 位有效数字的金额请以字符串传入以保持精确。
 
 ### floor(number)
 

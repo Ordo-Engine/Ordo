@@ -29,6 +29,29 @@ A rule (RuleSet) consists of two main parts:
 | `version`     | string | Yes      | Semantic version (e.g., "1.0.0") |
 | `description` | string | No       | Human-readable description       |
 | `entry_step`  | string | Yes      | ID of the first step to execute  |
+| `input_schema` | array | No       | Declared input fields, checked before execution (see below) |
+
+### Input Schema
+
+Declare the fields a ruleset expects so that bad input is rejected instead of silently changing the decision. Without a schema, a missing field makes a condition false, so a rule like `applicant.age < 18` is skipped when `age` is not sent.
+
+```json
+"input_schema": [
+  { "name": "applicant", "type": "object", "required": true, "fields": [
+    { "name": "age", "type": "number", "required": true },
+    { "name": "credit_score", "type": "number", "required": true }
+  ]},
+  { "name": "channel", "type": "string", "defaultValue": "online" },
+  { "name": "items", "type": "array", "itemType": { "name": "item", "type": "object" } }
+]
+```
+
+- `type`: `string`, `number` (integer or float), `decimal` (exact, for money; numbers and numeric strings are converted), `boolean`, `array`, `object`, or `any`.
+- `required`: the field must be present and not `null`.
+- `defaultValue`: used when the field is absent or `null`.
+- `fields` / `itemType`: nested object fields and array elements are checked the same way.
+
+Every violation is reported at once. Over HTTP the response is `400` with code `INVALID_INPUT`, e.g. `Invalid input: applicant.age: required field is missing`; over gRPC it is `INVALID_ARGUMENT`. The Studio editor's input schema uses the same shape (`inputSchema` is accepted as an alias).
 
 ### Steps Section
 
@@ -67,6 +90,25 @@ Evaluates conditions and branches to different steps:
 | `branches`     | array  | Yes      | List of condition-based branches     |
 | `default_next` | string | Yes      | Step to execute if no branch matches |
 
+### Action Step
+
+Sets variables, then continues to `next_step`. Variables are read later as `$name`:
+
+```json
+{
+  "id": "calc",
+  "name": "Calculate Total",
+  "type": "action",
+  "actions": [
+    { "action": "set_variable", "name": "subtotal", "value": "price * qty" },
+    { "action": "set_variable", "name": "discount", "value": "if vip then 0.15 else 0" }
+  ],
+  "next_step": "done"
+}
+```
+
+`value` is an expression string, written the same way as a branch condition. The JSON AST form (`{"Binary": {"op": "Mul", ...}}`) is still accepted, and saved rulesets are stored in that form. The same applies to terminal `output` values, metric values and sub-rule bindings.
+
 ### Terminal Step
 
 Ends execution and returns a result:
@@ -99,6 +141,7 @@ Ends execution and returns a result:
 | --------- | ------ | -------- | ------------------------------------------ |
 | `code`    | string | Yes      | Result code (e.g., "APPROVED", "REJECTED") |
 | `message` | string | No       | Human-readable message                     |
+| `output`  | array  | No       | `[name, expression]` pairs, e.g. `["total", "round($subtotal * (1 - $discount), 2)"]` |
 | `data`    | object | No       | Additional output data                     |
 
 ## Branch Conditions

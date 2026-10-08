@@ -14,7 +14,9 @@
 use ordo_core::{
     context::Value as CoreValue,
     expr::{BinaryOp, Expr, UnaryOp},
-    rule::{ActionKind, Branch, Condition, RuleSet, Step, StepKind, SubRuleGraph},
+    rule::{
+        ActionKind, Aggregate, Branch, Condition, HitPolicy, RuleSet, Step, StepKind, SubRuleGraph,
+    },
 };
 
 use crate::types::{
@@ -41,7 +43,11 @@ pub fn engine_to_studio(rs: &RuleSet) -> StudioRuleSet {
         tags: None,
         enable_trace: Some(rs.config.enable_trace),
         timeout: Some(rs.config.timeout_ms),
-        input_schema: None,
+        input_schema: if rs.config.input_schema.is_empty() {
+            None
+        } else {
+            serde_json::to_value(&rs.config.input_schema).ok()
+        },
         output_schema: None,
         metadata: rs
             .config
@@ -185,6 +191,45 @@ fn step_kind_to_studio(step_id: &str, kind: &StepKind) -> StudioStepKind {
                 })
                 .collect(),
         },
+
+        StepKind::DecisionTable(table) => {
+            let to_json = |v: &CoreValue| core_value_to_json(v);
+            StudioStepKind::DecisionTable {
+                hit_policy: Some(
+                    match table.hit_policy {
+                        HitPolicy::First => "first",
+                        HitPolicy::Collect => "collect",
+                    }
+                    .to_string(),
+                ),
+                aggregate: table.aggregate.map(|a| {
+                    match a {
+                        Aggregate::Sum => "sum",
+                        Aggregate::Count => "count",
+                        Aggregate::Min => "min",
+                        Aggregate::Max => "max",
+                    }
+                    .to_string()
+                }),
+                inputs: table.inputs.clone(),
+                outputs: table.outputs.clone(),
+                rules: table
+                    .rules
+                    .iter()
+                    .map(|rule| {
+                        serde_json::json!({
+                            "when": rule.when.iter().map(to_json).collect::<Vec<_>>(),
+                            "then": rule.then.iter().map(to_json).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect(),
+                default: table
+                    .default
+                    .as_ref()
+                    .map(|cells| cells.iter().map(to_json).collect()),
+                next_step_id: table.next_step.clone(),
+            }
+        }
 
         StepKind::SubRule {
             ref_name,
@@ -424,7 +469,7 @@ fn parse_value_token(token: &str) -> StudioExpr {
 
 // ── Engine Expr → StudioExpr (inverse of convert_expr) ──────────────────────────
 
-fn expr_to_studio(expr: &Expr) -> StudioExpr {
+pub(crate) fn expr_to_studio(expr: &Expr) -> StudioExpr {
     match expr {
         Expr::Literal(v) => StudioExpr::Literal {
             value: core_value_to_json(v),

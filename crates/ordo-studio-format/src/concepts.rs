@@ -205,6 +205,11 @@ fn collect_step_refs(steps: &hashbrown::HashMap<String, Step>) -> HashSet<String
                     collect_expr_refs(expr, &mut refs);
                 }
             }
+            StepKind::DecisionTable(table) => {
+                for expr in table.expressions() {
+                    collect_expr_refs(expr, &mut refs);
+                }
+            }
         }
     }
 
@@ -362,6 +367,16 @@ fn rewrite_steps_concept_refs(
             StepKind::SubRule { bindings, .. } => {
                 for (_, expr) in bindings {
                     rewrite_expr_concept_refs(expr, concept_names);
+                }
+            }
+            StepKind::DecisionTable(table) => {
+                // Rewrite the source text so the change survives serialization.
+                // Rewriting only renames references in valid expressions, so
+                // recompiling cannot fail; keep the table as-is if it somehow does.
+                if let Ok(rewritten) = table.map_expression_sources(|source| {
+                    rewrite_expression_string_concept_refs(source, concept_names)
+                }) {
+                    **table = rewritten;
                 }
             }
         }

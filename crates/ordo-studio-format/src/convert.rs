@@ -31,6 +31,9 @@ pub enum ConvertError {
 
     #[error("expression conversion failed in step '{0}': {1}")]
     Expr(String, String),
+
+    #[error("invalid inputSchema: {0}")]
+    InvalidInputSchema(String),
 }
 
 // ── Top-level conversion ──────────────────────────────────────────────────────
@@ -54,6 +57,11 @@ impl TryFrom<StudioRuleSet> for RuleSet {
             timeout_ms: s.config.timeout.unwrap_or(5000),
             enable_trace: s.config.enable_trace.unwrap_or(false),
             metadata: s.config.metadata.into_iter().collect(),
+            input_schema: match s.config.input_schema {
+                Some(schema) if !schema.is_null() => serde_json::from_value(schema)
+                    .map_err(|e| ConvertError::InvalidInputSchema(e.to_string()))?,
+                _ => Vec::new(),
+            },
         };
 
         let mut steps: FastMap<String, Step> = FastMap::new();
@@ -173,6 +181,35 @@ fn convert_step_kind(kind: StudioStepKind, step_id: &str) -> Result<StepKind, Co
                 data: CoreValue::Null,
             };
             Ok(StepKind::Terminal { result })
+        }
+
+        StudioStepKind::DecisionTable {
+            hit_policy,
+            aggregate,
+            inputs,
+            outputs,
+            rules,
+            default,
+            next_step_id,
+        } => {
+            let mut source = serde_json::json!({
+                "inputs": inputs,
+                "outputs": outputs,
+                "rules": rules,
+                "next_step": next_step_id,
+            });
+            if let Some(hit_policy) = hit_policy {
+                source["hit_policy"] = hit_policy.into();
+            }
+            if let Some(aggregate) = aggregate {
+                source["aggregate"] = aggregate.into();
+            }
+            if let Some(default) = default {
+                source["default"] = default.into();
+            }
+            let table = serde_json::from_value(source)
+                .map_err(|e| ConvertError::Expr(step_id.to_string(), e.to_string()))?;
+            Ok(StepKind::DecisionTable(Box::new(table)))
         }
 
         StudioStepKind::SubRule {
@@ -411,6 +448,30 @@ mod tests {
     }
 
     #[test]
+    fn test_input_schema_is_carried_to_engine_and_back() {
+        let mut config = base_config("with_schema");
+        config.input_schema = Some(serde_json::json!([
+            {"name": "age", "type": "number", "required": true},
+            {"name": "tier", "type": "string", "defaultValue": "basic"}
+        ]));
+        let rs = StudioRuleSet {
+            config,
+            start_step_id: "done".to_string(),
+            steps: vec![terminal_step("done", "OK")],
+            sub_rules: Default::default(),
+            groups: None,
+            metadata: None,
+        };
+        let engine = RuleSet::try_from(rs).unwrap();
+        assert_eq!(engine.config.input_schema.len(), 2);
+        assert!(engine.config.input_schema[0].required);
+
+        let back = crate::engine_to_studio(&engine);
+        let schema = back.config.input_schema.unwrap();
+        assert_eq!(schema[1]["defaultValue"], "basic");
+    }
+
+    #[test]
     fn test_terminal_message_accepts_expression_object() {
         let rs = StudioRuleSet {
             config: base_config("terminal_message_expr"),
@@ -597,6 +658,89 @@ mod tests {
             }
             _ => panic!("expected Action"),
         }
+    }
+
+    #[test]
+    fn test_decision_table_step_converts_both_ways() {
+        let json = r#"{
+          "config": {"name": "discount", "version": "1.0.0"},
+          "startStepId": "table",
+          "steps": [
+            {"id": "table", "name": "Discount", "type": "decision_table",
+             "hitPolicy": "first",
+             "inputs": ["tier"], "outputs": ["discount"],
+             "rules": [{"when": ["gold"], "then": [0.15]}],
+             "default": [0],
+             "nextStepId": "done"},
+            {"id": "done", "name": "Done", "type": "terminal", "code": "OK",
+             "output": [{"name": "discount",
+                         "value": {"type": "variable", "path": "$discount"}}]}
+          ]
+        }"#;
+        let studio: StudioRuleSet = serde_json::from_str(json).unwrap();
+        let engine = RuleSet::try_from(studio).unwrap();
+        let run = |rs: &RuleSet, tier: &str| {
+            let input = serde_json::from_str(&format!(r#"{{"tier": "{tier}"}}"#)).unwrap();
+            ordo_core::rule::RuleExecutor::new()
+                .execute(rs, input)
+                .unwrap()
+                .output
+                .get_path("discount")
+                .cloned()
+        };
+        assert_eq!(run(&engine, "gold"), Some(CoreValue::float(0.15)));
+        assert_eq!(run(&engine, "basic"), Some(CoreValue::int(0)));
+
+        let back = crate::engine_to_studio(&engine);
+        let again = RuleSet::try_from(back).unwrap();
+        assert_eq!(run(&again, "gold"), Some(CoreValue::float(0.15)));
+
+        let bad = json.replace(r#""then": [0.15]"#, r#""then": []"#);
+        let studio: StudioRuleSet = serde_json::from_str(&bad).unwrap();
+        let err = RuleSet::try_from(studio).unwrap_err().to_string();
+        assert!(err.contains("row 1"), "{err}");
+    }
+
+    #[test]
+    fn test_expression_strings_in_assignments_and_outputs() {
+        let json = r#"{
+          "config": {"name": "pricing", "version": "1.0.0"},
+          "startStepId": "calc",
+          "steps": [
+            {"id": "calc", "name": "Calc", "type": "action",
+             "assignments": [{"name": "subtotal", "value": "price * qty"}],
+             "nextStepId": "done"},
+            {"id": "done", "name": "Done", "type": "terminal", "code": "OK",
+             "message": "total",
+             "output": [
+               {"name": "total", "value": "round($subtotal * 0.85, 2)"},
+               {"name": "price", "value": {"type": "variable", "path": "$.price"}}
+             ]}
+          ]
+        }"#;
+        let studio: StudioRuleSet = serde_json::from_str(json).unwrap();
+        let mut engine = RuleSet::try_from(studio).unwrap();
+        engine.compile().unwrap();
+
+        let input = serde_json::from_str(r#"{"price": 19.99, "qty": 3}"#).unwrap();
+        let result = ordo_core::rule::RuleExecutor::new()
+            .execute(&engine, input)
+            .unwrap();
+        assert_eq!(
+            result.output.get_path("total"),
+            Some(&CoreValue::float(50.97))
+        );
+        assert_eq!(
+            result.output.get_path("price"),
+            Some(&CoreValue::float(19.99))
+        );
+        // A plain string message stays literal text, not an expression.
+        assert_eq!(result.message, "total");
+
+        let err = serde_json::from_str::<StudioRuleSet>(&json.replace("price * qty", "price *"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("invalid expression `price *`"), "{err}");
     }
 
     #[test]

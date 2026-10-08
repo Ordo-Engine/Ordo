@@ -250,7 +250,10 @@ impl SchemaJITCompiler {
             Expr::Call { name, args } => {
                 // Only math functions are supported (no field-based array ops)
                 let supported = ["abs", "min", "max", "floor", "ceil", "round", "sqrt", "pow"];
-                supported.contains(&name.as_str()) && args.iter().all(Self::is_supported_expr)
+                // `round(x, digits)` stays on the interpreter/VM path.
+                supported.contains(&name.as_str())
+                    && !(name == "round" && args.len() != 1)
+                    && args.iter().all(Self::is_supported_expr)
             }
             // Not supported: Array, Object, Coalesce, Exists
             _ => false,
@@ -801,7 +804,19 @@ fn compile_math_function_value(
                 ));
             }
             let val = compile_expr_value(builder, &args[0], ctx_ptr, compile_ctx)?;
-            Ok(builder.ins().nearest(val))
+            // Round half away from zero, matching `f64::round` used by the
+            // interpreter (`nearest` would round half to even: 2.5 -> 2).
+            let truncated = builder.ins().trunc(val);
+            let frac = builder.ins().fsub(val, truncated);
+            let frac_abs = builder.ins().fabs(frac);
+            let half = builder.ins().f64const(0.5);
+            let round_away = builder
+                .ins()
+                .fcmp(FloatCC::GreaterThanOrEqual, frac_abs, half);
+            let one = builder.ins().f64const(1.0);
+            let step = builder.ins().fcopysign(one, val);
+            let away = builder.ins().fadd(truncated, step);
+            Ok(builder.ins().select(round_away, away, truncated))
         }
 
         "sqrt" => {

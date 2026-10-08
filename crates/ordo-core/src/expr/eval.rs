@@ -171,6 +171,7 @@ impl Evaluator {
             UnaryOp::Neg => match val {
                 Value::Int(n) => Ok(Value::int(-n)),
                 Value::Float(n) => Ok(Value::float(-n)),
+                Value::Decimal(n) => Ok(Value::Decimal(-n)),
                 _ => Err(OrdoError::type_error("number", val.type_name())),
             },
         }
@@ -188,6 +189,9 @@ impl Evaluator {
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 + b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a + *b as f64)),
             (Value::String(a), Value::String(b)) => Ok(Value::string(format!("{}{}", a, b))),
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Add, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot add {} and {}",
                 left.type_name(),
@@ -205,6 +209,9 @@ impl Evaluator {
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a - b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a - *b as f64)),
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Sub, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot subtract {} and {}",
                 left.type_name(),
@@ -222,6 +229,9 @@ impl Evaluator {
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a * b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 * b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a * *b as f64)),
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Mul, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot multiply {} and {}",
                 left.type_name(),
@@ -236,7 +246,7 @@ impl Evaluator {
                 if *b == 0 {
                     return Err(OrdoError::eval_error("Division by zero"));
                 }
-                Ok(Value::int(a / b))
+                Ok(crate::context::int_div(*a, *b))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {
@@ -256,6 +266,9 @@ impl Evaluator {
                 }
                 Ok(Value::float(a / *b as f64))
             }
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Div, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot divide {} and {}",
                 left.type_name(),
@@ -271,6 +284,9 @@ impl Evaluator {
                     return Err(OrdoError::eval_error("Modulo by zero"));
                 }
                 Ok(Value::int(a % b))
+            }
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Rem, left, right)
             }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot modulo {} and {}",

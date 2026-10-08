@@ -31,6 +31,9 @@ pub enum ConvertError {
 
     #[error("expression conversion failed in step '{0}': {1}")]
     Expr(String, String),
+
+    #[error("invalid inputSchema: {0}")]
+    InvalidInputSchema(String),
 }
 
 // ── Top-level conversion ──────────────────────────────────────────────────────
@@ -54,6 +57,11 @@ impl TryFrom<StudioRuleSet> for RuleSet {
             timeout_ms: s.config.timeout.unwrap_or(5000),
             enable_trace: s.config.enable_trace.unwrap_or(false),
             metadata: s.config.metadata.into_iter().collect(),
+            input_schema: match s.config.input_schema {
+                Some(schema) if !schema.is_null() => serde_json::from_value(schema)
+                    .map_err(|e| ConvertError::InvalidInputSchema(e.to_string()))?,
+                _ => Vec::new(),
+            },
         };
 
         let mut steps: FastMap<String, Step> = FastMap::new();
@@ -408,6 +416,30 @@ mod tests {
                 output: vec![],
             },
         }
+    }
+
+    #[test]
+    fn test_input_schema_is_carried_to_engine_and_back() {
+        let mut config = base_config("with_schema");
+        config.input_schema = Some(serde_json::json!([
+            {"name": "age", "type": "number", "required": true},
+            {"name": "tier", "type": "string", "defaultValue": "basic"}
+        ]));
+        let rs = StudioRuleSet {
+            config,
+            start_step_id: "done".to_string(),
+            steps: vec![terminal_step("done", "OK")],
+            sub_rules: Default::default(),
+            groups: None,
+            metadata: None,
+        };
+        let engine = RuleSet::try_from(rs).unwrap();
+        assert_eq!(engine.config.input_schema.len(), 2);
+        assert!(engine.config.input_schema[0].required);
+
+        let back = crate::engine_to_studio(&engine);
+        let schema = back.config.input_schema.unwrap();
+        assert_eq!(schema[1]["defaultValue"], "basic");
     }
 
     #[test]

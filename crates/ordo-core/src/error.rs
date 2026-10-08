@@ -84,6 +84,10 @@ pub enum OrdoError {
     #[error("Max execution depth exceeded: {max_depth}")]
     MaxDepthExceeded { max_depth: usize },
 
+    /// Input does not match the ruleset's declared input schema
+    #[error("Invalid input: {}", errors.join("; "))]
+    InvalidInput { errors: Vec<String> },
+
     /// Configuration error
     #[error("Config error: {message}")]
     ConfigError { message: Cow<'static, str> },

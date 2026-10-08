@@ -88,6 +88,11 @@ impl From<ordo_core::error::OrdoError> for ApiError {
             ordo_core::error::OrdoError::EvalError { message, .. } => {
                 ApiError::bad_request(format!("Evaluation error: {}", message))
             }
+            ordo_core::error::OrdoError::InvalidInput { .. } => ApiError {
+                status: StatusCode::BAD_REQUEST,
+                code: "INVALID_INPUT".to_string(),
+                message: err.to_string(),
+            },
             _ => ApiError::internal(err.to_string()),
         }
     }

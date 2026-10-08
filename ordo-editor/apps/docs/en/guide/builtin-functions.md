@@ -130,14 +130,16 @@ abs(5)                  # 5
 abs(balance)            # positive balance
 ```
 
-### round(number)
+### round(number, digits?)
 
-Rounds to the nearest integer.
+Rounds half away from zero. With one argument it returns an integer; with `digits` (0–15) it keeps that many decimal places, rounding the number as written (so `1.005` rounds up even though its binary value is slightly below).
 
 ```
 round(3.4)              # 3
 round(3.5)              # 4
-round(3.6)              # 4
+round(-3.5)             # -4
+round(1.005, 2)         # 1.01
+round(19.99 * 0.85, 2)  # 16.99
 ```
 
 ### floor(number)

@@ -210,7 +210,26 @@ impl FunctionRegistry {
             Ok(Value::int(n.ceil() as i64))
         });
 
+        // round(x) -> int; round(x, digits) -> number rounded to `digits`
+        // decimal places, half away from zero, on the value as written
+        // (round(1.005, 2) == 1.01 even though 1.005 is 1.00499.. in binary).
         self.register("round", |args| {
+            if args.len() == 2 {
+                let digits = require_int("round", &args[1])?;
+                if !(0..=15).contains(&digits) {
+                    return Err(OrdoError::FunctionArgError {
+                        name: Cow::Borrowed("round"),
+                        message: Cow::Owned(format!("digits must be 0..=15, got {}", digits)),
+                    });
+                }
+                return match &args[0] {
+                    Value::Int(n) => Ok(Value::int(*n)),
+                    other => {
+                        let n = require_float("round", other)?;
+                        Ok(Value::float(round_decimal(n, digits as usize)))
+                    }
+                };
+            }
             require_args("round", args, 1)?;
             let n = require_float("round", &args[0])?;
             Ok(Value::int(n.round() as i64))
@@ -1446,6 +1465,54 @@ impl FunctionRegistry {
 }
 
 // ==================== Helper functions ====================
+
+/// Round `n` to `digits` decimal places, half away from zero, using the
+/// shortest decimal representation of `n` (what the user wrote / sees) rather
+/// than its binary expansion.
+fn round_decimal(n: f64, digits: usize) -> f64 {
+    if !n.is_finite() {
+        return n;
+    }
+    // `Display` for f64 prints the shortest round-trip decimal, never exponent.
+    let repr = n.abs().to_string();
+    let (int_part, frac_part) = repr.split_once('.').unwrap_or((repr.as_str(), ""));
+    if frac_part.len() <= digits {
+        return n;
+    }
+    let mut kept: Vec<u8> = int_part
+        .bytes()
+        .chain(frac_part.bytes().take(digits))
+        .map(|b| b - b'0')
+        .collect();
+    if frac_part.as_bytes()[digits] >= b'5' {
+        let mut i = kept.len();
+        loop {
+            if i == 0 {
+                kept.insert(0, 1);
+                break;
+            }
+            i -= 1;
+            if kept[i] == 9 {
+                kept[i] = 0;
+            } else {
+                kept[i] += 1;
+                break;
+            }
+        }
+    }
+    let int_len = kept.len() - digits;
+    let mut out = String::with_capacity(kept.len() + 2);
+    if n.is_sign_negative() {
+        out.push('-');
+    }
+    for (i, d) in kept.iter().enumerate() {
+        if i == int_len {
+            out.push('.');
+        }
+        out.push((b'0' + d) as char);
+    }
+    out.parse().unwrap_or(n)
+}
 
 fn require_args(name: &str, args: &[Value], count: usize) -> Result<()> {
     if args.len() != count {

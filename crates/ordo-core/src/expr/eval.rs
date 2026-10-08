@@ -236,7 +236,7 @@ impl Evaluator {
                 if *b == 0 {
                     return Err(OrdoError::eval_error("Division by zero"));
                 }
-                Ok(Value::int(a / b))
+                Ok(crate::context::int_div(*a, *b))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {

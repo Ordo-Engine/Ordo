@@ -41,6 +41,8 @@ amount / 100
 count % 2
 ```
 
+数字按数值比较：`3 == 3.0` 为 `true`，调用方传 `3` 还是 `3.0` 结果一致。除法不会静默截断：`10 / 4` 得 `2.5`，`10 / 5` 仍是整数 `2`。需要整除时用 `floor(a / b)`。
+
 ## 字段访问
 
 ### 对象属性 (Object Properties)
@@ -96,6 +98,7 @@ order.items[2].product.category
 | ---------- | -------- | -------------------- |
 | `abs(n)`   | 绝对值   | `abs(balance) < 100` |
 | `round(n)` | 四舍五入 | `round(price)`       |
+| `round(n, digits)` | 保留小数位 | `round(price * 0.85, 2)` |
 | `floor(n)` | 向下取整 | `floor(score)`       |
 | `ceil(n)`  | 向上取整 | `ceil(amount)`       |
 

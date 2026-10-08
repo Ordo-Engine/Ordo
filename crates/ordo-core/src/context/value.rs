@@ -29,7 +29,7 @@ pub type IString = Arc<str>;
 /// Dynamic value type
 ///
 /// Optimized for rule engine operations with minimal allocation overhead.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum Value {
     /// Null value
     #[default]
@@ -459,6 +459,51 @@ impl Value {
             (Self::String(a), Self::String(b)) => Some(a.cmp(b)),
             (Self::Bool(a), Self::Bool(b)) => Some(a.cmp(b)),
             _ => None,
+        }
+    }
+}
+
+// ==================== Arithmetic ====================
+
+/// Divide two integers (`b != 0`). Business rules expect `10 / 4` to be
+/// `2.5`, not a silently truncated `2`, so the result stays an integer only
+/// when the division is exact. Use `floor()` for explicit integer division.
+#[inline]
+pub(crate) fn int_div(a: i64, b: i64) -> Value {
+    match a.checked_rem(b) {
+        Some(0) => match a.checked_div(b) {
+            Some(q) => Value::Int(q),
+            None => Value::Float(a as f64 / b as f64),
+        },
+        _ => Value::Float(a as f64 / b as f64),
+    }
+}
+
+// ==================== Equality ====================
+
+/// Exact numeric equality between an integer and a float: `10 == 10.0` is
+/// true, `10 == 10.5` is false, and no precision is lost for large integers.
+#[inline]
+fn int_float_eq(i: i64, f: f64) -> bool {
+    // `i64::MAX as f64` rounds up to 2^63, which is itself out of range.
+    f.fract() == 0.0 && f >= i64::MIN as f64 && f < i64::MAX as f64 && f as i64 == i
+}
+
+/// Numbers compare by value regardless of representation, so a client that
+/// serializes `3` as `3.0` (common in Java/Python) still matches `== 3`,
+/// `in [1, 2, 3]`, etc. All other variants compare structurally.
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Null, Self::Null) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Int(a), Self::Int(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => a == b,
+            (Self::Int(a), Self::Float(b)) | (Self::Float(b), Self::Int(a)) => int_float_eq(*a, *b),
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::Array(a), Self::Array(b)) => a == b,
+            (Self::Object(a), Self::Object(b)) => a == b,
+            _ => false,
         }
     }
 }

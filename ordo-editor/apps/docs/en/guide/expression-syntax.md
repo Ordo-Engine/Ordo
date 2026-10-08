@@ -41,6 +41,8 @@ amount / 100
 count % 2
 ```
 
+Numbers compare by value: `3 == 3.0` is `true`, so it doesn't matter whether a client sends `3` or `3.0`. Division never silently truncates: `10 / 4` is `2.5`, and `10 / 5` stays the integer `2`. Use `floor(a / b)` when you want integer division.
+
 ## Field Access
 
 ### Object Properties
@@ -96,6 +98,7 @@ order.items[2].product.category
 | ---------- | ---------------- | -------------------- |
 | `abs(n)`   | Absolute value   | `abs(balance) < 100` |
 | `round(n)` | Round to nearest | `round(price)`       |
+| `round(n, digits)` | Round to decimal places | `round(price * 0.85, 2)` |
 | `floor(n)` | Round down       | `floor(score)`       |
 | `ceil(n)`  | Round up         | `ceil(amount)`       |
 

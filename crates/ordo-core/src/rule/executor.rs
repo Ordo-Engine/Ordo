@@ -240,6 +240,8 @@ impl RuleExecutor {
         remaining_call_depth: usize,
     ) -> Result<ExecutionResult> {
         let start_time = Instant::now();
+        let mut input = input;
+        super::input_schema::apply_input_schema(&ruleset.config.input_schema, &mut input)?;
         let mut ctx = Context::new(input);
         let tracing = self.trace_config.enabled || enable_trace;
         let mut trace = if tracing {

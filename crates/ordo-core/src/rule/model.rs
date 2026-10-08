@@ -2,6 +2,7 @@
 //!
 //! Defines the structure of rule sets
 
+use super::input_schema::InputField;
 use super::step::{Step, SubRuleGraph};
 use crate::error::Result;
 use hashbrown::HashMap as FastMap;
@@ -49,6 +50,10 @@ pub struct RuleSetConfig {
     /// Custom metadata
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+
+    /// Declared input fields, checked before execution (empty = no check)
+    #[serde(default, alias = "inputSchema", skip_serializing_if = "Vec::is_empty")]
+    pub input_schema: Vec<InputField>,
 }
 
 fn default_version() -> String {
@@ -109,6 +114,7 @@ impl RuleSet {
                 timeout_ms: default_timeout_ms(),
                 enable_trace: false,
                 metadata: HashMap::new(),
+                input_schema: Vec::new(),
             },
             steps: FastMap::new(),
             sub_rules: FastMap::new(),

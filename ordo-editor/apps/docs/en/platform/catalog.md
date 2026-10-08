@@ -10,7 +10,7 @@ Common pain points without one:
 - Type drift (a numeric field becomes a string after one release)
 - Field semantics live only in engineers' heads
 
-The fact catalog makes these constraints **explicit**: every field has a name, type, description, and example, serving as the project's single source of truth.
+The fact catalog makes these constraints explicit. Every field has a name, type, description, and example, and the catalog is the project's single source of truth for them.
 
 ## Fact
 
@@ -60,4 +60,4 @@ A composite structure. When multiple rulesets need to refer to the same object (
 
 - [Contracts](./contracts) constrain a ruleset's input and output by referencing facts/concepts.
 - Studio expression autocomplete and type checks come from the catalog.
-- Test cases use the catalog to suggest input fields — the catalog is where all "type info" for a project converges.
+- Test cases use the catalog to suggest input fields.

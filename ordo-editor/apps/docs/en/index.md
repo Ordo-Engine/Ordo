@@ -3,106 +3,93 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: 'The deterministic decision layer for AI agents'
-  tagline: The LLM proposes, your rules dispose. A sub-microsecond, JIT-compiled rule engine in Rust — with guardrails for your AI agent you can actually test.
+  text: 'Take business rules out of your code'
+  tagline: Write rules in JSON or YAML, give them tests and versions, and change them without a redeploy. A Rust engine that runs a rule in microseconds. Easy for people to write, and for AI to write.
   image:
     src: /logo.png
     alt: Ordo
   actions:
     - theme: brand
-      text: Guard your agent
-      link: /en/platform/guard
+      text: Quick Start
+      link: /en/guide/quick-start
     - theme: alt
-      text: Get Started
-      link: /en/platform/quickstart
-    - theme: alt
-      text: Engine Docs
-      link: /en/guide/what-is-ordo
+      text: Try it online
+      link: https://ordo-engine.github.io/Ordo/
     - theme: alt
       text: GitHub
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - title: Agent Guardrails
-    details: Gate every Claude Code tool call through a local rule that decides allow / deny / ask — deterministically. The policy is a normal Ordo project, so your guardrails have a test suite and an audit log. Install in 5 minutes with npx.
-    link: /en/platform/guard
-    linkText: Guard your agent
-  - title: Decision Platform
-    details: Organizations, projects, members & RBAC, fact catalog, concept registry, typed contracts, approval & release pipelines, multi-environment rollouts and rollback — built for team-scale decision governance.
-    link: /en/platform/overview
-    linkText: Platform overview
-  - title: Studio Editor
-    details: Three authoring modes (flow / form / JSON), decision tables, sub-rules, template instantiation, test suite management, and execution trace panels.
-    link: /en/platform/studio
-    linkText: Studio guide
-  - title: Releases & Environments
-    details: Draft → review → release → canary → rollback. Configurable approval policies, change diffs, per-environment delivery, every action recorded in the audit log.
-    link: /en/platform/releases
-    linkText: Release pipeline
-  - title: High-Performance Engine
-    details: Sub-microsecond rule execution. Bytecode VM plus Cranelift JIT, expression optimizer. Reach it over HTTP, gRPC, Unix Socket, or WASM.
+  - title: Rules are files
+    details: Branches, decision tables and sub-rules live in JSON or YAML, in git next to your code, where they can be reviewed and diffed. The expression language is deliberately small, with no loops and no side effects, so rules an AI generates can be checked too.
+    link: /en/guide/rule-structure
+    linkText: Rule structure
+  - title: Test before you ship
+    details: Every ruleset carries its own test cases, and ordo test runs them locally and in CI. Execution can be traced step by step, so you can see how each result was reached.
+    link: /en/platform/testing
+    linkText: Testing rules
+  - title: Runs anywhere
+    details: A bytecode VM plus a Cranelift JIT. Call it over HTTP, gRPC or a Unix socket, run it in the browser as WASM, or embed it in a Rust program.
     link: /en/guide/execution-model
     linkText: Execution model
-  - title: Types & Contracts
-    details: Project-scoped fact catalog, reusable concepts, typed input/output contracts. Studio and CLI consume the same contract definitions.
-    link: /en/platform/catalog
-    linkText: Facts & contracts
-  - title: Multi-Region Deployment
-    details: Central platform governance plus regional engine clusters. Server registry, health checks, per-project execution proxy. Single-binary or containerized deployment.
-    link: /en/platform/server-registry
-    linkText: Server registry
 ---
 
-## Architecture
+## What a rule looks like
 
-```mermaid
-flowchart TB
-  Studio["Studio (browser)"]
-  CLI["ordo-cli"]
-  SDK["SDK / business app"]
-  Platform["ordo-platform<br/>governance · drafts · review · release"]
-  Server["ordo-server cluster<br/>HTTP · gRPC · UDS"]
-  Core["ordo-core engine<br/>VM + JIT + sub-rules + trace"]
+Pick a discount from membership tier and order amount, written as a decision table:
 
-  Studio --> Platform
-  CLI --> Platform
-  SDK --> Server
-  Platform -- "release events (NATS / direct sync)" --> Server
-  Server --> Core
+```yaml
+config:
+  name: discount
+  version: 1.0.0
+  entry_step: pick_rate
+steps:
+  pick_rate:
+    id: pick_rate
+    name: Pick discount rate
+    type: decision_table
+    inputs: [user.tier, order.amount]
+    outputs: [rate]
+    rules:
+      - when: [gold, ">= 1000"]
+        then: [0.15]
+      - when: [gold, "*"]
+        then: [0.10]
+      - when: ["*", ">= 1000"]
+        then: [0.05]
+    default: [0]
+    next_step: done
+  done:
+    id: done
+    name: Done
+    type: terminal
+    result:
+      code: OK
+      output:
+        - [rate, $rate]
+        - [pay, "order.amount * (1 - $rate)"]
 ```
 
-The documentation is organized into two tracks:
-
-- **Platform** — for teams using Ordo Platform / Studio to govern decisions: organization modeling, contracts, release flow, test management.
-- **Engine** — for developers integrating ordo-core / ordo-server directly: rule structure, expression syntax, HTTP / gRPC / WASM APIs.
-
-## Quick Example
-
-```json
-{
-  "config": {
-    "name": "discount-check",
-    "version": "1.0.0",
-    "entry_step": "check_vip"
-  },
-  "steps": {
-    "check_vip": {
-      "id": "check_vip",
-      "name": "Check VIP Status",
-      "type": "decision",
-      "branches": [{ "condition": "user.vip == true", "next_step": "vip_discount" }],
-      "default_next": "normal_discount"
-    },
-    "vip_discount": {
-      "id": "vip_discount",
-      "type": "terminal",
-      "result": { "code": "VIP", "message": "20% discount" }
-    },
-    "normal_discount": {
-      "id": "normal_discount",
-      "type": "terminal",
-      "result": { "code": "NORMAL", "message": "5% discount" }
-    }
-  }
+```bash
+$ ordo exec --rule discount.yaml --input '{"user":{"tier":"gold"},"order":{"amount":1200}}'
+code:    OK
+output:  {
+  "rate": 0.15,
+  "pay": 1020.0
 }
 ```
+
+To change the discount, edit the table and run the tests again. The calling code stays the same.
+
+## Where it fits
+
+- Pricing, promotions, loyalty points: rules that change often and must be exact.
+- Risk, eligibility, approvals: every decision needs to be explainable and audited.
+- Routing and assignment: orders, tickets, payment channels.
+- Limits for AI agents: [Ordo Guard](/en/platform/guard) uses the same engine to allow, deny or ask before Claude Code, Codex CLI or Cursor runs a command.
+
+## Where to start
+
+- New to Ordo: [Quick Start](/en/guide/quick-start) gets a first rule running in five minutes.
+- The concepts: [What is Ordo?](/en/guide/what-is-ordo)
+- Team workflows and visual editing: [Studio & Platform](/en/platform/overview)

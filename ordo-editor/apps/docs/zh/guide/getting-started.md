@@ -1,67 +1,61 @@
-# 在本地运行引擎
+# 安装与运行
 
-本指南带你在本机跑起开源**引擎**(`ordo-server`)——用于嵌入、自建,或改核心代码。
+Ordo 有三个可以单独使用的部分：命令行 `ordo`、规则服务 `ordo-server`、Rust 库 `ordo-core`。按需要选一个即可。
 
-> **要做一个决策服务?** 你不需要自己跑引擎。跟着[平台快速上手](/zh/platform/quickstart)走——五分钟内建项目、写规则、发布,引擎由平台托管。
+## 命令行
 
-##先决条件
-
-- **Rust**: 1.83 或更高版本
-- **Node.js**: 18 或更高版本（用于可视化编辑器）
-- **pnpm**: 8 或更高版本（用于可视化编辑器）
-
-## 安装
-
-### 克隆仓库
+本地写规则、跑测试、在 CI 里校验，用命令行就够了。npm 包里是预编译的二进制，支持 Linux、macOS 和 Windows。
 
 ```bash
-git clone https://github.com/Ordo-Engine/Ordo.git
-cd Ordo
+npm install -g @ordo-engine/cli
+ordo --help
 ```
 
-### 构建服务器
+## 规则服务（Docker）
 
 ```bash
-cargo build --release
+docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
 ```
 
-编译后的二进制文件位于 `./target/release/ordo-server`。
-
-### 运行服务器
+默认规则只存在内存里。要从目录加载并持久化规则，把目录挂进容器：
 
 ```bash
-# 以默认设置启动（HTTP 端口 8080，gRPC 端口 50051）
-./target/release/ordo-server
-
-# 或者启用持久化
-./target/release/ordo-server --rules-dir ./rules
+docker run -p 8080:8080 -v "$PWD/rules:/data/rules" \
+  ghcr.io/ordo-engine/ordo:latest --rules-dir /data/rules
 ```
 
-## 验证安装
-
-检查健康检查端点：
+检查服务是否正常：
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-预期响应：
+HTTP 默认端口 8080，gRPC 默认端口 50051。全部启动参数见[服务器选项](/zh/reference/server-options)。
 
-```json
-{
-  "status": "healthy",
-  "version": "0.4.2",
-  "uptime_seconds": 5,
-  "storage": {
-    "mode": "memory",
-    "rules_count": 0
-  }
-}
+## 从源码构建
+
+需要 Rust 1.83 或更高版本。
+
+```bash
+git clone https://github.com/Ordo-Engine/Ordo.git
+cd Ordo
+cargo build --release
+
+./target/release/ordo-server --rules-dir ./rules
 ```
+
+## 嵌入 Rust 程序
+
+```toml
+[dependencies]
+ordo-core = { git = "https://github.com/Ordo-Engine/Ordo" }
+```
+
+加载规则后记得调用 `RuleSet::from_json_compiled()` 或 `from_yaml_compiled()`，这样表达式只解析一次。
 
 ## 可视化编辑器
 
-要使用可视化规则编辑器：
+不想装任何东西，可以直接用[在线演练场](https://ordo-engine.github.io/Ordo/)。在本地运行编辑器：
 
 ```bash
 cd ordo-editor
@@ -69,22 +63,8 @@ pnpm install
 pnpm dev
 ```
 
-在浏览器中打开 `http://localhost:3001`。
-
-或者尝试 [在线演练场](https://ordo-engine.github.io/Ordo/)。
-
-## Docker
-
-```bash
-# 构建镜像
-docker build -t ordo-server .
-
-# 运行并启用持久化
-docker run -p 8080:8080 -v ./rules:/rules ordo-server --rules-dir /rules
-```
-
 ## 下一步
 
-- [快速入门](./quick-start) - 创建并执行你的第一条规则
-- [规则结构](./rule-structure) - 了解规则是如何定义的
-- [表达式语法](./expression-syntax) - 学习表达式语言
+- [快速上手](./quick-start)：写出并运行第一条规则
+- [分布式部署](./distributed-deployment)：多实例部署
+- [Kubernetes](./integration/kubernetes)

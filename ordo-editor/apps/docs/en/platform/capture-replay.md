@@ -1,25 +1,24 @@
 # Traffic Capture & Replay
 
-The safety net for changing a rule: **record real decisions in production, then
-replay them against your rule change and see exactly which ones flip.** Because
-an Ordo test case is `{input, expect:{code, output}}` — the same shape as a
-captured `{input, code, output}` decision — production traffic converts into a
-regression corpus almost for free.
+Record real decisions in production, then replay them against a rule change to
+see which ones flip. An Ordo test case is `{input, expect:{code, output}}`, the
+same shape as a captured `{input, code, output}` decision, so captured traffic
+converts directly into regression tests.
 
 The loop:
 
 > change a rule → replay last week's real decisions → inspect the flips → fixate
-> them as regression tests → ship with confidence.
+> them as regression tests → ship.
 
 ## 1. Capture (ordo-server)
 
-Capture is **opt-in and off by default**. Point ordo-server at a directory:
+Capture is off by default. To enable it, point ordo-server at a directory:
 
 ```bash
 ordo-server --rules-dir ./rules --capture-io-path /var/ordo/capture
 ```
 
-Now every rule execution appends one JSON line to
+Every rule execution then appends one JSON line to
 `/var/ordo/capture/capture-YYYY-MM-DD.jsonl` (daily rotation):
 
 ```json
@@ -31,13 +30,13 @@ Env vars: `ORDO_CAPTURE_IO_PATH`, `ORDO_CAPTURE_IO_SAMPLE_RATE` (0–100, defaul
 
 ::: warning Cost & privacy
 
-- Zero overhead when disabled — the input is only cloned when capture is on **and**
+- No overhead when disabled. The input is only cloned when capture is on and
   the request is sampled.
-- Captured inputs are the **full request payload** and may contain PII. Capture is
-  deliberately opt-in; bound the volume (and exposure) with the sample rate, and
+- Captured inputs are the full request payload and may contain PII. That is why
+  capture is opt-in. Limit the volume (and exposure) with the sample rate, and
   treat the capture files as sensitive.
-- v1 captures the **HTTP execute** path (single + not-yet batch). gRPC and batch
-  capture are follow-ups.
+- v1 captures the HTTP execute path (single requests, not yet batch). gRPC and
+  batch capture are follow-ups.
   :::
 
 ## 2. Replay (ordo CLI)
@@ -48,8 +47,8 @@ Pull the capture file to a machine that has your ruleset as a project, and repla
 ordo replay capture-2026-07-04.jsonl
 ```
 
-Replay re-runs every captured `input` through the **current** project ruleset and
-buckets each record:
+Replay re-runs every captured `input` through the current project ruleset and
+puts each record in a bucket:
 
 | Bucket              | Meaning                                                        |
 | ------------------- | -------------------------------------------------------------- |
@@ -66,8 +65,8 @@ FLIP listing-risk  {"amount":25000,…}  REVIEW → ALLOW
 12,401 records: 12,388 consistent · 13 flipped
 ```
 
-Those 13 flips are exactly the decisions your rule change alters — review them
-before you ship. `--json` emits the full bucketed summary + per-record diffs;
+Those 13 flips are the decisions your rule change alters. Review them before
+you ship. `--json` emits the full bucketed summary + per-record diffs;
 `--fail-on-flip` exits non-zero (for a CI gate); `--ruleset <name>` forces one
 rule; a source of `-` reads the JSONL from stdin.
 
@@ -81,12 +80,12 @@ ordo test        # your production traffic is now a test suite
 ```
 
 `--write-tests` merges each captured `{input → code, output}` into
-`tests/<rule>.json` (deduped by input). From then on, `ordo test` guards that a
-future change can't silently alter those real decisions.
+`tests/<rule>.json` (deduped by input). From then on, `ordo test` fails if a
+change alters those decisions.
 
-## Not just ordo-server
+## Replaying other logs
 
-`ordo replay` reads any JSONL with `{rule_name, input, code, output}` lines — so
-if your application already logs its decisions (e.g. a service that calls Ordo and
+`ordo replay` reads any JSONL with `{rule_name, input, code, output}` lines. If
+your application already logs its decisions (e.g. a service that calls Ordo and
 records `{input, code}` per decision), you can replay that log directly without
 running capture at all.

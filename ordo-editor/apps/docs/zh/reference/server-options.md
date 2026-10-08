@@ -1,8 +1,8 @@
-# 服务器选项(`ordo-server`)
+# 服务器选项（`ordo-server`）
 
-`ordo-server` 引擎命令行选项的完整参考。
+`ordo-server` 引擎的命令行选项参考。
 
-> 找的是 `ordo` 开发者 CLI(项目、`validate`、`push`、`publish`)?那是另一个工具——见 [命令行 (ordo)](/zh/platform/cli)。
+> 要找 `ordo` 开发者 CLI（项目、`validate`、`push`、`publish`）？那是另一个工具，见[命令行 (ordo)](/zh/platform/cli)。
 
 ## 用法
 
@@ -48,7 +48,7 @@ ordo-server --uds-path /tmp/ordo.sock
 
 |            |           |
 | ---------- | --------- |
-| **默认值** | 无 (禁用) |
+| **默认值** | 无（禁用） |
 | **格式**   | 文件路径  |
 
 ### --disable-http
@@ -87,7 +87,7 @@ ordo-server --rules-dir ./rules
 
 |            |             |
 | ---------- | ----------- |
-| **默认值** | 无 (仅内存) |
+| **默认值** | 无（仅内存） |
 | **格式**   | 目录路径    |
 
 指定时：
@@ -95,7 +95,7 @@ ordo-server --rules-dir ./rules
 - 启动时从此目录加载规则
 - 通过 API 创建/更新规则时保存到此处
 - 通过 API 删除规则时从此移除
-- 支持 `.json`, `.yaml`, `.yml` 文件
+- 支持 `.json`、`.yaml`、`.yml` 文件
 
 ### --max-versions
 
@@ -123,13 +123,13 @@ ordo-server --audit-dir ./audit
 
 |            |                |
 | ---------- | -------------- |
-| **默认值** | 无 (仅 stdout) |
+| **默认值** | 无（仅 stdout） |
 | **格式**   | 目录路径       |
 
 指定时：
 
 - 审计事件写入 JSON Lines 文件
-- 文件每日轮换 (`audit-YYYY-MM-DD.jsonl`)
+- 文件每日轮换（`audit-YYYY-MM-DD.jsonl`）
 - 事件也会记录到 stdout
 
 ### --audit-sample-rate
@@ -219,9 +219,9 @@ ordo-server --role reader --writer-addr http://writer-node:8080
 | **值**       | `standalone`, `writer`, `reader` |
 | **环境变量** | `ORDO_ROLE`                      |
 
-- `standalone` — 完全读写访问（默认单节点模式）
-- `writer` — 完全读写访问，作为主写入节点
-- `reader` — 只读；写请求（对 rulesets、tenants、config 的 `POST`/`PUT`/`DELETE`）返回 `409 Conflict` 并附带 writer 地址
+- `standalone`：可读可写（默认的单节点模式）
+- `writer`：可读可写，作为主写入节点
+- `reader`：只读；写请求（对 rulesets、tenants、config 的 `POST`/`PUT`/`DELETE`）返回 `409 Conflict` 并附带 writer 地址
 
 ### --writer-addr
 
@@ -273,8 +273,8 @@ ordo-server --role writer --nats-url nats://localhost:4222
 | **环境变量** | `ORDO_NATS_URL` |
 | **Feature**  | `nats-sync`     |
 
-在 **Writer** 上设置时：将规则变更发布到 NATS JetStream。
-在 **Reader** 上设置时：订阅接收规则更新。
+在 Writer 上设置时：把规则变更发布到 NATS JetStream。
+在 Reader 上设置时：订阅并接收规则更新。
 
 ### --nats-subject-prefix
 
@@ -304,7 +304,7 @@ ordo-server --nats-url nats://localhost:4222 --instance-id reader-1
 | **默认值**   | 随机生成           |
 | **环境变量** | `ORDO_INSTANCE_ID` |
 
-未指定时，启动时自动生成随机十六进制字符串。在 Kubernetes 中建议通过 `metadata.name` 设置为 Pod 名称。
+未指定时，启动时自动生成一个随机十六进制字符串。在 Kubernetes 中建议通过 `metadata.name` 设置为 Pod 名称。
 
 ### --max-request-body-bytes
 
@@ -319,7 +319,7 @@ ordo-server --max-request-body-bytes 5242880
 | **默认值**   | `10485760`（10 MB）           |
 | **环境变量** | `ORDO_MAX_REQUEST_BODY_BYTES` |
 
-同时应用于 gRPC 最大解码消息大小。
+同时作为 gRPC 的最大解码消息大小。
 
 ### --request-timeout-secs
 
@@ -429,7 +429,7 @@ ordo-server --uds-path /var/run/ordo.sock --disable-http --disable-grpc
 
 ## 环境变量
 
-Ordo 支持 `ORDO_*` 前缀的环境变量配置，完整列表见配置文档。
+Ordo 支持用 `ORDO_*` 前缀的环境变量配置，完整列表见配置文档。
 
 ## 签名 CLI 工具
 

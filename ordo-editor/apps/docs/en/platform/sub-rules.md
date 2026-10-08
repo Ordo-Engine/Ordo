@@ -4,9 +4,9 @@ Sub-rules let you extract reusable logic snippets as project-scoped or org-scope
 
 ## Use Cases
 
-- **KYC verification** — different business lines (loans, credit cards, insurance) all need the same identity check.
-- **Risk scoring** — a customer-risk algorithm reused by many decisions.
-- **Blacklist check** — every user-facing ruleset starts with this.
+- KYC verification: different business lines (loans, credit cards, insurance) all need the same identity check.
+- Risk scoring: a customer-risk algorithm reused by many decisions.
+- Blacklist check: every user-facing ruleset starts with this.
 
 ## Data Model
 
@@ -32,8 +32,8 @@ Sub-rules let you extract reusable logic snippets as project-scoped or org-scope
 }
 ```
 
-- `bindings` — parameters the caller must pass.
-- `outputs` — fields written back to the parent context after the sub-rule ends.
+- `bindings`: parameters the caller must pass.
+- `outputs`: fields written back to the parent context after the sub-rule ends.
 
 ## Reference From a Ruleset
 
@@ -52,10 +52,10 @@ In Studio, drop a `SubRule` node, pick a ref name and version, and configure bin
 
 ## Inline Snapshot at Publish
 
-When a ruleset is published, the platform **deep-inlines** every referenced sub-rule's current version (BFS resolution) into a self-contained flat RuleSet before delivering it to ordo-server:
+When a ruleset is published, the platform deep-inlines every referenced sub-rule's current version (BFS resolution) into a self-contained flat RuleSet before delivering it to ordo-server:
 
 - Later edits or deletions of the sub-rule do not affect already-published rulesets.
-- Engine execution needs zero extra lookups — no overhead.
+- Engine execution needs no extra lookups, so there is no runtime overhead.
 - Default call depth limit is 10 (preventing recursion); the platform also runs DFS cycle detection.
 
 ## Versioning & Diff
@@ -68,4 +68,4 @@ Each sub-rule update creates a new version snapshot:
 | Get/update | `GET/PUT /api/v1/orgs/:oid/projects/:pid/sub-rules/:name` |
 | Org-level  | `/api/v1/orgs/:oid/sub-rules` (cross-project sharing)     |
 
-After updating a sub-rule, the platform lists **every ruleset that references it** — those rulesets need to be republished to pick up the new logic.
+After you update a sub-rule, the platform lists every ruleset that references it. Republish those rulesets to pick up the new logic.

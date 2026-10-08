@@ -12,10 +12,122 @@ const POSTHOG_HOST = 'https://us.i.posthog.com'
 const isCustomDomain = process.env.CUSTOM_DOMAIN === 'true'
 const BASE_PATH = process.env.DOCS_BASE_PATH || (isCustomDomain ? '/' : '/Ordo/docs/')
 
+const docs_en = [
+  {
+    text: 'Getting Started',
+    items: [
+        { text: 'What is Ordo?', link: '/en/guide/what-is-ordo' },
+        { text: 'Quick Start', link: '/en/guide/quick-start' },
+        { text: 'Install & Run', link: '/en/guide/getting-started' },
+    ]
+  },
+  {
+    text: 'Writing Rules',
+    items: [
+        { text: 'Rule Structure', link: '/en/guide/rule-structure' },
+        { text: 'Expression Syntax', link: '/en/guide/expression-syntax' },
+        { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
+        { text: 'Decision Table', link: '/en/guide/decision-table' },
+        { text: 'Execution Model', link: '/en/guide/execution-model' },
+    ]
+  },
+  {
+    text: 'Integration',
+    items: [
+        { text: 'HTTP API', link: '/en/api/http-api' },
+        { text: 'gRPC API', link: '/en/api/grpc-api' },
+        { text: 'WebAssembly', link: '/en/api/wasm' },
+        { text: 'Data Filter API', link: '/en/api/filter-api' },
+        { text: 'Capabilities & External Calls', link: '/en/guide/capabilities' },
+    ]
+  },
+  {
+    text: 'Operations',
+    items: [
+        { text: 'Rule Persistence', link: '/en/guide/persistence' },
+        { text: 'Version Management', link: '/en/guide/versioning' },
+        { text: 'Rule Signing', link: '/en/guide/rule-signing' },
+        { text: 'Audit Logging', link: '/en/guide/audit-logging' },
+        { text: 'Distributed Deployment', link: '/en/guide/distributed-deployment' },
+        { text: 'Kubernetes', link: '/en/guide/integration/kubernetes' },
+        { text: 'HashiCorp Nomad', link: '/en/guide/integration/nomad' },
+    ]
+  },
+]
+
+const reference_en = [
+  {
+    text: 'Reference',
+    items: [
+        { text: 'Server Options', link: '/en/reference/server-options' },
+        { text: 'Configuration', link: '/en/reference/configuration' },
+        { text: 'Metrics', link: '/en/reference/metrics' },
+        { text: 'Benchmarks', link: '/en/reference/benchmarks' },
+        { text: 'Roadmap', link: '/en/roadmap' },
+    ]
+  },
+]
+
+const docs_zh = [
+  {
+    text: '入门',
+    items: [
+        { text: 'Ordo 是什么？', link: '/zh/guide/what-is-ordo' },
+        { text: '快速上手', link: '/zh/guide/quick-start' },
+        { text: '安装与运行', link: '/zh/guide/getting-started' },
+    ]
+  },
+  {
+    text: '编写规则',
+    items: [
+        { text: '规则结构', link: '/zh/guide/rule-structure' },
+        { text: '表达式语法', link: '/zh/guide/expression-syntax' },
+        { text: '内置函数', link: '/zh/guide/builtin-functions' },
+        { text: '决策表', link: '/zh/guide/decision-table' },
+        { text: '执行模型', link: '/zh/guide/execution-model' },
+    ]
+  },
+  {
+    text: '接入',
+    items: [
+        { text: 'HTTP API', link: '/zh/api/http-api' },
+        { text: 'gRPC API', link: '/zh/api/grpc-api' },
+        { text: 'WebAssembly', link: '/zh/api/wasm' },
+        { text: '数据过滤 API', link: '/zh/api/filter-api' },
+        { text: '能力与外部调用', link: '/zh/guide/capabilities' },
+    ]
+  },
+  {
+    text: '运行与运维',
+    items: [
+        { text: '规则持久化', link: '/zh/guide/persistence' },
+        { text: '版本管理', link: '/zh/guide/versioning' },
+        { text: '规则签名', link: '/zh/guide/rule-signing' },
+        { text: '审计日志', link: '/zh/guide/audit-logging' },
+        { text: '分布式部署', link: '/zh/guide/distributed-deployment' },
+        { text: 'Kubernetes', link: '/zh/guide/integration/kubernetes' },
+        { text: 'HashiCorp Nomad', link: '/zh/guide/integration/nomad' },
+    ]
+  },
+]
+
+const reference_zh = [
+  {
+    text: '参考',
+    items: [
+        { text: '服务器选项', link: '/zh/reference/server-options' },
+        { text: '配置', link: '/zh/reference/configuration' },
+        { text: '指标', link: '/zh/reference/metrics' },
+        { text: '性能基准', link: '/zh/reference/benchmarks' },
+        { text: '路线图', link: '/zh/roadmap' },
+    ]
+  },
+]
+
 // https://vitepress.dev/reference/site-config
 export default withMermaid(defineConfig({
   title: "Ordo",
-  description: "High-performance rule engine with visual editor",
+  description: "An open-source rule engine that takes business rules out of your code",
   
   // Dynamic base path for dual deployment
   base: BASE_PATH,
@@ -24,7 +136,7 @@ export default withMermaid(defineConfig({
   cleanUrls: true,
 
   // Internal repo-ops docs that ship in the tree but are not public pages
-  srcExclude: ['DEPLOYMENT.md'],
+  srcExclude: ['DEPLOYMENT.md', '*/guide/editor-store.md'],
   
   // Last updated timestamp
   lastUpdated: true,
@@ -54,123 +166,72 @@ export default withMermaid(defineConfig({
       link: '/en/',
       themeConfig: {
         nav: [
-          { text: 'Platform', link: '/en/platform/overview' },
-          { text: 'Engine', link: '/en/guide/what-is-ordo' },
-          { text: 'API', link: '/en/api/http-api' },
-          { text: 'Reference', link: '/en/reference/server-options' },
-          { text: 'Roadmap', link: '/en/roadmap' },
-          {
-            text: 'Playground',
-            link: 'https://ordo-engine.github.io/Ordo/',
-            target: '_self'
-          },
+          { text: 'Docs', link: '/en/guide/what-is-ordo', activeMatch: '^/en/(guide|api)/' },
+          { text: 'Guard', link: '/en/platform/guard', activeMatch: '^/en/platform/guard' },
+          { text: 'Studio & Platform', link: '/en/platform/overview', activeMatch: '^/en/platform/(?!guard)' },
+          { text: 'Reference', link: '/en/reference/server-options', activeMatch: '^/en/(reference/|roadmap)' },
+          { text: 'Playground', link: 'https://ordo-engine.github.io/Ordo/', target: '_self' },
         ],
         sidebar: {
+          // Keys of equal depth resolve in insertion order, so the guard page
+          // must be listed before the rest of /en/platform/.
+          '/en/platform/guard': [
+            {
+              text: 'Ordo Guard',
+              items: [
+                  { text: 'Agent Guardrails', link: '/en/platform/guard' },
+                  { text: 'CLI (ordo)', link: '/en/platform/cli' },
+                  { text: 'MCP Server', link: '/en/platform/mcp' },
+              ]
+            },
+          ],
           '/en/platform/': [
             {
               text: 'Platform',
               items: [
-                { text: 'Overview', link: '/en/platform/overview' },
-                { text: 'Quickstart', link: '/en/platform/quickstart' },
-                { text: 'Organizations & Projects', link: '/en/platform/organizations' },
-                { text: 'Studio Editor', link: '/en/platform/studio' },
+                  { text: 'Overview', link: '/en/platform/overview' },
+                  { text: 'Quickstart', link: '/en/platform/quickstart' },
+                  { text: 'Organizations & Projects', link: '/en/platform/organizations' },
+                  { text: 'Studio Editor', link: '/en/platform/studio' },
               ]
             },
             {
               text: 'Develop & Integrate',
               items: [
-                { text: 'Agent Guardrails (guard)', link: '/en/platform/guard' },
-                { text: 'Traffic Capture & Replay', link: '/en/platform/capture-replay' },
-                { text: 'CLI (ordo)', link: '/en/platform/cli' },
-                { text: 'MCP Server', link: '/en/platform/mcp' },
-                { text: 'Runtime Integration', link: '/en/platform/integrate' },
+                  { text: 'CLI (ordo)', link: '/en/platform/cli' },
+                  { text: 'MCP Server', link: '/en/platform/mcp' },
+                  { text: 'Runtime Integration', link: '/en/platform/integrate' },
+                  { text: 'Traffic Capture & Replay', link: '/en/platform/capture-replay' },
               ]
             },
             {
               text: 'Modeling',
               items: [
-                { text: 'Fact Catalog', link: '/en/platform/catalog' },
-                { text: 'Decision Contracts', link: '/en/platform/contracts' },
-                { text: 'Sub-Rule Assets', link: '/en/platform/sub-rules' },
+                  { text: 'Fact Catalog', link: '/en/platform/catalog' },
+                  { text: 'Decision Contracts', link: '/en/platform/contracts' },
+                  { text: 'Sub-Rule Assets', link: '/en/platform/sub-rules' },
               ]
             },
             {
               text: 'Delivery',
               items: [
-                { text: 'Rule Drafts', link: '/en/platform/drafts' },
-                { text: 'Release Pipeline', link: '/en/platform/releases' },
-                { text: 'Test Management', link: '/en/platform/testing' },
+                  { text: 'Rule Drafts', link: '/en/platform/drafts' },
+                  { text: 'Release Pipeline', link: '/en/platform/releases' },
+                  { text: 'Test Management', link: '/en/platform/testing' },
               ]
             },
             {
               text: 'Operations',
               items: [
-                { text: 'Server Registry', link: '/en/platform/server-registry' },
-                { text: 'GitHub Integration', link: '/en/platform/github' },
-              ]
-            }
-          ],
-          '/en/guide/': [
-            {
-              text: 'Introduction',
-              items: [
-                { text: 'What is Ordo?', link: '/en/guide/what-is-ordo' },
-                { text: 'Run the Engine', link: '/en/guide/getting-started' },
-                { text: 'Quick Start', link: '/en/guide/quick-start' },
+                  { text: 'Server Registry', link: '/en/platform/server-registry' },
+                  { text: 'GitHub Integration', link: '/en/platform/github' },
               ]
             },
-            {
-              text: 'Core Concepts',
-              items: [
-                { text: 'Rule Structure', link: '/en/guide/rule-structure' },
-                { text: 'Expression Syntax', link: '/en/guide/expression-syntax' },
-                { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
-                { text: 'Execution Model', link: '/en/guide/execution-model' },
-              ]
-            },
-            {
-              text: 'Features',
-              items: [
-                { text: 'Rule Persistence', link: '/en/guide/persistence' },
-                { text: 'Version Management', link: '/en/guide/versioning' },
-                { text: 'Audit Logging', link: '/en/guide/audit-logging' },
-                { text: 'Capabilities & External Calls', link: '/en/guide/capabilities' },
-                { text: 'Rule Signing', link: '/en/guide/rule-signing' },
-                { text: 'Decision Table', link: '/en/guide/decision-table' },
-                { text: 'Editor Store & Undo/Redo', link: '/en/guide/editor-store' },
-                { text: 'Distributed Deployment', link: '/en/guide/distributed-deployment' },
-              ]
-            },
-            {
-              text: 'Integration',
-              items: [
-                { text: 'HashiCorp Nomad', link: '/en/guide/integration/nomad' },
-                { text: 'Kubernetes', link: '/en/guide/integration/kubernetes' },
-              ]
-            }
           ],
-          '/en/api/': [
-            {
-              text: 'API Reference',
-              items: [
-                { text: 'HTTP REST API', link: '/en/api/http-api' },
-                { text: 'gRPC API', link: '/en/api/grpc-api' },
-                { text: 'WebAssembly', link: '/en/api/wasm' },
-                { text: 'Data Filter API', link: '/en/api/filter-api' },
-              ]
-            }
-          ],
-          '/en/reference/': [
-            {
-              text: 'Reference',
-              items: [
-                { text: 'Server Options', link: '/en/reference/server-options' },
-                { text: 'Configuration', link: '/en/reference/configuration' },
-                { text: 'Metrics', link: '/en/reference/metrics' },
-                { text: 'Benchmarks', link: '/en/reference/benchmarks' },
-              ]
-            }
-          ]
+          '/en/guide/': docs_en,
+          '/en/api/': docs_en,
+          '/en/reference/': reference_en,
+          '/en/roadmap': reference_en,
         },
         footer: {
           message: 'Released under the MIT License.',
@@ -191,150 +252,99 @@ export default withMermaid(defineConfig({
       lang: 'zh-Hans',
       link: '/zh/',
       title: "Ordo",
-      description: "高性能规则引擎与可视化编辑器",
+      description: "把业务规则从代码里拿出来的开源规则引擎",
       themeConfig: {
         nav: [
-          { text: '平台', link: '/zh/platform/overview' },
-          { text: '引擎', link: '/zh/guide/what-is-ordo' },
-          { text: 'API', link: '/zh/api/http-api' },
-          { text: '参考', link: '/zh/reference/server-options' },
-          { text: '路线图', link: '/zh/roadmap' },
-          {
-            text: '演练场',
-            link: 'https://ordo-engine.github.io/Ordo/',
-            target: '_self'
-          },
+          { text: '文档', link: '/zh/guide/what-is-ordo', activeMatch: '^/zh/(guide|api)/' },
+          { text: 'Guard', link: '/zh/platform/guard', activeMatch: '^/zh/platform/guard' },
+          { text: 'Studio 与平台', link: '/zh/platform/overview', activeMatch: '^/zh/platform/(?!guard)' },
+          { text: '参考', link: '/zh/reference/server-options', activeMatch: '^/zh/(reference/|roadmap)' },
+          { text: '演练场', link: 'https://ordo-engine.github.io/Ordo/', target: '_self' },
         ],
         sidebar: {
+          // Keys of equal depth resolve in insertion order, so the guard page
+          // must be listed before the rest of /zh/platform/.
+          '/zh/platform/guard': [
+            {
+              text: 'Ordo Guard',
+              items: [
+                  { text: 'Agent 护栏', link: '/zh/platform/guard' },
+                  { text: '命令行 (ordo)', link: '/zh/platform/cli' },
+                  { text: 'MCP 服务', link: '/zh/platform/mcp' },
+              ]
+            },
+          ],
           '/zh/platform/': [
             {
               text: '平台',
               items: [
-                { text: '概览', link: '/zh/platform/overview' },
-                { text: '快速上手', link: '/zh/platform/quickstart' },
-                { text: '组织与项目', link: '/zh/platform/organizations' },
-                { text: 'Studio 编辑器', link: '/zh/platform/studio' },
+                  { text: '概览', link: '/zh/platform/overview' },
+                  { text: '快速上手', link: '/zh/platform/quickstart' },
+                  { text: '组织与项目', link: '/zh/platform/organizations' },
+                  { text: 'Studio 编辑器', link: '/zh/platform/studio' },
               ]
             },
             {
               text: '开发与接入',
               items: [
-                { text: 'Agent 护栏 (guard)', link: '/zh/platform/guard' },
-                { text: '流量捕获与重放', link: '/zh/platform/capture-replay' },
-                { text: '命令行 (ordo)', link: '/zh/platform/cli' },
-                { text: 'MCP 服务', link: '/zh/platform/mcp' },
-                { text: '运行时接入', link: '/zh/platform/integrate' },
+                  { text: '命令行 (ordo)', link: '/zh/platform/cli' },
+                  { text: 'MCP 服务', link: '/zh/platform/mcp' },
+                  { text: '运行时接入', link: '/zh/platform/integrate' },
+                  { text: '流量捕获与重放', link: '/zh/platform/capture-replay' },
               ]
             },
             {
               text: '建模',
               items: [
-                { text: '事实目录', link: '/zh/platform/catalog' },
-                { text: '决策契约', link: '/zh/platform/contracts' },
-                { text: '子规则资产', link: '/zh/platform/sub-rules' },
+                  { text: '事实目录', link: '/zh/platform/catalog' },
+                  { text: '决策契约', link: '/zh/platform/contracts' },
+                  { text: '子规则资产', link: '/zh/platform/sub-rules' },
               ]
             },
             {
               text: '交付',
               items: [
-                { text: '规则草稿', link: '/zh/platform/drafts' },
-                { text: '发布流程', link: '/zh/platform/releases' },
-                { text: '测试管理', link: '/zh/platform/testing' },
+                  { text: '规则草稿', link: '/zh/platform/drafts' },
+                  { text: '发布流程', link: '/zh/platform/releases' },
+                  { text: '测试管理', link: '/zh/platform/testing' },
               ]
             },
             {
               text: '运维',
               items: [
-                { text: '服务器注册', link: '/zh/platform/server-registry' },
-                { text: 'GitHub 集成', link: '/zh/platform/github' },
-              ]
-            }
-          ],
-          '/zh/guide/': [
-            {
-              text: '介绍',
-              items: [
-                { text: 'Ordo 是什么？', link: '/zh/guide/what-is-ordo' },
-                { text: '本地运行引擎', link: '/zh/guide/getting-started' },
-                { text: '快速入门', link: '/zh/guide/quick-start' },
+                  { text: '服务器注册', link: '/zh/platform/server-registry' },
+                  { text: 'GitHub 集成', link: '/zh/platform/github' },
               ]
             },
-            {
-              text: '核心概念',
-              items: [
-                { text: '规则结构', link: '/zh/guide/rule-structure' },
-                { text: '表达式语法', link: '/zh/guide/expression-syntax' },
-                { text: '内置函数', link: '/zh/guide/builtin-functions' },
-                { text: '执行模型', link: '/zh/guide/execution-model' },
-              ]
-            },
-            {
-              text: '功能特性',
-              items: [
-                { text: '规则持久化', link: '/zh/guide/persistence' },
-                { text: '版本管理', link: '/zh/guide/versioning' },
-                { text: '规则签名', link: '/zh/guide/rule-signing' },
-                { text: '审计日志', link: '/zh/guide/audit-logging' },
-                { text: '能力与外部调用', link: '/zh/guide/capabilities' },
-                { text: '决策表', link: '/zh/guide/decision-table' },
-                { text: '编辑器状态管理', link: '/zh/guide/editor-store' },
-                { text: '分布式部署', link: '/zh/guide/distributed-deployment' },
-              ]
-            },
-            {
-              text: '集成',
-              items: [
-                { text: 'HashiCorp Nomad', link: '/zh/guide/integration/nomad' },
-                { text: 'Kubernetes', link: '/zh/guide/integration/kubernetes' },
-              ]
-            }
           ],
-          '/zh/api/': [
-            {
-              text: 'API 参考',
-              items: [
-                { text: 'HTTP REST API', link: '/zh/api/http-api' },
-                { text: 'gRPC API', link: '/zh/api/grpc-api' },
-                { text: 'WebAssembly', link: '/zh/api/wasm' },
-                { text: '数据过滤 API', link: '/zh/api/filter-api' },
-              ]
-            }
-          ],
-          '/zh/reference/': [
-            {
-              text: '参考',
-              items: [
-                { text: '服务器选项', link: '/zh/reference/server-options' },
-                { text: '配置', link: '/zh/reference/configuration' },
-                { text: '指标', link: '/zh/reference/metrics' },
-                { text: '性能基准', link: '/zh/reference/benchmarks' },
-              ]
-            }
-          ]
+          '/zh/guide/': docs_zh,
+          '/zh/api/': docs_zh,
+          '/zh/reference/': reference_zh,
+          '/zh/roadmap': reference_zh,
         },
         footer: {
           message: '基于 MIT 许可发布。',
           copyright: '版权所有 © 2024-present Ordo 贡献者'
         },
         editLink: {
-            pattern: 'https://github.com/Ordo-Engine/Ordo/edit/main/ordo-editor/apps/docs/:path',
-            text: '在 GitHub 上编辑此页'
+          pattern: 'https://github.com/Ordo-Engine/Ordo/edit/main/ordo-editor/apps/docs/:path',
+          text: '在 GitHub 上编辑此页'
         },
         outline: {
-            level: [2, 3],
-            label: '本页目录'
+          level: [2, 3],
+          label: '本页目录'
         },
         lastUpdated: {
-            text: '最后更新于'
+          text: '最后更新于'
         },
         docFooter: {
-            prev: '上一页',
-            next: '下一页'
+          prev: '上一页',
+          next: '下一页'
         }
       }
-    }
+    },
   },
-  
+
   themeConfig: {
     // Logo - use small favicon icon
     logo: '/favicon-32x32.png',

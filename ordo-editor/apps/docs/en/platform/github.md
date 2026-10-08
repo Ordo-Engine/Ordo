@@ -45,7 +45,7 @@ The platform curates a list of rule-template repos (and supports searching arbit
 | Get       | `GET  /api/v1/marketplace/repos/:owner/:repo`   |
 | Install   | `POST /api/v1/marketplace/install/:owner/:repo` |
 
-Installation clones the repo content (rulesets, contracts, tests) into the current project as a fresh draft awaiting review/release — **never bypassing the approval flow**.
+Installation clones the repo content (rulesets, contracts, tests) into the current project as a new draft. It still goes through review and release like any other change.
 
 ## Templates
 

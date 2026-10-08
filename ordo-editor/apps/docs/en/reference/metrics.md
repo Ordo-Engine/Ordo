@@ -232,7 +232,7 @@ version: '3.8'
 
 services:
   ordo:
-    image: ghcr.io/pama-lee/ordo:latest
+    image: ghcr.io/ordo-engine/ordo:latest
     ports:
       - '8080:8080'
     environment:
@@ -381,7 +381,7 @@ job "ordo" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/pama-lee/ordo:latest"
+        image = "ghcr.io/ordo-engine/ordo:latest"
         ports = ["http"]
       }
     }

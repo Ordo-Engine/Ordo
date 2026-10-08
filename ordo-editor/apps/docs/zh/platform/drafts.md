@@ -1,6 +1,6 @@
 # 规则草稿
 
-平台对规则集的修改不会立即下发到执行集群，而是先写入一份**草稿**（draft）。草稿是 Studio 协同与发布流程的基础。
+平台上对规则集的修改不会立即下发到执行集群，而是先写入一份**草稿**（draft）。Studio 协同和发布流程都基于草稿。
 
 ## 生命周期
 
@@ -34,18 +34,18 @@ flowchart TD
 }
 ```
 
-发布时由 `ordo-studio-format`（Rust crate）转换为引擎格式后再下发。前端不再需要维护 adapter 转换逻辑。
+发布时由 `ordo-studio-format`（Rust crate）转换为引擎格式再下发，前端不需要维护 adapter 转换逻辑。
 
 ## 乐观并发控制
 
-草稿带 `seq` 序列号，多人协作时通过 `expected_seq` 提交避免覆盖：
+草稿带 `seq` 序列号。多人协作时，提交带上 `expected_seq`，避免互相覆盖：
 
 ```http
 POST /api/v1/orgs/:oid/projects/:pid/rulesets/:name
 { "ruleset": { ... }, "expected_seq": 42 }
 ```
 
-服务器返回最新 `seq` 与 `updated_at`。版本不匹配会返回 `409 Conflict`，前端提示用户合并。
+服务器返回最新的 `seq` 与 `updated_at`。版本不匹配时返回 `409 Conflict`，前端会提示用户合并。
 
 ## 草稿试运行（Trace）
 
@@ -54,17 +54,17 @@ POST /api/v1/orgs/:oid/projects/:pid/rulesets/:name/trace
 { "ruleset": { /* 草稿格式 */ }, "input": { "user": { "age": 28 } } }
 ```
 
-平台内部完成 Studio → 引擎格式转换，调用 ordo-server，返回完整 trace。
+平台内部把 Studio 格式转换为引擎格式，调用 ordo-server，返回完整 trace。
 
 ## 历史版本
 
-每次发布都会快照一份只读历史：
+每次发布都会保存一份只读的历史快照：
 
 ```http
 GET /api/v1/projects/:pid/rulesets/:name/history
 ```
 
-可在 Studio 中预览任意历史版本的 diff，并一键回滚（实际通过新建发布请求实现，保留审计链）。
+可以在 Studio 中查看任意历史版本的 diff 并回滚。回滚实际上是新建一个发布请求，审计记录保持完整。
 
 ## 相关 API
 

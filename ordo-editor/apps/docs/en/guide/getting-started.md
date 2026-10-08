@@ -1,70 +1,61 @@
-# Run the Engine Locally
+# Install & Run
 
-This guide gets the open-source **engine** (`ordo-server`) running on your
-machine — for embedding, self-hosting, or hacking on the core.
+Ordo has three parts you can use on their own: the `ordo` CLI, the `ordo-server` rule service, and the `ordo-core` Rust library. Pick the one you need.
 
-> **Building a decision service?** You don't need to run the engine yourself.
-> Follow the [Platform Quickstart](/en/platform/quickstart) — create a project,
-> author a rule, and publish it in five minutes, with a hosted engine.
+## CLI
 
-## Prerequisites
-
-- **Rust**: 1.83 or later
-- **Node.js**: 18 or later (for visual editor)
-- **pnpm**: 8 or later (for visual editor)
-
-## Installation
-
-### Clone the Repository
+The CLI is enough to write rules, run tests and validate in CI. The npm package ships prebuilt binaries for Linux, macOS and Windows.
 
 ```bash
-git clone https://github.com/Ordo-Engine/Ordo.git
-cd Ordo
+npm install -g @ordo-engine/cli
+ordo --help
 ```
 
-### Build the Server
+## Rule service (Docker)
 
 ```bash
-cargo build --release
+docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
 ```
 
-The compiled binary will be at `./target/release/ordo-server`.
-
-### Run the Server
+By default rules are kept in memory only. To load and persist rules from a directory, mount it into the container:
 
 ```bash
-# Start with default settings (HTTP on 8080, gRPC on 50051)
-./target/release/ordo-server
-
-# Or with persistence enabled
-./target/release/ordo-server --rules-dir ./rules
+docker run -p 8080:8080 -v "$PWD/rules:/data/rules" \
+  ghcr.io/ordo-engine/ordo:latest --rules-dir /data/rules
 ```
 
-## Verify Installation
-
-Check the health endpoint:
+Check that the service is up:
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-Expected response:
+HTTP listens on 8080 and gRPC on 50051 by default. See [Server Options](/en/reference/server-options) for every flag.
 
-```json
-{
-  "status": "healthy",
-  "version": "0.4.2",
-  "uptime_seconds": 5,
-  "storage": {
-    "mode": "memory",
-    "rules_count": 0
-  }
-}
+## Build from source
+
+Requires Rust 1.83 or later.
+
+```bash
+git clone https://github.com/Ordo-Engine/Ordo.git
+cd Ordo
+cargo build --release
+
+./target/release/ordo-server --rules-dir ./rules
 ```
 
-## Visual Editor
+## Embed in a Rust program
 
-To use the visual rule editor:
+```toml
+[dependencies]
+ordo-core = { git = "https://github.com/Ordo-Engine/Ordo" }
+```
+
+After loading a ruleset, use `RuleSet::from_json_compiled()` or `from_yaml_compiled()` so expressions are parsed once.
+
+## Visual editor
+
+To try it without installing anything, use the [online playground](https://ordo-engine.github.io/Ordo/). To run the editor locally:
 
 ```bash
 cd ordo-editor
@@ -72,22 +63,8 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3001` in your browser.
+## Next steps
 
-Or try the [online playground](https://ordo-engine.github.io/Ordo/).
-
-## Docker
-
-```bash
-# Build the image
-docker build -t ordo-server .
-
-# Run with persistence
-docker run -p 8080:8080 -v ./rules:/rules ordo-server --rules-dir /rules
-```
-
-## Next Steps
-
-- [Quick Start](./quick-start) - Create and execute your first rule
-- [Rule Structure](./rule-structure) - Understand how rules are defined
-- [Expression Syntax](./expression-syntax) - Learn the expression language
+- [Quick Start](./quick-start): write and run a first rule
+- [Distributed Deployment](./distributed-deployment): running several instances
+- [Kubernetes](./integration/kubernetes)

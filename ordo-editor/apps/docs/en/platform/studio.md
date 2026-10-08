@@ -1,6 +1,8 @@
 # Studio Editor
 
-Studio is Ordo Platform's visual editor, running in the browser. It offers three equivalent views of the same ruleset, kept in sync in real time.
+Studio is Ordo Platform's visual editor, running in the browser. It offers three views of the same ruleset, kept in sync in real time.
+
+![A loan approval ruleset in the Studio flow view](/screens/en/flow.webp)
 
 ## Three Authoring Modes
 
@@ -17,11 +19,15 @@ Studio is Ordo Platform's visual editor, running in the browser. It offers three
 - Tree-shaped editor for users uncomfortable with flow-graph thinking.
 - Each step is its own card; sub-rules and decision branches nest naturally.
 
-### JSON
+### Decision table
 
-- Direct edit of the RuleSet JSON.
-- Schema validation and expression highlighting built in.
-- Useful for Git/CI imports or bulk find-and-replace.
+- The same ruleset as rows of conditions and outcomes, one row per path through the rules.
+- Shows the hit policy, and lets you add input and output columns by hand or import them from the schema.
+- Available when the ruleset's branches can be laid out as a table. Studio tells you when they can't.
+
+![The same ruleset in the decision table view](/screens/en/table.webp)
+
+To edit the RuleSet JSON directly, work with the files through the [CLI](./cli).
 
 Any change in one mode shows up in the other views immediately and is pushed onto the undo stack.
 
@@ -45,6 +51,8 @@ In Studio you can edit each test case and run it on its own or as part of a batc
 - Red: mismatch, with an inline diff
 - Gray: not run yet
 
+![Test cases in Studio with expected and actual results](/screens/en/tests.webp)
+
 See [Test Management](./testing).
 
 ## Templates & Sub-Rules
@@ -54,4 +62,4 @@ See [Test Management](./testing).
 
 ## i18n
 
-Studio and the docs are translated into English, Simplified Chinese, and Traditional Chinese. Switch language from the top-right corner.
+Studio and the docs are translated into English, Simplified Chinese, and Traditional Chinese. Switch language from the bottom of the sidebar.

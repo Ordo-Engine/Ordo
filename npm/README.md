@@ -1,10 +1,61 @@
 # Ordo CLI
 
-Deterministic guardrails for your AI coding agent, and a local dev loop for
-authoring Ordo decision rules as files. Powered by a sub-microsecond Rust rule
-engine.
+Take business rules out of your code. Write pricing, risk and approval logic as
+rule files with tests, see which decisions a change moves before you ship it,
+and run the rules anywhere the Ordo engine runs. Works offline, and coding
+agents can drive it over MCP.
 
-## Guard your coding agent
+## Write and test rules as files
+
+```bash
+npx @ordo-engine/cli init my-rules
+cd my-rules
+npx @ordo-engine/cli validate
+npx @ordo-engine/cli test
+npx @ordo-engine/cli trace loan-approval --input '{"amount":5000}'
+```
+
+Or install globally:
+
+```bash
+npm i -g @ordo-engine/cli
+ordo --help
+```
+
+The install step downloads a prebuilt static binary for your platform from the
+matching [GitHub Release](https://github.com/Ordo-Engine/Ordo/releases). If none
+is available, build from source:
+
+```bash
+cargo install --git https://github.com/Ordo-Engine/Ordo ordo-cli
+```
+
+## See what a change affects
+
+```bash
+ordo impact <ruleset>
+```
+
+`impact` runs your working copy next to the last commit in git, over the
+ruleset's tests, real inputs you provide (`--inputs`) and probe inputs on both
+sides of every threshold, and lists each decision that changed. Add
+`--fail-on-change` to stop surprise changes in CI.
+
+Ready-made projects to try it on (credit approval, promo stacking, fraud
+scoring) are in
+[examples/rule-packs](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs).
+
+## Use it from a coding agent (MCP)
+
+```bash
+claude mcp add ordo -- ordo mcp
+```
+
+This exposes `list_files`, `read_file`, `grep`, `write_file`, `delete_file`,
+`validate`, `run_tests`, `trace`, `impact`, and `publish` to the agent. Local edits and
+checks run offline; `publish` requires `ordo mcp --allow-publish`.
+
+## Ordo Guard: keep coding agents in bounds
 
 ```bash
 npx @ordo-engine/cli guard init                        # Claude Code (default)
@@ -36,41 +87,6 @@ and `bash -c 'rm -rf x'` hit the same rule. The default policy blocks
 destructive shell + secret access, asks before `git push` / `npm publish`, and
 fast-paths read-only git. Fails open on any
 internal error (`--fail-closed` to deny instead).
-
-## Author rules as files
-
-```bash
-npx @ordo-engine/cli init my-rules
-cd my-rules
-npx @ordo-engine/cli validate
-npx @ordo-engine/cli test
-npx @ordo-engine/cli trace loan-approval --input '{"amount":5000}'
-```
-
-Or install globally:
-
-```bash
-npm i -g @ordo-engine/cli
-ordo --help
-```
-
-The install step downloads a prebuilt static binary for your platform from the
-matching [GitHub Release](https://github.com/Ordo-Engine/Ordo/releases). If none
-is available, build from source:
-
-```bash
-cargo install --git https://github.com/Ordo-Engine/Ordo ordo-cli
-```
-
-## Use it from a coding agent (MCP)
-
-```bash
-claude mcp add ordo -- ordo mcp
-```
-
-This exposes `list_files`, `read_file`, `grep`, `write_file`, `delete_file`,
-`validate`, `run_tests`, `trace`, `impact`, and `publish` to the agent. Local edits and
-checks run offline; `publish` requires `ordo mcp --allow-publish`.
 
 ## Commands
 

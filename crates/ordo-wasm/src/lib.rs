@@ -434,6 +434,11 @@ fn collect_expr_analysis(
                     supported_features.push("numeric_literal".to_string());
                 }
             }
+            Value::Decimal(_) => {
+                if !unsupported_features.contains(&"decimal_literal".to_string()) {
+                    unsupported_features.push("decimal_literal".to_string());
+                }
+            }
             Value::String(_) => {
                 if !unsupported_features.contains(&"string_literal".to_string()) {
                     unsupported_features.push("string_literal".to_string());

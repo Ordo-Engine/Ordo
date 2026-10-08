@@ -9,6 +9,7 @@
 
 use crate::context::Value;
 use crate::error::{OrdoError, Result};
+use rust_decimal::prelude::ToPrimitive;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -162,6 +163,7 @@ impl FunctionRegistry {
                     .map(Value::int)
                     .ok_or_else(|| OrdoError::eval_error("Integer overflow in abs()")),
                 Value::Float(n) => Ok(Value::float(n.abs())),
+                Value::Decimal(n) => Ok(Value::Decimal(n.abs())),
                 v => Err(OrdoError::type_error("number", v.type_name())),
             }
         });
@@ -200,12 +202,18 @@ impl FunctionRegistry {
 
         self.register("floor", |args| {
             require_args("floor", args, 1)?;
+            if let Value::Decimal(d) = &args[0] {
+                return decimal_to_int("floor", d.floor());
+            }
             let n = require_float("floor", &args[0])?;
             Ok(Value::int(n.floor() as i64))
         });
 
         self.register("ceil", |args| {
             require_args("ceil", args, 1)?;
+            if let Value::Decimal(d) = &args[0] {
+                return decimal_to_int("ceil", d.ceil());
+            }
             let n = require_float("ceil", &args[0])?;
             Ok(Value::int(n.ceil() as i64))
         });
@@ -224,6 +232,13 @@ impl FunctionRegistry {
                 }
                 return match &args[0] {
                     Value::Int(n) => Ok(Value::int(*n)),
+                    Value::Decimal(d) => Ok(Value::Decimal(
+                        d.round_dp_with_strategy(
+                            digits as u32,
+                            rust_decimal::RoundingStrategy::MidpointAwayFromZero,
+                        )
+                        .normalize(),
+                    )),
                     other => {
                         let n = require_float("round", other)?;
                         Ok(Value::float(round_decimal(n, digits as usize)))
@@ -231,6 +246,15 @@ impl FunctionRegistry {
                 };
             }
             require_args("round", args, 1)?;
+            if let Value::Decimal(d) = &args[0] {
+                return decimal_to_int(
+                    "round",
+                    d.round_dp_with_strategy(
+                        0,
+                        rust_decimal::RoundingStrategy::MidpointAwayFromZero,
+                    ),
+                );
+            }
             let n = require_float("round", &args[0])?;
             Ok(Value::int(n.round() as i64))
         });
@@ -239,6 +263,13 @@ impl FunctionRegistry {
         self.register("sum", |args| {
             require_args("sum", args, 1)?;
             let arr = require_array("sum", &args[0])?;
+            if arr.iter().any(Value::is_decimal) {
+                let mut total = Value::Decimal(rust_decimal::Decimal::ZERO);
+                for v in arr {
+                    total = crate::context::decimal_arith(crate::context::DecOp::Add, &total, v)?;
+                }
+                return Ok(total);
+            }
             let mut int_sum: i64 = 0;
             let mut float_sum: f64 = 0.0;
             let mut has_float = false;
@@ -270,6 +301,17 @@ impl FunctionRegistry {
             let arr = require_array("avg", &args[0])?;
             if arr.is_empty() {
                 return Ok(Value::float(0.0));
+            }
+            if arr.iter().any(Value::is_decimal) {
+                let mut total = Value::Decimal(rust_decimal::Decimal::ZERO);
+                for v in arr {
+                    total = crate::context::decimal_arith(crate::context::DecOp::Add, &total, v)?;
+                }
+                return crate::context::decimal_arith(
+                    crate::context::DecOp::Div,
+                    &total,
+                    &Value::int(arr.len() as i64),
+                );
             }
 
             let mut sum: f64 = 0.0;
@@ -334,6 +376,7 @@ impl FunctionRegistry {
             match &args[0] {
                 Value::Int(n) => Ok(Value::int(*n)),
                 Value::Float(n) => Ok(Value::int(*n as i64)),
+                Value::Decimal(d) => decimal_to_int("to_int", d.trunc()),
                 Value::String(s) => s
                     .parse::<i64>()
                     .map(Value::int)
@@ -346,11 +389,28 @@ impl FunctionRegistry {
             }
         });
 
+        // decimal(x): exact decimal from a number or numeric string, for money.
+        // decimal(19.99) is exactly 19.99; decimal("0.1") + decimal("0.2") == 0.3.
+        self.register("decimal", |args| {
+            require_args("decimal", args, 1)?;
+            match &args[0] {
+                Value::Decimal(d) => Ok(Value::Decimal(*d)),
+                Value::Int(_) | Value::Float(_) => crate::context::to_decimal(&args[0])
+                    .map(Value::Decimal)
+                    .ok_or_else(|| OrdoError::eval_error("Cannot convert to decimal")),
+                Value::String(s) => parse_decimal(s.trim()).map(Value::Decimal).ok_or_else(|| {
+                    OrdoError::eval_error(format!("Cannot convert '{}' to decimal", s))
+                }),
+                v => Err(OrdoError::type_error("number or string", v.type_name())),
+            }
+        });
+
         self.register("to_float", |args| {
             require_args("to_float", args, 1)?;
             match &args[0] {
                 Value::Int(n) => Ok(Value::float(*n as f64)),
                 Value::Float(n) => Ok(Value::float(*n)),
+                Value::Decimal(d) => Ok(Value::float(d.to_f64().unwrap_or(f64::NAN))),
                 Value::String(s) => s
                     .parse::<f64>()
                     .map(Value::float)
@@ -1374,6 +1434,14 @@ impl FunctionRegistry {
             .as_array()
             .ok_or_else(|| OrdoError::type_error("array", args[0].type_name()))?;
 
+        if arr.iter().any(Value::is_decimal) {
+            let mut total = Value::Decimal(rust_decimal::Decimal::ZERO);
+            for v in arr {
+                total = crate::context::decimal_arith(crate::context::DecOp::Add, &total, v)?;
+            }
+            return Ok(total);
+        }
+
         let mut int_sum: i64 = 0;
         let mut float_sum: f64 = 0.0;
         let mut has_float = false;
@@ -1448,6 +1516,7 @@ impl FunctionRegistry {
                 .map(Value::int)
                 .ok_or_else(|| OrdoError::eval_error("Integer overflow in abs()")),
             Value::Float(n) => Ok(Value::float(n.abs())),
+            Value::Decimal(n) => Ok(Value::Decimal(n.abs())),
             v => Err(OrdoError::type_error("number", v.type_name())),
         }
     }
@@ -1483,6 +1552,22 @@ impl FunctionRegistry {
 /// Round `n` to `digits` decimal places, half away from zero, using the
 /// shortest decimal representation of `n` (what the user wrote / sees) rather
 /// than its binary expansion.
+/// Integer part of an already-rounded decimal, as an int.
+fn decimal_to_int(name: &'static str, d: rust_decimal::Decimal) -> Result<Value> {
+    d.to_i64()
+        .map(Value::int)
+        .ok_or_else(|| OrdoError::eval_error(format!("Integer overflow in {}()", name)))
+}
+
+/// Parse a decimal from text, accepting plain (`19.99`) and scientific
+/// (`1.5e3`) notation.
+pub(crate) fn parse_decimal(s: &str) -> Option<rust_decimal::Decimal> {
+    s.parse::<rust_decimal::Decimal>()
+        .ok()
+        .or_else(|| rust_decimal::Decimal::from_scientific(s).ok())
+        .map(|d| d.normalize())
+}
+
 fn round_decimal(n: f64, digits: usize) -> f64 {
     if !n.is_finite() {
         return n;

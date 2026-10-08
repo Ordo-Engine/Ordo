@@ -12,6 +12,8 @@
 //! - Arrays use standard `Vec` (SmallVec causes recursive type issues with Value enum)
 
 use hashbrown::HashMap;
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::sync::Arc;
@@ -40,6 +42,10 @@ pub enum Value {
     Int(i64),
     /// 64-bit floating point number
     Float(f64),
+    /// Exact decimal number (28-29 significant digits), for money. Produced by
+    /// `decimal(...)` or an input field declared `"type": "decimal"`; any
+    /// arithmetic involving a decimal stays decimal.
+    Decimal(Decimal),
     /// String (Arc<str> for cheap cloning)
     String(IString),
     /// Array (SmallVec for small arrays)
@@ -59,6 +65,14 @@ impl Serialize for Value {
             Value::Bool(b) => serializer.serialize_bool(*b),
             Value::Int(i) => serializer.serialize_i64(*i),
             Value::Float(f) => serializer.serialize_f64(*f),
+            // Emitted as a JSON number. Exact for values whose shortest f64
+            // representation round-trips (all amounts up to ~15 significant
+            // digits); larger ones are rounded to the nearest f64.
+            Value::Decimal(d) => match (d.is_integer(), d.to_i64(), d.to_f64()) {
+                (true, Some(i), _) => serializer.serialize_i64(i),
+                (_, _, Some(f)) => serializer.serialize_f64(f),
+                _ => serializer.collect_str(d),
+            },
             Value::String(s) => serializer.serialize_str(s),
             Value::Array(arr) => {
                 use serde::ser::SerializeSeq;
@@ -233,7 +247,19 @@ impl Value {
         matches!(self, Self::Int(_))
     }
 
-    /// Check if value is float
+    /// Check if value is an exact decimal
+    #[inline]
+    pub fn is_decimal(&self) -> bool {
+        matches!(self, Self::Decimal(_))
+    }
+
+    /// Create an exact decimal value
+    #[inline]
+    pub fn decimal(v: Decimal) -> Self {
+        Self::Decimal(v)
+    }
+
+    /// Check if float
     #[inline]
     pub fn is_float(&self) -> bool {
         matches!(self, Self::Float(_))
@@ -242,7 +268,7 @@ impl Value {
     /// Check if value is a number (int or float)
     #[inline]
     pub fn is_number(&self) -> bool {
-        matches!(self, Self::Int(_) | Self::Float(_))
+        matches!(self, Self::Int(_) | Self::Float(_) | Self::Decimal(_))
     }
 
     /// Check if value is string
@@ -270,6 +296,7 @@ impl Value {
             Self::Bool(_) => "bool",
             Self::Int(_) => "int",
             Self::Float(_) => "float",
+            Self::Decimal(_) => "decimal",
             Self::String(_) => "string",
             Self::Array(_) => "array",
             Self::Object(_) => "object",
@@ -291,6 +318,7 @@ impl Value {
         match self {
             Self::Int(v) => Some(*v),
             Self::Float(v) => Some(*v as i64),
+            Self::Decimal(v) => v.trunc().to_i64(),
             _ => None,
         }
     }
@@ -300,6 +328,7 @@ impl Value {
         match self {
             Self::Float(v) => Some(*v),
             Self::Int(v) => Some(*v as f64),
+            Self::Decimal(v) => v.to_f64(),
             _ => None,
         }
     }
@@ -439,6 +468,7 @@ impl Value {
             Self::Bool(v) => *v,
             Self::Int(v) => *v != 0,
             Self::Float(v) => *v != 0.0,
+            Self::Decimal(v) => !v.is_zero(),
             Self::String(v) => !v.is_empty(),
             Self::Array(v) => !v.is_empty(),
             Self::Object(v) => !v.is_empty(),
@@ -456,6 +486,9 @@ impl Value {
             (Self::Float(a), Self::Float(b)) => a.partial_cmp(b),
             (Self::Int(a), Self::Float(b)) => (*a as f64).partial_cmp(b),
             (Self::Float(a), Self::Int(b)) => a.partial_cmp(&(*b as f64)),
+            (Self::Decimal(_), _) | (_, Self::Decimal(_)) => {
+                Some(to_decimal(self)?.cmp(&to_decimal(other)?))
+            }
             (Self::String(a), Self::String(b)) => Some(a.cmp(b)),
             (Self::Bool(a), Self::Bool(b)) => Some(a.cmp(b)),
             _ => None,
@@ -479,6 +512,80 @@ pub(crate) fn int_div(a: i64, b: i64) -> Value {
     }
 }
 
+// ==================== Decimal ====================
+
+/// Convert a float to the decimal it is written as: its shortest round-trip
+/// representation (`0.1` -> `0.1`, not `0.1000000000000000055...`).
+fn float_to_decimal(f: f64) -> Option<Decimal> {
+    if !f.is_finite() {
+        return None;
+    }
+    let repr = f.to_string();
+    repr.parse::<Decimal>()
+        .ok()
+        .or_else(|| Decimal::from_scientific(&format!("{:e}", f)).ok())
+        .or_else(|| Decimal::from_f64(f))
+}
+
+/// Numeric value as a decimal (`None` for non-numbers and non-finite floats).
+pub(crate) fn to_decimal(v: &Value) -> Option<Decimal> {
+    match v {
+        Value::Decimal(d) => Some(*d),
+        Value::Int(i) => Some(Decimal::from(*i)),
+        Value::Float(f) => float_to_decimal(*f),
+        _ => None,
+    }
+}
+
+/// Arithmetic operator for [`decimal_arith`]
+#[derive(Clone, Copy)]
+pub(crate) enum DecOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+}
+
+/// Arithmetic where at least one operand is a decimal: the other operand is
+/// converted exactly (floats by their shortest representation) and the result
+/// is a decimal, so money stays exact once it enters as a decimal.
+pub(crate) fn decimal_arith(op: DecOp, left: &Value, right: &Value) -> crate::error::Result<Value> {
+    use crate::error::OrdoError;
+    let (verb, name) = match op {
+        DecOp::Add => ("add", "addition"),
+        DecOp::Sub => ("subtract", "subtraction"),
+        DecOp::Mul => ("multiply", "multiplication"),
+        DecOp::Div => ("divide", "division"),
+        DecOp::Rem => ("modulo", "modulo"),
+    };
+    let (Some(a), Some(b)) = (to_decimal(left), to_decimal(right)) else {
+        return Err(OrdoError::eval_error(format!(
+            "Cannot {} {} and {}",
+            verb,
+            left.type_name(),
+            right.type_name()
+        )));
+    };
+    if matches!(op, DecOp::Div | DecOp::Rem) && b.is_zero() {
+        return Err(OrdoError::eval_error(if matches!(op, DecOp::Div) {
+            "Division by zero"
+        } else {
+            "Modulo by zero"
+        }));
+    }
+    let result = match op {
+        DecOp::Add => a.checked_add(b),
+        DecOp::Sub => a.checked_sub(b),
+        DecOp::Mul => a.checked_mul(b),
+        DecOp::Div => a.checked_div(b),
+        DecOp::Rem => a.checked_rem(b),
+    };
+    result
+        .map(|d| Value::Decimal(d.normalize()))
+        .ok_or_else(|| OrdoError::eval_error(format!("Decimal overflow in {}", name)))
+}
+
 // ==================== Equality ====================
 
 /// Exact numeric equality between an integer and a float: `10 == 10.0` is
@@ -500,6 +607,9 @@ impl PartialEq for Value {
             (Self::Int(a), Self::Int(b)) => a == b,
             (Self::Float(a), Self::Float(b)) => a == b,
             (Self::Int(a), Self::Float(b)) | (Self::Float(b), Self::Int(a)) => int_float_eq(*a, *b),
+            (Self::Decimal(_), _) | (_, Self::Decimal(_)) => {
+                matches!((to_decimal(self), to_decimal(other)), (Some(a), Some(b)) if a == b)
+            }
             (Self::String(a), Self::String(b)) => a == b,
             (Self::Array(a), Self::Array(b)) => a == b,
             (Self::Object(a), Self::Object(b)) => a == b,
@@ -576,6 +686,7 @@ impl fmt::Display for Value {
             Self::Bool(v) => write!(f, "{}", v),
             Self::Int(v) => write!(f, "{}", v),
             Self::Float(v) => write!(f, "{}", v),
+            Self::Decimal(v) => write!(f, "{}", v),
             Self::String(v) => write!(f, "\"{}\"", v),
             Self::Array(v) => {
                 write!(f, "[")?;

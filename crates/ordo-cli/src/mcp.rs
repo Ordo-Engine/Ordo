@@ -251,6 +251,30 @@ async fn call_tool(
             })
             .await
         }
+        "impact" => {
+            let name = crate::project::ruleset_name(arg_str(args, "ruleset")?);
+            let base = match args.get("baseFile").and_then(|v| v.as_str()) {
+                Some(f) => crate::impact::Base::File(f.to_string()),
+                None => crate::impact::Base::Rev(
+                    args.get("base")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("HEAD")
+                        .to_string(),
+                ),
+            };
+            let inputs: Vec<Value> = args
+                .get("inputs")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            run_blocking(move || {
+                let p = Project::discover(None).map_err(|e| e.to_string())?;
+                crate::impact::compute(&p, &name, &base, inputs, true)
+                    .map(|r| json!(r).to_string())
+                    .map_err(|e| format!("{e:#}"))
+            })
+            .await
+        }
         "publish" => {
             if !policy.allow_publish {
                 return Err(
@@ -288,6 +312,7 @@ fn tool_specs() -> Vec<Value> {
         json!({ "name": "validate", "description": "Compile a ruleset and return structured errors (all rulesets if no path).", "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } } } }),
         json!({ "name": "run_tests", "description": "Run a ruleset's test cases and return pass/fail results.", "inputSchema": { "type": "object", "properties": { "ruleset": { "type": "string" } }, "required": ["ruleset"] } }),
         json!({ "name": "trace", "description": "Execute a ruleset against an input and return the step-by-step execution path.", "inputSchema": { "type": "object", "properties": { "ruleset": { "type": "string" }, "input": { "type": "object" } }, "required": ["ruleset"] } }),
+        json!({ "name": "impact", "description": "After editing a ruleset, show which decisions changed: runs the baseline (git HEAD by default) and the working-tree version over the test inputs, any given inputs, and boundary probes around every threshold, and returns each input whose code/message/output changed.", "inputSchema": { "type": "object", "properties": { "ruleset": { "type": "string" }, "base": { "type": "string", "description": "git revision for the baseline (default HEAD)" }, "baseFile": { "type": "string", "description": "baseline ruleset file instead of a git revision" }, "inputs": { "type": "array", "items": { "type": "object" }, "description": "extra inputs to compare, e.g. real production cases" } }, "required": ["ruleset"] } }),
         json!({ "name": "publish", "description": "HIGH-RISK: publish a ruleset to an environment (requires --allow-publish).", "inputSchema": { "type": "object", "properties": { "ruleset": { "type": "string" }, "environmentId": { "type": "string" }, "releaseNote": { "type": "string" } }, "required": ["ruleset", "environmentId"] } }),
     ]
 }

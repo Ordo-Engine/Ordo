@@ -164,17 +164,7 @@ impl Project {
         let path = self.ruleset_path(name);
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("ruleset '{name}' not found ({})", path.display()))?;
-        let raw: serde_json::Value =
-            serde_json::from_str(&text).with_context(|| format!("invalid JSON in {name}"))?;
-        if raw.get("steps").map(|s| s.is_object()).unwrap_or(false) {
-            // Engine format (steps as a map) → normalize to studio.
-            let engine: RuleSet = serde_json::from_value(raw)
-                .with_context(|| format!("invalid engine-format ruleset '{name}'"))?;
-            Ok(engine_to_studio(&engine))
-        } else {
-            serde_json::from_value(raw)
-                .with_context(|| format!("invalid studio-format ruleset '{name}'"))
-        }
+        parse_studio(name, &text)
     }
 
     /// The project's virtual file tree (the paths an agent sees), mirroring the
@@ -220,6 +210,30 @@ impl Project {
         let concepts = self.load_concepts()?;
         studio_draft_to_engine_with_concepts(&studio, &concepts).map_err(|e| anyhow::anyhow!("{e}"))
     }
+}
+
+/// Parse ruleset file text as a `StudioRuleSet`, normalizing an engine-format
+/// file (steps as an object — e.g. a template) into studio format.
+pub fn parse_studio(name: &str, text: &str) -> Result<StudioRuleSet> {
+    let raw: serde_json::Value =
+        serde_json::from_str(text).with_context(|| format!("invalid JSON in {name}"))?;
+    if raw.get("steps").map(|s| s.is_object()).unwrap_or(false) {
+        // Engine format (steps as a map) → normalize to studio.
+        let engine: RuleSet = serde_json::from_value(raw)
+            .with_context(|| format!("invalid engine-format ruleset '{name}'"))?;
+        Ok(engine_to_studio(&engine))
+    } else {
+        serde_json::from_value(raw)
+            .with_context(|| format!("invalid studio-format ruleset '{name}'"))
+    }
+}
+
+/// Build an executable engine `RuleSet` from ruleset file text plus a concept
+/// catalog — the same pipeline as `Project::load_engine`, for text that does
+/// not live in the working tree (e.g. a git revision).
+pub fn engine_from_text(name: &str, text: &str, concepts: &[ConceptDefinition]) -> Result<RuleSet> {
+    let studio = parse_studio(name, text)?;
+    studio_draft_to_engine_with_concepts(&studio, concepts).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 #[cfg(test)]

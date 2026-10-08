@@ -25,6 +25,7 @@ mod vm;
 pub use ast::{BinaryOp, Expr, UnaryOp};
 pub use compiler::ExprCompiler;
 pub use eval::Evaluator;
+pub(crate) use functions::parse_decimal;
 pub use functions::FunctionRegistry;
 
 // Schema-Aware JIT exports (only available with `jit` feature)

@@ -21,6 +21,10 @@ pub enum InputFieldType {
     String,
     /// Integer or float
     Number,
+    /// Exact decimal (money). Numbers and numeric strings are converted to a
+    /// decimal value before execution; send amounts as strings to keep more
+    /// than ~15 significant digits.
+    Decimal,
     Boolean,
     Array,
     Object,
@@ -126,6 +130,19 @@ fn check_value(field: &InputField, value: &mut Value, path: &str, errors: &mut V
         InputFieldType::Any => true,
         InputFieldType::String => matches!(value, Value::String(_)),
         InputFieldType::Number => matches!(value, Value::Int(_) | Value::Float(_)),
+        InputFieldType::Decimal => {
+            let converted = match &*value {
+                Value::String(s) => crate::expr::parse_decimal(s.trim()),
+                other => crate::context::to_decimal(other),
+            };
+            match converted {
+                Some(d) => {
+                    *value = Value::Decimal(d);
+                    true
+                }
+                None => false,
+            }
+        }
         InputFieldType::Boolean => matches!(value, Value::Bool(_)),
         InputFieldType::Array => matches!(value, Value::Array(_)),
         InputFieldType::Object => matches!(value, Value::Object(_)),
@@ -134,6 +151,7 @@ fn check_value(field: &InputField, value: &mut Value, path: &str, errors: &mut V
         let field_type = match field.field_type {
             InputFieldType::String => "string",
             InputFieldType::Number => "number",
+            InputFieldType::Decimal => "decimal",
             InputFieldType::Boolean => "boolean",
             InputFieldType::Array => "array",
             InputFieldType::Object => "object",
@@ -211,6 +229,32 @@ mod tests {
                 "items[1].price: required field is missing",
             ]
         );
+    }
+
+    #[test]
+    fn decimal_fields_are_converted_exactly() {
+        let schema = schema(
+            r#"[{"name": "price", "type": "decimal", "required": true},
+                {"name": "fee", "type": "decimal"},
+                {"name": "rate", "type": "decimal"}]"#,
+        );
+        let mut ok = input(r#"{"price": 0.1, "fee": "12345678901234567.89", "rate": 3}"#);
+        apply_input_schema(&schema, &mut ok).unwrap();
+        assert_eq!(
+            ok.get_path("price"),
+            Some(&Value::decimal("0.1".parse().unwrap()))
+        );
+        assert_eq!(
+            ok.get_path("fee"),
+            Some(&Value::decimal("12345678901234567.89".parse().unwrap()))
+        );
+        assert!(ok.get_path("rate").unwrap().is_decimal());
+
+        let errs = errors(apply_input_schema(
+            &schema,
+            &mut input(r#"{"price": "abc"}"#),
+        ));
+        assert_eq!(errs, vec!["price: expected decimal, got string"]);
     }
 
     #[test]

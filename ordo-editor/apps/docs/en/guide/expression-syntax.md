@@ -43,6 +43,8 @@ count % 2
 
 Numbers compare by value: `3 == 3.0` is `true`, so it doesn't matter whether a client sends `3` or `3.0`. Division never silently truncates: `10 / 4` is `2.5`, and `10 / 5` stays the integer `2`. Use `floor(a / b)` when you want integer division.
 
+For money, use exact decimals: `decimal(0.1) + 0.2 == 0.3` is `true` (with plain floats it is `false`). Wrap an amount in `decimal(...)`, or declare the input field as `"type": "decimal"` in the ruleset's `input_schema`. Any arithmetic with a decimal operand returns a decimal; `round(total, 2)` keeps it a decimal.
+
 ## Field Access
 
 ### Object Properties

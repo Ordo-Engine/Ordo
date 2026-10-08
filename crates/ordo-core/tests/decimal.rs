@@ -73,3 +73,39 @@ fn decimal_serializes_as_json_number() {
     let v = dec("16.99");
     assert_eq!(serde_json::to_string(&v).unwrap(), "16.99");
 }
+
+/// A pricing ruleset whose input declares `price` as decimal: the total is
+/// exact and the decision on it is not perturbed by float error.
+#[test]
+fn pricing_ruleset_with_decimal_input() {
+    let ruleset = r#"{
+      "config": {
+        "name": "pricing", "version": "1.0.0", "entry_step": "calc",
+        "input_schema": [
+          {"name": "price", "type": "decimal", "required": true},
+          {"name": "qty", "type": "number", "required": true}
+        ]
+      },
+      "steps": {
+        "calc": { "id": "calc", "name": "calc", "type": "action",
+          "actions": [ { "action": "set_variable", "name": "total",
+            "value": {"Binary": {"op": "Mul", "left": {"Field": "price"}, "right": {"Field": "qty"}}} } ],
+          "next_step": "check" },
+        "check": { "id": "check", "name": "check", "type": "decision",
+          "branches": [ { "condition": "$total == 0.3", "next_step": "exact" } ],
+          "default_next": "inexact" },
+        "exact": { "id": "exact", "name": "exact", "type": "terminal",
+          "result": { "code": "EXACT", "output": [["total", {"Field": "$total"}]] } },
+        "inexact": { "id": "inexact", "name": "inexact", "type": "terminal",
+          "result": { "code": "INEXACT", "output": [["total", {"Field": "$total"}]] } }
+      }
+    }"#;
+    let ruleset = RuleSet::from_json_compiled(ruleset).unwrap();
+    let input: Value = serde_json::from_str(r#"{"price": 0.1, "qty": 3}"#).unwrap();
+    let result = RuleExecutor::new().execute(&ruleset, input).unwrap();
+    assert_eq!(result.code, "EXACT");
+    assert_eq!(
+        serde_json::to_string(&result.output).unwrap(),
+        r#"{"total":0.3}"#
+    );
+}

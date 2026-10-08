@@ -46,7 +46,7 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 ]
 ```
 
-- `type`：`string`、`number`（整数或小数）、`boolean`、`array`、`object` 或 `any`。
+- `type`：`string`、`number`（整数或小数）、`decimal`（精确小数，用于金额；数字和数字字符串会被转换）、`boolean`、`array`、`object` 或 `any`。
 - `required`：字段必须存在且不为 `null`。
 - `defaultValue`：字段缺失或为 `null` 时使用的默认值。
 - `fields` / `itemType`：嵌套对象字段和数组元素按同样规则校验。

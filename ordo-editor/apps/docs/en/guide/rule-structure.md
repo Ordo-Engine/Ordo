@@ -46,7 +46,7 @@ Declare the fields a ruleset expects so that bad input is rejected instead of si
 ]
 ```
 
-- `type`: `string`, `number` (integer or float), `boolean`, `array`, `object`, or `any`.
+- `type`: `string`, `number` (integer or float), `decimal` (exact, for money; numbers and numeric strings are converted), `boolean`, `array`, `object`, or `any`.
 - `required`: the field must be present and not `null`.
 - `defaultValue`: used when the field is absent or `null`.
 - `fields` / `itemType`: nested object fields and array elements are checked the same way.

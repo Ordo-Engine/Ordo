@@ -43,6 +43,8 @@ count % 2
 
 数字按数值比较：`3 == 3.0` 为 `true`，调用方传 `3` 还是 `3.0` 结果一致。除法不会静默截断：`10 / 4` 得 `2.5`，`10 / 5` 仍是整数 `2`。需要整除时用 `floor(a / b)`。
 
+涉及金额时用精确小数（decimal）：`decimal(0.1) + 0.2 == 0.3` 为 `true`（普通浮点数是 `false`）。用 `decimal(...)` 包一下金额，或在规则的 `input_schema` 里把输入字段声明为 `"type": "decimal"`。只要有一个操作数是 decimal，运算结果就是 decimal；`round(total, 2)` 结果仍是 decimal。
+
 ## 字段访问
 
 ### 对象属性 (Object Properties)

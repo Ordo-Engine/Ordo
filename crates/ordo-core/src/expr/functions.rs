@@ -870,15 +870,29 @@ impl FunctionRegistry {
         }
 
         // --- Glob matching (1) ---
+        // `pattern` may also be an array of patterns: true if any matches.
         #[cfg(feature = "extended-functions")]
         self.register("glob_match", |args| {
             require_args("glob_match", args, 2)?;
-            let pattern = require_string("glob_match", &args[0])?;
             let input = require_string("glob_match", &args[1])?;
-            let pat = glob::Pattern::new(pattern).map_err(|e| {
-                OrdoError::eval_error(format!("glob_match: invalid pattern: {}", e))
-            })?;
-            Ok(Value::bool(pat.matches(input)))
+            let matches = |pattern: &Value| -> Result<bool> {
+                let pattern = require_string("glob_match", pattern)?;
+                let pat = glob::Pattern::new(pattern).map_err(|e| {
+                    OrdoError::eval_error(format!("glob_match: invalid pattern: {}", e))
+                })?;
+                Ok(pat.matches(input))
+            };
+            match &args[0] {
+                Value::Array(patterns) => {
+                    for pattern in patterns.iter() {
+                        if matches(pattern)? {
+                            return Ok(Value::bool(true));
+                        }
+                    }
+                    Ok(Value::bool(false))
+                }
+                pattern => Ok(Value::bool(matches(pattern)?)),
+            }
         });
 
         // --- Net/IP functions (2) ---
@@ -2459,6 +2473,35 @@ mod tests {
                 .unwrap(),
             Value::bool(true)
         );
+        // An array of patterns matches if any pattern does.
+        let scope = Value::array(vec![
+            Value::string("src/auth/**"),
+            Value::string("db/schema.sql"),
+        ]);
+        let call = |path: &str| {
+            registry
+                .call("glob_match", &[scope.clone(), Value::string(path)])
+                .unwrap()
+        };
+        assert_eq!(call("src/auth/login/form.ts"), Value::bool(true));
+        assert_eq!(call("db/schema.sql"), Value::bool(true));
+        assert_eq!(call("src/billing/pay.ts"), Value::bool(false));
+        assert_eq!(call("../src/auth/x.ts"), Value::bool(false));
+        assert_eq!(
+            registry
+                .call(
+                    "glob_match",
+                    &[Value::array(vec![]), Value::string("src/a.ts")]
+                )
+                .unwrap(),
+            Value::bool(false)
+        );
+        assert!(registry
+            .call(
+                "glob_match",
+                &[Value::array(vec![Value::int(1)]), Value::string("a")]
+            )
+            .is_err());
     }
 
     #[test]

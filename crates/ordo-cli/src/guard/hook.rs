@@ -22,6 +22,8 @@ use std::io::{IsTerminal, Read};
 use std::path::Path;
 
 use super::audit::{self, AuditEntry};
+use super::context::{self, Status, TaskContext};
+use super::shell;
 use super::Agent;
 use crate::project::Project;
 use crate::runtime::{execute_loaded_rule, LoadedRule};
@@ -40,7 +42,7 @@ pub struct HookArgs {
     #[arg(long)]
     fail_closed: bool,
 
-    /// Skip the audit-log append
+    /// Skip the audit-log append (also: `ORDO_GUARD_NO_LOG=1`)
     #[arg(long)]
     no_log: bool,
 
@@ -121,7 +123,8 @@ struct Decision {
     duration_us: u64,
 }
 
-pub fn run(args: HookArgs, _json: bool) -> Result<()> {
+pub fn run(mut args: HookArgs, _json: bool) -> Result<()> {
+    args.no_log |= std::env::var_os("ORDO_GUARD_NO_LOG").is_some_and(|v| !v.is_empty());
     if std::io::stdin().is_terminal() {
         anyhow::bail!(
             "`ordo guard hook` reads a pre-tool-call event on stdin — it is meant to be \
@@ -149,13 +152,25 @@ pub fn run(args: HookArgs, _json: bool) -> Result<()> {
         return Ok(());
     };
 
-    match decide(&policy_dir, &args.ruleset, &event) {
+    let ctx = context::load(
+        &policy_dir,
+        event.cwd.as_deref(),
+        event.session_id.as_deref(),
+        chrono::Utc::now(),
+    );
+    if ctx.status == Status::Invalid {
+        if let Some(note) = &ctx.note {
+            eprintln!("ordo guard: ignoring task context — {note}");
+        }
+    }
+
+    match decide(&policy_dir, &args.ruleset, &event, &ctx) {
         Ok(decision) => {
             emit(args.agent, &decision);
             if !args.no_log {
                 audit::append(
                     &policy_dir,
-                    &to_entry(&event, decision.action.as_str(), &decision),
+                    &to_entry(&event, &ctx, decision.action.as_str(), &decision),
                 );
             }
         }
@@ -168,7 +183,7 @@ pub fn run(args: HookArgs, _json: bool) -> Result<()> {
                     reason: format!("{e:#}"),
                     duration_us: 0,
                 };
-                audit::append(&policy_dir, &to_entry(&event, "error", &errored));
+                audit::append(&policy_dir, &to_entry(&event, &ctx, "error", &errored));
             }
         }
     }
@@ -195,14 +210,37 @@ fn read_event(agent: Agent) -> Result<HookEvent> {
     }
 }
 
+/// Keys only the hook may set — never hoisted from `tool_input`, so a tool
+/// argument can't impersonate the task context when none is active.
+const RESERVED_TASK_KEYS: [&str; 3] = ["task", "task_context", "rel_path"];
+
 /// Flatten the event into the ruleset input. Reserved keys always win; every
 /// top-level `tool_input` key is hoisted for ergonomic conditions (`command`,
 /// `file_path`, `url`, …). Absent values are *omitted*, never written as JSON
 /// null — a missing field is lenient-false in a condition, while `null` is a
 /// hard type error for operators like `contains`.
-fn build_policy_input(event: &HookEvent) -> serde_json::Value {
+///
+/// Task context adds `task_context` (always), plus `task` and `rel_path` (the
+/// edited path relative to the task root) when the context is active.
+///
+/// A `Bash` call also gets the structured shell facts from `shell::analyze`
+/// (`programs`, `subcommands`, `argv`, `commands`, `words`, `shell_parse`).
+fn build_policy_input(event: &HookEvent, ctx: &TaskContext) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("tool".into(), event.tool_name.clone().into());
+    map.insert("task_context".into(), ctx.status.as_str().into());
+    if let (Some(task), Some(root)) = (&ctx.task, &ctx.root) {
+        map.insert("task".into(), task.clone());
+        let path = ["file_path", "notebook_path"]
+            .iter()
+            .find_map(|k| event.tool_input.get(k).and_then(|v| v.as_str()));
+        if let (Some(path), Some(cwd)) = (path, event.cwd.as_deref()) {
+            map.insert(
+                "rel_path".into(),
+                context::rel_path(root, Path::new(cwd), path).into(),
+            );
+        }
+    }
     for (key, value) in [
         ("cwd", &event.cwd),
         ("permission_mode", &event.permission_mode),
@@ -215,7 +253,11 @@ fn build_policy_input(event: &HookEvent) -> serde_json::Value {
     }
     if let Some(input) = event.tool_input.as_object() {
         for (key, value) in input {
-            if !value.is_null() && !map.contains_key(key) {
+            if !value.is_null()
+                && !map.contains_key(key)
+                && !RESERVED_TASK_KEYS.contains(&key.as_str())
+                && !shell::FACT_KEYS.contains(&key.as_str())
+            {
                 map.insert(key.clone(), value.clone());
             }
         }
@@ -223,10 +265,28 @@ fn build_policy_input(event: &HookEvent) -> serde_json::Value {
     if !event.tool_input.is_null() {
         map.insert("tool_input".into(), event.tool_input.clone());
     }
+    add_shell_facts(&mut map);
     serde_json::Value::Object(map)
 }
 
-fn decide(policy_dir: &Path, ruleset: &str, event: &HookEvent) -> Result<Decision> {
+/// Add the shell facts for a `Bash` call's `command`. Shared with
+/// `ordo guard test`, so a test case written as `{tool, command}` sees
+/// exactly what the live hook would; facts a case sets explicitly win.
+pub(crate) fn add_shell_facts(map: &mut serde_json::Map<String, serde_json::Value>) {
+    if map.get("tool").and_then(|t| t.as_str()) != Some("Bash") || map.contains_key("programs") {
+        return;
+    }
+    if let Some(command) = map.get("command").and_then(|c| c.as_str()) {
+        shell::analyze(command).insert_into(map);
+    }
+}
+
+fn decide(
+    policy_dir: &Path,
+    ruleset: &str,
+    event: &HookEvent,
+    ctx: &TaskContext,
+) -> Result<Decision> {
     let project = Project::discover(Some(policy_dir))?;
     let mut engine = project.load_engine(ruleset)?;
     engine
@@ -234,7 +294,7 @@ fn decide(policy_dir: &Path, ruleset: &str, event: &HookEvent) -> Result<Decisio
         .map_err(|e| anyhow::anyhow!("compile error in {ruleset}: {e}"))?;
     let version = engine.config.version.clone();
 
-    let input = serde_json::from_value(build_policy_input(event))
+    let input = serde_json::from_value(build_policy_input(event, ctx))
         .context("failed to convert the hook event into engine input")?;
     let result = execute_loaded_rule(&LoadedRule::Source(engine), input, false)?;
 
@@ -338,7 +398,7 @@ fn fail_open(agent: Agent, err: &anyhow::Error, fail_closed: bool) {
     }
 }
 
-fn to_entry(event: &HookEvent, decision: &str, d: &Decision) -> AuditEntry {
+fn to_entry(event: &HookEvent, ctx: &TaskContext, decision: &str, d: &Decision) -> AuditEntry {
     AuditEntry {
         ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         session_id: event.session_id.clone(),
@@ -349,6 +409,9 @@ fn to_entry(event: &HookEvent, decision: &str, d: &Decision) -> AuditEntry {
         duration_us: d.duration_us,
         summary: summarize(&event.tool_input),
         cwd: event.cwd.clone(),
+        task_context: (ctx.status != Status::Absent).then(|| ctx.status.as_str().to_string()),
+        task_id: ctx.task_id.clone(),
+        context_hash: ctx.hash.clone(),
     }
 }
 
@@ -373,12 +436,60 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    fn no_ctx() -> TaskContext {
+        active_ctx(None)
+    }
+
+    fn active_ctx(task: Option<serde_json::Value>) -> TaskContext {
+        TaskContext {
+            status: if task.is_some() {
+                Status::Active
+            } else {
+                Status::Absent
+            },
+            root: task.as_ref().map(|_| std::path::PathBuf::from("/w")),
+            task,
+            hash: None,
+            task_id: None,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn input_carries_task_context_status_and_active_task() {
+        let e =
+            event(r#"{"tool_name":"Edit","cwd":"/w/src","tool_input":{"file_path":"auth/a.ts"}}"#);
+        let input = build_policy_input(&e, &no_ctx());
+        assert_eq!(input["task_context"], "absent");
+        assert!(input.get("task").is_none() && input.get("rel_path").is_none());
+
+        let ctx = active_ctx(Some(serde_json::json!({ "touches": ["src/auth/**"] })));
+        let input = build_policy_input(&e, &ctx);
+        assert_eq!(input["task_context"], "active");
+        assert_eq!(input["task"]["touches"][0], "src/auth/**");
+        assert_eq!(input["rel_path"], "src/auth/a.ts");
+    }
+
+    #[test]
+    fn input_task_keys_cannot_be_spoofed_by_tool_input() {
+        let e = event(
+            r#"{"tool_name":"Edit","cwd":"/w","tool_input":{"file_path":"/etc/x","task":{"touches":["**"]},"rel_path":"src/ok","task_context":"active"}}"#,
+        );
+        let input = build_policy_input(&e, &no_ctx());
+        assert_eq!(input["task_context"], "absent");
+        assert!(input.get("task").is_none() && input.get("rel_path").is_none());
+        let ctx = active_ctx(Some(serde_json::json!({ "touches": ["src/**"] })));
+        let input = build_policy_input(&e, &ctx);
+        assert_eq!(input["task"]["touches"][0], "src/**");
+        assert_eq!(input["rel_path"], "../etc/x");
+    }
+
     #[test]
     fn input_hoists_tool_input_fields_and_keeps_nested_copy() {
         let e = event(
             r#"{"tool_name":"Bash","cwd":"/w","tool_input":{"command":"ls","description":"list"}}"#,
         );
-        let input = build_policy_input(&e);
+        let input = build_policy_input(&e, &no_ctx());
         assert_eq!(input["tool"], "Bash");
         assert_eq!(input["cwd"], "/w");
         assert_eq!(input["command"], "ls");
@@ -388,7 +499,7 @@ mod tests {
     #[test]
     fn input_omits_nulls_and_absent_fields() {
         let e = event(r#"{"tool_name":"Glob","tool_input":{"pattern":"*.rs","path":null}}"#);
-        let input = build_policy_input(&e);
+        let input = build_policy_input(&e, &no_ctx());
         let obj = input.as_object().unwrap();
         assert!(
             !obj.contains_key("path"),
@@ -406,7 +517,7 @@ mod tests {
         let e = event(
             r#"{"tool_name":"Bash","cwd":"/real","tool_input":{"cwd":"/spoofed","tool":"Fake"}}"#,
         );
-        let input = build_policy_input(&e);
+        let input = build_policy_input(&e, &no_ctx());
         assert_eq!(input["cwd"], "/real");
         assert_eq!(input["tool"], "Bash");
     }
@@ -414,7 +525,7 @@ mod tests {
     #[test]
     fn input_tolerates_non_object_tool_input() {
         let e = event(r#"{"tool_name":"X","tool_input":"raw"}"#);
-        let input = build_policy_input(&e);
+        let input = build_policy_input(&e, &no_ctx());
         assert_eq!(input["tool_input"], "raw");
     }
 
@@ -445,7 +556,7 @@ mod tests {
         assert_eq!(hook_event.tool_name, "Bash");
         assert_eq!(hook_event.session_id.as_deref(), Some("c1"));
         assert_eq!(hook_event.cwd.as_deref(), Some("/w"));
-        let input = build_policy_input(&hook_event);
+        let input = build_policy_input(&hook_event, &no_ctx());
         assert_eq!(input["tool"], "Bash");
         assert_eq!(input["command"], "rm -rf /tmp/x");
     }

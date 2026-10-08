@@ -35,16 +35,34 @@ npx @ordo-engine/cli guard init --agent claude,codex,cursor   # 一次接三个
    `tests/policy.json`、`facts.json` 和一份 `AGENTS.md`。只生成一次，各 Agent 共用。
 2. 为每个选中的 Agent 注册钩子（具体文件见上表）。
 
-重启对应的 Agent（Claude Code 可运行 `/hooks`）让它生效。此后每一次工具调用都会走你的策略：
+重启对应的 Agent（Claude Code 可运行 `/hooks`）让它生效，然后确认整条链路是通的：
 
-```text
-$ (Agent 尝试) rm -rf ./build
-⛔ 已被策略拒绝：Destructive shell command blocked by policy [policy@1.0.0 · DENY]
+```bash
+ordo guard doctor
+# ✔ policy evaluates: policy@1.1.0
+# ✔ policy tests: 24 passed
+# ✔ Claude Code hook (.claude/settings.local.json): answers `rm -rf /` with deny
 ```
 
-默认策略会拦截破坏性 shell（`rm -rf`、`dd`、`mkfs`）和密钥访问（`.env`、`.pem`、
-`id_rsa`、aws 凭证），在 `git push` / `npm publish` / 修改护栏本身之前询问，对只读
-git 快速放行，其余一律交回 Agent 的正常权限流程。
+此后每一次工具调用都会走你的策略：
+
+```text
+$ (Agent 尝试) rm -r -f ./build
+⛔ 已被策略拒绝：Destructive shell command blocked by policy [policy@1.1.0 · DENY]
+```
+
+默认策略会拦截破坏性 shell（递归 `rm`、`find -delete`、`dd`、`mkfs`、`shred`）和密钥访问
+（`.env`、`.pem`、`id_rsa`、aws 凭证，无论走文件工具、`Grep` 还是 shell 参数），在
+`git push` / `npm publish` / `git reset --hard` / `git clean`、以及修改护栏或 Agent 钩子配置之前询问，
+对单条只读 git 命令快速放行，其余一律交回 Agent 的正常权限流程。shell 规则匹配的是*解析后*的命令
+（见 [Shell 命令](#shell-命令)），所以 `rm -rf`、`rm -r -f`、`/bin/rm -Rf`、
+`sudo env X=1 rm --recursive` 和 `bash -c 'rm -rf x'` 命中的是同一条规则。
+
+::: tip 通过 npx 运行
+`npx` 是从它的包缓存里运行二进制的，`npm cache clean` 会把它删掉，而 Agent 遇到程序不存在的钩子会静默跳过。
+所以 `guard init` 从 npx 缓存运行时，会把二进制复制到 `~/.ordo/bin/ordo` 并注册这个路径。升级后重新运行一次
+`guard init` 即可刷新。
+:::
 
 ::: tip 团队共享
 默认注册用的是各 Agent 本地、git 忽略的配置文件里的绝对路径。若想给整个团队提交一份
@@ -75,6 +93,9 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 | `permission_mode` | `"default"`         | Claude Code/Codex 权限模式；Cursor 上不存在     |
 | `session_id`      | `"c1a2…"`           | Cursor 的 `conversation_id` 也映射到这个字段    |
 | `tool_input`      | `{ … }`             | 完整的嵌套工具输入                              |
+| `task_context`    | `"active"`          | 始终存在，见[任务上下文](#任务上下文)            |
+| `task`、`rel_path` | `{ … }`、`"src/a.ts"` | 仅在任务上下文生效时出现                  |
+| `programs`、`subcommands`、`argv`、`commands`、`words`、`shell_parse` | | 仅 Bash，见 [Shell 命令](#shell-命令) |
 
 `tool_input` 里的其他键也会被提升到顶层，所以出现新工具时无需改代码即可在条件里使用。
 
@@ -84,6 +105,39 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 用工具名兜底：`tool == 'Bash' && !(command contains 'x')`。
 :::
 
+## Shell 命令
+
+对 `command` 做子串匹配很容易绕过：`command contains 'rm -rf'` 拦不住 `rm -r -f`、`rm  -rf`（两个空格）和
+`rm -Rf`。所以对每个 `Bash` 调用，钩子还会像 POSIX shell 一样解析 `command`——引号和转义、`&&` `||` `;` `|` `&`、
+子 shell、`$(…)` 和反引号、`bash -c '…'` 和 `eval` 的内容、heredoc（正文是数据，不是命令）——剥掉 `sudo`、
+`doas`、`env`、`nohup`、`nice`、`timeout`、`xargs`、`command` 等包装，然后加上这些字段：
+
+| 字段          | `sudo git -C web push && rm -rf /tmp/x` 的结果 | 用法                              |
+| ------------- | ---------------------------------------------- | --------------------------------- |
+| `programs`    | `["sudo", "git", "rm"]`                        | `'rm' in programs`                |
+| `subcommands` | `["git push", "rm /tmp/x"]`（程序 + 第一个非选项参数，会跳过 `git -C dir` 这类选项） | `'git push' in subcommands` |
+| `argv`        | `{"git": ["-C", "web", "push"], "rm": ["-rf", "-r", "-f", "/tmp/x"], …}`，短选项组合也会拆开 | `'-r' in argv.rm` |
+| `commands`    | `["sudo git -C web push", "rm -rf /tmp/x"]`    | `len(commands) == 1`              |
+| `words`       | 所有单个 token 的参数和重定向目标（commit message 这类自由文本不算） | `regex_match('[.]env', join(words, ' '))` |
+| `shell_parse` | `"ok"`；引号不配对或嵌套过深时为 `"error"`      | `shell_parse == 'error'`          |
+
+```json
+{
+  "id": "gate-tf",
+  "label": "拦截 terraform destroy",
+  "condition": "tool == 'Bash' && 'terraform destroy' in subcommands",
+  "nextStepId": "deny_infra"
+}
+```
+
+这是静态分析，不会执行：变量、alias 和 shell 函数它都看不到，所以它是提高门槛，而不是堵死所有路。
+
+::: warning 一个缺失字段会让整个条件为假
+`rm` 执行了的话 `'-r' in argv.rm` 没问题；但如果没有 `rm`，`argv.rm` 就不存在，*整个*条件都是假，
+连本来能命中的 `||` 分支也一样。每次查找前先守卫（`'rm' in programs && '-r' in argv.rm`），
+读取不同字段的备选条件请拆成不同的分支。
+:::
+
 ## 编写规则
 
 分支条件是朴素的表达式字符串，从上到下求值——首个匹配生效。终结节点的 code 映射到决策：
@@ -91,21 +145,77 @@ Cursor 的 `beforeShellExecution` 协议只定义了 `allow` / `deny` / `ask`，
 
 ```json
 {
-  "id": "gate-b0",
-  "label": "拦截 terraform destroy",
-  "condition": "tool == 'Bash' && command contains 'terraform destroy'",
-  "nextStepId": "deny_infra"
+  "id": "gate-migrations",
+  "label": "修改迁移文件前确认",
+  "condition": "tool in ['Write', 'Edit'] && file_path contains 'migrations/'",
+  "nextStepId": "ask_migration"
 }
 ```
 
 表达式语言支持 `== != > >= < <=`、`&&` `||` `!`、`in`、`contains`，以及
-`starts_with(s, prefix)`、`ends_with(s, suffix)`、`regex_match(pattern, s)` 等函数。
+`starts_with(s, prefix)`、`ends_with(s, suffix)`、`regex_match(pattern, s)`、`glob_match(模式或模式数组, s)` 等函数。
 
-::: warning `regex_match` 的参数顺序
-**模式在前**：`regex_match('rm\\s+-rf', command)`，不要写反。
+::: warning `regex_match` 的参数顺序和反斜杠
+**模式在前**：`regex_match('[.]pem$', file_path)`，不要写反。表达式字符串里的反斜杠是转义符
+（`'\s'` 传到正则时只剩 `s`），所以请用 `[.]` 和空格，而不是 `\.` 和 `\s`。
 :::
 
 展示给 Agent 的决策原因来自命中的终结节点 `message`（或你设置的 `reason` 输出字段）。
+
+## 任务上下文
+
+工具调用事件里没有“当前任务”的信息，所以策略能写“永远不准 `terraform destroy`”，却写不出
+“这个任务只许改 `src/auth/`”。要按任务限定范围，就写一个 `.ordo-guard/context.json`
+（手写或由任务规划工具生成），再用一份手写策略去读它：
+
+```json
+{
+  "root": "/abs/path/to/repo",
+  "session_id": "可选：只对这个 Agent 会话生效",
+  "expires_at": "2026-10-08T00:00:00Z",
+  "task": { "id": "login-signup", "touches": ["src/auth/**", "db/schema.sql"] }
+}
+```
+
+`task` 原样透传，策略需要什么就放什么。只有和事件绑定上时上下文才生效：
+
+| 检查         | 规则                                                       |
+| ------------ | ----------------------------------------------------------- |
+| `root`       | 事件的 `cwd` 必须在它之内（默认：`.ordo-guard/` 所在的仓库）   |
+| `session_id` | 若设置，必须等于事件的会话 id                                |
+| `expires_at` | 若设置（RFC 3339），必须尚未过期                             |
+
+生效时，输入里会多出 `task` 和 `rel_path`：被编辑文件（`file_path` / `notebook_path`）
+相对 `root` 的路径，用 `/` 分隔，`.` 和 `..` 已解析；root 之外的路径会是 `../…`。
+输入里**始终**带有 `task_context`，由策略决定“没有可用任务”时怎么办：
+
+| `task_context` | 含义                                       |
+| -------------- | ------------------------------------------ |
+| `active`       | 已生效：`task` 和 `rel_path` 已设置         |
+| `absent`       | 没有 `context.json`                        |
+| `mismatch`     | `cwd` 不在 `root` 内，或会话不匹配          |
+| `expired`      | 已过 `expires_at`                          |
+| `invalid`      | 无法读取或格式错误（stderr 会有警告）       |
+
+把范围规则放在基础规则**之后**，这样任务内的 `rm -rf`、读取密钥依然会被拒绝：
+
+```json
+{
+  "id": "gate-scope",
+  "label": "限定在任务范围内",
+  "condition": "task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)",
+  "nextStepId": "ask_scope"
+}
+```
+
+`glob_match` 接受单个模式或模式数组（任一匹配即为 true）。它的 `*` 也会匹配 `/`，
+所以 `src/auth/*` 同样覆盖子目录；避免以通配符开头的模式（`**`、`*/…`），它们也会匹配
+root 之外的 `../` 路径。
+
+在上下文下产生的每条审计日志都会记录 `task_context`、`task_id` 和 `context_hash`
+（对应 `context.json` 的 `sha256:`），因此每个决策都能追溯到当时生效的任务定义。
+和 guard 的其他部分一样，这里检查的是工具*调用*：只比较路径字符串、不解析符号链接，
+`Bash` 命令仍然可以写到任何地方。如果任务需要，给 `Bash` 配一条 `ASK` 规则。
 
 ## 测试你的护栏
 
@@ -128,11 +238,12 @@ ordo guard test
 # …
 ```
 
-逐步调试某个事件的走向：
+`ordo guard test` 会像线上钩子一样从 `command` 推导出 [shell 字段](#shell-命令)，所以用例只需写 `tool` 和 `command`。
+
+查看线上钩子对某个事件的回答：
 
 ```bash
-cd .ordo-guard
-ordo trace policy --input '{"tool":"Bash","command":"git push"}'
+echo '{"tool_name":"Bash","tool_input":{"command":"git -C web push"}}' | ordo guard hook
 ```
 
 ## 审计日志
@@ -153,10 +264,27 @@ ordo guard log --json | jq 'select(.decision=="deny")'
 "静默"意味着显式返回 `allow` 而非空 stdout——见前文提示。）坏掉的护栏绝不该卡死你的 Agent。
 在注册的命令里加 `--fail-closed` 可反转此行为，改为内部出错时拒绝。
 
+失败即放行，或者钩子程序已经不存在（所有 Agent 都会静默跳过），都意味着你可能根本没发现护栏已经失效。
+`ordo guard doctor` 会逐项检查：策略能求值、测试通过、钩子已注册、钩子程序存在，并且按 Agent 的方式实际运行
+每个已注册的钩子，确认它对 `rm -rf /` 的回答。护栏没在保护仓库时它返回非零，所以也可以放进 CI 或 pre-commit。
+
+### 升级已有策略
+
+`ordo guard init` 从不覆盖已存在的 `.ordo-guard/`，所以用旧版 CLI 初始化过的仓库会一直停在旧的默认策略上
+（0.6.0 之前的默认策略按 `command` 子串匹配，`rm -r -f` 能直接绕过；`doctor` 会对此给出警告）。
+`ordo guard upgrade` 会替换所有仍是旧版默认、没被改过的文件：策略、它的测试和 `AGENTS.md`。
+你改过的文件默认保留不动；加 `--force` 才会替换，旧文件另存为 `<文件>.bak`。`--dry-run` 只显示会改什么。
+
+```bash
+ordo guard upgrade --dry-run
+ordo guard upgrade
+ordo guard test && ordo guard doctor
+```
+
 ## 局限
 
-Guard 是**纵深防御，不是沙箱**。它看到的是工具*调用*，不是其副作用：一条"修改 `.ordo-guard/`
-之前询问"的规则，拦不住用 `bash sed -i` 做同样修改的调用。请把它和 Agent 自身的权限系统
+Guard 是**纵深防御，不是沙箱**。它看到的是工具*调用*，不是其副作用，shell 解析也看不穿变量和脚本：
+默认策略会在 `sed -i … .ordo-guard/…` 之前询问，但拦不住一个修改同一文件的脚本。请把它和 Agent 自身的权限系统
 叠加使用，不要把它当成对抗恶意进程的安全边界。
 
 各 Agent 目前的已知缺口（都是上游限制，非 `ordo guard` 能绕开的）：Codex CLI 的

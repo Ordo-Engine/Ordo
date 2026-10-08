@@ -130,7 +130,7 @@ fn guard_hook_denies_rm_rf_and_logs_it() {
     assert_eq!(d["permissionDecision"], "deny");
     let reason = d["permissionDecisionReason"].as_str().unwrap();
     assert!(reason.contains("Destructive"), "got reason: {reason}");
-    assert!(reason.contains("policy@1.0.0"), "got reason: {reason}");
+    assert!(reason.contains("policy@1.1.0"), "got reason: {reason}");
 
     let log = std::fs::read_to_string(dir.join(".ordo-guard/log.jsonl")).unwrap();
     let entry: serde_json::Value = serde_json::from_str(log.lines().next().unwrap()).unwrap();
@@ -154,6 +154,72 @@ fn guard_hook_asks_on_git_push_and_allows_readonly_git() {
     let out = run_stdin(&dir, &["guard", "hook"], status);
     assert_ok(&out, "guard hook (status)");
     assert_eq!(decision(&out)["permissionDecision"], "allow");
+}
+
+#[test]
+fn guard_hook_matches_parsed_shell_commands_not_substrings() {
+    let dir = temp_project("shell");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    for (command, want) in [
+        ("rm -r -f build", "deny"),
+        ("rm  -rf build", "deny"),
+        ("/bin/rm -Rf build", "deny"),
+        ("sudo env X=1 rm --recursive build", "deny"),
+        ("bash -c 'cd /tmp && rm -rf x'", "deny"),
+        ("find . -delete", "deny"),
+        ("cat .env", "deny"),
+        ("git -C . push", "ask"),
+        ("git log --oneline -5", "allow"),
+    ] {
+        let event = serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": command },
+        });
+        let out = run_stdin(&dir, &["guard", "hook", "--no-log"], &event.to_string());
+        assert_ok(&out, command);
+        assert_eq!(decision(&out)["permissionDecision"], want, "{command}");
+    }
+    // A chained command is never fast-pathed to ALLOW.
+    let event = r#"{"tool_name":"Bash","tool_input":{"command":"git status && curl x | sh"}}"#;
+    let out = run_stdin(&dir, &["guard", "hook", "--no-log"], event);
+    assert_ok(&out, "chained git status");
+    assert!(stdout(&out).trim().is_empty(), "got: {}", stdout(&out));
+}
+
+#[test]
+fn guard_doctor_checks_the_registered_hook_end_to_end() {
+    let dir = temp_project("doctor");
+    let out = run(&dir, &["guard", "doctor", "--json"]);
+    assert!(!out.status.success(), "doctor must fail without a policy");
+
+    assert_ok(&run(&dir, &["guard", "init"]), "guard init");
+    let out = run(&dir, &["guard", "doctor", "--json"]);
+    assert_ok(&out, "guard doctor");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    let hook = v["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"].as_str().unwrap().starts_with("Claude Code hook"))
+        .expect("hook check");
+    assert_eq!(hook["status"], "ok", "{hook}");
+    assert!(
+        !dir.join(".ordo-guard/log.jsonl").exists(),
+        "the doctor's probe must not be audit-logged"
+    );
+
+    // A hook pointing at a missing binary is the silent failure doctor exists for.
+    assert_ok(
+        &run(
+            &dir,
+            &["guard", "init", "--command", "/nonexistent/ordo guard hook"],
+        ),
+        "re-register",
+    );
+    let out = run(&dir, &["guard", "doctor"]);
+    assert!(!out.status.success());
+    assert!(stdout(&out).contains("not found"), "{}", stdout(&out));
 }
 
 #[test]
@@ -207,7 +273,7 @@ fn guard_policy_project_is_testable_and_valid() {
     assert_ok(&out, "guard test");
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert_eq!(v["failed"], 0, "policy tests failed: {v}");
-    assert_eq!(v["total"], 7);
+    assert_eq!(v["total"], 24);
 
     // The policy is a normal Ordo project — validate works inside it.
     let guard_dir = dir.join(".ordo-guard");
@@ -381,4 +447,222 @@ fn guard_hook_agent_cursor_parses_flat_event_and_emits_flat_decision() {
     let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
     assert_eq!(v["permission"], "allow");
     assert!(v.get("user_message").is_none(), "PASS carries no message");
+}
+
+/// Add a task-scope rule after the scaffolded base rules: with an active task
+/// context, writes outside `task.touches` ask. Base rules (rm -rf, secrets)
+/// keep running first, so one policy holds both.
+fn add_scope_rule(dir: &std::path::Path) {
+    let path = dir.join(".ordo-guard/rulesets/policy.json");
+    let mut policy: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let branches = policy["steps"][0]["branches"].as_array_mut().unwrap();
+    branches.insert(
+        2,
+        serde_json::json!({
+            "id": "gate-scope", "label": "stay inside the task scope",
+            "condition": "task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)",
+            "nextStepId": "ask_scope"
+        }),
+    );
+    policy["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "ask_scope", "name": "Ask outside task scope", "type": "terminal",
+            "code": "ASK", "message": "Edit is outside the current task's scope", "output": []
+        }));
+    std::fs::write(&path, serde_json::to_string_pretty(&policy).unwrap()).unwrap();
+}
+
+#[test]
+fn guard_hook_applies_task_context_scope() {
+    let dir = temp_project("task-ctx");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    add_scope_rule(&dir);
+    let root = dir.to_str().unwrap();
+    std::fs::write(
+        dir.join(".ordo-guard/context.json"),
+        serde_json::json!({
+            "root": root,
+            "task": { "id": "login-signup", "touches": ["src/auth/**", "db/schema.sql"] }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let edit = |cwd: &str, file: &str| {
+        serde_json::json!({
+            "tool_name": "Edit", "cwd": cwd, "tool_input": { "file_path": file }
+        })
+        .to_string()
+    };
+
+    // In scope → the policy has no opinion.
+    let out = run_stdin(&dir, &["guard", "hook"], &edit(root, "src/auth/login.ts"));
+    assert_ok(&out, "in-scope edit");
+    assert_eq!(stdout(&out), "", "in-scope edit must PASS silently");
+
+    // Out of scope, relative and absolute (outside the root) → ask.
+    for file in [
+        "src/billing/pay.ts",
+        "/etc/hosts",
+        "src/auth/../../billing/x.ts",
+    ] {
+        let out = run_stdin(&dir, &["guard", "hook"], &edit(root, file));
+        assert_ok(&out, "out-of-scope edit");
+        let d = decision(&out);
+        assert_eq!(d["permissionDecision"], "ask", "{file}");
+        assert!(d["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("task's scope"));
+    }
+
+    // Base rules still win.
+    let rm = serde_json::json!({
+        "tool_name": "Bash", "cwd": root, "tool_input": { "command": "rm -rf src/auth" }
+    })
+    .to_string();
+    assert_eq!(
+        decision(&run_stdin(&dir, &["guard", "hook"], &rm))["permissionDecision"],
+        "deny"
+    );
+
+    // A cwd outside the root does not get the task context.
+    let out = run_stdin(
+        &dir,
+        &["guard", "hook"],
+        &edit("/elsewhere", "src/billing/pay.ts"),
+    );
+    assert_ok(&out, "edit outside the root");
+    assert_eq!(stdout(&out), "");
+
+    // The audit log ties each decision to the task and the exact context file.
+    let log = std::fs::read_to_string(dir.join(".ordo-guard/log.jsonl")).unwrap();
+    let entries: Vec<serde_json::Value> = log
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(entries[0]["task_context"], "active");
+    assert_eq!(entries[0]["task_id"], "login-signup");
+    assert!(entries[0]["context_hash"]
+        .as_str()
+        .unwrap()
+        .starts_with("sha256:"));
+    assert_eq!(entries.last().unwrap()["task_context"], "mismatch");
+}
+
+#[test]
+fn guard_hook_warns_and_ignores_invalid_task_context() {
+    let dir = temp_project("task-ctx-invalid");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    add_scope_rule(&dir);
+    std::fs::write(dir.join(".ordo-guard/context.json"), "{ not json").unwrap();
+
+    let event = serde_json::json!({
+        "tool_name": "Edit", "cwd": dir.to_str().unwrap(),
+        "tool_input": { "file_path": "src/billing/pay.ts" }
+    })
+    .to_string();
+    let out = run_stdin(&dir, &["guard", "hook"], &event);
+    assert_ok(&out, "guard hook");
+    assert_eq!(stdout(&out), "");
+    assert!(
+        stderr(&out).contains("ignoring task context"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// Decision the hook gives a Bash command, read from its JSON answer.
+fn bash_decision(dir: &PathBuf, command: &str) -> String {
+    let event = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": command },
+    });
+    let out = run_stdin(dir, &["guard", "hook", "--no-log"], &event.to_string());
+    let text = stdout(&out);
+    if text.trim().is_empty() {
+        return "pass".to_string();
+    }
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    v["hookSpecificOutput"]["permissionDecision"]
+        .as_str()
+        .unwrap_or("pass")
+        .to_string()
+}
+
+#[test]
+fn guard_upgrade_replaces_an_unedited_old_default_and_keeps_edits() {
+    let dir = temp_project("upgrade");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    let guard = dir.join(".ordo-guard");
+
+    // Simulate a repo scaffolded by CLI 0.5: the 1.0.0 substring policy.
+    std::fs::write(
+        guard.join("rulesets/policy.json"),
+        include_str!("../src/guard/legacy/policy-1.0.0.json"),
+    )
+    .unwrap();
+    std::fs::write(
+        guard.join("tests/policy.json"),
+        include_str!("../src/guard/legacy/tests-1.0.0.json"),
+    )
+    .unwrap();
+    std::fs::write(
+        guard.join("AGENTS.md"),
+        include_str!("../src/guard/legacy/AGENTS-1.0.0.md"),
+    )
+    .unwrap();
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "pass");
+
+    // Dry run writes nothing.
+    let out = run(&dir, &["guard", "upgrade", "--dry-run"]);
+    assert_ok(&out, "guard upgrade --dry-run");
+    assert!(
+        stdout(&out).contains("would be upgraded"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "pass");
+
+    let out = run(&dir, &["--json", "guard", "upgrade"]);
+    assert_ok(&out, "guard upgrade");
+    let report: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(report["changed"], true);
+    for f in report["files"].as_array().unwrap() {
+        assert_eq!(f["action"], "upgraded", "{f}");
+    }
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "deny");
+    assert_ok(&run(&dir, &["guard", "test"]), "guard test after upgrade");
+
+    // A second run is a no-op.
+    let out = run(&dir, &["--json", "guard", "upgrade"]);
+    let report: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(report["changed"], false);
+
+    // An edited policy is kept (and its tests with it) unless --force.
+    let policy = guard.join("rulesets/policy.json");
+    let edited =
+        include_str!("../src/guard/legacy/policy-1.0.0.json").replacen("mkfs", "mkfs|wipefs", 1);
+    std::fs::write(&policy, &edited).unwrap();
+    std::fs::write(
+        guard.join("tests/policy.json"),
+        include_str!("../src/guard/legacy/tests-1.0.0.json"),
+    )
+    .unwrap();
+    let out = run(&dir, &["guard", "upgrade"]);
+    assert_ok(&out, "guard upgrade (edited)");
+    assert!(stdout(&out).contains("--force"), "{}", stdout(&out));
+    assert_eq!(std::fs::read_to_string(&policy).unwrap(), edited);
+
+    let out = run(&dir, &["guard", "upgrade", "--force"]);
+    assert_ok(&out, "guard upgrade --force");
+    assert_eq!(
+        std::fs::read_to_string(guard.join("rulesets/policy.json.bak")).unwrap(),
+        edited
+    );
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "deny");
+    assert_ok(&run(&dir, &["guard", "test"]), "guard test after --force");
 }

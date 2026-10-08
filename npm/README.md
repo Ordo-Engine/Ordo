@@ -16,21 +16,25 @@ that decides **allow / deny / ask**. When the agent tries something
 destructive, Ordo stops it with a reason:
 
 ```text
-⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.0.0 · DENY]
+⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.1.0 · DENY]
 ```
 
 The policy lives in `.ordo-guard/` as a normal Ordo project — so your guardrails
 have a test suite:
 
 ```bash
+ordo guard doctor    # is the hook registered, present, and actually answering?
 ordo guard test      # run the policy's own tests
 ordo guard log       # every decision, timestamped and auditable
+ordo guard upgrade   # move a policy scaffolded by an older CLI to the current default
 ```
 
 Edit `.ordo-guard/rulesets/policy.json` in plain expressions
-(`tool == 'Bash' && command contains 'terraform destroy'`), add a test, ship.
-The default policy blocks destructive shell + secret access, asks before
-`git push` / `npm publish`, and fast-paths read-only git. Fails open on any
+(`tool == 'Bash' && 'terraform destroy' in subcommands`), add a test, ship.
+Shell commands are parsed, not substring-matched, so `rm -r -f`, `/bin/rm -Rf`
+and `bash -c 'rm -rf x'` hit the same rule. The default policy blocks
+destructive shell + secret access, asks before `git push` / `npm publish`, and
+fast-paths read-only git. Fails open on any
 internal error (`--fail-closed` to deny instead).
 
 ## Author rules as files
@@ -72,7 +76,7 @@ checks run offline; `publish` requires `ordo mcp --allow-publish`.
 
 | | |
 |---|---|
-| `ordo guard init` / `hook` / `test` / `log` | deterministic guardrails for a coding agent |
+| `ordo guard init` / `hook` / `test` / `log` / `doctor` | deterministic guardrails for a coding agent |
 | `ordo init [dir]` | scaffold a project |
 | `ordo validate` / `test` / `trace` | check rules offline |
 | `ordo replay <captured.jsonl>` | replay recorded decisions; spot flips; `--write-tests` |

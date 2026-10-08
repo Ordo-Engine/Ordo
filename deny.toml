@@ -39,6 +39,12 @@ yanked = "warn"
 #   RUSTSEC-2026-0002 — IterMut stacked-borrows unsoundness (no untrusted trigger path)
 #   RUSTSEC-2026-0097 — rand is unsound only with a custom logger calling rand::rng();
 #                       Ordo uses the default logger and does not hit this path.
+#
+# h2 0.3.x (RUSTSEC-2026-0258): unbounded empty DATA frames let an HTTP/2 peer
+# burn CPU. Pulled in via tonic 0.10 / hyper 0.14 (gRPC server, OTLP export);
+# the fix is only in h2 0.4.16+, which needs the tonic/hyper 1.x migration.
+# Ordo's gRPC listener serves trusted internal clients, so this is tracked for
+# removal with that migration rather than blocking CI.
 ignore = [
     "RUSTSEC-2024-0437",
     "RUSTSEC-2026-0049",
@@ -47,6 +53,7 @@ ignore = [
     "RUSTSEC-2026-0104",
     "RUSTSEC-2026-0002",
     "RUSTSEC-2026-0097",
+    "RUSTSEC-2026-0258",
 ]
 
 # ------------------------------------------------------------------------

@@ -15,11 +15,15 @@ use std::path::{Path, PathBuf};
 
 mod agent;
 mod audit;
+mod context;
+mod doctor;
 mod hook;
 mod init;
 mod log;
 mod settings;
+mod shell;
 mod test;
+mod upgrade;
 
 pub(crate) use agent::Agent;
 
@@ -44,6 +48,10 @@ enum GuardCmd {
     Log(log::LogArgs),
     /// Run the policy project's test cases
     Test(test::GuardTestArgs),
+    /// Check that guard is actually active: policy, tests, and every registered hook end to end
+    Doctor(doctor::DoctorArgs),
+    /// Replace an older scaffolded default policy with the current one (edited files are kept unless --force)
+    Upgrade(upgrade::UpgradeArgs),
 }
 
 pub fn run(args: GuardArgs, json: bool) -> Result<()> {
@@ -52,6 +60,8 @@ pub fn run(args: GuardArgs, json: bool) -> Result<()> {
         GuardCmd::Hook(a) => hook::run(a, json),
         GuardCmd::Log(a) => log::run(a, json),
         GuardCmd::Test(a) => test::run(a, json),
+        GuardCmd::Doctor(a) => doctor::run(a, json),
+        GuardCmd::Upgrade(a) => upgrade::run(a, json),
     }
 }
 

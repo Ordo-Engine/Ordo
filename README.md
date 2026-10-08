@@ -41,17 +41,18 @@ Now your agent is gated. When it reaches for something destructive, Ordo stops i
 
 ```text
 $ (agent tries) rm -rf ./build
-⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.0.0 · DENY]
+⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.1.0 · DENY]
 ```
 
 The policy is a **normal Ordo project** in `.ordo-guard/` — so your guardrails have a test suite:
 
 ```bash
+ordo guard doctor    # ✔ hook registered and answering — guard is active
 ordo guard test      # ✔ blocks rm -rf  ✔ asks before git push  ✔ allows read-only git …
 ordo guard log       # every decision, timestamped and auditable
 ```
 
-Edit `.ordo-guard/rulesets/policy.json` in plain expressions (`tool == 'Bash' && command contains 'terraform destroy'`), add a test, ship. → **[Guard docs](https://ordo-engine.github.io/Ordo/docs/en/platform/guard)**
+Edit `.ordo-guard/rulesets/policy.json` in plain expressions (`tool == 'Bash' && 'terraform destroy' in subcommands`), add a test, ship. → **[Guard docs](https://ordo-engine.github.io/Ordo/docs/en/platform/guard)**
 
 ---
 

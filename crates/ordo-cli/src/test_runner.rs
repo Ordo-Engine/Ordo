@@ -117,7 +117,20 @@ pub fn run(args: TestArgs, json: bool) -> Result<()> {
 
 /// Run a project ruleset's tests and return a JSON summary (used by `ordo mcp`).
 pub(crate) fn run_project_ruleset(project: &Project, name: &str) -> Result<serde_json::Value> {
-    let tests = load_tests(&project.tests_path(name))?;
+    run_project_ruleset_with(project, name, |input| input)
+}
+
+/// Like `run_project_ruleset`, but each case's input is passed through
+/// `prepare` first (`ordo guard test` derives the hook's computed facts).
+pub(crate) fn run_project_ruleset_with(
+    project: &Project,
+    name: &str,
+    prepare: impl Fn(Value) -> Value,
+) -> Result<serde_json::Value> {
+    let mut tests = load_tests(&project.tests_path(name))?;
+    for test in &mut tests {
+        test.input = prepare(std::mem::take(&mut test.input));
+    }
     let mut engine = project.load_engine(name)?;
     engine
         .compile()

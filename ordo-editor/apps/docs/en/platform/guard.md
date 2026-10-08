@@ -44,18 +44,39 @@ the same `.ordo-guard/rulesets/policy.json`. This does two things:
 2. Registers the hook for each selected agent (see the table above for
    which file).
 
-Restart the agent (or, for Claude Code, run `/hooks`) to pick it up. From now on
-every tool call runs through your policy:
+Restart the agent (or, for Claude Code, run `/hooks`) to pick it up, then
+confirm the whole chain works:
 
-```text
-$ (agent tries) rm -rf ./build
-⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.0.0 · DENY]
+```bash
+ordo guard doctor
+# ✔ policy evaluates: policy@1.1.0
+# ✔ policy tests: 24 passed
+# ✔ Claude Code hook (.claude/settings.local.json): answers `rm -rf /` with deny
 ```
 
-The default policy blocks destructive shell (`rm -rf`, `dd`, `mkfs`) and secret
-access (`.env`, `.pem`, `id_rsa`, aws credentials), asks before `git push` /
-`npm publish` / edits to the guardrails themselves, fast-paths read-only git, and
-lets everything else through to the agent's normal permission flow.
+From now on every tool call runs through your policy:
+
+```text
+$ (agent tries) rm -r -f ./build
+⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.1.0 · DENY]
+```
+
+The default policy blocks destructive shell (recursive `rm`, `find -delete`,
+`dd`, `mkfs`, `shred`) and secret access (`.env`, `.pem`, `id_rsa`, aws
+credentials — through file tools, `Grep`, and shell arguments alike), asks
+before `git push` / `npm publish` / `git reset --hard` / `git clean` and before
+edits to the guardrails or the agent's hook config, fast-paths a single
+read-only git command, and lets everything else through to the agent's normal
+permission flow. Shell rules match the *parsed* command (see
+[Shell commands](#shell-commands)), so `rm -rf`, `rm -r -f`, `/bin/rm -Rf`,
+`sudo env X=1 rm --recursive` and `bash -c 'rm -rf x'` are all the same rule.
+
+::: tip Running through npx
+`npx` runs the binary out of its package cache, which `npm cache clean` can
+delete — and agents silently skip a hook whose program is missing. So when
+`guard init` runs from the npx cache it copies the binary to `~/.ordo/bin/ordo`
+and registers that path. Re-run `guard init` after upgrading to refresh it.
+:::
 
 ::: tip Sharing across a team
 The default registration uses an absolute binary path in the git-ignored,
@@ -93,6 +114,9 @@ conditions:
 | `permission_mode` | `"default"`          | Claude Code / Codex CLI permission mode; absent on Cursor |
 | `session_id`      | `"c1a2…"`             | Cursor's `conversation_id` maps into this field too       |
 | `tool_input`      | `{ … }`              | the full, nested tool input                                |
+| `task_context`    | `"active"`           | always set — see [Task context](#task-context)              |
+| `task`, `rel_path` | `{ … }`, `"src/a.ts"` | only when a task context is active                        |
+| `programs`, `subcommands`, `argv`, `commands`, `words`, `shell_parse` | | Bash only — see [Shell commands](#shell-commands) |
 
 Any other key inside `tool_input` is hoisted to the top level too, so a new tool
 is usable in conditions without a code change.
@@ -104,6 +128,44 @@ rule is safely skipped for non-Bash tools. Be careful with negation:
 guarding with the tool first: `tool == 'Bash' && !(command contains 'x')`.
 :::
 
+## Shell commands
+
+Matching substrings of `command` is easy to bypass: `command contains 'rm -rf'`
+misses `rm -r -f`, `rm  -rf` (two spaces), and `rm -Rf`. So for every `Bash`
+call the hook also parses `command` the way a POSIX shell would — quotes and
+escapes, `&&` `||` `;` `|` `&`, subshells, `$(…)` and backticks, `bash -c '…'`
+and `eval` payloads, heredocs (their bodies are data, not commands) — unwraps
+`sudo`, `doas`, `env`, `nohup`, `nice`, `timeout`, `xargs`, `command`, …, and
+adds these fields:
+
+| Field         | Example for `sudo git -C web push && rm -rf /tmp/x` | Use it as                         |
+| ------------- | ---------------------------------------------------- | --------------------------------- |
+| `programs`    | `["sudo", "git", "rm"]`                              | `'rm' in programs`                |
+| `subcommands` | `["git push", "rm /tmp/x"]` (program + first non-flag argument, skipping options like `git -C dir`) | `'git push' in subcommands` |
+| `argv`        | `{"git": ["-C", "web", "push"], "rm": ["-rf", "-r", "-f", "/tmp/x"], …}` — short-flag clusters are also split | `'-r' in argv.rm` |
+| `commands`    | `["sudo git -C web push", "rm -rf /tmp/x"]`          | `len(commands) == 1`              |
+| `words`       | every single-token argument and redirect target (free text such as a commit message is left out) | `regex_match('[.]env', join(words, ' '))` |
+| `shell_parse` | `"ok"`, or `"error"` for unbalanced quoting / too-deep nesting | `shell_parse == 'error'` |
+
+```json
+{
+  "id": "gate-tf",
+  "label": "block terraform destroy",
+  "condition": "tool == 'Bash' && 'terraform destroy' in subcommands",
+  "nextStepId": "deny_infra"
+}
+```
+
+This is analysis, not execution: variables, aliases and shell functions are
+invisible to it, so it raises the bar rather than closing every door.
+
+::: warning One missing field makes the whole condition false
+`'-r' in argv.rm` is fine when `rm` ran — but if it didn't, `argv.rm` is
+missing and the *entire* condition is false, even an `||` alternative that
+would have matched. Guard each lookup (`'rm' in programs && '-r' in argv.rm`)
+and put alternatives that read different fields in separate branches.
+:::
+
 ## Writing rules
 
 Branch conditions are plain expression strings, evaluated top to bottom — first
@@ -112,24 +174,90 @@ match wins. Terminal codes map to decisions: `DENY`, `ASK`, `ALLOW`, and `PASS`
 
 ```json
 {
-  "id": "gate-b0",
-  "label": "block terraform destroy",
-  "condition": "tool == 'Bash' && command contains 'terraform destroy'",
-  "nextStepId": "deny_infra"
+  "id": "gate-migrations",
+  "label": "confirm migration edits",
+  "condition": "tool in ['Write', 'Edit'] && file_path contains 'migrations/'",
+  "nextStepId": "ask_migration"
 }
 ```
 
 The expression language has `== != > >= < <=`, `&&` `||` `!`, `in`, `contains`,
 and functions like `starts_with(s, prefix)`, `ends_with(s, suffix)`, and
-`regex_match(pattern, s)`.
+`regex_match(pattern, s)`, and `glob_match(pattern_or_patterns, s)`.
 
-::: warning `regex_match` argument order
-The **pattern comes first**: `regex_match('rm\\s+-rf', command)`, not the other
-way around.
+::: warning `regex_match` argument order and backslashes
+The **pattern comes first**: `regex_match('[.]pem$', file_path)`, not the other
+way around. A backslash inside an expression string is an escape (`'\s'`
+reaches the regex as plain `s`), so prefer `[.]` and a literal space over
+`\.` and `\s`.
 :::
 
 The decision reason shown to the agent comes from the matched terminal's
 `message` (or a `reason` output field, if you set one).
+
+## Task context
+
+A tool-call event says nothing about *the task* the agent is working on, so a
+policy can say "never run `terraform destroy`" but not "for this task, only
+touch `src/auth/`". To scope a task, write `.ordo-guard/context.json` (by
+hand, or from a task-planning tool) and keep one hand-written policy that
+reads it:
+
+```json
+{
+  "root": "/abs/path/to/repo",
+  "session_id": "optional: only this agent session",
+  "expires_at": "2026-10-08T00:00:00Z",
+  "task": { "id": "login-signup", "touches": ["src/auth/**", "db/schema.sql"] }
+}
+```
+
+`task` is passed through as-is: put whatever your policy needs in it. The
+context only applies when it is bound to the event:
+
+| Check        | Rule                                                                     |
+| ------------ | ------------------------------------------------------------------------ |
+| `root`       | the event's `cwd` must be inside it (default: the repo holding `.ordo-guard/`) |
+| `session_id` | if set, must equal the event's session id                                |
+| `expires_at` | if set (RFC 3339), must be in the future                                 |
+
+When it applies, the input gains `task` and `rel_path`: the edited file
+(`file_path` / `notebook_path`) relative to `root`, `/`-separated, with `.`
+and `..` resolved. Paths outside the root come back as `../…`. The input
+*always* carries `task_context`, so the policy can decide what "no usable
+task" means:
+
+| `task_context` | Meaning                                                    |
+| -------------- | ----------------------------------------------------------- |
+| `active`       | context applied: `task` and `rel_path` are set              |
+| `absent`       | no `context.json`                                           |
+| `mismatch`     | wrong `cwd` (outside `root`) or wrong session               |
+| `expired`      | past `expires_at`                                           |
+| `invalid`      | unreadable or malformed (a warning goes to stderr)          |
+
+Put the scope rule *after* your base rules, so `rm -rf` and secret access are
+still denied inside the task:
+
+```json
+{
+  "id": "gate-scope",
+  "label": "stay inside the task scope",
+  "condition": "task_context == 'active' && tool in ['Write', 'Edit'] && !glob_match(task.touches, rel_path)",
+  "nextStepId": "ask_scope"
+}
+```
+
+`glob_match` takes one pattern or an array of patterns (true if any
+matches). Its `*` also matches `/`, so `src/auth/*` covers subdirectories
+too; avoid patterns that start with a wildcard (`**`, `*/…`), since those
+also match `../` paths outside the root.
+
+Every audit-log entry made under a context records `task_context`,
+`task_id`, and `context_hash` (`sha256:` of the exact `context.json`), so a
+decision can be traced back to the task definition that was active. Like the
+rest of guard, the check is on tool *calls*: it compares path strings and
+does not resolve symlinks, and a `Bash` command can still write anywhere.
+Pair a scope rule with an `ASK` on `Bash` if that matters for the task.
 
 ## Test your guardrails
 
@@ -152,11 +280,13 @@ ordo guard test
 # …
 ```
 
-Debug what a specific event does, step by step:
+`ordo guard test` derives the [shell fields](#shell-commands) from `command`
+exactly like the live hook, so a case only needs `tool` and `command`.
+
+See what the live hook answers for a specific event:
 
 ```bash
-cd .ordo-guard
-ordo trace policy --input '{"tool":"Bash","command":"git push"}'
+echo '{"tool_name":"Bash","tool_input":{"command":"git -C web push"}}' | ordo guard hook
 ```
 
 ## Audit log
@@ -181,11 +311,35 @@ note above.) A broken guard should never wedge your agent. Pass
 `--fail-closed` (in the registered command) to invert this and deny on
 internal error instead.
 
+Failing open — or a hook whose program has gone missing, which every agent
+skips silently — means you may not notice guard is off. `ordo guard doctor`
+checks each link: the policy evaluates, its tests pass, a hook is registered,
+its program exists, and each registered hook answers a sample `rm -rf /` the
+way the agent would run it. It exits non-zero when guard isn't protecting the
+repo, so it also works as a CI or pre-commit check.
+
+### Upgrading an existing policy
+
+`ordo guard init` never overwrites an existing `.ordo-guard/`, so a repo
+scaffolded by an older CLI keeps its old default policy (before 0.6.0 that
+policy matched substrings of `command`, so `rm -r -f` got through; `doctor`
+warns about it). `ordo guard upgrade` replaces every file that is still an
+unedited copy of an older default — the policy, its tests and `AGENTS.md`.
+Files you have edited are left alone unless you pass `--force`, which keeps
+the old file as `<file>.bak`. `--dry-run` shows what would change.
+
+```bash
+ordo guard upgrade --dry-run
+ordo guard upgrade
+ordo guard test && ordo guard doctor
+```
+
 ## Limitations
 
 Guard is **defense-in-depth, not a sandbox**. It sees tool _calls_, not their
-side effects: a rule that asks before `Edit` to `.ordo-guard/` won't catch a
-`bash sed -i` doing the same edit. Layer it with the agent's own permission
+side effects, and shell parsing can't see through variables or scripts: the
+default policy asks before `sed -i … .ordo-guard/…`, but not before a script
+that edits the same file. Layer it with the agent's own permission
 system; don't treat it as a security boundary against an adversarial process.
 
 Per-agent gaps to know about, both upstream limitations rather than anything

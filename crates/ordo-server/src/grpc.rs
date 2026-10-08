@@ -120,6 +120,7 @@ impl OrdoGrpcService {
     }
 
     /// Validate tenant and check rate limit
+    #[allow(clippy::result_large_err)] // tonic's handler error type is `Status`
     async fn validate_tenant(&self, tenant_id: &str) -> std::result::Result<TenantConfig, Status> {
         if !self.multi_tenancy_enabled {
             return Ok(TenantConfig::default_for_id(
@@ -151,6 +152,7 @@ impl OrdoGrpcService {
     /// Acquire a permit from the optional global concurrency limiter, blocking
     /// (with backpressure) until one is free. Returns `None` when no limit is
     /// configured.
+    #[allow(clippy::result_large_err)] // tonic's handler error type is `Status`
     async fn acquire_permit(
         &self,
     ) -> std::result::Result<Option<tokio::sync::OwnedSemaphorePermit>, Status> {
@@ -196,6 +198,7 @@ fn build_execution_trace(
 /// Run an RPC handler future, converting any panic into a clean `Status`
 /// instead of letting it unwind across the connection (C12). This is the gRPC
 /// equivalent of the HTTP `CatchPanicLayer`.
+#[allow(clippy::result_large_err)] // tonic's handler error type is `Status`
 async fn catch_panic<T, F>(fut: F) -> std::result::Result<Response<T>, Status>
 where
     F: std::future::Future<Output = std::result::Result<Response<T>, Status>>,

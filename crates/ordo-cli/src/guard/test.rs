@@ -5,6 +5,7 @@ use clap::Args;
 use colored::Colorize;
 
 use crate::project::Project;
+use ordo_core::prelude::Value;
 
 #[derive(Args)]
 pub struct GuardTestArgs {
@@ -26,7 +27,10 @@ pub fn run(args: GuardTestArgs, json: bool) -> Result<()> {
         )
     })?;
     let project = Project::discover(Some(&policy_dir))?;
-    let summary = crate::test_runner::run_project_ruleset(&project, &args.ruleset)?;
+    // Cases are written as `{tool, command, …}`; derive the shell facts the
+    // live hook would add, so tests exercise the same input shape.
+    let summary =
+        crate::test_runner::run_project_ruleset_with(&project, &args.ruleset, prepare_case)?;
 
     let failed = summary["failed"].as_u64().unwrap_or(0);
     if json {
@@ -61,4 +65,13 @@ pub fn run(args: GuardTestArgs, json: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Add the hook's derived facts to a test case written as `{tool, command, …}`.
+pub(crate) fn prepare_case(input: Value) -> Value {
+    let Ok(serde_json::Value::Object(mut map)) = serde_json::to_value(&input) else {
+        return input;
+    };
+    super::hook::add_shell_facts(&mut map);
+    serde_json::from_value(serde_json::Value::Object(map)).unwrap_or(input)
 }

@@ -29,6 +29,29 @@ Ordo 规则使用**步骤流模型（Step Flow Model）**定义 —— 这一系
 | `version`     | string | 是   | 语义化版本 (例如 "1.0.0") |
 | `description` | string | 否   | 人类可读的描述            |
 | `entry_step`  | string | 是   | 第一个要执行的步骤 ID     |
+| `input_schema` | array | 否   | 声明的输入字段，执行前校验（见下文） |
+
+### 输入声明 (Input Schema)
+
+声明规则需要的输入字段，让错误输入被拒绝，而不是悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。
+
+```json
+"input_schema": [
+  { "name": "applicant", "type": "object", "required": true, "fields": [
+    { "name": "age", "type": "number", "required": true },
+    { "name": "credit_score", "type": "number", "required": true }
+  ]},
+  { "name": "channel", "type": "string", "defaultValue": "online" },
+  { "name": "items", "type": "array", "itemType": { "name": "item", "type": "object" } }
+]
+```
+
+- `type`：`string`、`number`（整数或小数）、`boolean`、`array`、`object` 或 `any`。
+- `required`：字段必须存在且不为 `null`。
+- `defaultValue`：字段缺失或为 `null` 时使用的默认值。
+- `fields` / `itemType`：嵌套对象字段和数组元素按同样规则校验。
+
+所有问题一次性返回。HTTP 返回 `400`，code 为 `INVALID_INPUT`，例如 `Invalid input: applicant.age: required field is missing`；gRPC 返回 `INVALID_ARGUMENT`。Studio 编辑器里的输入声明是同一结构（也接受 `inputSchema` 写法）。
 
 ### 步骤部分 (Steps)
 

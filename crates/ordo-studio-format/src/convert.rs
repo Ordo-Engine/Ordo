@@ -702,6 +702,48 @@ mod tests {
     }
 
     #[test]
+    fn test_expression_strings_in_assignments_and_outputs() {
+        let json = r#"{
+          "config": {"name": "pricing", "version": "1.0.0"},
+          "startStepId": "calc",
+          "steps": [
+            {"id": "calc", "name": "Calc", "type": "action",
+             "assignments": [{"name": "subtotal", "value": "price * qty"}],
+             "nextStepId": "done"},
+            {"id": "done", "name": "Done", "type": "terminal", "code": "OK",
+             "message": "total",
+             "output": [
+               {"name": "total", "value": "round($subtotal * 0.85, 2)"},
+               {"name": "price", "value": {"type": "variable", "path": "$.price"}}
+             ]}
+          ]
+        }"#;
+        let studio: StudioRuleSet = serde_json::from_str(json).unwrap();
+        let mut engine = RuleSet::try_from(studio).unwrap();
+        engine.compile().unwrap();
+
+        let input = serde_json::from_str(r#"{"price": 19.99, "qty": 3}"#).unwrap();
+        let result = ordo_core::rule::RuleExecutor::new()
+            .execute(&engine, input)
+            .unwrap();
+        assert_eq!(
+            result.output.get_path("total"),
+            Some(&CoreValue::float(50.97))
+        );
+        assert_eq!(
+            result.output.get_path("price"),
+            Some(&CoreValue::float(19.99))
+        );
+        // A plain string message stays literal text, not an expression.
+        assert_eq!(result.message, "total");
+
+        let err = serde_json::from_str::<StudioRuleSet>(&json.replace("price * qty", "price *"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("invalid expression `price *`"), "{err}");
+    }
+
+    #[test]
     fn test_missing_start_step_error() {
         let rs = StudioRuleSet {
             config: base_config("bad"),

@@ -81,12 +81,14 @@ pub enum StudioStepKind {
 }
 
 /// Terminal message accepts both the modern expression object shape and the
-/// legacy plain string shape for backward compatibility.
+/// legacy plain string shape for backward compatibility. A plain string is
+/// the literal message text (`String` is listed first because `StudioExpr`
+/// also accepts expression strings).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum StudioTerminalMessage {
-    Expr(StudioExpr),
     String(String),
+    Expr(StudioExpr),
 }
 
 /// A branch in a decision step.

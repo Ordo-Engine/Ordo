@@ -2,13 +2,14 @@
 //!
 //! Executes rule sets against input data
 
+use super::decision_table::{Aggregate, CompiledTableRow, DecisionTable, HitPolicy};
 use super::metrics::{MetricSink, NoOpMetricSink};
 use super::model::{FieldMissingBehavior, RuleSet};
 use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, SubRuleGraph, TerminalResult};
 use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
-use crate::expr::{Evaluator, ExprParser};
+use crate::expr::{Evaluator, Expr, ExprParser};
 use crate::trace::{ExecutionTrace, StepTrace, SubRuleCallTrace, SubRuleOutputTrace, TraceConfig};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -556,6 +557,13 @@ impl RuleExecutor {
 
             StepKind::Terminal { result } => Ok(StepResult::Terminal { result }),
 
+            StepKind::DecisionTable(table) => {
+                self.execute_decision_table(step, table, ctx, field_missing)?;
+                Ok(StepResult::Continue {
+                    next_step: table.next_step.as_str(),
+                })
+            }
+
             // Handled at the execute_internal loop level before reaching execute_step
             StepKind::SubRule { .. } => {
                 unreachable!("SubRule steps are dispatched in execute_internal")
@@ -767,6 +775,88 @@ impl RuleExecutor {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Match a decision table's rows and store its outputs as variables
+    fn execute_decision_table(
+        &self,
+        step: &Step,
+        table: &DecisionTable,
+        ctx: &mut Context,
+        field_missing: &FieldMissingBehavior,
+    ) -> Result<()> {
+        let matches = |row: &CompiledTableRow, ctx: &Context| match &row.condition {
+            None => Ok(true),
+            Some(condition) => self.eval_expr_with_field_missing(condition, ctx, field_missing),
+        };
+
+        match table.hit_policy {
+            HitPolicy::First => {
+                let mut chosen = table.compiled_default.as_ref();
+                for row in &table.compiled_rules {
+                    if matches(row, ctx)? {
+                        chosen = Some(&row.outputs);
+                        break;
+                    }
+                }
+                let outputs = chosen.ok_or_else(|| {
+                    OrdoError::eval_error(format!(
+                        "No matching row in decision table '{}' and no default",
+                        step.id
+                    ))
+                })?;
+                let values = outputs
+                    .iter()
+                    .map(|expr| self.evaluator.eval(expr, ctx))
+                    .collect::<Result<Vec<_>>>()?;
+                for (name, value) in table.outputs.iter().zip(values) {
+                    ctx.set_variable(name, value);
+                }
+            }
+            HitPolicy::Collect => {
+                let mut collected: Vec<Vec<Value>> = vec![Vec::new(); table.outputs.len()];
+                for row in &table.compiled_rules {
+                    if matches(row, ctx)? {
+                        for (column, expr) in collected.iter_mut().zip(&row.outputs) {
+                            column.push(self.evaluator.eval(expr, ctx)?);
+                        }
+                    }
+                }
+                for (name, values) in table.outputs.iter().zip(collected) {
+                    let value = match table.aggregate {
+                        None => Value::array(values),
+                        Some(Aggregate::Count) => Value::int(values.len() as i64),
+                        Some(_) if values.is_empty() => match table.aggregate {
+                            Some(Aggregate::Sum) => Value::int(0),
+                            _ => Value::Null,
+                        },
+                        Some(aggregate) => {
+                            let function = match aggregate {
+                                Aggregate::Sum => "sum",
+                                Aggregate::Min => "min",
+                                Aggregate::Max => "max",
+                                Aggregate::Count => unreachable!(),
+                            };
+                            let args = if aggregate == Aggregate::Sum {
+                                vec![Expr::literal(Value::array(values))]
+                            } else {
+                                values.into_iter().map(Expr::literal).collect()
+                            };
+                            self.evaluator
+                                .eval(&Expr::call(function, args), ctx)
+                                .map_err(|e| {
+                                    OrdoError::eval_error(format!(
+                                        "Decision table '{}' output '{}': {}",
+                                        step.id, name, e
+                                    ))
+                                })?
+                        }
+                    };
+                    ctx.set_variable(name, value);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Execute an action

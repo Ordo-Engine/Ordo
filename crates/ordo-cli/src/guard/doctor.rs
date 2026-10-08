@@ -184,8 +184,8 @@ fn check_policy(dir: &Path, ruleset: &str, report: &mut Report) {
                     Status::Warn,
                     format!(
                         "`{PROBE_COMMAND}` is denied but `{SPLIT_FLAGS_PROBE}` gets {split} — \
-                         match `programs` / `argv` instead of `command contains …` \
-                         (see `ordo guard init` in an empty directory for the current default)"
+                         match `programs` / `argv` instead of `command contains …`, \
+                         or run `ordo guard upgrade` to move to the current default"
                     ),
                 );
             }

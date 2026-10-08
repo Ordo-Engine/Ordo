@@ -573,3 +573,96 @@ fn guard_hook_warns_and_ignores_invalid_task_context() {
         stderr(&out)
     );
 }
+
+/// Decision the hook gives a Bash command, read from its JSON answer.
+fn bash_decision(dir: &PathBuf, command: &str) -> String {
+    let event = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": command },
+    });
+    let out = run_stdin(dir, &["guard", "hook", "--no-log"], &event.to_string());
+    let text = stdout(&out);
+    if text.trim().is_empty() {
+        return "pass".to_string();
+    }
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    v["hookSpecificOutput"]["permissionDecision"]
+        .as_str()
+        .unwrap_or("pass")
+        .to_string()
+}
+
+#[test]
+fn guard_upgrade_replaces_an_unedited_old_default_and_keeps_edits() {
+    let dir = temp_project("upgrade");
+    assert_ok(&run(&dir, &["guard", "init", "--no-hook"]), "guard init");
+    let guard = dir.join(".ordo-guard");
+
+    // Simulate a repo scaffolded by CLI 0.5: the 1.0.0 substring policy.
+    std::fs::write(
+        guard.join("rulesets/policy.json"),
+        include_str!("../src/guard/legacy/policy-1.0.0.json"),
+    )
+    .unwrap();
+    std::fs::write(
+        guard.join("tests/policy.json"),
+        include_str!("../src/guard/legacy/tests-1.0.0.json"),
+    )
+    .unwrap();
+    std::fs::write(
+        guard.join("AGENTS.md"),
+        include_str!("../src/guard/legacy/AGENTS-1.0.0.md"),
+    )
+    .unwrap();
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "pass");
+
+    // Dry run writes nothing.
+    let out = run(&dir, &["guard", "upgrade", "--dry-run"]);
+    assert_ok(&out, "guard upgrade --dry-run");
+    assert!(
+        stdout(&out).contains("would be upgraded"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "pass");
+
+    let out = run(&dir, &["--json", "guard", "upgrade"]);
+    assert_ok(&out, "guard upgrade");
+    let report: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(report["changed"], true);
+    for f in report["files"].as_array().unwrap() {
+        assert_eq!(f["action"], "upgraded", "{f}");
+    }
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "deny");
+    assert_ok(&run(&dir, &["guard", "test"]), "guard test after upgrade");
+
+    // A second run is a no-op.
+    let out = run(&dir, &["--json", "guard", "upgrade"]);
+    let report: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(report["changed"], false);
+
+    // An edited policy is kept (and its tests with it) unless --force.
+    let policy = guard.join("rulesets/policy.json");
+    let edited =
+        include_str!("../src/guard/legacy/policy-1.0.0.json").replacen("mkfs", "mkfs|wipefs", 1);
+    std::fs::write(&policy, &edited).unwrap();
+    std::fs::write(
+        guard.join("tests/policy.json"),
+        include_str!("../src/guard/legacy/tests-1.0.0.json"),
+    )
+    .unwrap();
+    let out = run(&dir, &["guard", "upgrade"]);
+    assert_ok(&out, "guard upgrade (edited)");
+    assert!(stdout(&out).contains("--force"), "{}", stdout(&out));
+    assert_eq!(std::fs::read_to_string(&policy).unwrap(), edited);
+
+    let out = run(&dir, &["guard", "upgrade", "--force"]);
+    assert_ok(&out, "guard upgrade --force");
+    assert_eq!(
+        std::fs::read_to_string(guard.join("rulesets/policy.json.bak")).unwrap(),
+        edited
+    );
+    assert_eq!(bash_decision(&dir, "rm -r -f build"), "deny");
+    assert_ok(&run(&dir, &["guard", "test"]), "guard test after --force");
+}

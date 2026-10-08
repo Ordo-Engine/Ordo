@@ -1,0 +1,44 @@
+{
+  "config": {
+    "name": "policy",
+    "version": "1.0.0",
+    "description": "Coding-agent tool-call policy. Evaluated by `ordo guard hook` on every pre-tool-call event. First matching branch wins; PASS defers to the agent's normal permission flow."
+  },
+  "startStepId": "gate",
+  "steps": [
+    {
+      "id": "gate", "name": "Policy gate", "type": "decision",
+      "branches": [
+        { "id": "gate-b0", "label": "block destructive shell commands",
+          "condition": "tool == 'Bash' && (command contains 'rm -rf' || command contains 'rm -fr' || command contains 'sudo rm' || regex_match('dd\\s+if=|mkfs', command))",
+          "nextStepId": "deny_destructive" },
+        { "id": "gate-b1", "label": "protect secrets and keys",
+          "condition": "tool in ['Read', 'Write', 'Edit'] && (file_path contains '.env' || ends_with(file_path, '.pem') || file_path contains 'id_rsa' || file_path contains '.aws/credentials')",
+          "nextStepId": "deny_secrets" },
+        { "id": "gate-b2", "label": "guard the guardrails",
+          "condition": "tool in ['Write', 'Edit'] && file_path contains '.ordo-guard'",
+          "nextStepId": "ask_self_edit" },
+        { "id": "gate-b3", "label": "confirm irreversible publishes",
+          "condition": "tool == 'Bash' && (command contains 'git push' || command contains 'npm publish' || command contains 'cargo publish')",
+          "nextStepId": "ask_push" },
+        { "id": "gate-b4", "label": "fast-path read-only git",
+          "condition": "tool == 'Bash' && (command == 'git status' || starts_with(command, 'git diff') || starts_with(command, 'git log'))",
+          "nextStepId": "allow_readonly_git" }
+      ],
+      "defaultNextStepId": "pass"
+    },
+    { "id": "deny_destructive", "name": "Deny destructive command", "type": "terminal",
+      "code": "DENY", "message": "Destructive shell command blocked by policy", "output": [] },
+    { "id": "deny_secrets", "name": "Deny secret access", "type": "terminal",
+      "code": "DENY", "message": "Access to secrets/credentials is blocked by policy", "output": [] },
+    { "id": "ask_self_edit", "name": "Ask on guardrail edits", "type": "terminal",
+      "code": "ASK", "message": "The agent is modifying its own guardrails — confirm", "output": [] },
+    { "id": "ask_push", "name": "Ask before publishing", "type": "terminal",
+      "code": "ASK", "message": "Irreversible publish — confirm before running", "output": [] },
+    { "id": "allow_readonly_git", "name": "Allow read-only git", "type": "terminal",
+      "code": "ALLOW", "message": "Read-only git command", "output": [] },
+    { "id": "pass", "name": "No opinion", "type": "terminal",
+      "code": "PASS", "message": "No policy rule matched", "output": [] }
+  ],
+  "subRules": {}
+}

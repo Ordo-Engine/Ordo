@@ -1,0 +1,9 @@
+[
+  { "name": "blocks rm -rf",             "input": { "tool": "Bash", "command": "rm -rf /tmp/x" },        "expect": { "code": "DENY" } },
+  { "name": "blocks reading .env",       "input": { "tool": "Read", "file_path": "apps/web/.env" },      "expect": { "code": "DENY" } },
+  { "name": "asks on guardrail edits",   "input": { "tool": "Edit", "file_path": ".ordo-guard/rulesets/policy.json" }, "expect": { "code": "ASK" } },
+  { "name": "asks before git push",      "input": { "tool": "Bash", "command": "git push origin main" }, "expect": { "code": "ASK" } },
+  { "name": "allows read-only git",      "input": { "tool": "Bash", "command": "git status" },           "expect": { "code": "ALLOW" } },
+  { "name": "no opinion on normal edits","input": { "tool": "Edit", "file_path": "src/main.rs" },        "expect": { "code": "PASS" } },
+  { "name": "missing fields are safe",   "input": { "tool": "Glob" },                                    "expect": { "code": "PASS" } }
+]

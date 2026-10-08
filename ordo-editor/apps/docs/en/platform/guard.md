@@ -318,6 +318,22 @@ its program exists, and each registered hook answers a sample `rm -rf /` the
 way the agent would run it. It exits non-zero when guard isn't protecting the
 repo, so it also works as a CI or pre-commit check.
 
+### Upgrading an existing policy
+
+`ordo guard init` never overwrites an existing `.ordo-guard/`, so a repo
+scaffolded by an older CLI keeps its old default policy (before 0.6.0 that
+policy matched substrings of `command`, so `rm -r -f` got through; `doctor`
+warns about it). `ordo guard upgrade` replaces every file that is still an
+unedited copy of an older default — the policy, its tests and `AGENTS.md`.
+Files you have edited are left alone unless you pass `--force`, which keeps
+the old file as `<file>.bak`. `--dry-run` shows what would change.
+
+```bash
+ordo guard upgrade --dry-run
+ordo guard upgrade
+ordo guard test && ordo guard doctor
+```
+
 ## Limitations
 
 Guard is **defense-in-depth, not a sandbox**. It sees tool _calls_, not their

@@ -591,6 +591,31 @@ mod tests {
     }
 
     #[test]
+    fn test_schema_jit_round_half_away_from_zero() {
+        // Must match the interpreter's `round` (f64::round), not round-half-even.
+        let evaluator = SchemaJITEvaluator::simple().unwrap();
+        let expr = Expr::Call {
+            name: "round".to_string(),
+            args: vec![Expr::Field("amount".to_string())],
+        };
+        for (amount, expected) in [
+            (2.5, 3.0),
+            (-2.5, -3.0),
+            (0.5, 1.0),
+            (1.4, 1.0),
+            (-1.6, -2.0),
+        ] {
+            let ctx = TestLoanContext {
+                amount,
+                credit_score: 700,
+                approved: false,
+            };
+            let result = evaluator.eval_typed(&expr, &ctx).unwrap();
+            assert_eq!(result.as_float(), Some(expected), "round({amount})");
+        }
+    }
+
+    #[test]
     fn test_schema_jit_evaluator_comparison() {
         let evaluator = SchemaJITEvaluator::simple().unwrap();
 

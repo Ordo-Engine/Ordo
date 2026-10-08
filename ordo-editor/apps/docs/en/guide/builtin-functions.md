@@ -130,15 +130,30 @@ abs(5)                  # 5
 abs(balance)            # positive balance
 ```
 
-### round(number)
+### round(number, digits?)
 
-Rounds to the nearest integer.
+Rounds half away from zero. With one argument it returns an integer; with `digits` (0–15) it keeps that many decimal places, rounding the number as written (so `1.005` rounds up even though its binary value is slightly below).
 
 ```
 round(3.4)              # 3
 round(3.5)              # 4
-round(3.6)              # 4
+round(-3.5)             # -4
+round(1.005, 2)         # 1.01
+round(19.99 * 0.85, 2)  # 16.99
 ```
+
+### decimal(value)
+
+Converts a number or numeric string to an exact decimal, for money. Arithmetic involving a decimal stays decimal, so there is no float error.
+
+```
+decimal(0.1) + 0.2           # 0.3 (exact)
+decimal("19.99") * 3         # 59.97
+round(decimal("2.675"), 2)   # 2.68
+type(decimal(1))             # "decimal"
+```
+
+Decimals compare by value with ints and floats (`decimal("10.00") == 10` is `true`). In JSON output they are numbers. Send amounts with more than ~15 significant digits as strings to keep them exact.
 
 ### floor(number)
 

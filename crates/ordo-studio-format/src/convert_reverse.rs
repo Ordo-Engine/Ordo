@@ -41,7 +41,11 @@ pub fn engine_to_studio(rs: &RuleSet) -> StudioRuleSet {
         tags: None,
         enable_trace: Some(rs.config.enable_trace),
         timeout: Some(rs.config.timeout_ms),
-        input_schema: None,
+        input_schema: if rs.config.input_schema.is_empty() {
+            None
+        } else {
+            serde_json::to_value(&rs.config.input_schema).ok()
+        },
         output_schema: None,
         metadata: rs
             .config

@@ -299,6 +299,13 @@ fn read_value(cursor: &mut Cursor<'_>) -> Result<Value> {
         1 => Ok(Value::Bool(read_u8(cursor)? != 0)),
         2 => Ok(Value::Int(read_i64(cursor)?)),
         3 => Ok(Value::Float(read_f64(cursor)?)),
+        7 => {
+            let mut bytes = [0u8; 16];
+            for b in bytes.iter_mut() {
+                *b = read_u8(cursor)?;
+            }
+            Ok(Value::Decimal(rust_decimal::Decimal::deserialize(bytes)))
+        }
         4 => Ok(Value::string(read_string(cursor)?)),
         5 => {
             let len = read_u32(cursor)? as usize;
@@ -357,6 +364,10 @@ fn write_value(out: &mut Vec<u8>, value: &Value) {
         Value::Float(v) => {
             write_u8(out, 3);
             write_f64(out, *v);
+        }
+        Value::Decimal(v) => {
+            write_u8(out, 7);
+            out.extend_from_slice(&v.serialize());
         }
         Value::String(v) => {
             write_u8(out, 4);
@@ -768,6 +779,7 @@ impl BytecodeVM {
                     regs[inst.a as usize] = match val {
                         Value::Int(n) => Value::int(-n),
                         Value::Float(n) => Value::float(-n),
+                        Value::Decimal(n) => Value::Decimal(-*n),
                         _ => return Err(OrdoError::type_error("number", val.type_name())),
                     };
                 }
@@ -1110,6 +1122,7 @@ impl BytecodeVM {
                     regs[inst.a as usize] = match val {
                         Value::Int(n) => Value::int(-n),
                         Value::Float(n) => Value::float(-n),
+                        Value::Decimal(n) => Value::Decimal(-*n),
                         _ => return Err(OrdoError::type_error("number", val.type_name())),
                     };
                 }
@@ -1324,6 +1337,9 @@ impl BytecodeVM {
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 + b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a + *b as f64)),
             (Value::String(a), Value::String(b)) => Ok(Value::string(format!("{}{}", a, b))),
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Add, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot add {} and {}",
                 left.type_name(),
@@ -1342,6 +1358,9 @@ impl BytecodeVM {
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a - b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 - b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a - *b as f64)),
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Sub, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot subtract {} and {}",
                 left.type_name(),
@@ -1360,6 +1379,9 @@ impl BytecodeVM {
             (Value::Float(a), Value::Float(b)) => Ok(Value::float(a * b)),
             (Value::Int(a), Value::Float(b)) => Ok(Value::float(*a as f64 * b)),
             (Value::Float(a), Value::Int(b)) => Ok(Value::float(a * *b as f64)),
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Mul, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot multiply {} and {}",
                 left.type_name(),
@@ -1375,7 +1397,7 @@ impl BytecodeVM {
                 if *b == 0 {
                     return Err(OrdoError::eval_error("Division by zero"));
                 }
-                Ok(Value::int(a / b))
+                Ok(crate::context::int_div(*a, *b))
             }
             (Value::Float(a), Value::Float(b)) => {
                 if *b == 0.0 {
@@ -1395,6 +1417,9 @@ impl BytecodeVM {
                 }
                 Ok(Value::float(a / *b as f64))
             }
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Div, left, right)
+            }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot divide {} and {}",
                 left.type_name(),
@@ -1411,6 +1436,9 @@ impl BytecodeVM {
                     return Err(OrdoError::eval_error("Modulo by zero"));
                 }
                 Ok(Value::int(a % b))
+            }
+            (Value::Decimal(_), _) | (_, Value::Decimal(_)) => {
+                crate::context::decimal_arith(crate::context::DecOp::Rem, left, right)
             }
             _ => Err(OrdoError::eval_error(format!(
                 "Cannot modulo {} and {}",

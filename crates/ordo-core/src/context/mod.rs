@@ -11,4 +11,5 @@ mod value;
 
 pub use schema::{FieldSchema, FieldType, MessageSchema, ResolvedField, SchemaRegistry};
 pub use store::Context;
+pub(crate) use value::{decimal_arith, int_div, to_decimal, DecOp};
 pub use value::{IString, SmallArray, Value};

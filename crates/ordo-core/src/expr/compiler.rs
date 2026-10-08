@@ -184,13 +184,19 @@ impl ExprCompiler {
                 // Allocate result register first, then argument registers
                 let result_reg = self.alloc_reg();
 
-                // Compile arguments into consecutive registers after result
+                // Reserve one consecutive slot per argument right after the
+                // result register, then compile each argument (its temporaries
+                // land above the reserved slots) and move it into its slot.
+                // An argument's result register is not necessarily its slot:
+                // e.g. `max(1, 2 + 3)` leaves `2 + 3` above its operands.
                 let arg_start = self.next_reg;
-                for arg in args {
+                for _ in args {
+                    self.alloc_reg();
+                }
+                for (i, arg) in args.iter().enumerate() {
+                    let target = arg_start.wrapping_add(i as u8);
                     let arg_reg = self.compile_expr(arg);
-                    // Move to consecutive position if needed
-                    if arg_reg != self.next_reg - 1 {
-                        let target = self.alloc_reg();
+                    if arg_reg != target {
                         self.emit(Instruction::new(Opcode::Move, target, arg_reg, 0));
                     }
                 }

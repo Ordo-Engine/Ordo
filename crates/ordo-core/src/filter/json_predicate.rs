@@ -203,6 +203,7 @@ fn value_to_json(val: &Value) -> JsonValue {
         Value::Float(f) => serde_json::Number::from_f64(*f)
             .map(JsonValue::Number)
             .unwrap_or(JsonValue::Null),
+        Value::Decimal(_) => serde_json::to_value(val).unwrap_or(JsonValue::Null),
         Value::String(s) => JsonValue::String(s.to_string()),
         Value::Array(arr) => JsonValue::Array(arr.iter().map(value_to_json).collect()),
         Value::Object(map) => {

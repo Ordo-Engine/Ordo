@@ -268,6 +268,19 @@ ordo guard log --json | jq 'select(.decision=="deny")'
 `ordo guard doctor` 会逐项检查：策略能求值、测试通过、钩子已注册、钩子程序存在，并且按 Agent 的方式实际运行
 每个已注册的钩子，确认它对 `rm -rf /` 的回答。护栏没在保护仓库时它返回非零，所以也可以放进 CI 或 pre-commit。
 
+### 升级已有策略
+
+`ordo guard init` 从不覆盖已存在的 `.ordo-guard/`，所以用旧版 CLI 初始化过的仓库会一直停在旧的默认策略上
+（0.6.0 之前的默认策略按 `command` 子串匹配，`rm -r -f` 能直接绕过；`doctor` 会对此给出警告）。
+`ordo guard upgrade` 会替换所有仍是旧版默认、没被改过的文件：策略、它的测试和 `AGENTS.md`。
+你改过的文件默认保留不动；加 `--force` 才会替换，旧文件另存为 `<文件>.bak`。`--dry-run` 只显示会改什么。
+
+```bash
+ordo guard upgrade --dry-run
+ordo guard upgrade
+ordo guard test && ordo guard doctor
+```
+
 ## 局限
 
 Guard 是**纵深防御，不是沙箱**。它看到的是工具*调用*，不是其副作用，shell 解析也看不穿变量和脚本：

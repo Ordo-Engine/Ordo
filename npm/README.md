@@ -26,6 +26,7 @@ have a test suite:
 ordo guard doctor    # is the hook registered, present, and actually answering?
 ordo guard test      # run the policy's own tests
 ordo guard log       # every decision, timestamped and auditable
+ordo guard upgrade   # move a policy scaffolded by an older CLI to the current default
 ```
 
 Edit `.ordo-guard/rulesets/policy.json` in plain expressions

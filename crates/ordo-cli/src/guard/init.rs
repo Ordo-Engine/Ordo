@@ -44,7 +44,7 @@ pub struct GuardInitArgs {
 
 /// The default policy — deliberately opinionated but small, so the first
 /// `ordo guard test` run is green and every rule reads as an example to copy.
-const POLICY_JSON: &str = r#"{
+pub(super) const POLICY_JSON: &str = r#"{
   "config": {
     "name": "policy",
     "version": "1.1.0",
@@ -117,7 +117,7 @@ const POLICY_JSON: &str = r#"{
   "subRules": {}
 }"#;
 
-const POLICY_TESTS: &str = r#"[
+pub(super) const POLICY_TESTS: &str = r#"[
   { "name": "blocks rm -rf", "input": { "tool": "Bash", "command": "rm -rf /tmp/x" }, "expect": { "code": "DENY" } },
   { "name": "blocks rm -r -f (split flags)", "input": { "tool": "Bash", "command": "rm -r -f build" }, "expect": { "code": "DENY" } },
   { "name": "blocks rm -Rf via absolute path", "input": { "tool": "Bash", "command": "/bin/rm -Rf build" }, "expect": { "code": "DENY" } },
@@ -306,6 +306,15 @@ pub fn run(args: GuardInitArgs, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// The default policy as `guard init` writes it. Parse + re-serialize so the
+/// written policy is valid studio format by construction (same pattern as
+/// `ordo new ruleset`).
+pub(super) fn render_policy() -> Result<String> {
+    let studio: StudioRuleSet =
+        serde_json::from_str(POLICY_JSON).context("built-in guard policy is invalid")?;
+    Ok(format!("{}\n", serde_json::to_string_pretty(&studio)?))
+}
+
 fn scaffold(guard_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(guard_dir.join("rulesets"))?;
     std::fs::create_dir_all(guard_dir.join("tests"))?;
@@ -319,14 +328,7 @@ fn scaffold(guard_dir: &Path) -> Result<()> {
     };
     std::fs::write(guard_dir.join(CONFIG_FILE), serde_yaml::to_string(&config)?)?;
 
-    // Parse + re-serialize so the written policy is valid studio format by
-    // construction (same pattern as `ordo new ruleset`).
-    let studio: StudioRuleSet =
-        serde_json::from_str(POLICY_JSON).context("built-in guard policy is invalid")?;
-    std::fs::write(
-        guard_dir.join("rulesets/policy.json"),
-        format!("{}\n", serde_json::to_string_pretty(&studio)?),
-    )?;
+    std::fs::write(guard_dir.join("rulesets/policy.json"), render_policy()?)?;
     std::fs::write(guard_dir.join("tests/policy.json"), POLICY_TESTS)?;
     std::fs::write(guard_dir.join("facts.json"), POLICY_FACTS)?;
     std::fs::write(guard_dir.join("concepts.json"), "[]\n")?;
@@ -335,7 +337,7 @@ fn scaffold(guard_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-const GUARD_AGENTS_MD: &str = r#"# Ordo guard policy
+pub(super) const GUARD_AGENTS_MD: &str = r#"# Ordo guard policy
 
 This folder is the tool-call policy for AI coding agents working in the parent
 repo. `ordo guard hook` evaluates `rulesets/policy.json` on every pre-tool-call

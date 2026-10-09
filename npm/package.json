@@ -1,7 +1,7 @@
 {
   "name": "@ordo-engine/cli",
   "version": "0.7.0",
-  "description": "Ordo CLI \u2014 author, test, trace, and ship decision rules (rules-as-files, with an MCP server for coding agents)",
+  "description": "Ordo CLI: write business rules as files, test and trace them, and see which decisions a change moves. Includes an MCP server for coding agents and Ordo Guard.",
   "bin": {
     "ordo": "bin/ordo.js"
   },
@@ -17,6 +17,8 @@
     "ordo",
     "rule-engine",
     "decision",
+    "business-rules",
+    "decision-table",
     "mcp",
     "cli"
   ],

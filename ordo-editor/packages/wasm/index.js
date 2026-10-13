@@ -84,3 +84,19 @@ export async function get_compiled_ruleset_info(compiled_bytes) {
   await ensureLoaded();
   return wasmModule.get_compiled_ruleset_info(compiled_bytes);
 }
+
+// Format conversion (synchronous; call init() first)
+function loadedModule() {
+  if (!wasmModule) {
+    throw new Error('WASM module not initialized — call init() first');
+  }
+  return wasmModule;
+}
+
+export function studio_to_engine_json(studio_json) {
+  return loadedModule().studio_to_engine_json(studio_json);
+}
+
+export function engine_to_studio_json(engine_json) {
+  return loadedModule().engine_to_studio_json(engine_json);
+}

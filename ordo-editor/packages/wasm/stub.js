@@ -19,6 +19,8 @@ export const validate_ruleset = notAvailable('validate_ruleset');
 export const eval_expression = notAvailable('eval_expression');
 export const analyze_jit_compatibility = notAvailable('analyze_jit_compatibility');
 export const analyze_ruleset_jit = notAvailable('analyze_ruleset_jit');
+export const studio_to_engine_json = notAvailable('studio_to_engine_json');
+export const engine_to_studio_json = notAvailable('engine_to_studio_json');
 
 // Default export for init function
 export default async function init() {

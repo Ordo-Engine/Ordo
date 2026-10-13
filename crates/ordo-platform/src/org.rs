@@ -78,7 +78,8 @@ impl From<&Organization> for OrgResponse {
 
 /// POST /api/v1/orgs — create organization (caller becomes owner)
 ///
-/// - Root org (`parent_org_id` absent): requires `allow_org_creation` config flag.
+/// - Root org (`parent_org_id` absent): requires `allow_org_creation` config flag,
+///   except for the very first root org on a fresh install.
 /// - Sub-org (`parent_org_id` present): requires Admin+ role in the parent org;
 ///   the parent must itself be a root org (depth 0) to enforce the two-level limit.
 pub async fn create_org(
@@ -102,7 +103,7 @@ pub async fn create_org(
         (Some(pid.clone()), 1_i32)
     } else {
         // Root org: check platform config flag.
-        if !state.config.allow_org_creation {
+        if !crate::auth::root_org_creation_open(&state).await {
             return Err(PlatformError::forbidden(
                 "Creating new organizations is disabled on this platform. Contact your platform administrator.",
             ));

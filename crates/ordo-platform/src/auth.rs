@@ -56,16 +56,29 @@ pub struct AuthResponse {
 /// GET /api/v1/system/config — public, returns feature flags the UI needs before login
 pub async fn system_config(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({
-        "allow_registration": state.config.allow_registration,
-        "allow_org_creation": state.config.allow_org_creation,
+        "allow_registration": registration_open(&state).await,
+        "allow_org_creation": root_org_creation_open(&state).await,
     }))
+}
+
+/// Self-registration is open when the flag is set, or on a fresh install with
+/// no users yet, so the first person can create the initial account even with
+/// the secure default (`allow_registration = false`).
+pub(crate) async fn registration_open(state: &AppState) -> bool {
+    state.config.allow_registration || matches!(state.store.count_users().await, Ok(0))
+}
+
+/// Root org creation is open when the flag is set, or while no root org exists,
+/// so the first user can set up the initial organization.
+pub(crate) async fn root_org_creation_open(state: &AppState) -> bool {
+    state.config.allow_org_creation || matches!(state.store.count_root_orgs().await, Ok(0))
 }
 
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> ApiResult<Json<AuthResponse>> {
-    if !state.config.allow_registration {
+    if !registration_open(&state).await {
         return Err(PlatformError::forbidden(
             "Self-registration is disabled. Contact your organization admin for an invitation.",
         ));

@@ -104,8 +104,12 @@ async function handleCreate() {
       }
       MessagePlugin.success(t('org.createSubOrgSuccess'));
     } else {
-      await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined);
+      const org = await orgStore.createOrg(newOrgName.value.trim(), newOrgDesc.value || undefined);
       MessagePlugin.success(t('org.createSuccess'));
+      showCreate.value = false;
+      // Same as creating from the header switcher: land in the new org's projects.
+      router.push(`/orgs/${org.id}/projects`);
+      return;
     }
     showCreate.value = false;
   } catch (e: any) {

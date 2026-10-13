@@ -103,7 +103,7 @@ The tests did not notice, but 18 inputs that used to wait for a person now get t
 
 Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the result to other tools. Coding agents get the same check through `ordo mcp`, so an agent can look at the effect of its own rule edit before a person reviews it.
 
-`ordo impact` needs CLI 0.7.0 or later ([release](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)). See the [CLI docs](https://docs.ordoengine.com/en/platform/cli).
+`ordo impact` needs CLI 0.7.0 or later, and `--model` and `ordo decisions` need 0.8.0 ([release](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.8.0)). See the [CLI docs](https://docs.ordoengine.com/en/platform/cli).
 
 ## Put Ordo in front of Jev
 

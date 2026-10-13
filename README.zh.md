@@ -107,20 +107,39 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 
 ## 把 Ordo 放在 Jev 前面
 
-ordo-server 可以放在应用和 Jev 之间。代码照常调用 Jev，每个回答返回时都会带上 Ordo 的决策。加上 `--decide-log-dir <目录>`，每次调用还会记进决策日志，`ordo impact --inputs` 可以直接读。
+ordo-server 可以放在应用和 Jev 之间。代码照常调用 Jev，每个回答返回时都会带上 Ordo 的决策，每次调用也会记进决策日志。
 
 ```bash
+mkdir -p decisions && chmod 777 decisions   # 容器里的用户要往这里写日志
 docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<你的 OpenRouter key> \
+  -v "$PWD/decisions:/decisions" \
   ghcr.io/ordo-engine/ordo:latest \
   --rules-dir /app/rule-packs/jev-routing/rulesets \
-  --decide-upstream https://openrouter.ai/api
+  --decide-upstream https://openrouter.ai/api \
+  --decide-log-dir /decisions --decide-log-requests
 
 # 在 examples/rule-packs/jev-routing 目录下
 curl localhost:8080/systemone/v1/systemone \
   -H 'content-type: application/json' -d @request.json
 ```
 
-返回的是 Jev 的回答，外加一个 `ordo` 字段，里面是决策（`code`、`message`、`output`）。在应用里设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone`，请求里加上 `ordo` 字段，写明规则集和订单信息就行。详见[决策模型网关文档](https://docs.ordoengine.com/zh/platform/decision-gateway)。
+返回的是 Jev 的回答，外加一个 `ordo` 字段，里面是决策（`code`、`message`、`output`）。在应用里设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone`，请求里加上 `ordo` 字段，写明规则集和订单信息就行。`ordo decisions decisions/` 汇总都做了哪些决定。
+
+换模型之前，把日志里的真实请求拿去问新模型，看哪些决定会变：
+
+```text
+$ ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+    --model cloudflare/clef-flash --repeat 3
+  model: typesafe/jev-1.13-20260917 → cloudflare/clef-flash
+  24 logged requests asked again, 3 times each
+
+  AUTO_REFUND → ESCALATE  1 input
+  AUTO_REFUND → LLM_DRAFT  3 inputs
+  HUMAN_REVIEW → ESCALATE  1 input
+  ROUTE_TEAM → HUMAN_REVIEW  2 inputs
+```
+
+规则一条没改，只是换了模型，24 个请求里就有 7 个换了处理方式。一位嫌夹克太小想退货的客户，问三次有两次会被当成要发起拒付，转给资深客服。详见[决策模型网关文档](https://docs.ordoengine.com/zh/platform/decision-gateway)。
 
 ## 规则包
 

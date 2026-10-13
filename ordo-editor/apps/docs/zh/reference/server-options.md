@@ -367,7 +367,7 @@ System One 兼容接口的 base URL，例如 `https://api.typesafe.ai` 或 `http
 
 ### --decide-log-requests
 
-在决策日志里同时记录请求的 `state` 和 `questions`。`state` 通常是客户原文，所以默认关闭。
+在决策日志里同时记录请求（`state`、`questions`、`model`），这样 `ordo impact --model` 才能拿同样的问题去问另一个模型。`state` 通常是客户原文，所以默认关闭。
 
 |              |                            |
 | ------------ | -------------------------- |

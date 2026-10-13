@@ -117,7 +117,7 @@ can sit in front of Jev and do both in one call, and log every decision:
 export ORDO_DECIDE_API_KEY=sk-or-...
 ordo-server --rules-dir rulesets \
   --decide-upstream https://openrouter.ai/api \
-  --decide-log-dir decisions
+  --decide-log-dir decisions --decide-log-requests
 ```
 
 The application keeps sending its normal Jev request to
@@ -145,8 +145,22 @@ The response is Jev's answer with the decision added:
 "ordo": { "code": "AUTO_REFUND", "message": "Refund issued without review", "output": { "jev_confidence": 1, "priority": "normal", ... }, ... }
 ```
 
-Each call adds a line to `decisions/decisions-YYYY-MM-DD.jsonl`, and those
-files are what `ordo impact --inputs` reads in the next section. See the
+Each call adds a line to `decisions/decisions-YYYY-MM-DD.jsonl`.
+[`traffic.jsonl`](./traffic.jsonl) holds 24 made-up customer messages with
+their order facts, one gateway request per line, so you can fill the log
+right away:
+
+```bash
+while read -r req; do
+  curl -s localhost:8080/systemone/v1/systemone \
+    -H 'content-type: application/json' -d "$req" > /dev/null
+done < traffic.jsonl
+
+ordo decisions decisions/
+```
+
+`ordo decisions` counts the decisions per code and lists the latest ones with
+the Jev answers behind them. The next two sections use the same log. See the
 [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway)
 for the details.
 
@@ -178,5 +192,48 @@ threshold right at the edge is worth replaying. With the gateway's decision
 log, run `ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl`
 to count how many real refunds the change would send out unreviewed. Any JSON
 Lines file of Ordo inputs (Jev answers plus order facts) works the same way.
+
+## Switch models, see what moves
+
+A new Jev version, or another model that speaks `/v1/systemone`, reads the same
+message differently. Before switching, ask it the logged requests again:
+
+```
+$ ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+    --model cloudflare/clef-flash --repeat 3
+impact refund-routing  (HEAD → working tree)
+  model: typesafe/jev-1.13-20260917 → cloudflare/clef-flash
+  24 logged requests asked again, 3 times each
+
+  AUTO_REFUND → ESCALATE  1 input
+  AUTO_REFUND → LLM_DRAFT  3 inputs
+  HUMAN_REVIEW → ESCALATE  1 input
+  ROUTE_TEAM → HUMAN_REVIEW  2 inputs
+
+CHANGED line:5  (2 of 3 asks)  The jacket is too small. Can I send it back and get my money back?
+    code: AUTO_REFUND → ESCALATE
+    message: "Refund issued without review" → "Chargeback or legal threat, send to a senior agent"
+    ...
+    jev.chargeback.noul: 0.05 → 0.5312
+...
+7 changed · 17 unchanged
+```
+
+That run used the 24 messages in `traffic.jsonl`, answered by
+`typesafe/jev-1.13` and then asked again on 2026-10-13 through OpenRouter,
+three times per message. With the same rules, `cloudflare/clef-flash` would
+have sent a customer whose jacket was too small to a senior agent as a
+chargeback threat (on two of three asks) and stopped three automatic refunds.
+`liquid/d1` changed one decision on every ask: a gift return went from
+AUTO_REFUND to LLM_DRAFT. Asking `typesafe/jev-1.13` itself again changed
+none, although its numbers moved a little.
+
+`--repeat 3` asks each message three times, because models do not answer the
+same way twice. A decision that changes on only some asks sits right at a
+threshold.
+
+The log has to be written with `--decide-log-requests`, because the new model
+needs the customer's message. `--model` calls OpenRouter unless `--upstream`
+says otherwise, and every request is a paid model call.
 
 The thresholds here are illustrative, not advice for any real refund policy.

@@ -368,7 +368,7 @@ Decision log directory, rotated daily (`decisions-YYYY-MM-DD.jsonl`). `ordo impa
 
 ### --decide-log-requests
 
-Also write each request's `state` and `questions` to the decision log. Off by default, because `state` is usually customer text.
+Also write each request (`state`, `questions`, `model`) to the decision log, so `ordo impact --model` can ask another model the same questions. Off by default, because `state` is usually customer text.
 
 |                          |                            |
 | ------------------------ | -------------------------- |

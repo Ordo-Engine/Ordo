@@ -93,6 +93,18 @@ Use `--base <rev>` to compare against another commit, or `--base-file` to
 compare against a file. `--json` gives agents structured output, and
 `--fail-on-change` exits non-zero when anything changed, for CI.
 
+### Before switching decision models
+
+If ordo-server sits in front of Jev as a [decision model gateway](/en/platform/decision-gateway), two more commands read its decision log:
+
+```bash
+ordo decisions decisions/       # decisions per code, models, the latest calls
+ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+  --model cloudflare/clef-flash  # ask another model the logged requests
+```
+
+`--model` sends every logged request to that model, runs the rules on its answers, and lists the decisions that change. The log needs `--decide-log-requests`. See [Check a model switch against real requests](/en/platform/decision-gateway#check-a-model-switch-against-real-requests).
+
 ## Sync with the platform
 
 The platform is a remote you pull from and push/publish to.
@@ -145,6 +157,7 @@ ordo completions zsh > ~/.zfunc/_ordo    # bash | zsh | fish | powershell | elvi
 | ---------- | --------------------------------------------------------------------------- |
 | Scaffold   | `init`, `new`                                                               |
 | Local loop | `validate`, `test`, `trace`, `impact`, `exec`, `eval`, `fmt`, `lint`        |
+| Gateway    | `decisions`, `impact --model`                                               |
 | Platform   | `login`, `whoami`, `link`, `pull`, `push`, `publish`, `deployments`, `diff` |
 | Agent      | `mcp`                                                                       |
 | Misc       | `completions`                                                               |

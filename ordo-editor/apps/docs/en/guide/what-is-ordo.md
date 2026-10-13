@@ -1,6 +1,6 @@
 # What is Ordo?
 
-Ordo is an open-source rule engine. You write business rules as JSON or YAML files, and Ordo validates, tests, runs and traces them. The name is Latin for "order".
+Ordo is an open-source decision engine. You write business rules as JSON or YAML files, and Ordo validates, tests, runs and traces them. The name is Latin for "order".
 
 ## The problem it solves
 
@@ -40,6 +40,12 @@ The same rule file runs in several ways:
 
 When a team needs visual editing, approvals and multiple environments, add [Studio & Platform](/en/platform/overview). The engine is fully usable without it.
 
+## With decision models
+
+Decision models like [Jev](https://typesafe.ai) read a piece of text and answer questions such as "is this a refund request?" or "how urgent is it?", each with a confidence. They only judge. Whether to refund, and whether a person should look first, also depends on the amount, the refund window, the customer's history and your policy. That part is a decision, and it lives in Ordo rules.
+
+The model's answers reach the rules as input fields, such as `jev.intent.confidence`. Thresholds sit in the rule file with tests, and `ordo impact` shows which decisions a change moves before you make it. For a full example, see the [jev-routing rule pack](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing).
+
 ## Working with AI
 
 Rules are structured files and the expression language is small, so a rule an AI writes can be compiled and checked with `ordo validate`, tested with `ordo test`, and, when the result is wrong, inspected with `ordo trace` to see which path it took. `ordo mcp` exposes these as tools to a coding agent.
@@ -48,7 +54,7 @@ Rules are structured files and the expression language is small, so a rule an AI
 
 ## Good fit, poor fit
 
-A good fit: decision logic that changes often, must be exact, and has to be explained and audited, such as pricing, promotions, risk, eligibility, approvals and routing.
+A good fit: decision logic that changes often, must be exact, and has to be explained and audited, such as pricing, promotions, risk, eligibility, approvals and routing, and what to do once a decision model has given its judgment.
 
 A poor fit: long-running processes with waits and human steps (use a workflow engine), and general computation that needs loops or heavy data processing.
 

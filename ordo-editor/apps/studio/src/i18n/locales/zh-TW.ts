@@ -1359,7 +1359,9 @@ export default {
     batchIntervalField: '批次間隔（秒）',
     maxFailedInstancesField: '最大失敗實例數',
     noPolicyForRequestTitle: '目前還沒有發佈策略',
+    noEnvironmentForRequestDesc: '發佈需要一個目標環境。先建立環境，回來後這裡填過的內容還在。',
     noPolicyForRequestDesc: '請先建立策略，讓發佈單可以綁定審批人、放量方式與回退規則。',
+    bindServers: '綁定節點',
     noBoundServer: '目前環境未綁定執行節點，發佈單會記錄為 0 個受影響實例。',
     serverStatusLabel: '節點狀態',
     serverStatusMap: {

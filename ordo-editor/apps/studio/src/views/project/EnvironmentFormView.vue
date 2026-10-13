@@ -6,6 +6,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import type { ProjectEnvironment, ServerInfo } from '@/api/types';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useServerStore } from '@/stores/server';
+import { readReturnTo } from '@/utils/return-to';
 
 const route = useRoute();
 const router = useRouter();
@@ -247,6 +248,9 @@ watch(
   }
 );
 
+// Set when another page (e.g. a release request) sent the user here to create an environment.
+const returnTo = readReturnTo(route.query);
+
 onMounted(async () => {
   try {
     await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()]);
@@ -295,7 +299,8 @@ async function save() {
       canary_percentage: form.value.canary_percentage,
     });
 
-    router.replace({ name: 'project-environments', params: { orgId, projectId } });
+    if (returnTo) router.replace(returnTo);
+    else router.replace({ name: 'project-environments', params: { orgId, projectId } });
   } catch (e: any) {
     MessagePlugin.error(e.message || t('common.saveFailed'));
   } finally {
@@ -304,7 +309,8 @@ async function save() {
 }
 
 function cancel() {
-  router.push({ name: 'project-environments', params: { orgId, projectId } });
+  if (returnTo) router.push(returnTo);
+  else router.push({ name: 'project-environments', params: { orgId, projectId } });
 }
 </script>
 

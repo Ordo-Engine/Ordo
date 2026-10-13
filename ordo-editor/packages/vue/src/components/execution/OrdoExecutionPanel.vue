@@ -43,12 +43,18 @@ export interface Props {
   height?: number;
   /** Whether the panel is visible */
   visible?: boolean;
+  /**
+   * Only run in the browser (WASM). Hides the HTTP/JIT engine endpoint, for
+   * hosts like Studio where a draft must never be uploaded to a live engine.
+   */
+  localOnly?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   sampleInput: '{\n  \n}',
   height: 300,
   visible: false,
+  localOnly: false,
 });
 
 const emit = defineEmits<{
@@ -460,7 +466,12 @@ function stopResize() {
         </div>
 
         <div class="panel-actions">
-          <select v-model="executionMode" class="mode-select" :title="t('execution.mode')">
+          <select
+            v-if="!localOnly"
+            v-model="executionMode"
+            class="mode-select"
+            :title="t('execution.mode')"
+          >
             <option value="wasm">WASM</option>
             <option value="http">HTTP</option>
             <option value="jit" :disabled="!!(jitAnalysis && !jitAnalysis.overallCompatible)">
@@ -469,7 +480,7 @@ function stopResize() {
           </select>
 
           <!-- Server endpoint input for HTTP/JIT modes -->
-          <div v-if="executionMode !== 'wasm'" class="endpoint-input-wrapper">
+          <div v-if="!localOnly && executionMode !== 'wasm'" class="endpoint-input-wrapper">
             <input
               v-model="httpEndpoint"
               type="text"

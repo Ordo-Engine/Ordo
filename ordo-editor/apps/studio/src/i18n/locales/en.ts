@@ -1399,8 +1399,11 @@ export default {
     batchIntervalField: 'Batch interval (seconds)',
     maxFailedInstancesField: 'Max failed instances',
     noPolicyForRequestTitle: 'No release policy is configured yet',
+    noEnvironmentForRequestDesc:
+      'A release needs a target. Create an environment first; this form keeps what you filled in.',
     noPolicyForRequestDesc:
       'Create a policy first so this release request can bind approvers, rollout, and rollback rules.',
+    bindServers: 'Bind servers',
     noBoundServer:
       'This environment has no bound execution node. The request will record 0 affected instances.',
     serverStatusLabel: 'Node status',

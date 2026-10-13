@@ -65,6 +65,36 @@ const selectedPolicy = computed(
 );
 const canManagePolicies = computed(() => rbacStore.can('release:policy.manage'));
 const hasPolicies = computed(() => policies.value.length > 0);
+const hasEnvironments = computed(() => envStore.environments.length > 0);
+
+// A half-filled request survives the detour to create an environment or policy.
+const DRAFT_KEY = `ordo:release-request-draft:${projectId}`;
+
+function saveDraft() {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form.value));
+  } catch {
+    // Storage unavailable: the detour still works, the form just starts fresh.
+  }
+}
+
+function takeDraft(): Partial<typeof form.value> | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    sessionStorage.removeItem(DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 // ── Auto-fill logic ──────────────────────────────────────────────────────────
 
@@ -126,6 +156,18 @@ onMounted(async () => {
       refreshPolicies(),
     ]);
     await nextTick();
+    const draft = takeDraft();
+    if (draft) {
+      const ruleset = form.value.ruleset_name || draft.ruleset_name || '';
+      form.value = { ...form.value, ...draft, ruleset_name: ruleset };
+      // Environments and policies may have changed during the detour.
+      if (!envStore.environments.some((e) => e.id === form.value.environment_id)) {
+        form.value.environment_id = '';
+      }
+      if (!policies.value.some((p) => p.id === form.value.policy_id)) {
+        form.value.policy_id = '';
+      }
+    }
     if (!form.value.ruleset_name && projectStore.rulesets.length > 0) {
       form.value.ruleset_name = projectStore.rulesets[0].name;
     }
@@ -181,6 +223,7 @@ async function handleSubmit() {
       rollback_version: form.value.rollback_version || undefined,
       affected_instance_count: targetPreview.value?.affected_instance_count ?? 0,
     });
+    clearDraft();
     MessagePlugin.success(t('releaseCenter.requestCreated'));
     router.replace({
       name: 'project-release-request-detail',
@@ -194,14 +237,34 @@ async function handleSubmit() {
 }
 
 function handleCancel() {
+  clearDraft();
   router.push({ name: 'project-release-requests', params: { orgId, projectId } });
 }
 
 function goToPolicies() {
+  saveDraft();
   router.push({
     name: 'project-release-policies',
     params: { orgId, projectId },
-    query: { create: '1' },
+    query: { create: '1', returnTo: route.fullPath },
+  });
+}
+
+function goToEditEnvironment() {
+  saveDraft();
+  router.push({
+    name: 'project-environment-edit',
+    params: { orgId, projectId, envId: form.value.environment_id },
+    query: { returnTo: route.fullPath },
+  });
+}
+
+function goToCreateEnvironment() {
+  saveDraft();
+  router.push({
+    name: 'project-environment-create',
+    params: { orgId, projectId },
+    query: { returnTo: route.fullPath },
   });
 }
 </script>
@@ -261,8 +324,17 @@ function goToPolicies() {
             </t-form-item>
           </div>
 
+          <!-- No environment hint: a release needs somewhere to go -->
+          <div v-if="!hasEnvironments" class="notice-row">
+            <t-icon name="info-circle" class="notice-icon" />
+            <span>{{ t('releaseCenter.noEnvironmentForRequestDesc') }}</span>
+            <t-button size="small" variant="text" theme="primary" @click="goToCreateEnvironment">
+              {{ t('environment.createTitle') }}
+            </t-button>
+          </div>
+
           <!-- No policy hint -->
-          <div v-if="!hasPolicies" class="notice-row">
+          <div v-else-if="!hasPolicies" class="notice-row">
             <t-icon name="info-circle" class="notice-icon" />
             <span>{{ t('releaseCenter.noPolicyForRequestDesc') }}</span>
             <t-button
@@ -316,7 +388,7 @@ function goToPolicies() {
             </t-form-item>
           </div>
 
-          <div class="notice-row notice-row--stacked">
+          <div v-if="form.environment_id" class="notice-row notice-row--stacked">
             <div class="notice-main">
               <t-icon name="server" class="notice-icon" />
               <span>
@@ -325,9 +397,18 @@ function goToPolicies() {
                     ? `${targetPreview.bound_servers.length} ${t(
                         'releaseCenter.affectedInstances'
                       )} · ${targetPreview.bound_servers.map((server) => server.name).join(', ')}`
-                    : targetPreview?.message || t('releaseCenter.noBoundServer')
+                    : t('releaseCenter.noBoundServer')
                 }}
               </span>
+              <t-button
+                v-if="targetPreview && !targetPreview.bound_servers?.length"
+                size="small"
+                variant="text"
+                theme="primary"
+                @click="goToEditEnvironment"
+              >
+                {{ t('releaseCenter.bindServers') }}
+              </t-button>
             </div>
             <div v-if="targetPreview?.bound_servers?.length" class="notice-sub">
               {{

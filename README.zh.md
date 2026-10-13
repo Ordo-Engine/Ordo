@@ -105,6 +105,23 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 
 `ordo impact` 需要命令行 0.7.0 或更新的版本（[下载](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)）。详见 [CLI 文档](https://docs.ordoengine.com/zh/platform/cli)。
 
+## 把 Ordo 放在 Jev 前面
+
+ordo-server 可以放在应用和 Jev 之间。代码照常调用 Jev，每个回答返回时都会带上 Ordo 的决策。每次调用还会记进决策日志，`ordo impact --inputs` 可以直接读。
+
+```bash
+docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<你的 OpenRouter key> \
+  ghcr.io/ordo-engine/ordo:latest \
+  --rules-dir /app/rule-packs/jev-routing/rulesets \
+  --decide-upstream https://openrouter.ai/api
+
+# 在 examples/rule-packs/jev-routing 目录下
+curl localhost:8080/systemone/v1/systemone \
+  -H 'content-type: application/json' -d @request.json
+```
+
+返回的是 Jev 的回答，外加一个 `ordo` 字段，里面是决策（`code`、`message`、`output`）。在应用里设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone`，请求里加上 `ordo` 字段，写明规则集和订单信息就行。详见[决策模型网关文档](https://docs.ordoengine.com/zh/platform/decision-gateway)。
+
 ## 规则包
 
 常见的业务决策已经写好，带测试。拷过去，把数字改成你们自己的政策。
@@ -123,19 +140,17 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 ```bash
 # ordo-server，走 HTTP 或 gRPC
 docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
-curl -X POST localhost:8080/api/v1/execute/<ruleset> -d '{"input": {...}}'
+curl localhost:8080/api/v1/execute/<ruleset> \
+  -H 'content-type: application/json' -d '{"input": {...}}'
 
 # 嵌入 Rust 程序
 cargo add ordo-core --git https://github.com/Ordo-Engine/Ordo
 
 # 在浏览器里，以 WASM 运行
 npm install @ordo-engine/wasm
-
-# 从业务服务调用
-go get github.com/pama-lee/ordo-go     # Go
-pip install ordo-sdk                    # Python
-# Java (Maven): com.ordoengine:ordo-sdk-java
 ```
+
+业务服务通过 HTTP 或 gRPC 接口调用。Go、Python、Java 的客户端 SDK 在 [`sdk/`](sdk) 目录里，还没有发布到各自的包仓库。
 
 引擎用 Rust 编写：字节码虚拟机，加上给数值表达式用的 Cranelift JIT。字节码执行一次规则 1.63 µs，JIT 编译后的数值表达式 50–80 ns，HTTP 单线程大约 54k QPS。详见[基准测试](https://ordoengine.com/benchmarks)。
 

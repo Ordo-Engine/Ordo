@@ -106,7 +106,7 @@ clap = { version = "4", features = ["derive"] }
 colored = "2"
 
 # Internal crates
-ordo-derive = { version = "0.5.2", path = "crates/ordo-derive" }
+ordo-derive = { version = "0.7.0", path = "crates/ordo-derive" }
 
 # 数据库
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "migrate", "chrono", "json", "uuid"] }

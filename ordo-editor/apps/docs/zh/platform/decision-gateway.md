@@ -15,7 +15,15 @@ ordo-server \
   --decide-log-dir /var/ordo/decisions
 ```
 
-走 OpenRouter 时，上游写 `https://openrouter.ai/api`。没有设置 `ORDO_DECIDE_API_KEY` 时，Ordo 会把调用方的 `Authorization` 头原样转发给上游。
+用 Docker 的话，规则包已经在镜像里了：
+
+```bash
+docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=... ghcr.io/ordo-engine/ordo:latest \
+  --rules-dir /app/rule-packs/jev-routing/rulesets \
+  --decide-upstream https://openrouter.ai/api
+```
+
+走 OpenRouter 时，上游写 `https://openrouter.ai/api`，模型 id 写成 `typesafe/jev-1.13` 这样。没有设置 `ORDO_DECIDE_API_KEY` 时，Ordo 会把调用方的 `Authorization` 头原样转发给上游。
 
 应用这边只改 base URL：
 

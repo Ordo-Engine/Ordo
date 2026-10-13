@@ -20,9 +20,11 @@ docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
 默认规则只存在内存里。要从目录加载并持久化规则，把目录挂进容器：
 
 ```bash
-docker run -p 8080:8080 -v "$PWD/rules:/data/rules" \
+docker run -p 8080:8080 -v "$PWD/rules:/data/rules" --user "$(id -u):$(id -g)" \
   ghcr.io/ordo-engine/ordo:latest --rules-dir /data/rules
 ```
+
+服务会把预写日志和租户配置写进这个目录，所以容器里必须能写。`--user` 让容器以你的身份运行，在 Linux 上这样才能写你自己的目录。
 
 检查服务是否正常：
 

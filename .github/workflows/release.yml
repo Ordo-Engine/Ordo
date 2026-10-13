@@ -1,12 +1,22 @@
 name: Release
 
+# Build ordo-server for every platform, attach it to a GitHub Release and push
+# the ghcr.io/ordo-engine/ordo image. Trigger by pushing a `v*` tag, or run it
+# manually with the tag to create (the release step creates the tag on the
+# commit the workflow runs on).
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.7.0)'
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -26,7 +36,7 @@ jobs:
 
       - name: Get version from tag
         id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "version=${RELEASE_TAG#v}" >> $GITHUB_OUTPUT
 
       - name: Install git-cliff
         uses: kenji-miyake/setup-git-cliff@v2
@@ -34,7 +44,12 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          CHANGELOG=$(git cliff --latest --strip header)
+          # A manual run creates the tag later, so its changes are still "unreleased".
+          if git rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+            CHANGELOG=$(git cliff --latest --strip header)
+          else
+            CHANGELOG=$(git cliff --unreleased --tag "$RELEASE_TAG" --strip header)
+          fi
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -43,8 +58,9 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Ordo ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: Ordo ${{ env.RELEASE_TAG }}
           body: |
             ${{ steps.changelog.outputs.changelog }}
 
@@ -54,7 +70,7 @@ jobs:
             
             ### Linux (x86_64)
             ```bash
-            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ github.ref_name }}/ordo-x86_64-unknown-linux-gnu.tar.gz
+            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ env.RELEASE_TAG }}/ordo-x86_64-unknown-linux-gnu.tar.gz
             tar -xzf ordo-x86_64-unknown-linux-gnu.tar.gz
             chmod +x ordo-server
             ./ordo-server
@@ -62,7 +78,7 @@ jobs:
             
             ### macOS (Apple Silicon)
             ```bash
-            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ github.ref_name }}/ordo-aarch64-apple-darwin.tar.gz
+            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ env.RELEASE_TAG }}/ordo-aarch64-apple-darwin.tar.gz
             tar -xzf ordo-aarch64-apple-darwin.tar.gz
             chmod +x ordo-server
             ./ordo-server
@@ -70,7 +86,7 @@ jobs:
             
             ### macOS (Intel)
             ```bash
-            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ github.ref_name }}/ordo-x86_64-apple-darwin.tar.gz
+            curl -LO https://github.com/Ordo-Engine/Ordo/releases/download/${{ env.RELEASE_TAG }}/ordo-x86_64-apple-darwin.tar.gz
             tar -xzf ordo-x86_64-apple-darwin.tar.gz
             chmod +x ordo-server
             ./ordo-server
@@ -79,7 +95,7 @@ jobs:
             ### Windows
             Download `ordo-x86_64-pc-windows-msvc.zip` and extract.
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-alpha') || contains(env.RELEASE_TAG, '-beta') || contains(env.RELEASE_TAG, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -170,7 +186,7 @@ jobs:
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             ordo-${{ matrix.target }}.${{ matrix.archive }}
         env:
@@ -205,10 +221,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{major}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.RELEASE_TAG, '-') }}
       
       - name: Build and push
         uses: docker/build-push-action@v5

@@ -2440,7 +2440,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-core"
-version = "0.5.2"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2484,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-derive"
-version = "0.5.2"
+version = "0.7.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-grpc"
-version = "0.5.2"
+version = "0.7.0"
 dependencies = [
  "prost",
  "tonic 0.10.2",
@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-platform"
-version = "0.5.2"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-server"
-version = "0.5.2"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2603,7 +2603,7 @@ dependencies = [
 
 [[package]]
 name = "ordo-wasm"
-version = "0.5.2"
+version = "0.7.0"
 dependencies = [
  "console_error_panic_hook",
  "ordo-core",

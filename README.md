@@ -105,6 +105,23 @@ Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the r
 
 `ordo impact` needs CLI 0.7.0 or later ([release](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)). See the [CLI docs](https://docs.ordoengine.com/en/platform/cli).
 
+## Put Ordo in front of Jev
+
+ordo-server can sit between your application and Jev. Your code keeps calling Jev, and each answer comes back with Ordo's decision attached. Every call also goes to a decision log that `ordo impact --inputs` reads.
+
+```bash
+docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<your OpenRouter key> \
+  ghcr.io/ordo-engine/ordo:latest \
+  --rules-dir /app/rule-packs/jev-routing/rulesets \
+  --decide-upstream https://openrouter.ai/api
+
+# from examples/rule-packs/jev-routing
+curl localhost:8080/systemone/v1/systemone \
+  -H 'content-type: application/json' -d @request.json
+```
+
+The response is Jev's answer plus an `ordo` field with the decision (`code`, `message`, `output`). In your application, set `TYPESAFE_BASE_URL=http://localhost:8080/systemone` and add the `ordo` field with your ruleset and order facts. See the [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway).
+
 ## Rule packs
 
 Common business decisions, already written and tested. Copy one and change the numbers to your own policy.
@@ -123,19 +140,17 @@ A rule pack is a plain Ordo project. Rules your team writes can be shared the sa
 ```bash
 # ordo-server, over HTTP or gRPC
 docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
-curl -X POST localhost:8080/api/v1/execute/<ruleset> -d '{"input": {...}}'
+curl localhost:8080/api/v1/execute/<ruleset> \
+  -H 'content-type: application/json' -d '{"input": {...}}'
 
 # Embedded in a Rust program
 cargo add ordo-core --git https://github.com/Ordo-Engine/Ordo
 
 # In the browser, as WASM
 npm install @ordo-engine/wasm
-
-# From your services
-go get github.com/pama-lee/ordo-go     # Go
-pip install ordo-sdk                    # Python
-# Java (Maven): com.ordoengine:ordo-sdk-java
 ```
+
+From your services, call the HTTP or gRPC API. Client SDKs for Go, Python and Java are in [`sdk/`](sdk) and are not on the package registries yet.
 
 The engine is written in Rust: a bytecode VM, plus a Cranelift JIT for hot numeric expressions. A rule run takes 1.63 µs on the VM, numeric expressions take 50–80 ns after JIT, and a single HTTP thread serves about 54k QPS. See the [benchmarks](https://ordoengine.com/en/benchmarks).
 

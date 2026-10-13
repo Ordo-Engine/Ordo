@@ -148,3 +148,13 @@ export interface CompiledRuleSetInfo {
   expressions_count: number;
   string_pool_size: number;
 }
+
+/**
+ * Convert a Studio-format ruleset JSON string to engine format (requires init()).
+ */
+export declare function studio_to_engine_json(studio_json: string): string;
+
+/**
+ * Convert an engine-format ruleset JSON string to Studio format (requires init()).
+ */
+export declare function engine_to_studio_json(engine_json: string): string;

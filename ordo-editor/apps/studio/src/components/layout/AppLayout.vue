@@ -204,6 +204,16 @@ async function handleBellMarkAllRead() {
   if (currentOrgId.value) await persistentNotifStore.markAllRead(currentOrgId.value);
 }
 
+// ── Routed view key ──────────────────────────────────────────────────────────
+// Keyed by the matched top-level record with its params filled in, so a query
+// change or a move between a project's tabs keeps the project layout mounted
+// (and keeps dialogs opened from ?create=1 style links alive).
+const viewKey = computed(() => {
+  const record = route.matched[1];
+  if (!record) return route.path;
+  return record.path.replace(/:(\w+)/g, (_, key: string) => String(route.params[key] ?? ''));
+});
+
 // ── Page info ────────────────────────────────────────────────────────────────
 
 const pageInfo = computed(() => {
@@ -218,6 +228,10 @@ const pageInfo = computed(() => {
           servers: serverStore.servers.filter((s) => s.status === 'online').length,
         }),
       };
+    case 'orgs':
+      return { title: t('nav.orgs'), subtitle: t('org.subtitle') };
+    case 'notifications':
+      return { title: t('notifications.title'), subtitle: '' };
     case 'projects':
       return { title: t('nav.projects'), subtitle: t('shell.projectsSubtitle') };
     case 'org-members':
@@ -252,12 +266,23 @@ const pageInfo = computed(() => {
       return { title: t('projectNav.tests'), subtitle: t('shell.testsSubtitle') };
     case 'versions':
       return { title: t('projectNav.versions'), subtitle: t('shell.versionsSubtitle') };
+    case 'project-trace':
+      return { title: t('projectNav.trace'), subtitle: '' };
     case 'project-releases':
     case 'project-release-requests':
+    case 'project-release-request-create':
     case 'project-release-request-detail':
     case 'project-release-policies':
     case 'project-release-history':
       return { title: t('projectNav.releases'), subtitle: t('releaseCenter.subtitle') };
+    case 'project-environments':
+    case 'project-environment-create':
+    case 'project-environment-edit':
+      return { title: t('projectNav.environments'), subtitle: '' };
+    case 'project-analytics':
+      return { title: t('projectNav.analytics'), subtitle: '' };
+    case 'project-integrate':
+      return { title: t('projectNav.integrate'), subtitle: '' };
     case 'project-instances':
       return { title: t('projectNav.instances'), subtitle: t('projectInstances.bindingDesc') };
     case 'project-settings':
@@ -760,7 +785,7 @@ async function handleCreateOrg() {
       <main class="app-content">
         <RouterView v-slot="{ Component }">
           <Transition name="page-fade" mode="out-in">
-            <component :is="Component" :key="route.fullPath" />
+            <component :is="Component" :key="viewKey" />
           </Transition>
         </RouterView>
       </main>

@@ -44,14 +44,23 @@ onMounted(async () => {
 });
 
 watch(
-  () => route.query.openTemplate,
-  (value) => {
-    if (value === '1' && isAdmin.value) {
+  [() => route.query.openTemplate, isAdmin],
+  ([value, admin]) => {
+    if (value === '1' && admin) {
       showTemplateDialog.value = true;
     }
   },
   { immediate: true }
 );
+
+// Drop ?openTemplate=1 once the dialog closes, so a refresh doesn't reopen it
+// and the sidebar highlights "Projects" again.
+watch(showTemplateDialog, (open) => {
+  if (open || route.query.openTemplate !== '1') return;
+  const nextQuery = { ...route.query };
+  delete nextQuery.openTemplate;
+  void router.replace({ query: nextQuery });
+});
 
 async function handleCreate() {
   if (!newName.value.trim()) {

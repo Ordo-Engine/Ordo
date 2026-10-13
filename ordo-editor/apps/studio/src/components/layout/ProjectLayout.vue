@@ -14,6 +14,12 @@ const { t } = useI18n();
 const orgId = computed(() => route.params.orgId as string);
 const projectId = computed(() => route.params.projectId as string);
 
+// The editor owns its open tabs and per-tab view mode; switching rulesets only
+// changes the URL param, so keep one editor instance across editor routes.
+const childKey = computed(() =>
+  route.name === 'editor' || route.name === 'editor-ruleset' ? 'editor' : route.path
+);
+
 const base = computed(() => `/orgs/${orgId.value}/projects/${projectId.value}`);
 
 const tabs = computed(() => [
@@ -71,7 +77,7 @@ const tabs = computed(() => [
     label: t('projectNav.environments'),
     icon: 'server',
     to: `${base.value}/environments`,
-    active: route.path.endsWith('/environments'),
+    active: route.path.includes('/environments'),
   },
   {
     value: 'instances',
@@ -146,7 +152,7 @@ watch(projectId, (pid) => {
     <div class="project-body">
       <RouterView v-slot="{ Component }">
         <Transition name="page-fade" mode="out-in">
-          <component :is="Component" :key="route.path" />
+          <component :is="Component" :key="childKey" />
         </Transition>
       </RouterView>
     </div>

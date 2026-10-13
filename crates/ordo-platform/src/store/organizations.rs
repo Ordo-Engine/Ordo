@@ -137,6 +137,14 @@ impl PlatformStore {
         Ok(orgs)
     }
 
+    pub async fn count_root_orgs(&self) -> Result<i64> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM organizations WHERE parent_org_id IS NULL")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(count)
+    }
+
     pub async fn count_child_orgs(&self, parent_id: &str) -> Result<i64> {
         let row = sqlx::query("SELECT COUNT(*) AS cnt FROM organizations WHERE parent_org_id = $1")
             .bind(parent_id)

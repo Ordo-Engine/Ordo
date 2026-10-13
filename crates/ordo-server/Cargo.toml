@@ -44,7 +44,8 @@ notify = { version = "6", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.4"
 async-nats = { version = "0.38", optional = true }
 hostname = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Native roots too, so the decision gateway trusts a corporate or proxy CA installed on the host.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
 hex.workspace = true
 hmac = "0.12"
 sha2 = "0.10"

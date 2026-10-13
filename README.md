@@ -107,7 +107,7 @@ Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the r
 
 ## Put Ordo in front of Jev
 
-ordo-server can sit between your application and Jev. Your code keeps calling Jev, and each answer comes back with Ordo's decision attached. Every call also goes to a decision log that `ordo impact --inputs` reads.
+ordo-server can sit between your application and Jev. Your code keeps calling Jev, and each answer comes back with Ordo's decision attached. Add `--decide-log-dir <dir>` and every call also goes to a decision log that `ordo impact --inputs` reads.
 
 ```bash
 docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<your OpenRouter key> \

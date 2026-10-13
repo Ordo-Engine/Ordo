@@ -103,7 +103,7 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 
 加上 `--fail-on-change` 可以在 CI 里拦住意外的改动，`--json` 方便接到别的工具里。编码 Agent 通过 `ordo mcp` 调用同一个检查，改完规则先自己看一遍影响，再交给人 review。
 
-`ordo impact` 需要命令行 0.7.0 或更新的版本（[下载](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)）。详见 [CLI 文档](https://docs.ordoengine.com/zh/platform/cli)。
+`ordo impact` 需要命令行 0.7.0 或更新的版本，`--model` 和 `ordo decisions` 需要 0.8.0（[下载](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.8.0)）。详见 [CLI 文档](https://docs.ordoengine.com/zh/platform/cli)。
 
 ## 把 Ordo 放在 Jev 前面
 

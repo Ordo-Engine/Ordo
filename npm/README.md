@@ -1,9 +1,10 @@
 # Ordo CLI
 
-Take business rules out of your code. Write pricing, risk and approval logic as
-rule files with tests, see which decisions a change moves before you ship it,
-and run the rules anywhere the Ordo engine runs. Works offline, and coding
-agents can drive it over MCP.
+Turn judgments into decisions. Ordo is an open-source decision engine: models
+and scores tell you what is going on, and Ordo decides what to do about it.
+Write those decisions as rule files with tests, see which decisions a change
+moves before you ship it, and run the rules anywhere the Ordo engine runs.
+Works offline, and coding agents can drive it over MCP.
 
 ## Write and test rules as files
 
@@ -32,17 +33,34 @@ cargo install --git https://github.com/Ordo-Engine/Ordo ordo-cli
 
 ## See what a change affects
 
-```bash
-ordo impact <ruleset>
+Every app that uses a decision model like Jev has a line such as
+`if jev.confidence > 0.85: refund(order)`. Nobody reviews it, and it means
+something else after the next model update. In the
+[jev-routing](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing)
+rule pack that threshold is a rule with tests. Lower it to 0.80 and all 12
+tests still pass. `impact` shows what they missed:
+
+```text
+$ ordo impact refund-routing
+impact refund-routing  (HEAD → working tree)
+  309 inputs: 12 tests, 0 captured, 297 boundary probes
+
+  LLM_DRAFT → AUTO_REFUND  18 inputs
+  LLM_DRAFT → HUMAN_REVIEW  3 inputs
+…
+21 changed · 288 unchanged
 ```
+
+18 requests that used to wait for a person now get their money back without
+anyone reading the message.
 
 `impact` runs your working copy next to the last commit in git, over the
 ruleset's tests, real inputs you provide (`--inputs`) and probe inputs on both
 sides of every threshold, and lists each decision that changed. Add
 `--fail-on-change` to stop surprise changes in CI.
 
-Ready-made projects to try it on (credit approval, promo stacking, fraud
-scoring) are in
+Ready-made projects to try it on (refund routing after Jev, credit approval,
+promo stacking, fraud scoring) are in
 [examples/rule-packs](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs).
 
 ## Use it from a coding agent (MCP)

@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 'Ordo'
-  text: 'Take business rules out of your code'
-  tagline: Write rules in JSON or YAML, give them tests and versions, and change them without a redeploy. A Rust engine that runs a rule in microseconds. Easy for people to write, and for AI to write.
+  text: 'Turn judgments into decisions'
+  tagline: An open-source decision engine. Models and scores tell you what is going on. Ordo decides what to do about it, with rules that have tests and versions, and shows which decisions a change moves before you ship it.
   image:
     src: /logo.png
     alt: Ordo
@@ -20,44 +20,57 @@ hero:
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
+  - title: Models judge, rules decide
+    details: Decision models like Jev read a customer's message and give you a judgment with a confidence. Whether to refund, and whether a person should look first, also depends on the amount, the window and your policy. That part lives in rules.
+    link: https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing
+    linkText: Refund routing pack
+  - title: See the impact first
+    details: Before you move a threshold, ordo impact runs the edit next to the last commit, over the tests, real requests and probe inputs on both sides of every threshold, and lists every decision that changed.
+    link: /en/platform/cli
+    linkText: CLI
   - title: Rules are files
-    details: Branches, decision tables and sub-rules live in JSON or YAML, in git next to your code, where they can be reviewed and diffed. The expression language is deliberately small, with no loops and no side effects, so rules an AI generates can be checked too.
+    details: Rules are JSON or YAML, in git next to your code, with their own tests. The expression language is bounded, with no loops and no side effects, so rules written by people and by AI can both be checked. A rule runs in microseconds, over HTTP, gRPC or WASM.
     link: /en/guide/rule-structure
     linkText: Rule structure
-  - title: Test before you ship
-    details: Every ruleset carries its own test cases, and ordo test runs them locally and in CI. Execution can be traced step by step, so you can see how each result was reached.
-    link: /en/platform/testing
-    linkText: Testing rules
-  - title: Runs anywhere
-    details: A bytecode VM plus a Cranelift JIT. Call it over HTTP, gRPC or a Unix socket, run it in the browser as WASM, or embed it in a Rust program.
-    link: /en/guide/execution-model
-    linkText: Execution model
 ---
+
+## Every app that uses a decision model has a 0.85 in it
+
+```python
+if jev.confidence > 0.85:
+    refund(order)
+```
+
+That line decides who gets money back. Nobody reviews it, no test covers it, and when the model is updated, 0.85 starts to mean something else.
+
+Jev can tell that a customer wants a refund. It doesn't know your refund window, your amount limits, or how sure is sure enough to pay out without a person looking. That part is a decision, and it belongs in Ordo.
+
+> Jev turns text into judgments. Ordo turns judgments into decisions.
 
 ## What a rule looks like
 
-Pick a discount from membership tier and order amount, written as a decision table:
+What to do with a refund request, written as a decision table:
 
 ```yaml
 config:
-  name: discount
+  name: refund
   version: 1.0.0
-  entry_step: pick_rate
+  entry_step: route
 steps:
-  pick_rate:
-    id: pick_rate
-    name: Pick discount rate
+  route:
+    id: route
+    name: Route the refund request
     type: decision_table
-    inputs: [user.tier, order.amount]
-    outputs: [rate]
+    inputs: [jev.intent.choice, jev.intent.confidence, order.amount, order.days_since_delivery]
+    outputs: [action]
     rules:
-      - when: [gold, ">= 1000"]
-        then: [0.15]
-      - when: [gold, "*"]
-        then: [0.10]
-      - when: ["*", ">= 1000"]
-        then: [0.05]
-    default: [0]
+      - when: ["*", "*", "*", "> 30"]
+        then: [HUMAN_REVIEW]
+      - when: [refund, ">= 0.85", "<= 200", "*"]
+        then: [AUTO_REFUND]
+      - when: [refund, ">= 0.6", "*", "*"]
+        then: [LLM_DRAFT]
+    default: [HUMAN_REVIEW]
     next_step: done
   done:
     id: done
@@ -66,23 +79,40 @@ steps:
     result:
       code: OK
       output:
-        - [rate, $rate]
-        - [pay, "order.amount * (1 - $rate)"]
+        - [action, $action]
 ```
 
 ```bash
-$ ordo exec --rule discount.yaml --input '{"user":{"tier":"gold"},"order":{"amount":1200}}'
+$ ordo exec --rule refund.yaml --input '{"jev":{"intent":{"choice":"refund","confidence":0.72}},
+    "order":{"amount":129,"days_since_delivery":1}}'
 code:    OK
 output:  {
-  "rate": 0.15,
-  "pay": 1020.0
+  "action": "LLM_DRAFT"
 }
 ```
 
-To change the discount, edit the table and run the tests again. The calling code stays the same.
+Jev is 0.72 sure the customer wants a refund. The rules say that is not enough to move money on its own, so an LLM drafts the reply and an agent approves it. To change the threshold, edit the table and run the tests again. The calling code stays the same.
+
+## See what a change affects
+
+Someone proposes auto refunding from 0.80 instead of 0.85. In the [jev-routing rule pack](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing), all 12 tests still pass after the edit. `ordo impact` runs it next to the last commit:
+
+```text
+$ ordo impact refund-routing
+impact refund-routing  (HEAD → working tree)
+  309 inputs: 12 tests, 0 captured, 297 boundary probes
+
+  LLM_DRAFT → AUTO_REFUND  18 inputs
+  LLM_DRAFT → HUMAN_REVIEW  3 inputs
+…
+21 changed · 288 unchanged
+```
+
+The tests did not notice, but 18 requests that used to wait for a person now get their money back without anyone reading the message. Add `--inputs` with real requests and the count is real customers, before the change ships.
 
 ## Where it fits
 
+- After a decision model: models like Jev read messages, tickets or reviews, and rules decide whether to refund, hand off to a person, or act right away.
 - Pricing, promotions, loyalty points: rules that change often and must be exact.
 - Risk, eligibility, approvals: every decision needs to be explainable and audited.
 - Routing and assignment: orders, tickets, payment channels.

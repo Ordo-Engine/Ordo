@@ -127,7 +127,7 @@ const reference_zh = [
 // https://vitepress.dev/reference/site-config
 export default withMermaid(defineConfig({
   title: "Ordo",
-  description: "An open-source rule engine that takes business rules out of your code",
+  description: "An open-source decision engine: models give judgments, Ordo decides what happens next",
   
   // Dynamic base path for dual deployment
   base: BASE_PATH,
@@ -252,7 +252,7 @@ export default withMermaid(defineConfig({
       lang: 'zh-Hans',
       link: '/zh/',
       title: "Ordo",
-      description: "把业务规则从代码里拿出来的开源规则引擎",
+      description: "开源决策引擎：模型给出判断，Ordo 决定接下来怎么做",
       themeConfig: {
         nav: [
           { text: '文档', link: '/zh/guide/what-is-ordo', activeMatch: '^/zh/(guide|api)/' },

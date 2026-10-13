@@ -1,7 +1,7 @@
 {
   "name": "@ordo-engine/cli",
   "version": "0.7.0",
-  "description": "Ordo CLI: write business rules as files, test and trace them, and see which decisions a change moves. Includes an MCP server for coding agents and Ordo Guard.",
+  "description": "Ordo CLI for the open-source decision engine: models judge, rules decide. Write decisions as rule files, test and trace them, and see which decisions a change moves. Includes an MCP server for coding agents and Ordo Guard.",
   "bin": {
     "ordo": "bin/ordo.js"
   },
@@ -15,10 +15,13 @@
   ],
   "keywords": [
     "ordo",
+    "decision-engine",
     "rule-engine",
     "decision",
     "business-rules",
     "decision-table",
+    "decision-models",
+    "jev",
     "mcp",
     "cli"
   ],

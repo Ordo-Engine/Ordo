@@ -29,14 +29,23 @@ pub struct CaptureLogger {
     sample_rate: AtomicU8,
     /// Capture directory (None = capture disabled).
     dir: Option<PathBuf>,
+    /// File name prefix: `<prefix>-YYYY-MM-DD.jsonl`.
+    prefix: &'static str,
     file_writer: Mutex<Option<FileWriter>>,
 }
 
 impl CaptureLogger {
     pub fn new(dir: Option<PathBuf>, sample_rate: u8) -> Self {
+        Self::with_prefix(dir, sample_rate, "capture")
+    }
+
+    /// Same rotation and sampling, different file name (the decision gateway
+    /// writes `decisions-YYYY-MM-DD.jsonl`).
+    pub fn with_prefix(dir: Option<PathBuf>, sample_rate: u8, prefix: &'static str) -> Self {
         Self {
             sample_rate: AtomicU8::new(sample_rate.min(100)),
             dir,
+            prefix,
             file_writer: Mutex::new(None),
         }
     }
@@ -73,9 +82,9 @@ impl CaptureLogger {
         duration_us: u64,
         source_ip: Option<&str>,
     ) {
-        let Some(ref dir) = self.dir else {
+        if self.dir.is_none() {
             return;
-        };
+        }
         let record = serde_json::json!({
             "ts": Utc::now().to_rfc3339(),
             "rule_name": rule_name,
@@ -86,15 +95,23 @@ impl CaptureLogger {
             "duration_us": duration_us,
             "source_ip": source_ip,
         });
-        let line = match serde_json::to_string(&record) {
+        self.write_record(&record);
+    }
+
+    /// Append one JSON record as a line. No-op when no directory is configured.
+    pub fn write_record(&self, record: &serde_json::Value) {
+        let Some(ref dir) = self.dir else {
+            return;
+        };
+        let line = match serde_json::to_string(record) {
             Ok(l) => l,
             Err(e) => {
-                tracing::error!("failed to serialize capture record: {}", e);
+                tracing::error!("failed to serialize {} record: {}", self.prefix, e);
                 return;
             }
         };
         if let Err(e) = self.write_line(dir, &line) {
-            tracing::error!("failed to write capture record: {}", e);
+            tracing::error!("failed to write {} record: {}", self.prefix, e);
         }
     }
 
@@ -111,7 +128,7 @@ impl CaptureLogger {
         };
         if needs_new_file {
             fs::create_dir_all(dir)?;
-            let path = dir.join(format!("capture-{}.jsonl", today));
+            let path = dir.join(format!("{}-{}.jsonl", self.prefix, today));
             let file = OpenOptions::new().create(true).append(true).open(&path)?;
             *guard = Some(FileWriter {
                 writer: BufWriter::new(file),

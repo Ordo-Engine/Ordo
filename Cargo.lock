@@ -2565,6 +2565,7 @@ dependencies = [
  "opentelemetry_sdk",
  "ordo-core",
  "ordo-grpc",
+ "ordo-studio-format",
  "parking_lot",
  "prometheus",
  "prost",

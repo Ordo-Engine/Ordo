@@ -362,6 +362,32 @@ pub struct ServerConfig {
     #[arg(long = "api-token", env = "ORDO_API_TOKEN")]
     pub api_token: Option<String>,
 
+    // ── Decision model gateway ────────────────────────────────────────
+    /// Base URL of a System One compatible decision model API, such as
+    /// `https://api.typesafe.ai` (Jev) or `https://openrouter.ai/api`.
+    /// When set, `POST /systemone/v1/systemone` forwards requests there, so an
+    /// SDK whose base URL points at `http://<ordo>/systemone` works unchanged.
+    /// A request may add an `ordo` field naming a ruleset to run on the answers.
+    #[arg(long, env = "ORDO_DECIDE_UPSTREAM")]
+    pub decide_upstream: Option<String>,
+
+    /// API key sent to the decision model upstream. When unset, the caller's
+    /// `Authorization` header is forwarded unchanged (not possible together
+    /// with --api-token, which uses the same header).
+    #[arg(long, env = "ORDO_DECIDE_API_KEY", hide_env_values = true)]
+    pub decide_api_key: Option<String>,
+
+    /// Directory for the decision log (`decisions-YYYY-MM-DD.jsonl`): one line
+    /// per gateway call with the model's answers and, when a ruleset ran, its
+    /// input and decision. `ordo impact --inputs` reads these files.
+    #[arg(long, env = "ORDO_DECIDE_LOG_DIR")]
+    pub decide_log_dir: Option<PathBuf>,
+
+    /// Also write each request's `state` and `questions` to the decision log.
+    /// Off by default, because `state` is usually customer text.
+    #[arg(long, default_value = "false", env = "ORDO_DECIDE_LOG_REQUESTS")]
+    pub decide_log_requests: bool,
+
     // ── gRPC TLS ──────────────────────────────────────────────────────
     /// Enable TLS for the gRPC server.
     /// Requires --grpc-tls-cert and --grpc-tls-key.
@@ -591,6 +617,25 @@ impl ServerConfig {
             tracing::warn!("--max-versions has no effect without --rules-dir");
         }
 
+        // The gateway forwards the caller's Authorization header when it has no
+        // key of its own, but with --api-token that header carries Ordo's token.
+        if self.decide_upstream.is_some()
+            && self.decide_api_key.is_none()
+            && self.api_token.is_some()
+        {
+            return Err(
+                "--decide-upstream with --api-token needs --decide-api-key (ORDO_DECIDE_API_KEY)"
+                    .to_string(),
+            );
+        }
+        if self.decide_upstream.is_none()
+            && (self.decide_log_dir.is_some() || self.decide_api_key.is_some())
+        {
+            tracing::warn!(
+                "--decide-log-dir and --decide-api-key have no effect without --decide-upstream"
+            );
+        }
+
         // All transports disabled
         if self.disable_http && self.disable_grpc && self.uds_path.is_none() {
             return Err(
@@ -717,6 +762,10 @@ impl Default for ServerConfig {
             max_concurrent_executions: 0,
             log_format: "text".to_string(),
             api_token: None,
+            decide_upstream: None,
+            decide_api_key: None,
+            decide_log_dir: None,
+            decide_log_requests: false,
             platform_url: None,
             server_name: "ordo-server".to_string(),
             server_token: None,

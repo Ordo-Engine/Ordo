@@ -57,6 +57,7 @@ async fn build_test_app() -> Router {
         tenant_manager,
         rate_limiter,
         webhook_manager,
+        decide: None,
     };
 
     Router::new()
@@ -403,6 +404,7 @@ async fn test_admin_reload_with_persistence() {
         tenant_manager,
         rate_limiter,
         webhook_manager,
+        decide: None,
     };
 
     let app = Router::new()

@@ -14,6 +14,7 @@ futures = "0.3"
 once_cell = "1.19"
 ordo-core = { version = "0.5.2", path = "../ordo-core" }
 ordo-grpc = { version = "0.5.2", path = "../ordo-grpc" }
+ordo-studio-format = { path = "../ordo-studio-format" }
 parking_lot.workspace = true
 hashbrown.workspace = true
 prost.workspace = true

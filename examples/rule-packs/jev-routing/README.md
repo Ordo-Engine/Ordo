@@ -101,6 +101,48 @@ The four samples cover the main paths: a double charge (auto refund), an
 unsure "what are my options" (LLM draft), a bank dispute threat (escalate) and
 a delivery question (another team).
 
+## Run it behind Ordo
+
+`route.mjs` calls Jev and Ordo one after the other. In production, ordo-server
+can sit in front of Jev and do both in one call, and log every decision:
+
+```bash
+export ORDO_DECIDE_API_KEY=sk-or-...
+ordo-server --rules-dir rulesets \
+  --decide-upstream https://openrouter.ai/api \
+  --decide-log-dir decisions
+```
+
+The application keeps sending its normal Jev request to
+`http://localhost:8080/systemone/v1/systemone` (for the TypeSafe SDKs, set
+`TYPESAFE_BASE_URL=http://localhost:8080/systemone`) and adds the order facts:
+
+```json
+{
+  "model": "jev-1.13",
+  "state": "Hi, I was charged twice for order #4471 ...",
+  "questions": { "...": "contents of jev-questions.json" },
+  "ordo": {
+    "ruleset": "refund-routing",
+    "facts": {
+      "order": { "amount": "39.90", "days_since_delivery": 2 },
+      "customer": { "refunds_90d": 0 }
+    }
+  }
+}
+```
+
+The response is Jev's answer with the decision added:
+
+```json
+"ordo": { "code": "AUTO_REFUND", "message": "Refund issued without review", "output": { "jev_confidence": 0.95, "priority": "normal", ... }, ... }
+```
+
+Each call adds a line to `decisions/decisions-YYYY-MM-DD.jsonl`, and those
+files are what `ordo impact --inputs` reads in the next section. See the
+[decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway)
+for the details.
+
 ## Change a threshold, see what moves
 
 Support is swamped and someone proposes auto refunding from 0.80 instead of
@@ -125,8 +167,9 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00","days_
 Messages Jev rates between 0.80 and 0.84 used to get a drafted reply that a
 person approved. Now they are paid without anyone reading them. Probabilities
 also move a little between Jev calls and between model versions, so a
-threshold right at the edge is worth replaying: save last week's Ordo inputs (Jev answers plus
-order facts) as JSON Lines and run `ordo impact refund-routing --inputs last-week.jsonl` to
-count how many real refunds the change would send out unreviewed.
+threshold right at the edge is worth replaying. With the gateway's decision
+log, run `ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl`
+to count how many real refunds the change would send out unreviewed. Any JSON
+Lines file of Ordo inputs (Jev answers plus order facts) works the same way.
 
 The thresholds here are illustrative, not advice for any real refund policy.

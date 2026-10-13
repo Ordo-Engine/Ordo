@@ -202,6 +202,7 @@ export default withMermaid(defineConfig({
                   { text: 'MCP Server', link: '/en/platform/mcp' },
                   { text: 'Runtime Integration', link: '/en/platform/integrate' },
                   { text: 'Traffic Capture & Replay', link: '/en/platform/capture-replay' },
+                  { text: 'Decision Model Gateway', link: '/en/platform/decision-gateway' },
               ]
             },
             {
@@ -291,6 +292,7 @@ export default withMermaid(defineConfig({
                   { text: 'MCP 服务', link: '/zh/platform/mcp' },
                   { text: '运行时接入', link: '/zh/platform/integrate' },
                   { text: '流量捕获与重放', link: '/zh/platform/capture-replay' },
+                  { text: '决策模型网关', link: '/zh/platform/decision-gateway' },
               ]
             },
             {

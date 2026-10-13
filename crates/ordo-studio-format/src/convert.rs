@@ -309,12 +309,30 @@ fn convert_expr(expr: StudioExpr, step_id: &str) -> Result<Expr, ConvertError> {
         }
 
         StudioExpr::Function { name, args } => {
-            let converted: Result<Vec<Expr>, _> =
-                args.into_iter().map(|a| convert_expr(a, step_id)).collect();
-            Ok(Expr::Call {
-                name,
-                args: converted?,
-            })
+            let mut args: Vec<Expr> = args
+                .into_iter()
+                .map(|a| convert_expr(a, step_id))
+                .collect::<Result<_, _>>()?;
+            // `if`, `exists` and `coalesce` are parser special forms, not registered
+            // functions. `expr_to_studio` stores them as function calls, so map them
+            // back to their AST nodes here.
+            match (name.as_str(), args.len()) {
+                ("if", 3) => {
+                    let else_branch = args.pop().unwrap();
+                    let then_branch = args.pop().unwrap();
+                    let condition = args.pop().unwrap();
+                    Ok(Expr::conditional(condition, then_branch, else_branch))
+                }
+                ("exists", 1) => match args.pop().unwrap() {
+                    Expr::Field(path) => Ok(Expr::exists(path)),
+                    other => Ok(Expr::Call {
+                        name,
+                        args: vec![other],
+                    }),
+                },
+                ("coalesce", n) if n > 0 => Ok(Expr::coalesce(args)),
+                _ => Ok(Expr::Call { name, args }),
+            }
         }
 
         StudioExpr::Member { object, property } => {
@@ -741,6 +759,62 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("invalid expression `price *`"), "{err}");
+    }
+
+    #[test]
+    fn test_parser_special_forms_in_expression_strings() {
+        let json = r#"{
+          "config": {"name": "special_forms", "version": "1.0.0"},
+          "startStepId": "calc",
+          "steps": [
+            {"id": "calc", "name": "Calc", "type": "action",
+             "assignments": [
+               {"name": "priority", "value": "if score >= 1.5 then \"high\" else \"normal\""},
+               {"name": "has_note", "value": "exists(note)"},
+               {"name": "tier", "value": "coalesce(customer.tier, \"basic\")"}
+             ],
+             "nextStepId": "done"},
+            {"id": "done", "name": "Done", "type": "terminal", "code": "OK",
+             "output": [
+               {"name": "priority", "value": "$priority"},
+               {"name": "has_note", "value": "$has_note"},
+               {"name": "tier", "value": "$tier"},
+               {"name": "band", "value": "if score > 1 then \"up\" else \"down\""}
+             ]}
+          ]
+        }"#;
+        let studio: StudioRuleSet = serde_json::from_str(json).unwrap();
+        let mut engine = RuleSet::try_from(studio).unwrap();
+        engine.compile().unwrap();
+
+        let run = |input: &str| {
+            ordo_core::rule::RuleExecutor::new()
+                .execute(&engine, serde_json::from_str(input).unwrap())
+                .unwrap()
+                .output
+        };
+        let out = run(r#"{"score": 2, "note": "x", "customer": {}}"#);
+        assert_eq!(out.get_path("priority"), Some(&CoreValue::string("high")));
+        assert_eq!(out.get_path("has_note"), Some(&CoreValue::bool(true)));
+        assert_eq!(out.get_path("tier"), Some(&CoreValue::string("basic")));
+        assert_eq!(out.get_path("band"), Some(&CoreValue::string("up")));
+
+        let out = run(r#"{"score": 0.5, "customer": {"tier": "gold"}}"#);
+        assert_eq!(out.get_path("priority"), Some(&CoreValue::string("normal")));
+        assert_eq!(out.get_path("has_note"), Some(&CoreValue::bool(false)));
+        assert_eq!(out.get_path("tier"), Some(&CoreValue::string("gold")));
+        assert_eq!(out.get_path("band"), Some(&CoreValue::string("down")));
+
+        // Engine → studio → engine keeps them as special forms.
+        let back = crate::convert_reverse::engine_to_studio(&engine);
+        let mut again = RuleSet::try_from(back).unwrap();
+        again.compile().unwrap();
+        let out = ordo_core::rule::RuleExecutor::new()
+            .execute(&again, serde_json::from_str(r#"{"score": 2}"#).unwrap())
+            .unwrap()
+            .output;
+        assert_eq!(out.get_path("priority"), Some(&CoreValue::string("high")));
+        assert_eq!(out.get_path("has_note"), Some(&CoreValue::bool(false)));
     }
 
     #[test]

@@ -115,6 +115,13 @@ fn check_fields(fields: &[InputField], obj: &mut Value, prefix: &str, errors: &m
             } else if field.required {
                 errors.push(format!("{path}: required field is missing"));
                 continue;
+            } else if fills_from_defaults(field) {
+                // An optional object whose nested fields carry defaults: create it so
+                // rules can rely on `parent.child` without the caller sending `{}`.
+                map.insert(
+                    field.name.as_str().into(),
+                    Value::object(std::collections::HashMap::new()),
+                );
             } else {
                 continue;
             }
@@ -123,6 +130,22 @@ fn check_fields(fields: &[InputField], obj: &mut Value, prefix: &str, errors: &m
             check_value(field, value, &path, errors);
         }
     }
+}
+
+/// Whether an absent optional object can be built from its fields' defaults:
+/// it has nested fields, none of them is required without a default, and at
+/// least one has a default (directly or through a nested object).
+fn fills_from_defaults(field: &InputField) -> bool {
+    field.field_type == InputFieldType::Object
+        && !field.fields.is_empty()
+        && !field
+            .fields
+            .iter()
+            .any(|f| f.required && f.default_value.is_none())
+        && field
+            .fields
+            .iter()
+            .any(|f| f.default_value.is_some() || fills_from_defaults(f))
 }
 
 fn check_value(field: &InputField, value: &mut Value, path: &str, errors: &mut Vec<String>) {
@@ -262,6 +285,41 @@ mod tests {
         let schema = schema(r#"[{"name": "age", "type": "number", "required": true}]"#);
         let errs = errors(apply_input_schema(&schema, &mut input(r#"{"age": null}"#)));
         assert_eq!(errs, vec!["age: required field is missing"]);
+    }
+
+    #[test]
+    fn missing_optional_object_is_built_from_nested_defaults() {
+        let schema = schema(
+            r#"[
+              {"name": "urgency", "type": "object", "fields": [
+                {"name": "score", "type": "number", "defaultValue": 0}
+              ]},
+              {"name": "flags", "type": "object", "fields": [
+                {"name": "limits", "type": "object", "fields": [
+                  {"name": "max", "type": "number", "defaultValue": 3}
+                ]}
+              ]},
+              {"name": "contact", "type": "object", "fields": [
+                {"name": "email", "type": "string", "required": true},
+                {"name": "lang", "type": "string", "defaultValue": "en"}
+              ]},
+              {"name": "extra", "type": "object", "fields": [
+                {"name": "note", "type": "string"}
+              ]}
+            ]"#,
+        );
+        let mut v = input("{}");
+        apply_input_schema(&schema, &mut v).unwrap();
+        assert_eq!(v.get_path("urgency.score"), Some(&Value::int(0)));
+        assert_eq!(v.get_path("flags.limits.max"), Some(&Value::int(3)));
+        // A required nested field means the caller has to send the object.
+        assert_eq!(v.get_path("contact"), None);
+        // Nothing to fill in, so nothing is created.
+        assert_eq!(v.get_path("extra"), None);
+
+        let mut partial = input(r#"{"urgency": {"score": 1.5}}"#);
+        apply_input_schema(&schema, &mut partial).unwrap();
+        assert_eq!(partial.get_path("urgency.score"), Some(&Value::float(1.5)));
     }
 
     #[test]

@@ -60,24 +60,24 @@ git clone https://github.com/Ordo-Engine/Ordo
 cd Ordo/examples/rule-packs/jev-routing
 
 ordo test
-ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.72},
-  "urgency":{"score":0.3},"chargeback":{"noul":0.02}},
+ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.97},
+  "urgency":{"score":0.43},"chargeback":{"noul":0.04}},
   "order":{"amount":"129.00","days_since_delivery":1},"customer":{"refunds_90d":0}}'
 ```
 
 ```text
-code:    LLM_DRAFT
-message: An LLM drafts the reply, an agent approves it
+code:    AUTO_REFUND
+message: Refund issued without review
 output:  {
-  "reason": "medium_confidence",
-  "jev_confidence": 0.72,
+  "amount": 129,
+  "jev_confidence": 0.97,
   "priority": "normal"
 }
 
-path:    escalation -> intent -> priority -> route -> dispatch -> llm_draft
+path:    escalation -> intent -> priority -> route -> dispatch -> auto_refund
 ```
 
-Jev 判断客户想退款的置信度是 0.72。规则认为这还不够直接动钱，所以让 LLM 起草回复，再由客服确认。`trace` 把一次执行走过的每一步都打出来，有人问"为什么没有马上退款"，可以直接回答。规则包里的 `route.mjs` 会帮你调用 Jev，没有 API key 时用自带的示例答案。
+这是 Jev 的真实回答。客户写的是"搅拌机比视频里吵很多，不确定要不要，我有什么选择？"客户只是在问问题，Jev 却有 0.97 的把握认为这是退款请求，于是规则没经过任何人就退了 129 欧。Jev 读文字很准，但它给的置信度不是概率，TypeSafe 自己也说没有通用的阈值。`trace` 把一次执行走过的每一步都打出来，有人问"为什么没人看就退款了"，可以直接回答，要修也是改一条能测试的规则。规则包里的 `route.mjs` 会帮你调用 Jev，没有 API key 时用录下来的真实答案。
 
 ## 改之前先看影响
 

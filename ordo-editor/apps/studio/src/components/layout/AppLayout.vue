@@ -534,7 +534,7 @@ async function handleCreateOrg() {
 
         <t-dropdown
           :options="[{ content: t('nav.logout'), value: 'logout', prefixIcon: 'logout' }]"
-          placement="right-end"
+          placement="right-bottom"
           trigger="click"
           @click="handleLogout"
         >

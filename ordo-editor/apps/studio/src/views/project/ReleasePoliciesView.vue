@@ -10,6 +10,7 @@ import ReleaseNav from '@/components/project/ReleaseNav.vue';
 import { useRolloutStrategyLabel } from '@/constants/release-center';
 import { useAuthStore } from '@/stores/auth';
 import { useEnvironmentStore } from '@/stores/environment';
+import { readReturnTo } from '@/utils/return-to';
 
 const route = useRoute();
 const router = useRouter();
@@ -104,11 +105,14 @@ function openCreateDialog() {
     name: '',
     scope: 'project',
     target_type: 'environment',
-    target_id: envStore.environments.find((env) => env.is_default)?.id ?? '',
+    target_id:
+      (envStore.environments.find((env) => env.is_default) ?? envStore.environments[0])?.id ?? '',
     description: '',
     min_approvals: 1,
     allow_self_approval: true,
-    approver_ids: [],
+    // Start with the creator as approver; a first policy otherwise can't be saved alone.
+    approver_ids:
+      auth.user && members.value.some((m) => m.user_id === auth.user!.id) ? [auth.user.id] : [],
     batch_size: 1,
     batch_interval_seconds: 180,
     auto_rollback: true,
@@ -156,6 +160,9 @@ async function submitPolicy() {
     policies.value.unshift(created);
     showCreateDialog.value = false;
     MessagePlugin.success(t('releaseCenter.policyCreated'));
+    // Came here from a release request: go back so the user can finish it.
+    const returnTo = readReturnTo(route.query);
+    if (returnTo) router.push(returnTo);
   } catch (e: any) {
     MessagePlugin.error(e.message || t('releaseCenter.policyCreateFailed'));
   } finally {

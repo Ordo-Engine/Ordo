@@ -3492,6 +3492,7 @@ onUnmounted(() => {
             :ruleset="executionPanelRuleset"
             :visible="showExecution"
             :height="executionHeight"
+            local-only
             @update:visible="showExecution = $event"
             @update:height="executionHeight = $event"
             @show-in-flow="handleShowInFlow"

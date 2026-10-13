@@ -30,12 +30,20 @@ GET    /api/v1/orgs/:oid/connect-tokens      # list metadata (never the raw toke
 DELETE /api/v1/orgs/:oid/connect-tokens/:id  # revoke
 ```
 
-Point an engine at it via flag or env:
+Start an engine with the token. Studio's **Servers → Create token** dialog prints this command with the values filled in:
 
 ```bash
-ordo-server --platform-connect-token ordo_connect_xxxx, or
-ORDO_CONNECT_TOKEN=ordo_connect_xxxx ordo-server
+docker run -d --name ordo-engine -p 8080:8080 \
+  -e ORDO_PLATFORM_URL=https://studio.example.com \
+  -e ORDO_CONNECT_TOKEN=ordo_connect_xxxx \
+  -e ORDO_SERVER_TOKEN=<unique per engine> \
+  -e ORDO_SERVER_NAME=engine-1 \
+  -e ORDO_SERVER_URL=http://ENGINE_HOST:8080 \
+  -e ORDO_NATS_URL=nats://NATS_HOST:4222 \
+  ghcr.io/ordo-engine/ordo:latest
 ```
+
+The connect token alone doesn't register anything: the engine only registers when `ORDO_PLATFORM_URL` and `ORDO_SERVER_TOKEN` are also set, and it only receives releases when `ORDO_NATS_URL` points at the same NATS the platform uses.
 
 The engine sends the token as an `x-connect-token` header on registration; the
 platform derives the owning org from it and records the server under that org.

@@ -28,12 +28,20 @@ GET    /api/v1/orgs/:oid/connect-tokens      # 列出元数据(从不返回原�
 DELETE /api/v1/orgs/:oid/connect-tokens/:id  # 吊销
 ```
 
-通过 flag 或环境变量把令牌传给引擎：
+带上令牌启动引擎。Studio 的 **Servers → 创建令牌** 对话框会直接给出填好值的这条命令：
 
 ```bash
-ordo-server --platform-connect-token ordo_connect_xxxx，或
-ORDO_CONNECT_TOKEN=ordo_connect_xxxx ordo-server
+docker run -d --name ordo-engine -p 8080:8080 \
+  -e ORDO_PLATFORM_URL=https://studio.example.com \
+  -e ORDO_CONNECT_TOKEN=ordo_connect_xxxx \
+  -e ORDO_SERVER_TOKEN=<每个引擎唯一> \
+  -e ORDO_SERVER_NAME=engine-1 \
+  -e ORDO_SERVER_URL=http://ENGINE_HOST:8080 \
+  -e ORDO_NATS_URL=nats://NATS_HOST:4222 \
+  ghcr.io/ordo-engine/ordo:latest
 ```
+
+只有接入令牌不会注册：还要同时设置 `ORDO_PLATFORM_URL` 和 `ORDO_SERVER_TOKEN` 才会注册，`ORDO_NATS_URL` 指向平台使用的同一个 NATS 才能收到发布。
 
 引擎注册时把令牌放在 `x-connect-token` 头中发送，平台据此确定归属组织，并把该服务器记在这个组织名下。令牌既用于授权注册，也决定归属。在按组织划分的部署里，它取代全局的 `--platform-registration-secret`。
 

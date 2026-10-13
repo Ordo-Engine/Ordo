@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { serverApi, connectTokenApi } from '@/api/platform-client';
 import type { ServerInfo, ConnectTokenInfo } from '@/api/types';
 import { useAuthStore } from '@/stores/auth';
+import { readReturnTo } from '@/utils/return-to';
 
 interface HealthPayload {
   online: boolean;
@@ -41,7 +42,83 @@ const newLabel = ref('');
 const createdDialogVisible = ref(false);
 const createdToken = ref('');
 const createdLabel = ref<string | null>(null);
-const createdUsage = computed(() => `ORDO_CONNECT_TOKEN=${createdToken.value} ordo-server`);
+// Each engine needs its own server token; generate one so the command runs as is.
+const createdServerToken = ref('');
+// Everything an engine needs to register and receive releases. Only ENGINE_HOST
+// and NATS_HOST depend on the machine and can't be known here.
+const createdUsage = computed(() =>
+  [
+    'docker run -d --name ordo-engine -p 8080:8080 \\',
+    `  -e ORDO_PLATFORM_URL=${window.location.origin} \\`,
+    `  -e ORDO_CONNECT_TOKEN=${createdToken.value} \\`,
+    `  -e ORDO_SERVER_TOKEN=${createdServerToken.value} \\`,
+    `  -e ORDO_SERVER_NAME=${serverNameFromLabel(createdLabel.value)} \\`,
+    '  -e ORDO_SERVER_URL=http://ENGINE_HOST:8080 \\',
+    '  -e ORDO_NATS_URL=nats://NATS_HOST:4222 \\',
+    '  ghcr.io/ordo-engine/ordo:latest',
+  ].join('\n')
+);
+
+function serverNameFromLabel(label: string | null) {
+  const slug = (label ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'ordo-engine';
+}
+
+function randomServerToken() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return 'srvtok_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Set when another page (e.g. an environment form) sent the user here to connect a server.
+const returnTo = readReturnTo(route.query);
+
+// While the "token created" dialog is open, watch for the new engine to register.
+const knownServerIds = ref<Set<string>>(new Set());
+const connectedServer = ref<ServerInfo | null>(null);
+let connectPoll: ReturnType<typeof setInterval> | null = null;
+
+function startConnectPoll() {
+  stopConnectPoll();
+  knownServerIds.value = new Set(servers.value.map((s) => s.id));
+  connectedServer.value = null;
+  connectPoll = setInterval(async () => {
+    if (!auth.token) return;
+    try {
+      const list = await serverApi.list(auth.token);
+      servers.value = list;
+      const fresh = list.find((s) => !knownServerIds.value.has(s.id));
+      if (fresh) {
+        connectedServer.value = fresh;
+        stopConnectPoll();
+      }
+    } catch {
+      // Keep waiting; a transient error shouldn't close the flow.
+    }
+  }, 3000);
+}
+
+function stopConnectPoll() {
+  if (connectPoll) clearInterval(connectPoll);
+  connectPoll = null;
+}
+
+function finishConnect() {
+  createdDialogVisible.value = false;
+  stopConnectPoll();
+  if (!returnTo) return;
+  const target = router.resolve(returnTo);
+  router.push({
+    path: target.path,
+    query: connectedServer.value
+      ? { ...target.query, connectedServer: connectedServer.value.id }
+      : target.query,
+  });
+}
 
 const loadingServers = ref(false);
 const removingServerId = ref<string | null>(null);
@@ -285,7 +362,9 @@ async function confirmCreate() {
     createDialogVisible.value = false;
     createdToken.value = res.token;
     createdLabel.value = res.label;
+    createdServerToken.value = randomServerToken();
     createdDialogVisible.value = true;
+    startConnectPoll();
     await loadTokens();
   } catch {
     MessagePlugin.error(t('settings.connectTokens.createFailed'));
@@ -326,10 +405,18 @@ async function copyToken(text: string) {
   }
 }
 
-onMounted(() => {
-  loadServers();
+onMounted(async () => {
   loadTokens();
+  await loadServers();
+  if (route.query.connect === '1' && orgId.value) {
+    openCreate();
+    const nextQuery = { ...route.query };
+    delete nextQuery.connect;
+    router.replace({ query: nextQuery });
+  }
 });
+
+onBeforeUnmount(stopConnectPoll);
 </script>
 
 <template>
@@ -620,10 +707,13 @@ onMounted(() => {
       v-model:visible="createdDialogVisible"
       :header="t('settings.connectTokens.createdTitle')"
       :cancel-btn="null"
-      :confirm-btn="t('settings.connectTokens.done')"
-      width="640px"
+      :confirm-btn="
+        returnTo ? t('settings.connectTokens.backToForm') : t('settings.connectTokens.done')
+      "
+      width="720px"
       destroy-on-close
-      @confirm="createdDialogVisible = false"
+      @confirm="finishConnect"
+      @close="finishConnect"
     >
       <t-alert
         theme="warning"
@@ -638,10 +728,19 @@ onMounted(() => {
       </div>
       <p class="use-hint">{{ t('settings.connectTokens.useHint') }}</p>
       <div class="token-block">
-        <code class="token-value">{{ createdUsage }}</code>
+        <pre class="token-value token-command">{{ createdUsage }}</pre>
         <t-button size="small" variant="outline" @click="copyToken(createdUsage)">
           {{ t('settings.connectTokens.copy') }}
         </t-button>
+      </div>
+      <p class="use-hint">{{ t('settings.connectTokens.replaceHint') }}</p>
+      <div class="connect-status" :class="{ 'is-online': connectedServer }">
+        <t-icon :name="connectedServer ? 'check-circle-filled' : 'loading'" />
+        <span>{{
+          connectedServer
+            ? t('settings.connectTokens.connected', { name: connectedServer.name })
+            : t('settings.connectTokens.waiting')
+        }}</span>
       </div>
     </t-dialog>
   </div>
@@ -771,6 +870,29 @@ onMounted(() => {
   font-size: 12.5px;
   color: var(--ordo-text-primary);
   word-break: break-all;
+}
+
+.token-command {
+  margin: 0;
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
+
+.connect-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ordo-bg-app);
+  font-size: 13px;
+  color: var(--ordo-text-secondary);
+}
+
+.connect-status.is-online {
+  color: var(--td-success-color);
 }
 
 .use-hint {

@@ -775,7 +775,12 @@ export default {
       revoked: '權杖已撤銷',
       createdTitle: '接入權杖已建立',
       createdWarning: '現在就複製——它只顯示這一次,之後無法再取回。',
-      useHint: '用 flag 或環境變數交給引擎:',
+      useHint: '在要接入的機器上執行：',
+      replaceHint:
+        '把 ENGINE_HOST 換成平台能存取到這台機器的位址，NATS_HOST 換成平台使用的同一個 NATS。引擎上線後會自動出現在下方。',
+      waiting: '等待引擎上線…',
+      connected: '引擎 {name} 已上線',
+      backToForm: '回到上一步',
       copy: '複製',
       copied: '已複製到剪貼簿',
       copyFailed: '複製失敗——請手動選擇複製。',
@@ -1122,6 +1127,9 @@ export default {
     name: '名稱',
     server: '綁定伺服器',
     serverNodes: '綁定節點',
+    connectServer: '接入新節點',
+    noServerAvailable:
+      '還沒有執行節點。點「接入新節點」，在機器上執行給出的命令，引擎上線後會出現在這裡。',
     noServer: '未綁定',
     default: '預設（生產）',
     canary: '金絲雀',

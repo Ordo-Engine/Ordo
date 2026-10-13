@@ -107,7 +107,7 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 
 ## 把 Ordo 放在 Jev 前面
 
-ordo-server 可以放在应用和 Jev 之间。代码照常调用 Jev，每个回答返回时都会带上 Ordo 的决策。每次调用还会记进决策日志，`ordo impact --inputs` 可以直接读。
+ordo-server 可以放在应用和 Jev 之间。代码照常调用 Jev，每个回答返回时都会带上 Ordo 的决策。加上 `--decide-log-dir <目录>`，每次调用还会记进决策日志，`ordo impact --inputs` 可以直接读。
 
 ```bash
 docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<你的 OpenRouter key> \

@@ -53,6 +53,7 @@ mod capability_registry;
 mod capture;
 mod config;
 pub mod debug;
+mod decide;
 mod error;
 mod grpc;
 mod json;
@@ -105,6 +106,8 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     /// Webhook manager
     pub webhook_manager: Arc<webhook::WebhookManager>,
+    /// Decision model gateway (only with --decide-upstream)
+    pub decide: Option<Arc<decide::DecideGateway>>,
 }
 
 fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<RuleVerifier>> {
@@ -670,6 +673,7 @@ async fn main() -> anyhow::Result<()> {
                         tenant_manager: tenant_manager.clone(),
                         rate_limiter: rate_limiter.clone(),
                         webhook_manager: webhook_manager.clone(),
+                        decide: None,
                     };
                     match start_server_control_rpc_responder(
                         nats_client.clone(),
@@ -1012,6 +1016,7 @@ async fn start_http_server(
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let debug_enabled = config.debug_enabled();
+    let decide = decide::DecideGateway::from_config(&config)?.map(Arc::new);
 
     let state = AppState {
         store,
@@ -1025,6 +1030,7 @@ async fn start_http_server(
         tenant_manager,
         rate_limiter,
         webhook_manager,
+        decide,
     };
 
     // Build the data router. Health/metrics live in a separate, un-gated router
@@ -1111,6 +1117,17 @@ async fn start_http_server(
                 .put(api::update_tenant)
                 .delete(api::delete_tenant),
         );
+
+    // Decision model gateway: SDKs use http://<ordo>/systemone as their base URL.
+    if state.decide.is_some() {
+        info!(
+            "Decision model gateway enabled at /systemone/v1/systemone (upstream {})",
+            state.config.decide_upstream.as_deref().unwrap_or_default()
+        );
+        app = app
+            .route("/systemone/v1/systemone", post(decide::systemone))
+            .route("/systemone/v1/models", get(decide::models));
+    }
 
     // Register debug routes only in debug mode
     if debug_enabled {
@@ -1615,3 +1632,6 @@ mod api_tests;
 
 #[cfg(test)]
 mod api_integration_tests;
+
+#[cfg(test)]
+mod decide_tests;

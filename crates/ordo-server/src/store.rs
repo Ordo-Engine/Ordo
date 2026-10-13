@@ -96,6 +96,34 @@ fn validate_tenant_and_name(tenant_id: &str, name: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Deserialize a ruleset from JSON in either shape: the engine format (`steps`
+/// is an object keyed by step id) or the Studio format that Studio, the CLI and
+/// the rule packs write (`steps` is a list). Studio rulesets are converted
+/// without a concept catalog.
+pub fn ruleset_from_json(value: serde_json::Value) -> Result<RuleSet, String> {
+    if is_studio_format(&value) {
+        let studio: ordo_studio_format::StudioRuleSet = serde_json::from_value(value)
+            .map_err(|e| format!("invalid Studio-format ruleset: {e}"))?;
+        RuleSet::try_from(studio).map_err(|e| e.to_string())
+    } else {
+        serde_json::from_value(value).map_err(|e| e.to_string())
+    }
+}
+
+fn is_studio_format(value: &serde_json::Value) -> bool {
+    value.get("steps").is_some_and(serde_json::Value::is_array)
+}
+
+/// Studio-format fallback for a file the engine format rejected. `None` when
+/// the file is not a Studio ruleset, so the original error is reported.
+fn studio_from_text(content: &str, format: FileFormat) -> Option<Result<RuleSet, String>> {
+    let value: serde_json::Value = match format {
+        FileFormat::Json => serde_json::from_str(content).ok()?,
+        FileFormat::Yaml => serde_yaml::from_str(content).ok()?,
+    };
+    is_studio_format(&value).then(|| ruleset_from_json(value))
+}
+
 /// Rule storage with optional file persistence and version management
 pub struct RuleStore {
     /// Stored rulesets (in-memory cache)
@@ -671,14 +699,19 @@ impl RuleStore {
                 }
             }
 
-            serde_json::from_value(json_value)
+            ruleset_from_json(json_value)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
         } else {
-            // Fast path: deserialize directly to RuleSet (no intermediate Value)
-            match format {
-                FileFormat::Json => serde_json::from_str(&content)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-                FileFormat::Yaml => serde_yaml::from_str(&content)
+            // Fast path: deserialize directly to RuleSet (no intermediate Value).
+            // A Studio-format file fails here and is converted instead.
+            let direct = match format {
+                FileFormat::Json => serde_json::from_str(&content).map_err(|e| e.to_string()),
+                FileFormat::Yaml => serde_yaml::from_str(&content).map_err(|e| e.to_string()),
+            };
+            match direct {
+                Ok(ruleset) => ruleset,
+                Err(err) => studio_from_text(&content, format)
+                    .unwrap_or(Err(err))
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
             }
         };

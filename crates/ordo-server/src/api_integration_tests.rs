@@ -72,6 +72,7 @@ async fn build_full_test_app() -> Router {
         tenant_manager,
         rate_limiter,
         webhook_manager,
+        decide: None,
     };
 
     // CORS — permissive for tests (matches debug_enabled=false production default)

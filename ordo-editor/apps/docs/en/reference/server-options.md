@@ -335,6 +335,46 @@ ordo-server --request-timeout-secs 60
 | **Default** | `30`                        |
 | **Env**     | `ORDO_REQUEST_TIMEOUT_SECS` |
 
+## Decision Model Gateway Options
+
+Put Ordo in front of a decision model such as Jev: forward requests, optionally run a ruleset on the answers, and log every call. See [Decision Model Gateway](/en/platform/decision-gateway).
+
+### --decide-upstream
+
+Base URL of a System One compatible API, such as `https://api.typesafe.ai` or `https://openrouter.ai/api`. Setting it turns on `/systemone/v1/systemone`.
+
+|                          |                        |
+| ------------------------ | ---------------------- |
+| **Default**              | None (off)             |
+| **Environment variable** | `ORDO_DECIDE_UPSTREAM` |
+
+### --decide-api-key
+
+API key sent to the upstream. Without it, the caller's `Authorization` header is forwarded. Required together with `--api-token`.
+
+|                          |                       |
+| ------------------------ | --------------------- |
+| **Default**              | None                  |
+| **Environment variable** | `ORDO_DECIDE_API_KEY` |
+
+### --decide-log-dir
+
+Decision log directory, rotated daily (`decisions-YYYY-MM-DD.jsonl`). `ordo impact --inputs` reads these files.
+
+|                          |                       |
+| ------------------------ | --------------------- |
+| **Default**              | None (no log)         |
+| **Environment variable** | `ORDO_DECIDE_LOG_DIR` |
+
+### --decide-log-requests
+
+Also write each request's `state` and `questions` to the decision log. Off by default, because `state` is usually customer text.
+
+|                          |                            |
+| ------------------------ | -------------------------- |
+| **Default**              | `false`                    |
+| **Environment variable** | `ORDO_DECIDE_LOG_REQUESTS` |
+
 ## Logging Options
 
 ### --log-level

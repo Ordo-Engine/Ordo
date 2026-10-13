@@ -130,7 +130,7 @@ pub fn run(args: ImpactArgs, json: bool) -> Result<()> {
         None => Base::Rev(args.base.unwrap_or_else(|| "HEAD".to_string())),
     };
     let extra = match &args.inputs {
-        Some(path) => read_inputs(Path::new(path))?,
+        Some(path) => read_inputs(Path::new(path), &name)?,
         None => Vec::new(),
     };
     let report = compute(&project, &name, &base, extra, !args.no_probes)?;
@@ -338,7 +338,10 @@ fn git_show(root: &Path, rev: &str, rel: &str) -> Result<Option<String>> {
 }
 
 /// One line per input: a captured record's `input`, or the object itself.
-fn read_inputs(path: &Path) -> Result<Vec<Json>> {
+/// Read `--inputs`: capture or decision-log lines (`{input, ...}`) or bare
+/// input objects. Lines recorded for a different ruleset are skipped, so one
+/// log file can serve several rulesets.
+fn read_inputs(path: &Path, ruleset: &str) -> Result<Vec<Json>> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read inputs from {}", path.display()))?;
     let mut inputs = Vec::new();
@@ -348,7 +351,16 @@ fn read_inputs(path: &Path) -> Result<Vec<Json>> {
         }
         let v: Json = serde_json::from_str(line)
             .with_context(|| format!("{}:{}: invalid JSON", path.display(), i + 1))?;
+        let recorded_for = v
+            .get("ruleset")
+            .or_else(|| v.get("rule_name"))
+            .and_then(Json::as_str);
+        if v.get("input").is_some() && recorded_for.is_some_and(|r| r != ruleset) {
+            continue;
+        }
         inputs.push(match v.get("input") {
+            // Decision-log lines from calls where no ruleset ran have no rule input.
+            Some(Json::Null) => continue,
             Some(input) => input.clone(),
             None => v,
         });
@@ -651,6 +663,27 @@ fn print_report(r: &Report) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inputs_skip_other_rulesets_and_calls_without_a_decision() {
+        let path =
+            std::env::temp_dir().join(format!("ordo-impact-inputs-{}.jsonl", std::process::id()));
+        std::fs::write(
+            &path,
+            [
+                r#"{"ruleset":"refund-routing","input":{"a":1},"code":"LLM_DRAFT"}"#,
+                r#"{"ruleset":"other","input":{"a":2}}"#,
+                r#"{"model":"jev-1.13.0","answers":{},"input":null}"#,
+                r#"{"rule_name":"refund-routing","input":{"a":3}}"#,
+                r#"{"a":4}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        let got = read_inputs(&path, "refund-routing").unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(got, vec![json!({"a":1}), json!({"a":3}), json!({"a":4})]);
+    }
 
     #[test]
     fn thresholds_come_from_comparisons_with_input_fields() {

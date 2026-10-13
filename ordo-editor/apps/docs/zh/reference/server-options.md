@@ -334,6 +334,46 @@ ordo-server --request-timeout-secs 60
 | **默认值**   | `30`                        |
 | **环境变量** | `ORDO_REQUEST_TIMEOUT_SECS` |
 
+## 决策模型网关选项
+
+在 Jev 这类决策模型前面加一层 Ordo：转发请求，可选地用回答跑规则集，并记录每次调用。见[决策模型网关](/zh/platform/decision-gateway)。
+
+### --decide-upstream
+
+System One 兼容接口的 base URL，例如 `https://api.typesafe.ai` 或 `https://openrouter.ai/api`。设置后开启 `/systemone/v1/systemone`。
+
+|              |                        |
+| ------------ | ---------------------- |
+| **默认值**   | 无（关闭）             |
+| **环境变量** | `ORDO_DECIDE_UPSTREAM` |
+
+### --decide-api-key
+
+发给上游的 API key。不设置时转发调用方的 `Authorization` 头。和 `--api-token` 一起用时必须设置。
+
+|              |                       |
+| ------------ | --------------------- |
+| **默认值**   | 无                    |
+| **环境变量** | `ORDO_DECIDE_API_KEY` |
+
+### --decide-log-dir
+
+决策日志目录，文件按天轮换（`decisions-YYYY-MM-DD.jsonl`）。`ordo impact --inputs` 可以直接读。
+
+|              |                       |
+| ------------ | --------------------- |
+| **默认值**   | 无（不写日志）        |
+| **环境变量** | `ORDO_DECIDE_LOG_DIR` |
+
+### --decide-log-requests
+
+在决策日志里同时记录请求的 `state` 和 `questions`。`state` 通常是客户原文，所以默认关闭。
+
+|              |                            |
+| ------------ | -------------------------- |
+| **默认值**   | `false`                    |
+| **环境变量** | `ORDO_DECIDE_LOG_REQUESTS` |
+
 ## 日志选项
 
 ### --log-level

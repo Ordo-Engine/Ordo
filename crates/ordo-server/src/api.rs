@@ -308,8 +308,10 @@ pub async fn create_ruleset(
             .map_err(|e| ApiError::forbidden(format!("Signature verification failed: {}", e)))?;
     }
 
-    // Now we can consume the payload without cloning
-    let mut ruleset: RuleSet = serde_json::from_value(payload)?;
+    // Now we can consume the payload without cloning. Studio-format rulesets
+    // (what the CLI and rule packs write) are converted here.
+    let mut ruleset = crate::store::ruleset_from_json(payload)
+        .map_err(|e| ApiError::bad_request(format!("JSON error: {e}")))?;
 
     let mut store = state.store.write().await;
     let name = ruleset.config.name.clone();

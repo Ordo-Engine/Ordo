@@ -15,7 +15,15 @@ ordo-server \
   --decide-log-dir /var/ordo/decisions
 ```
 
-For OpenRouter, use `https://openrouter.ai/api` as the upstream. Without `ORDO_DECIDE_API_KEY`, Ordo forwards the caller's `Authorization` header to the upstream unchanged.
+With Docker, the rule packs are already in the image:
+
+```bash
+docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=... ghcr.io/ordo-engine/ordo:latest \
+  --rules-dir /app/rule-packs/jev-routing/rulesets \
+  --decide-upstream https://openrouter.ai/api
+```
+
+For OpenRouter, use `https://openrouter.ai/api` as the upstream and model ids such as `typesafe/jev-1.13`. Without `ORDO_DECIDE_API_KEY`, Ordo forwards the caller's `Authorization` header to the upstream unchanged.
 
 In the application, change only the base URL:
 

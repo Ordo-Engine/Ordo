@@ -20,9 +20,11 @@ docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
 By default rules are kept in memory only. To load and persist rules from a directory, mount it into the container:
 
 ```bash
-docker run -p 8080:8080 -v "$PWD/rules:/data/rules" \
+docker run -p 8080:8080 -v "$PWD/rules:/data/rules" --user "$(id -u):$(id -g)" \
   ghcr.io/ordo-engine/ordo:latest --rules-dir /data/rules
 ```
+
+The server writes its write-ahead log and tenant settings into that folder, so it must be writable from inside the container. `--user` runs the container as you, which on Linux is what makes your own folder writable.
 
 Check that the service is up:
 

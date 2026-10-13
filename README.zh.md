@@ -5,12 +5,12 @@
 <h1 align="center">Ordo</h1>
 
 <p align="center">
-  <strong>把业务规则从代码里拿出来。</strong>
+  <strong>把判断变成决策。</strong>
 </p>
 
 <p align="center">
-  开源业务规则引擎。定价、风控、审批这类常改的判断，写成带测试、带版本的规则文件。<br />
-  改之前先看会影响哪些决策。人能写，AI 也能写。
+  开源决策引擎。模型和评分告诉你发生了什么，Ordo 决定接下来怎么做。<br />
+  规则带测试、带版本，改之前先看会影响哪些决策。
 </p>
 
 <p align="center">
@@ -31,65 +31,77 @@
 
 ---
 
-折扣、额度、风控阈值，通常是散在几十个文件里的 if/else。调一个数字要发一次版，也没人说得清现在执行的政策到底是什么。现在很多这类代码是 AI 写的，分支长得比人 review 得还快。
+## 每一个用决策模型的应用里，都藏着一个 0.85
 
-Ordo 把这些判断放进单独的规则文件：
+```python
+if jev.confidence > 0.85:
+    refund(order)
+```
+
+这一行在决定谁能拿回钱。它是某个工程师随手写的，没人 review，也没有测试。模型一升级，0.85 的含义就变了，没有人会发现。
+
+[Jev](https://typesafe.ai) 这类决策模型很擅长读懂客户的一段话，回答"这是不是退款请求"，并给出一个置信度。但它不知道你们的退款期限、金额上限，也不知道多大把握才敢不经人工直接退钱。这一步是决策，正是 Ordo 要做的事。
+
+> Jev 把文字变成判断，Ordo 把判断变成决策。
+
+折扣、额度、风控阈值也一样，通常是散在几十个文件里的 if/else。Ordo 把这些决策都放进单独的规则文件：
 
 - 规则是 JSON 或 YAML，和代码一起进 git，可以 review，可以 diff。
 - 表达式语言有边界：没有循环，不能改外部状态。人写的规则和 AI 写的规则都能被校验。
 - 金额用 decimal 精确计算。输入字段先声明类型，传错了在规则执行之前就会被拒绝。
 - 每个规则集带自己的测试。`ordo test` 在本地和 CI 里都能跑，不需要启动服务。
-- 业务代码只需要问一句“这笔订单打几折”，规则怎么变，这句代码都不用动。
+- 业务代码只需要问一句"这个退款请求怎么处理"，规则怎么变，这句代码都不用动。
 
-## 跑一个规则包
+## 跑起来看看
 
 ```bash
 npm i -g @ordo-engine/cli
 git clone https://github.com/Ordo-Engine/Ordo
-cd Ordo/examples/rule-packs/fraud-scoring
+cd Ordo/examples/rule-packs/jev-routing
 
 ordo test
-ordo trace fraud-scoring --input '{"amount":"6000","account_age_days":400,
-  "ip_country":"SG","card_country":"US","new_device":true}'
+ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.72},
+  "urgency":{"score":0.3},"chargeback":{"noul":0.02}},
+  "order":{"amount":"129.00","days_since_delivery":1},"customer":{"refunds_90d":0}}'
 ```
 
 ```text
-code:    CHALLENGE
-message: Ask for 3-D Secure or OTP
+code:    LLM_DRAFT
+message: An LLM drafts the reply, an agent approves it
 output:  {
-  "score": 65,
-  "signals": [
-    "large_amount",
-    "new_device",
-    "country_mismatch"
-  ]
+  "reason": "medium_confidence",
+  "jev_confidence": 0.72,
+  "priority": "normal"
 }
 
-path:    blocklist -> signals -> score -> band -> challenge
+path:    escalation -> intent -> priority -> route -> dispatch -> llm_draft
 ```
 
-`trace` 把一次执行走过的每一步和中间值都打出来。有人问“这笔支付为什么要加验证”，可以直接回答。
+Jev 判断客户想退款的置信度是 0.72。规则认为这还不够直接动钱，所以让 LLM 起草回复，再由客服确认。`trace` 把一次执行走过的每一步都打出来，有人问"为什么没有马上退款"，可以直接回答。规则包里的 `route.mjs` 会帮你调用 Jev，没有 API key 时用自带的示例答案。
 
 ## 改之前先看影响
 
-测试全绿，不代表没改坏。比如风控同事想把拦截分数从 70 调到 65，改完 9 个测试全部通过。`ordo impact` 把这次改动和上一个提交放在一起跑，输入包括测试用例、你提供的真实输入，以及在每个阈值两侧自动生成的探测值：
+客服忙不过来，有人提议把自动退款的门槛从 0.85 降到 0.80。改完之后，12 个测试全部通过。`ordo impact` 把这次改动和上一个提交放在一起跑，输入包括测试用例、你提供的真实输入，以及在每个阈值两侧自动生成的探测值：
 
 ```text
-$ ordo impact fraud-scoring
-impact fraud-scoring  (HEAD → working tree)
-  130 inputs: 9 tests, 0 captured, 121 boundary probes
+$ ordo impact refund-routing
+impact refund-routing  (HEAD → working tree)
+  309 inputs: 12 tests, 0 captured, 297 boundary probes
 
-  CHALLENGE → BLOCK  5 inputs
+  LLM_DRAFT → AUTO_REFUND  18 inputs
+  LLM_DRAFT → HUMAN_REVIEW  3 inputs
 
-CHANGED probe:amount=5000  {"account_age_days":400,"amount":5000,
-        "card_country":"US","ip_country":"SG","new_device":true}
-    code: CHALLENGE → BLOCK
-    message: "Ask for 3-D Secure or OTP" → "High risk"
+CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
+        "days_since_delivery":1} ...}
+    code: LLM_DRAFT → AUTO_REFUND
+    message: "An LLM drafts the reply, an agent approves it" → "Refund issued without review"
 …
-5 changed · 125 unchanged
+21 changed · 288 unchanged
 ```
 
-这 5 个输入里，有一个是老客户在国外用新手机付 5000 元。测试没覆盖到，impact 在合并之前把它找了出来。加上 `--fail-on-change` 可以在 CI 里拦住意外的改动，`--json` 方便接到别的工具里。编码 Agent 通过 `ordo mcp` 调用同一个检查，改完规则先自己看一遍影响，再交给人 review。
+测试没发现任何问题，但有 18 个原本要人确认的输入，现在没人看就直接退钱了。加上 `--inputs last-week.jsonl` 用上周的真实请求跑一遍，看到的就是真实客户的数量，而且是在改动上线之前。
+
+加上 `--fail-on-change` 可以在 CI 里拦住意外的改动，`--json` 方便接到别的工具里。编码 Agent 通过 `ordo mcp` 调用同一个检查，改完规则先自己看一遍影响，再交给人 review。
 
 `ordo impact` 需要命令行 0.7.0 或更新的版本（[下载](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)）。详见 [CLI 文档](https://docs.ordoengine.com/zh/platform/cli)。
 
@@ -99,6 +111,7 @@ CHANGED probe:amount=5000  {"account_age_days":400,"amount":5000,
 
 | 规则包 | 决定什么 |
 |------|---------|
+| [jev-routing](examples/rule-packs/jev-routing) 退款分流 | Jev 读完客户消息之后，这个退款请求怎么处理 |
 | [credit-approval](examples/rule-packs/credit-approval) 信贷审批 | 个人贷款申请：通过、转人工审核，或者拒绝 |
 | [promo-stacking](examples/rule-packs/promo-stacking) 优惠叠加 | 结账时哪些优惠生效，叠加后最多减多少，最后付多少 |
 | [fraud-scoring](examples/rule-packs/fraud-scoring) 支付风控评分 | 一笔卡支付：放行、加一道验证，或者直接拦截 |
@@ -188,7 +201,7 @@ ordo/
 │       ├── playground/  # 在线演示
 │       └── docs/        # 文档站
 ├── examples/
-│   └── rule-packs/      # 信贷审批、优惠叠加、支付风控评分
+│   └── rule-packs/      # 退款分流、信贷审批、优惠叠加、支付风控评分
 └── sdk/                 # Go / Python / Java 客户端
 ```
 

@@ -5,12 +5,12 @@
 <h1 align="center">Ordo</h1>
 
 <p align="center">
-  <strong>Take business rules out of your code.</strong>
+  <strong>Turn judgments into decisions.</strong>
 </p>
 
 <p align="center">
-  An open-source business rule engine. Pricing, risk and approval logic lives in rule files with tests and versions.<br />
-  See which decisions a change moves before you ship it. People can write the rules, and so can AI.
+  An open-source decision engine. Models and scores tell you what is going on. Ordo decides what to do about it,<br />
+  with rules that have tests and versions, and shows which decisions a change moves before you ship it.
 </p>
 
 <p align="center">
@@ -31,65 +31,77 @@
 
 ---
 
-Discounts, credit limits and risk thresholds usually end up as if/else branches spread across dozens of files. Moving one number means a release, and nobody can say for sure what the policy is today. Now that AI writes a lot of that code, the branches grow faster than anyone can review them.
+## Every app that uses a decision model has a 0.85 in it
 
-Ordo keeps those decisions in their own rule files:
+```python
+if jev.confidence > 0.85:
+    refund(order)
+```
+
+That line decides who gets money back. Someone wrote it once, nobody reviews it, and no test covers it. When the model is updated, 0.85 starts to mean something else, and nobody notices.
+
+Decision models like [Jev](https://typesafe.ai) are good at reading a customer's message and answering "is this a refund request?" with a confidence. They don't know your refund window, your amount limits, or how sure is sure enough to pay out without a person looking. That part is a decision, and it is what Ordo is for.
+
+> Jev turns text into judgments. Ordo turns judgments into decisions.
+
+The same goes for discounts, credit limits and risk thresholds, which usually end up as if/else branches spread across dozens of files. Ordo keeps all of these decisions in their own rule files:
 
 - Rules are JSON or YAML, in git next to your code. You can review them and diff them.
 - The expression language is bounded: no loops, no side effects. Rules written by people and rules written by AI can both be checked.
 - Money is exact decimal. Inputs are declared with types, and bad input is rejected before any rule runs.
 - Every ruleset carries its own tests. `ordo test` runs them locally and in CI, with no server.
-- Your application asks one question, such as "what discount does this order get?", and stays the same when the rules change.
+- Your application asks one question, such as "what do we do with this refund request?", and stays the same when the rules change.
 
-## Try a rule pack
+## Try it
 
 ```bash
 npm i -g @ordo-engine/cli
 git clone https://github.com/Ordo-Engine/Ordo
-cd Ordo/examples/rule-packs/fraud-scoring
+cd Ordo/examples/rule-packs/jev-routing
 
 ordo test
-ordo trace fraud-scoring --input '{"amount":"6000","account_age_days":400,
-  "ip_country":"SG","card_country":"US","new_device":true}'
+ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.72},
+  "urgency":{"score":0.3},"chargeback":{"noul":0.02}},
+  "order":{"amount":"129.00","days_since_delivery":1},"customer":{"refunds_90d":0}}'
 ```
 
 ```text
-code:    CHALLENGE
-message: Ask for 3-D Secure or OTP
+code:    LLM_DRAFT
+message: An LLM drafts the reply, an agent approves it
 output:  {
-  "score": 65,
-  "signals": [
-    "large_amount",
-    "new_device",
-    "country_mismatch"
-  ]
+  "reason": "medium_confidence",
+  "jev_confidence": 0.72,
+  "priority": "normal"
 }
 
-path:    blocklist -> signals -> score -> band -> challenge
+path:    escalation -> intent -> priority -> route -> dispatch -> llm_draft
 ```
 
-`trace` lists every step a run took and the values along the way, so "why was this payment challenged?" has an answer.
+Jev's confidence that the customer wants a refund was 0.72. The rules say that is not enough to move money on its own, so an LLM drafts the reply and an agent approves it. `trace` lists every step a run took, so "why wasn't this refunded right away?" has an answer. The pack's `route.mjs` asks Jev for you, and uses stored example answers when no API key is set.
 
 ## See what a change affects
 
-Passing tests are not enough. Say the risk team wants to block from a score of 65 instead of 70. After the edit, all 9 tests still pass. `ordo impact` runs the edit next to the last commit, over the test cases, real inputs you provide and probe inputs on both sides of every threshold:
+Support is swamped, and someone proposes auto refunding from 0.80 instead of 0.85. After the edit, all 12 tests still pass. `ordo impact` runs the edit next to the last commit, over the test cases, real inputs you provide and probe inputs on both sides of every threshold:
 
 ```text
-$ ordo impact fraud-scoring
-impact fraud-scoring  (HEAD → working tree)
-  130 inputs: 9 tests, 0 captured, 121 boundary probes
+$ ordo impact refund-routing
+impact refund-routing  (HEAD → working tree)
+  309 inputs: 12 tests, 0 captured, 297 boundary probes
 
-  CHALLENGE → BLOCK  5 inputs
+  LLM_DRAFT → AUTO_REFUND  18 inputs
+  LLM_DRAFT → HUMAN_REVIEW  3 inputs
 
-CHANGED probe:amount=5000  {"account_age_days":400,"amount":5000,
-        "card_country":"US","ip_country":"SG","new_device":true}
-    code: CHALLENGE → BLOCK
-    message: "Ask for 3-D Secure or OTP" → "High risk"
+CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
+        "days_since_delivery":1} ...}
+    code: LLM_DRAFT → AUTO_REFUND
+    message: "An LLM drafts the reply, an agent approves it" → "Refund issued without review"
 …
-5 changed · 125 unchanged
+21 changed · 288 unchanged
 ```
 
-One of those five is a long-standing customer paying 5000 from abroad on a new phone. The tests did not cover it, and impact found it before the merge. Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the result to other tools. Coding agents get the same check through `ordo mcp`, so an agent can look at the effect of its own rule edit before a person reviews it.
+The tests did not notice, but 18 inputs that used to wait for a person now get their money back without anyone reading the message. Run it with `--inputs last-week.jsonl` and the count is real customers, before the change ships.
+
+Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the result to other tools. Coding agents get the same check through `ordo mcp`, so an agent can look at the effect of its own rule edit before a person reviews it.
 
 `ordo impact` needs CLI 0.7.0 or later ([release](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)). See the [CLI docs](https://docs.ordoengine.com/en/platform/cli).
 
@@ -99,6 +111,7 @@ Common business decisions, already written and tested. Copy one and change the n
 
 | pack | decides |
 |------|---------|
+| [jev-routing](examples/rule-packs/jev-routing) | what to do with a refund request after Jev has read the customer's message |
 | [credit-approval](examples/rule-packs/credit-approval) | approve, send to manual review, or decline a personal loan |
 | [promo-stacking](examples/rule-packs/promo-stacking) | which promotions apply at checkout, how far they stack, and what the customer pays |
 | [fraud-scoring](examples/rule-packs/fraud-scoring) | allow, challenge or block a card payment |
@@ -188,7 +201,7 @@ ordo/
 │       ├── playground/  # Live demo
 │       └── docs/        # Documentation site
 ├── examples/
-│   └── rule-packs/      # credit-approval, promo-stacking, fraud-scoring
+│   └── rule-packs/      # jev-routing, credit-approval, promo-stacking, fraud-scoring
 └── sdk/                 # Go / Python / Java clients
 ```
 

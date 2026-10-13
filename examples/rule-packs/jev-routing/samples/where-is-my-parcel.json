@@ -1,17 +1,46 @@
 {
   "message": "Tracking has said 'in transit' for six days. Where is my parcel?",
-  "order": { "amount": "54.50", "days_since_delivery": 0 },
-  "customer": { "refunds_90d": 0 },
+  "order": {
+    "amount": "54.50",
+    "days_since_delivery": 0
+  },
+  "customer": {
+    "refunds_90d": 0
+  },
   "jev_response": {
-    "model": "typesafe/jev-1.13",
+    "model": "typesafe/jev-1.13-20260917",
     "answers": {
+      "chargeback": {
+        "noul": 0.06,
+        "type": "noul"
+      },
       "intent": {
         "choice": "delivery",
-        "probabilities": { "refund": 0.04, "delivery": 0.93, "product_question": 0.0, "account": 0.0, "other": 0.03 },
-        "confidence": 0.93
+        "confidence": 1,
+        "probabilities": {
+          "account": 0,
+          "delivery": 1,
+          "other": 0,
+          "product_question": 0,
+          "refund": 0
+        },
+        "type": "choice"
       },
-      "urgency": { "score": 1.1, "probabilities": [0.1, 0.7, 0.2], "confidence": 0.7 },
-      "chargeback": { "noul": 0.03 }
+      "urgency": {
+        "confidence": 0.44,
+        "legend": {
+          "0": "Routine, no deadline mentioned",
+          "1": "Wants it handled soon, nothing is blocked",
+          "2": "Names a deadline, or is clearly upset and stuck"
+        },
+        "probabilities": {
+          "0": 0.03,
+          "1": 0.31,
+          "2": 0.66
+        },
+        "score": 1.63,
+        "type": "score"
+      }
     }
   }
 }

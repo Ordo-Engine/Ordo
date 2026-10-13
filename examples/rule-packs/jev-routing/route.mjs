@@ -24,7 +24,7 @@ const questions = JSON.parse(readFileSync(join(here, "jev-questions.json"), "utf
 async function askJev(message) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) return { ...sample.jev_response, recorded: true };
-  const res = await fetch("https://openrouter.ai/api/alpha/decisions", {
+  const res = await fetch("https://openrouter.ai/api/v1/systemone", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({

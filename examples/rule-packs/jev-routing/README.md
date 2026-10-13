@@ -11,7 +11,7 @@ decides what happens next, and every threshold sits in one file you can test,
 review and diff.
 
 ```
-customer message ──► Jev ──► { intent: refund 0.95, urgency 0.7, chargeback 0.04 }
+customer message ──► Jev ──► { intent: refund 1, urgency 0.2, chargeback 0.02 }
                                    │
 order + customer facts ────────────┤
                                    ▼
@@ -34,9 +34,9 @@ message:
 ```json
 {
   "jev": {
-    "intent": { "choice": "refund", "confidence": 0.95 },
-    "urgency": { "score": 0.7 },
-    "chargeback": { "noul": 0.04 }
+    "intent": { "choice": "refund", "confidence": 1 },
+    "urgency": { "score": 0.2 },
+    "chargeback": { "noul": 0.02 }
   },
   "order": { "amount": "39.90", "days_since_delivery": 2 },
   "customer": { "refunds_90d": 0 }
@@ -79,17 +79,24 @@ node route.mjs samples/double-charge.json
 
 `route.mjs` reads a sample, asks Jev, builds the Ordo input and runs
 `ordo trace`. Without `OPENROUTER_API_KEY` it uses the `jev_response` stored in
-the sample, so it runs offline. The stored responses are examples written in
-Jev's response format, not recorded API output.
+the sample, so it runs offline. The stored responses are real Jev answers,
+recorded on 2026-10-13 from `typesafe/jev-1.13` through OpenRouter.
 
 ```
 $ node route.mjs samples/not-what-i-expected.json
 message: The blender arrived yesterday but it is much louder than the video showed. ...
-jev (recorded): intent=refund 0.72, urgency=0.3, chargeback=0.02
+jev (recorded): intent=refund 0.97, urgency=0.43, chargeback=0.04
 
-code:    LLM_DRAFT
-message: An LLM drafts the reply, an agent approves it
+code:    AUTO_REFUND
+message: Refund issued without review
 ```
+
+The customer only asked what their options are. Jev was 0.97 sure this is a
+refund, so the rules paid out 129 EUR without anyone reading the message. That
+is not a Jev bug: TypeSafe says its confidence is not a probability and there is
+no universal threshold. In these samples Jev answers 0.97 or 1 almost every
+time, so the 0.85 line separates very little. Which is why the threshold
+belongs in a rule you can test and replay, not in an `if` in your code.
 
 With a key, the message goes to Jev through OpenRouter:
 
@@ -97,9 +104,9 @@ With a key, the message goes to Jev through OpenRouter:
 OPENROUTER_API_KEY=sk-or-... node route.mjs samples/not-what-i-expected.json
 ```
 
-The four samples cover the main paths: a double charge (auto refund), an
-unsure "what are my options" (LLM draft), a bank dispute threat (escalate) and
-a delivery question (another team).
+The four samples: a double charge (auto refund), an unsure "what are my
+options" (also auto refund, see above), a bank dispute threat (escalate) and a
+delivery question (another team).
 
 ## Run it behind Ordo
 
@@ -119,7 +126,7 @@ The application keeps sending its normal Jev request to
 
 ```json
 {
-  "model": "jev-1.13",
+  "model": "typesafe/jev-1.13",
   "state": "Hi, I was charged twice for order #4471 ...",
   "questions": { "...": "contents of jev-questions.json" },
   "ordo": {
@@ -135,7 +142,7 @@ The application keeps sending its normal Jev request to
 The response is Jev's answer with the decision added:
 
 ```json
-"ordo": { "code": "AUTO_REFUND", "message": "Refund issued without review", "output": { "jev_confidence": 0.95, "priority": "normal", ... }, ... }
+"ordo": { "code": "AUTO_REFUND", "message": "Refund issued without review", "output": { "jev_confidence": 1, "priority": "normal", ... }, ... }
 ```
 
 Each call adds a line to `decisions/decisions-YYYY-MM-DD.jsonl`, and those

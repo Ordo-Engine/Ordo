@@ -1,0 +1,17 @@
+{
+  "message": "Third email about my refund for the jacket. If it is not in my account by Friday I am filing a dispute with my bank.",
+  "order": { "amount": "89.00", "days_since_delivery": 12 },
+  "customer": { "refunds_90d": 1 },
+  "jev_response": {
+    "model": "typesafe/jev-1.13",
+    "answers": {
+      "intent": {
+        "choice": "refund",
+        "probabilities": { "refund": 0.93, "delivery": 0.02, "product_question": 0.0, "account": 0.0, "other": 0.05 },
+        "confidence": 0.93
+      },
+      "urgency": { "score": 1.9, "probabilities": [0.01, 0.08, 0.91], "confidence": 0.91 },
+      "chargeback": { "noul": 0.9 }
+    }
+  }
+}

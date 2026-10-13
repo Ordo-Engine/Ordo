@@ -1,0 +1,17 @@
+{
+  "message": "The blender arrived yesterday but it is much louder than the video showed. Not sure it is for me. What are my options?",
+  "order": { "amount": "129.00", "days_since_delivery": 1 },
+  "customer": { "refunds_90d": 0 },
+  "jev_response": {
+    "model": "typesafe/jev-1.13",
+    "answers": {
+      "intent": {
+        "choice": "refund",
+        "probabilities": { "refund": 0.72, "delivery": 0.01, "product_question": 0.22, "account": 0.01, "other": 0.04 },
+        "confidence": 0.72
+      },
+      "urgency": { "score": 0.3, "probabilities": [0.72, 0.26, 0.02], "confidence": 0.72 },
+      "chargeback": { "noul": 0.02 }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "intent": {
+    "type": "choice",
+    "instructions": "What does the customer want from this message?",
+    "criteria": {
+      "refund": "Money back for an order: a refund, a return, or a duplicate charge reversed",
+      "delivery": "Where an order is, or a late or lost parcel, without asking for money back",
+      "product_question": "How a product works, sizes, compatibility, before or after buying",
+      "account": "Login, password, address or profile changes",
+      "other": "Anything else"
+    }
+  },
+  "urgency": {
+    "type": "score",
+    "instructions": "How urgent is this message for the customer?",
+    "criteria": [
+      "Routine, no deadline mentioned",
+      "Wants it handled soon, nothing is blocked",
+      "Names a deadline, or is clearly upset and stuck"
+    ]
+  },
+  "chargeback": {
+    "type": "noul",
+    "instructions": "The customer threatens a chargeback, a bank or card dispute, or legal action."
+  }
+}

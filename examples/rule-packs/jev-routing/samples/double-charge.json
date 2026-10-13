@@ -1,0 +1,17 @@
+{
+  "message": "Hi, I was charged twice for order #4471 (EUR 39.90 each). Could you refund one of them? Thanks.",
+  "order": { "amount": "39.90", "days_since_delivery": 2 },
+  "customer": { "refunds_90d": 0 },
+  "jev_response": {
+    "model": "typesafe/jev-1.13",
+    "answers": {
+      "intent": {
+        "choice": "refund",
+        "probabilities": { "refund": 0.95, "delivery": 0.01, "product_question": 0.01, "account": 0.01, "other": 0.02 },
+        "confidence": 0.95
+      },
+      "urgency": { "score": 0.7, "probabilities": [0.38, 0.54, 0.08], "confidence": 0.54 },
+      "chargeback": { "noul": 0.04 }
+    }
+  }
+}

@@ -60,24 +60,24 @@ git clone https://github.com/Ordo-Engine/Ordo
 cd Ordo/examples/rule-packs/jev-routing
 
 ordo test
-ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.72},
-  "urgency":{"score":0.3},"chargeback":{"noul":0.02}},
+ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.97},
+  "urgency":{"score":0.43},"chargeback":{"noul":0.04}},
   "order":{"amount":"129.00","days_since_delivery":1},"customer":{"refunds_90d":0}}'
 ```
 
 ```text
-code:    LLM_DRAFT
-message: An LLM drafts the reply, an agent approves it
+code:    AUTO_REFUND
+message: Refund issued without review
 output:  {
-  "reason": "medium_confidence",
-  "jev_confidence": 0.72,
+  "amount": 129,
+  "jev_confidence": 0.97,
   "priority": "normal"
 }
 
-path:    escalation -> intent -> priority -> route -> dispatch -> llm_draft
+path:    escalation -> intent -> priority -> route -> dispatch -> auto_refund
 ```
 
-Jev's confidence that the customer wants a refund was 0.72. The rules say that is not enough to move money on its own, so an LLM drafts the reply and an agent approves it. `trace` lists every step a run took, so "why wasn't this refunded right away?" has an answer. The pack's `route.mjs` asks Jev for you, and uses stored example answers when no API key is set.
+These are real Jev answers. The customer wrote "the blender is louder than the video showed, not sure it is for me, what are my options?" They only asked a question, but Jev was 0.97 sure it was a refund request, so the rules paid out 129 EUR without anyone reading the message. Jev reads text well, but its confidence is not a probability, and TypeSafe says there is no universal threshold. `trace` lists every step a run took, so "why was this refunded without a person looking?" has an answer, and the fix is a rule change you can test. The pack's `route.mjs` asks Jev for you, and uses the recorded answers when no API key is set.
 
 ## See what a change affects
 

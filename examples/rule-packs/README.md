@@ -9,6 +9,7 @@ rule change plays out with `ordo impact`.
 | [credit-approval](./credit-approval) | approve, review or decline a personal loan | hard rules, computed DTI, a first-hit decision table, decimal money |
 | [promo-stacking](./promo-stacking) | which promotions apply and what the customer pays | a collect table, summing and capping discounts |
 | [fraud-scoring](./fraud-scoring) | allow, challenge or block a card payment | a scorecard built from a collect table |
+| [jev-routing](./jev-routing) | what to do with a refund request after Jev has read it | Jev probabilities as rule input, confidence bands, `ordo impact` on a model threshold |
 
 ## Use one
 

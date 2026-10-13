@@ -1,0 +1,188 @@
+[
+  {
+    "name": "clear refund, small order: auto refund",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.95 },
+        "urgency": { "score": 0.7 },
+        "chargeback": { "noul": 0.04 }
+      },
+      "order": { "amount": "39.90", "days_since_delivery": 2 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "AUTO_REFUND",
+      "output": { "amount": 39.9, "priority": "normal", "jev_confidence": 0.95 }
+    }
+  },
+  {
+    "name": "confidence exactly 0.85 still auto refunds",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.85 },
+        "urgency": { "score": 0 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "200", "days_since_delivery": 10 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "AUTO_REFUND",
+      "output": { "amount": 200, "priority": "normal", "jev_confidence": 0.85 }
+    }
+  },
+  {
+    "name": "clear refund above 200 goes to a person",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.95 },
+        "urgency": { "score": 0 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "200.01", "days_since_delivery": 3 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "HUMAN_REVIEW",
+      "output": { "reason": "amount", "priority": "normal", "jev_confidence": 0.95 }
+    }
+  },
+  {
+    "name": "medium confidence: LLM drafts, agent approves",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.72 },
+        "urgency": { "score": 0.3 },
+        "chargeback": { "noul": 0.02 }
+      },
+      "order": { "amount": "129.00", "days_since_delivery": 1 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "LLM_DRAFT",
+      "output": { "reason": "medium_confidence", "priority": "normal", "jev_confidence": 0.72 }
+    }
+  },
+  {
+    "name": "low confidence: a person reads it",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.55 },
+        "urgency": { "score": 0 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "20", "days_since_delivery": 1 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "HUMAN_REVIEW",
+      "output": { "reason": "low_confidence", "priority": "normal", "jev_confidence": 0.55 }
+    }
+  },
+  {
+    "name": "chargeback threat escalates before anything else",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.93 },
+        "urgency": { "score": 1.9 },
+        "chargeback": { "noul": 0.9 }
+      },
+      "order": { "amount": "89.00", "days_since_delivery": 12 },
+      "customer": { "refunds_90d": 1 }
+    },
+    "expect": { "code": "ESCALATE", "output": {"priority": "high", "jev_chargeback": 0.9} }
+  },
+  {
+    "name": "chargeback probability just under 0.5 does not escalate",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.93 },
+        "chargeback": { "noul": 0.49 },
+        "urgency": { "score": 0 }
+      },
+      "order": { "amount": "89.00", "days_since_delivery": 12 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "AUTO_REFUND",
+      "output": { "amount": 89, "priority": "normal", "jev_confidence": 0.93 }
+    }
+  },
+  {
+    "name": "third refund in 90 days is reviewed",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.97 },
+        "urgency": { "score": 0 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "15", "days_since_delivery": 2 },
+      "customer": { "refunds_90d": 3 }
+    },
+    "expect": {
+      "code": "HUMAN_REVIEW",
+      "output": { "reason": "repeat_refunds", "priority": "normal", "jev_confidence": 0.97 }
+    }
+  },
+  {
+    "name": "delivered more than 30 days ago is reviewed",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.97 },
+        "urgency": { "score": 0 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "15", "days_since_delivery": 31 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "HUMAN_REVIEW",
+      "output": { "reason": "outside_window", "priority": "normal", "jev_confidence": 0.97 }
+    }
+  },
+  {
+    "name": "urgent message keeps its decision, gets high priority",
+    "input": {
+      "jev": {
+        "intent": { "choice": "refund", "confidence": 0.9 },
+        "urgency": { "score": 1.6 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "60", "days_since_delivery": 4 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "AUTO_REFUND",
+      "output": { "amount": 60, "priority": "high", "jev_confidence": 0.9 }
+    }
+  },
+  {
+    "name": "delivery question goes to the delivery team",
+    "input": {
+      "jev": {
+        "intent": { "choice": "delivery", "confidence": 0.93 },
+        "urgency": { "score": 1.1 },
+        "chargeback": { "noul": 0.03 }
+      },
+      "order": { "amount": "54.50", "days_since_delivery": 0 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": { "code": "ROUTE_TEAM", "output": {"team": "delivery", "jev_confidence": 0.93} }
+  },
+  {
+    "name": "unsure it is not a refund: treated as refund, low confidence",
+    "input": {
+      "jev": {
+        "intent": { "choice": "product_question", "confidence": 0.5 },
+        "urgency": { "score": 0 },
+        "chargeback": { "noul": 0 }
+      },
+      "order": { "amount": "129", "days_since_delivery": 1 },
+      "customer": { "refunds_90d": 0 }
+    },
+    "expect": {
+      "code": "HUMAN_REVIEW",
+      "output": { "reason": "low_confidence", "priority": "normal", "jev_confidence": 0.5 }
+    }
+  }
+]

@@ -1,0 +1,201 @@
+{
+  "config": {
+    "name": "refund-routing",
+    "version": "1.0.0",
+    "description": "Route a customer refund request after Jev has read the message: auto refund, LLM draft, human review, escalate, or hand to another team.",
+    "inputSchema": [
+      {
+        "name": "jev",
+        "type": "object",
+        "required": true,
+        "fields": [
+          {
+            "name": "intent",
+            "type": "object",
+            "required": true,
+            "fields": [
+              { "name": "choice", "type": "string", "required": true },
+              { "name": "confidence", "type": "number", "required": true }
+            ]
+          },
+          {
+            "name": "urgency",
+            "type": "object",
+            "required": true,
+            "fields": [{"name": "score", "type": "number", "required": true}]
+          },
+          {
+            "name": "chargeback",
+            "type": "object",
+            "required": true,
+            "fields": [{"name": "noul", "type": "number", "required": true}]
+          }
+        ]
+      },
+      {
+        "name": "order",
+        "type": "object",
+        "required": true,
+        "fields": [
+          { "name": "amount", "type": "decimal", "required": true },
+          { "name": "days_since_delivery", "type": "number", "required": true }
+        ]
+      },
+      {
+        "name": "customer",
+        "type": "object",
+        "required": true,
+        "fields": [{"name": "refunds_90d", "type": "number", "defaultValue": 0}]
+      }
+    ]
+  },
+  "startStepId": "escalation",
+  "steps": [
+    {
+      "id": "escalation",
+      "name": "Chargeback or legal threat",
+      "type": "decision",
+      "branches": [
+        { "id": "threat", "condition": "jev.chargeback.noul >= 0.5", "nextStepId": "escalate" }
+      ],
+      "defaultNextStepId": "intent"
+    },
+    {
+      "id": "intent",
+      "name": "Is it a refund request",
+      "type": "decision",
+      "branches": [
+        {
+          "id": "not_refund",
+          "condition": "jev.intent.choice != \"refund\" && jev.intent.confidence >= 0.6",
+          "nextStepId": "other_team"
+        }
+      ],
+      "defaultNextStepId": "priority"
+    },
+    {
+      "id": "priority",
+      "name": "Priority",
+      "type": "decision_table",
+      "hitPolicy": "first",
+      "inputs": ["jev.urgency.score"],
+      "outputs": ["priority"],
+      "rules": [{"when": [">= 1.5"], "then": ["high"]}],
+      "default": ["normal"],
+      "nextStepId": "route"
+    },
+    {
+      "id": "route",
+      "name": "Route by confidence and order",
+      "type": "decision_table",
+      "hitPolicy": "first",
+      "inputs": [
+        "jev.intent.choice",
+        "jev.intent.confidence",
+        "order.amount",
+        "order.days_since_delivery",
+        "customer.refunds_90d"
+      ],
+      "outputs": ["decision", "reason"],
+      "rules": [
+        { "when": ["-", "-", "-", "-", ">= 3"], "then": ["HUMAN_REVIEW", "repeat_refunds"] },
+        { "when": ["-", "-", "-", "> 30", "-"], "then": ["HUMAN_REVIEW", "outside_window"] },
+        { "when": ["refund", ">= 0.85", "<= 200", "-", "-"], "then": ["AUTO_REFUND", ""] },
+        { "when": ["refund", ">= 0.85", "-", "-", "-"], "then": ["HUMAN_REVIEW", "amount"] },
+        {
+          "when": ["refund", ">= 0.6", "-", "-", "-"],
+          "then": ["LLM_DRAFT", "medium_confidence"]
+        }
+      ],
+      "default": ["HUMAN_REVIEW", "low_confidence"],
+      "nextStepId": "dispatch"
+    },
+    {
+      "id": "dispatch",
+      "name": "Dispatch",
+      "type": "decision",
+      "branches": [
+        {
+          "id": "auto",
+          "condition": "$decision == \"AUTO_REFUND\"",
+          "nextStepId": "auto_refund"
+        },
+        { "id": "draft", "condition": "$decision == \"LLM_DRAFT\"", "nextStepId": "llm_draft" }
+      ],
+      "defaultNextStepId": "human_review"
+    },
+    {
+      "id": "auto_refund",
+      "name": "Auto refund",
+      "type": "terminal",
+      "code": "AUTO_REFUND",
+      "message": "Refund issued without review",
+      "output": [
+        { "name": "amount", "value": {"type": "variable", "path": "order.amount"} },
+        { "name": "priority", "value": {"type": "variable", "path": "$priority"} },
+        {
+          "name": "jev_confidence",
+          "value": { "type": "variable", "path": "jev.intent.confidence" }
+        }
+      ]
+    },
+    {
+      "id": "llm_draft",
+      "name": "LLM draft",
+      "type": "terminal",
+      "code": "LLM_DRAFT",
+      "message": "An LLM drafts the reply, an agent approves it",
+      "output": [
+        { "name": "reason", "value": {"type": "variable", "path": "$reason"} },
+        { "name": "priority", "value": {"type": "variable", "path": "$priority"} },
+        {
+          "name": "jev_confidence",
+          "value": { "type": "variable", "path": "jev.intent.confidence" }
+        }
+      ]
+    },
+    {
+      "id": "human_review",
+      "name": "Human review",
+      "type": "terminal",
+      "code": "HUMAN_REVIEW",
+      "message": "A support agent decides",
+      "output": [
+        { "name": "reason", "value": {"type": "variable", "path": "$reason"} },
+        { "name": "priority", "value": {"type": "variable", "path": "$priority"} },
+        {
+          "name": "jev_confidence",
+          "value": { "type": "variable", "path": "jev.intent.confidence" }
+        }
+      ]
+    },
+    {
+      "id": "escalate",
+      "name": "Escalate",
+      "type": "terminal",
+      "code": "ESCALATE",
+      "message": "Chargeback or legal threat, send to a senior agent",
+      "output": [
+        { "name": "priority", "value": {"type": "literal", "value": "high"} },
+        {
+          "name": "jev_chargeback",
+          "value": { "type": "variable", "path": "jev.chargeback.noul" }
+        }
+      ]
+    },
+    {
+      "id": "other_team",
+      "name": "Other team",
+      "type": "terminal",
+      "code": "ROUTE_TEAM",
+      "message": "Not a refund request",
+      "output": [
+        { "name": "team", "value": {"type": "variable", "path": "jev.intent.choice"} },
+        {
+          "name": "jev_confidence",
+          "value": { "type": "variable", "path": "jev.intent.confidence" }
+        }
+      ]
+    }
+  ]
+}

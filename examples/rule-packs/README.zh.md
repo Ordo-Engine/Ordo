@@ -7,6 +7,7 @@
 | [credit-approval](./credit-approval) | 个人贷款：通过、人工审核或拒绝 | 硬性规则、计算负债收入比、首条命中决策表、decimal 金额 |
 | [promo-stacking](./promo-stacking) | 结账时哪些优惠生效、最后付多少 | collect 决策表、优惠叠加与封顶 |
 | [fraud-scoring](./fraud-scoring) | 一笔卡支付：放行、加验证或拦截 | 用 collect 决策表做评分卡 |
+| [jev-routing](./jev-routing) | Jev 读完退款请求之后怎么处理 | 把 Jev 的概率当规则输入、按置信度分流、用 `ordo impact` 看模型阈值改动 |
 
 ## 怎么用
 

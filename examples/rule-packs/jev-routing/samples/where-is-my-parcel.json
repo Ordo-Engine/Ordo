@@ -1,0 +1,17 @@
+{
+  "message": "Tracking has said 'in transit' for six days. Where is my parcel?",
+  "order": { "amount": "54.50", "days_since_delivery": 0 },
+  "customer": { "refunds_90d": 0 },
+  "jev_response": {
+    "model": "typesafe/jev-1.13",
+    "answers": {
+      "intent": {
+        "choice": "delivery",
+        "probabilities": { "refund": 0.04, "delivery": 0.93, "product_question": 0.0, "account": 0.0, "other": 0.03 },
+        "confidence": 0.93
+      },
+      "urgency": { "score": 1.1, "probabilities": [0.1, 0.7, 0.2], "confidence": 0.7 },
+      "chargeback": { "noul": 0.03 }
+    }
+  }
+}

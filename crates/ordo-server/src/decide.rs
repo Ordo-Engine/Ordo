@@ -239,10 +239,9 @@ async fn handle(
         "latency_ms": latency_ms,
     });
     if gw.log_requests {
-        record["request"] = json!({
-            "state": body.get("state"),
-            "questions": body.get("questions"),
-        });
+        // The whole request as sent upstream (the `ordo` field is already
+        // removed), so `ordo impact --model` can ask another model the same thing.
+        record["request"] = body.clone();
     }
 
     let up = match up {
@@ -285,9 +284,10 @@ async fn handle(
         .answers_field
         .unwrap_or_else(|| DEFAULT_ANSWERS_FIELD.to_string());
     let mut input = ext.facts;
-    input.insert(field, answers);
+    input.insert(field.clone(), answers);
     let input = JsonValue::Object(input);
     record["ruleset"] = json!(ext.ruleset);
+    record["answers_field"] = json!(field);
     record["rule_version"] = json!(ruleset.config.version);
     record["input"] = input.clone();
 

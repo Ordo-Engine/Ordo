@@ -79,6 +79,18 @@ CHANGED probe:amount=10001  {"amount":10001}
 
 `--base <rev>` 换一个对比的提交，`--base-file` 直接和某个文件比。`--json` 输出给 agent 读，`--fail-on-change` 在有变化时返回非零，可以放进 CI。
 
+### 换决策模型之前
+
+如果 ordo-server 作为[决策模型网关](/zh/platform/decision-gateway)挡在 Jev 前面，还有两个命令读它的决策日志：
+
+```bash
+ordo decisions decisions/       # 各种决定各有多少、用了哪些模型、最近的调用
+ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+  --model cloudflare/clef-flash  # 把日志里的请求拿去问另一个模型
+```
+
+`--model` 把日志里的每条请求发给这个模型，用它的回答跑规则，列出变了的决定。日志需要开着 `--decide-log-requests` 写。详见[换模型之前，先用真实请求跑一遍](/zh/platform/decision-gateway)。
+
 ## 与平台同步
 
 平台相当于一个远端，你从它 pull，向它 push 或 publish。
@@ -125,6 +137,7 @@ ordo completions zsh > ~/.zfunc/_ordo    # bash | zsh | fish | powershell | elvi
 | -------- | --------------------------------------------------------------------------- |
 | 脚手架   | `init`、`new`                                                               |
 | 本地校验 | `validate`、`test`、`trace`、`impact`、`exec`、`eval`、`fmt`、`lint`        |
+| 网关     | `decisions`、`impact --model`                                               |
 | 平台     | `login`、`whoami`、`link`、`pull`、`push`、`publish`、`deployments`、`diff` |
 | Agent    | `mcp`                                                                       |
 | 其它     | `completions`                                                               |

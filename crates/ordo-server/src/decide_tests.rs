@@ -317,6 +317,10 @@ async fn runs_the_ruleset_on_the_answers() {
     assert_eq!(line["input"]["jev"]["intent"]["confidence"], 0.72);
     assert_eq!(line["input"]["order"]["amount"], "129.00");
     assert_eq!(line["request"]["state"], "refund 0.72");
+    assert_eq!(line["request"]["model"], "jev-1.13");
+    assert_eq!(line["request"]["questions"], questions());
+    assert!(line["request"].get("ordo").is_none());
+    assert_eq!(line["answers_field"], "jev");
 
     // The same request with a higher confidence is refunded automatically.
     let mut sure = request.clone();

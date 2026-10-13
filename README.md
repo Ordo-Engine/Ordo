@@ -107,20 +107,39 @@ Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the r
 
 ## Put Ordo in front of Jev
 
-ordo-server can sit between your application and Jev. Your code keeps calling Jev, and each answer comes back with Ordo's decision attached. Add `--decide-log-dir <dir>` and every call also goes to a decision log that `ordo impact --inputs` reads.
+ordo-server can sit between your application and Jev. Your code keeps calling Jev, each answer comes back with Ordo's decision attached, and every call goes to a decision log.
 
 ```bash
+mkdir -p decisions && chmod 777 decisions   # the container user writes the log here
 docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<your OpenRouter key> \
+  -v "$PWD/decisions:/decisions" \
   ghcr.io/ordo-engine/ordo:latest \
   --rules-dir /app/rule-packs/jev-routing/rulesets \
-  --decide-upstream https://openrouter.ai/api
+  --decide-upstream https://openrouter.ai/api \
+  --decide-log-dir /decisions --decide-log-requests
 
 # from examples/rule-packs/jev-routing
 curl localhost:8080/systemone/v1/systemone \
   -H 'content-type: application/json' -d @request.json
 ```
 
-The response is Jev's answer plus an `ordo` field with the decision (`code`, `message`, `output`). In your application, set `TYPESAFE_BASE_URL=http://localhost:8080/systemone` and add the `ordo` field with your ruleset and order facts. See the [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway).
+The response is Jev's answer plus an `ordo` field with the decision (`code`, `message`, `output`). In your application, set `TYPESAFE_BASE_URL=http://localhost:8080/systemone` and add the `ordo` field with your ruleset and order facts. `ordo decisions decisions/` sums up what was decided.
+
+Before you switch models, ask the new model the real requests in the log and see which decisions change:
+
+```text
+$ ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+    --model cloudflare/clef-flash --repeat 3
+  model: typesafe/jev-1.13-20260917 → cloudflare/clef-flash
+  24 logged requests asked again, 3 times each
+
+  AUTO_REFUND → ESCALATE  1 input
+  AUTO_REFUND → LLM_DRAFT  3 inputs
+  HUMAN_REVIEW → ESCALATE  1 input
+  ROUTE_TEAM → HUMAN_REVIEW  2 inputs
+```
+
+Not one rule changed, only the model, and 7 of 24 requests would be handled differently. In two of three asks, a customer whose jacket was too small would be sent to a senior agent as a chargeback threat. See the [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway).
 
 ## Rule packs
 

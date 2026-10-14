@@ -101,6 +101,7 @@ Later steps read a variable as `$subtotal`. The actions are:
 | `log`           | `message`, `level` (`debug`, `info`, `warn`, `error`) | Writes a log line |
 | `metric`        | `name`, `value`, `tags`                        | Records a number. ordo-server exports it as the gauge `ordo_rule_<name>` |
 | `external_call` | `service`, `method`, `params`, `result_variable`, `timeout_ms` | Calls a capability provided by the host (below) |
+| `call_rule_set` | `ruleset_name`, `result_variable`, optional `input_mapping` | Runs another ruleset and stores its result (below) |
 
 `value` is an expression string. The JSON AST form (`{"Binary": {...}}`) is accepted too, and rulesets saved by the server are stored in that form.
 
@@ -126,6 +127,23 @@ On ordo-server, `external_call` can reach these built-in capabilities:
 ```
 
 The response is stored under `$score`: `$score.payload.status`, `$score.payload.body`, and `$score.payload.json_body` when the body is JSON. Retries and fallbacks are not built in. Handle a failed call with a decision step after it. For a custom provider, see [`examples/capability-demo`](https://github.com/Ordo-Engine/Ordo/tree/main/examples/capability-demo).
+
+#### Calling another ruleset
+
+`call_rule_set` runs a separate ruleset by name, so several rulesets can share one, such as a fraud check:
+
+```json
+{
+  "action": "call_rule_set",
+  "ruleset_name": "fraud_check",
+  "input_mapping": "{\"amount\": order.amount, \"country\": user.country}",
+  "result_variable": "fraud"
+}
+```
+
+The result is stored under `$fraud`: `$fraud.code`, `$fraud.message` and `$fraud.output.<field>`. Without `input_mapping` the called ruleset gets the whole input. External data (`$data`) is passed along either way. Calls can nest up to 10 deep.
+
+ordo-server looks the name up among the same tenant's rulesets on every request, so updating `fraud_check` changes every ruleset that calls it. When [embedding](./embed) in Rust, implement `RuleSetResolver` and pass it with `executor.set_resolver(...)` or per run with `execute_with_resolver`. The CLI (`ordo exec`, `ordo test`) and compiled `.ordo` files do not support calls yet. To copy one graph into the file instead, use a `sub_rule` step.
 
 ### sub_rule
 

@@ -3,7 +3,7 @@
 //! Defines the structure of rule sets
 
 use super::input_schema::InputField;
-use super::step::{Step, SubRuleGraph};
+use super::step::{Action, ActionKind, Step, StepKind, SubRuleGraph};
 use crate::error::Result;
 use hashbrown::HashMap as FastMap;
 use serde::{Deserialize, Serialize};
@@ -136,6 +136,39 @@ impl RuleSet {
     /// Get a step by ID
     pub fn get_step(&self, id: &str) -> Option<&Step> {
         self.steps.get(id)
+    }
+
+    /// Names of the rulesets this ruleset calls directly through
+    /// `call_rule_set` actions, in steps and inline sub-rules.
+    ///
+    /// Does not allocate when the ruleset calls nothing.
+    pub fn called_rulesets(&self) -> Vec<&str> {
+        fn collect<'a>(names: &mut Vec<&'a str>, actions: &'a [Action]) {
+            for action in actions {
+                if let ActionKind::CallRuleSet { ruleset_name, .. } = &action.kind {
+                    if !names.contains(&ruleset_name.as_str()) {
+                        names.push(ruleset_name.as_str());
+                    }
+                }
+            }
+        }
+        let mut names: Vec<&str> = Vec::new();
+        let steps = self
+            .steps
+            .values()
+            .chain(self.sub_rules.values().flat_map(|g| g.steps.values()));
+        for step in steps {
+            match &step.kind {
+                StepKind::Action { actions, .. } => collect(&mut names, actions),
+                StepKind::Decision { branches, .. } => {
+                    for branch in branches {
+                        collect(&mut names, &branch.actions);
+                    }
+                }
+                _ => {}
+            }
+        }
+        names
     }
 
     /// Get entry step

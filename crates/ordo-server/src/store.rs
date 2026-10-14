@@ -9,7 +9,11 @@ use crate::sync::event::SyncEvent;
 use crate::sync::file_watcher::RecentWrites;
 use crate::wal::{WalManager, WalOpKind};
 use once_cell::sync::Lazy;
-use ordo_core::prelude::{CapabilityInvoker, MetricSink, RuleExecutor, RuleSet, TraceConfig};
+use ordo_core::context::{Value, EXTERNAL_DATA_KEY};
+use ordo_core::prelude::{
+    CapabilityInvoker, ExecutionOptions, ExecutionResult, MetricSink, RuleExecutor, RuleSet,
+    RuleSetResolver, TraceConfig,
+};
 use ordo_core::signature::{strip_signature, RuleVerifier};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -122,6 +126,61 @@ fn studio_from_text(content: &str, format: FileFormat) -> Option<Result<RuleSet,
         FileFormat::Yaml => serde_yaml::from_str(content).ok()?,
     };
     is_studio_format(&value).then(|| ruleset_from_json(value))
+}
+
+/// Snapshot of the rulesets a request may call through `call_rule_set`,
+/// taken under the store lock so execution needs no lock.
+pub struct CalledRuleSets(HashMap<String, Arc<RuleSet>>);
+
+impl RuleSetResolver for CalledRuleSets {
+    fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
+        self.0.get(name).cloned()
+    }
+}
+
+/// What one request needs from the store to run a ruleset, read in a single
+/// lock hold: the ruleset, the tenant's external data and the rulesets it calls.
+pub struct ExecTarget {
+    pub ruleset: Arc<RuleSet>,
+    /// External data exposed to rules as `$data`; `Null` when the tenant has none.
+    data: Value,
+    calls: Option<CalledRuleSets>,
+}
+
+impl ExecTarget {
+    /// Add the tenant's external data to `input` as the `$data` field.
+    pub fn inject_data(&self, input: &mut Value) {
+        if self.data.is_null() {
+            return;
+        }
+        if let Value::Object(map) = input {
+            map.insert(Arc::from(EXTERNAL_DATA_KEY), self.data.clone());
+        }
+    }
+
+    /// Run the ruleset on an input that already went through `inject_data`.
+    pub fn run(
+        &self,
+        executor: &RuleExecutor,
+        input: Value,
+        options: Option<&ExecutionOptions>,
+    ) -> ordo_core::error::Result<ExecutionResult> {
+        match &self.calls {
+            Some(calls) => executor.execute_with_resolver(&self.ruleset, input, options, calls),
+            None => executor.execute_with_options(&self.ruleset, input, options),
+        }
+    }
+
+    /// `inject_data` followed by `run`.
+    pub fn execute(
+        &self,
+        executor: &RuleExecutor,
+        mut input: Value,
+        options: Option<&ExecutionOptions>,
+    ) -> ordo_core::error::Result<ExecutionResult> {
+        self.inject_data(&mut input);
+        self.run(executor, input, options)
+    }
 }
 
 /// Rule storage with optional file persistence and version management
@@ -610,7 +669,8 @@ impl RuleStore {
         };
 
         let tenant_data_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
-            let tenants_dir = rules_dir.join("tenants");
+            // With tenants, `rules_dir` already is `<rules-dir>/tenants`.
+            let tenants_dir = rules_dir.clone();
             if !tenants_dir.exists() {
                 return keys;
             }
@@ -1263,6 +1323,59 @@ impl RuleStore {
         self.rulesets.get(&key).cloned()
     }
 
+    /// [`Self::exec_target_for_tenant`] for the default tenant.
+    pub fn exec_target(&self, name: &str) -> Option<ExecTarget> {
+        self.exec_target_for_tenant(&self.default_tenant, name)
+    }
+
+    /// Everything needed to run `name` for this tenant, or `None` if the
+    /// ruleset does not exist.
+    pub fn exec_target_for_tenant(&self, tenant_id: &str, name: &str) -> Option<ExecTarget> {
+        let ruleset = self.get_for_tenant(tenant_id, name)?;
+        let calls = self.called_rulesets_for_tenant(tenant_id, &ruleset);
+        Some(ExecTarget {
+            data: self.get_all_data_for_tenant(tenant_id),
+            calls,
+            ruleset,
+        })
+    }
+
+    /// Rulesets that `ruleset` can reach through `call_rule_set`, looked up in
+    /// this tenant. Returns `None` when the ruleset calls nothing, so plain
+    /// rulesets pay only for a scan of their steps.
+    pub fn called_rulesets_for_tenant(
+        &self,
+        tenant_id: &str,
+        ruleset: &RuleSet,
+    ) -> Option<CalledRuleSets> {
+        let mut pending: Vec<String> = ruleset
+            .called_rulesets()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        if pending.is_empty() {
+            return None;
+        }
+        let mut found = HashMap::new();
+        while let Some(name) = pending.pop() {
+            if found.contains_key(&name) {
+                continue;
+            }
+            // A missing callee is left out; the executor reports it by name.
+            if let Some(callee) = self.get_for_tenant(tenant_id, &name) {
+                pending.extend(
+                    callee
+                        .called_rulesets()
+                        .into_iter()
+                        .filter(|n| !found.contains_key(*n))
+                        .map(str::to_string),
+                );
+                found.insert(name, callee);
+            }
+        }
+        Some(CalledRuleSets(found))
+    }
+
     /// Delete a ruleset
     ///
     /// If persistence is enabled, the ruleset file and all version files are deleted from disk.
@@ -1698,7 +1811,6 @@ impl RuleStore {
 
     /// Get all data for a tenant merged into a single Value::Object
     pub fn get_all_data_for_tenant(&self, tenant_id: &str) -> ordo_core::context::Value {
-        use ordo_core::context::Value;
         let prefix = format!("{}:", tenant_id);
         let mut map = std::collections::HashMap::new();
         for (k, v) in &self.data {
@@ -1723,7 +1835,8 @@ impl RuleStore {
         let mut loaded = 0;
 
         let tenant_data_dirs: Vec<(String, PathBuf)> = if self.multi_tenancy_enabled {
-            let tenants_dir = rules_dir.join("tenants");
+            // With tenants, `rules_dir` already is `<rules-dir>/tenants`.
+            let tenants_dir = rules_dir.clone();
             if !tenants_dir.exists() {
                 return Ok(0);
             }
@@ -1904,6 +2017,112 @@ mod tests {
         let ruleset = create_test_ruleset("../escape");
         let json = serde_json::to_string(&ruleset).unwrap();
         assert!(store.apply_sync_put("default", &json).is_err());
+    }
+
+    /// `name` calls `callee` (if any) and returns `code` with the callee's code.
+    fn calling_ruleset(name: &str, callee: Option<&str>, code: &str) -> RuleSet {
+        let entry = if callee.is_some() { "call" } else { "done" };
+        let output = if callee.is_some() {
+            r#"[["callee_code", "$sub.code"]]"#
+        } else {
+            "[]"
+        };
+        let call_step = callee
+            .map(|c| {
+                format!(
+                    r#""call": {{"id": "call", "name": "Call", "type": "action",
+                        "actions": [{{"action": "call_rule_set", "ruleset_name": "{c}",
+                                     "result_variable": "sub"}}],
+                        "next_step": "done"}},"#
+                )
+            })
+            .unwrap_or_default();
+        RuleSet::from_json_compiled(&format!(
+            r#"{{"config": {{"name": "{name}", "entry_step": "{entry}"}},
+                "steps": {{{call_step}
+                  "done": {{"id": "done", "name": "Done", "type": "terminal",
+                           "result": {{"code": "{code}", "message": "", "output": {output}}}}}}}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn test_exec_target_resolves_calls_in_own_tenant() {
+        let mut store = RuleStore::new();
+        store.enable_multi_tenancy("default".to_string());
+        for tenant in ["a", "b"] {
+            store
+                .put_for_tenant(tenant, calling_ruleset("parent", Some("child"), "P"))
+                .unwrap();
+            store
+                .put_for_tenant(tenant, calling_ruleset("child", None, tenant))
+                .unwrap();
+        }
+        let executor = RuleExecutor::new();
+        for tenant in ["a", "b"] {
+            let target = store.exec_target_for_tenant(tenant, "parent").unwrap();
+            let result = target
+                .execute(&executor, Value::object(Default::default()), None)
+                .unwrap();
+            assert_eq!(
+                result.output.get_path("callee_code"),
+                Some(&Value::string(tenant))
+            );
+        }
+    }
+
+    #[test]
+    fn test_exec_target_follows_nested_and_recursive_calls() {
+        let mut store = RuleStore::new();
+        store
+            .put(calling_ruleset("top", Some("middle"), "TOP"))
+            .unwrap();
+        store
+            .put(calling_ruleset("middle", Some("leaf"), "MIDDLE"))
+            .unwrap();
+        store.put(calling_ruleset("leaf", None, "LEAF")).unwrap();
+        // Calls itself: the snapshot must terminate, the executor's depth limit stops the run.
+        store
+            .put(calling_ruleset("loop", Some("loop"), "LOOP"))
+            .unwrap();
+
+        let executor = RuleExecutor::new();
+        let top = store.exec_target("top").unwrap();
+        let result = top
+            .execute(&executor, Value::object(Default::default()), None)
+            .unwrap();
+        assert_eq!(
+            result.output.get_path("callee_code"),
+            Some(&Value::string("MIDDLE"))
+        );
+
+        let looping = store.exec_target("loop").unwrap();
+        let err = looping
+            .execute(&executor, Value::object(Default::default()), None)
+            .unwrap_err();
+        assert!(err.to_string().contains("max nesting depth"), "{err}");
+
+        // A plain ruleset gets no snapshot at all.
+        assert!(store.exec_target("leaf").unwrap().calls.is_none());
+    }
+
+    #[test]
+    fn test_exec_target_injects_external_data() {
+        let mut store = RuleStore::new();
+        store.put(create_test_ruleset("plain")).unwrap();
+        let mut input = Value::object(Default::default());
+        store.exec_target("plain").unwrap().inject_data(&mut input);
+        assert!(input.get_path("$data").is_none());
+
+        store
+            .put_data_for_tenant(
+                "default",
+                "limits",
+                serde_json::from_str(r#"{"max": 5}"#).unwrap(),
+            )
+            .unwrap();
+        store.exec_target("plain").unwrap().inject_data(&mut input);
+        assert_eq!(input.get_path("$data.limits.max"), Some(&Value::int(5)));
     }
 
     #[test]
@@ -2347,6 +2566,34 @@ steps:
         // Tenant A should not see tenant B's rules
         assert!(store.get_for_tenant("tenant-a", "payment-check").is_some());
         assert!(store.get_for_tenant("tenant-b", "payment-check").is_some());
+    }
+
+    #[test]
+    fn test_multi_tenant_data_survives_restart() {
+        let temp_dir = TempDir::new().unwrap();
+        let rules_dir = temp_dir.path().join("tenants");
+
+        let mut store = RuleStore::new_with_persistence_and_versions(rules_dir.clone(), 10);
+        store.enable_multi_tenancy("default".to_string());
+        store
+            .put_data_for_tenant(
+                "tenant-a",
+                "limits",
+                serde_json::from_str(r#"{"max": 5}"#).unwrap(),
+            )
+            .unwrap();
+        assert!(rules_dir.join("tenant-a/data/limits.json").exists());
+
+        let mut store2 = RuleStore::new_with_persistence_and_versions(rules_dir, 10);
+        store2.enable_multi_tenancy("default".to_string());
+        assert_eq!(store2.load_data_from_dir().unwrap(), 1);
+        assert_eq!(
+            store2
+                .get_all_data_for_tenant("tenant-a")
+                .get_path("limits.max"),
+            Some(&Value::int(5))
+        );
+        assert!(store2.get_all_data_for_tenant("tenant-b").is_null());
     }
 
     #[test]

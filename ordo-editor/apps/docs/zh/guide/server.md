@@ -57,6 +57,19 @@ curl -X POST http://localhost:8080/api/v1/execute/discount \
 
 Go、Python、Java 的客户端库在仓库的 [`sdk/`](https://github.com/Ordo-Engine/Ordo/tree/main/sdk) 目录，还没有发布到各自的包仓库。
 
+## 外部数据
+
+规则可以读取不用改规则就能更新的查找表和限额，比如价格表、国家风险表。服务端把它们存成有名字的 JSON 值，以 `$data` 的形式提供给每条规则：
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/data/limits \
+  -H 'Content-Type: application/json' -d '{"vip_min": 1000, "eu_rate": 0.2}'
+```
+
+规则里像普通字段一样用 `$data.limits.vip_min`，比如 `order.amount >= $data.limits.vip_min`。下一个请求就会用上新值。
+
+加了 `--rules-dir` 时，数据保存在 `<rules-dir>/data/<name>.json`，启动时也会加载放在那里的 `.json`、`.yaml`、`.yml` 文件。开了多租户时，每个租户的数据在 `<rules-dir>/tenants/<id>/data/`。`GET /api/v1/data` 列出所有名字。命令行里 `ordo exec --data limits.json` 对单次运行做同样的事。
+
 ## 版本与回滚
 
 有 `--rules-dir` 时，每次更新都会把上一个版本留在规则文件旁边（`discount.v1.json`、`discount.v2.json` ……）。`--max-versions`（默认 10）决定保留几个。

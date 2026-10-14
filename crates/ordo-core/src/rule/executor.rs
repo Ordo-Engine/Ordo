@@ -7,7 +7,7 @@ use super::metrics::{MetricSink, NoOpMetricSink};
 use super::model::{FieldMissingBehavior, RuleSet};
 use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, SubRuleGraph, TerminalResult};
 use crate::capability::{CapabilityInvoker, CapabilityRequest};
-use crate::context::{Context, Value};
+use crate::context::{Context, Value, EXTERNAL_DATA_KEY};
 use crate::error::{OrdoError, Result};
 use crate::expr::{Evaluator, Expr, ExprParser};
 use crate::trace::{ExecutionTrace, StepTrace, SubRuleCallTrace, SubRuleOutputTrace, TraceConfig};
@@ -208,6 +208,31 @@ impl RuleExecutor {
         input: Value,
         options: Option<&ExecutionOptions>,
     ) -> Result<ExecutionResult> {
+        self.execute_with_resolver_opt(ruleset, input, options, self.resolver.as_deref())
+    }
+
+    /// Execute a rule set, resolving `call_rule_set` targets through `resolver`
+    /// instead of the executor's own resolver.
+    ///
+    /// Lets one shared executor serve callers that each see a different set of
+    /// rulesets (for example, one per tenant).
+    pub fn execute_with_resolver(
+        &self,
+        ruleset: &RuleSet,
+        input: Value,
+        options: Option<&ExecutionOptions>,
+        resolver: &dyn super::RuleSetResolver,
+    ) -> Result<ExecutionResult> {
+        self.execute_with_resolver_opt(ruleset, input, options, Some(resolver))
+    }
+
+    fn execute_with_resolver_opt(
+        &self,
+        ruleset: &RuleSet,
+        input: Value,
+        options: Option<&ExecutionOptions>,
+        resolver: Option<&dyn super::RuleSetResolver>,
+    ) -> Result<ExecutionResult> {
         // Resolve effective config values (options override ruleset config)
         let timeout_ms = options
             .and_then(|o| o.timeout_ms)
@@ -227,10 +252,12 @@ impl RuleExecutor {
             max_depth,
             enable_trace,
             self.max_call_depth,
+            resolver,
         )
     }
 
     /// Internal execute implementation with explicit config parameters
+    #[allow(clippy::too_many_arguments)]
     fn execute_internal(
         &self,
         ruleset: &RuleSet,
@@ -239,6 +266,7 @@ impl RuleExecutor {
         max_depth: usize,
         enable_trace: bool,
         remaining_call_depth: usize,
+        resolver: Option<&dyn super::RuleSetResolver>,
     ) -> Result<ExecutionResult> {
         let start_time = Instant::now();
         let mut input = input;
@@ -324,6 +352,7 @@ impl RuleExecutor {
                         &ruleset.config.field_missing,
                         tracing,
                         remaining_call_depth - 1,
+                        resolver,
                     )?;
                     let dur = step_start
                         .map(|t| t.elapsed().as_micros() as u64)
@@ -364,6 +393,7 @@ impl RuleExecutor {
                         &mut ctx,
                         &ruleset.config.field_missing,
                         remaining_call_depth,
+                        resolver,
                     )?;
                     (result, step_start.elapsed().as_micros() as u64, None, None)
                 } else {
@@ -372,6 +402,7 @@ impl RuleExecutor {
                         &mut ctx,
                         &ruleset.config.field_missing,
                         remaining_call_depth,
+                        resolver,
                     )?;
                     (result, 0, None, None)
                 };
@@ -510,6 +541,7 @@ impl RuleExecutor {
         ctx: &mut Context,
         field_missing: &FieldMissingBehavior,
         remaining_call_depth: usize,
+        resolver: Option<&dyn super::RuleSetResolver>,
     ) -> Result<StepResult<'a>> {
         match &step.kind {
             StepKind::Decision {
@@ -524,7 +556,7 @@ impl RuleExecutor {
                     if condition_result {
                         // Execute branch actions
                         for action in &branch.actions {
-                            self.execute_action(action, ctx, remaining_call_depth)?;
+                            self.execute_action(action, ctx, remaining_call_depth, resolver)?;
                         }
                         return Ok(StepResult::Continue {
                             next_step: branch.next_step.as_str(),
@@ -548,7 +580,7 @@ impl RuleExecutor {
             StepKind::Action { actions, next_step } => {
                 // Execute all actions
                 for action in actions {
-                    self.execute_action(action, ctx, remaining_call_depth)?;
+                    self.execute_action(action, ctx, remaining_call_depth, resolver)?;
                 }
                 Ok(StepResult::Continue {
                     next_step: next_step.as_str(),
@@ -572,6 +604,7 @@ impl RuleExecutor {
     }
 
     /// Execute a sub-rule graph and return the resulting context and optional trace frames.
+    #[allow(clippy::too_many_arguments)]
     fn execute_sub_graph(
         &self,
         sub_rules: &hashbrown::HashMap<String, SubRuleGraph>,
@@ -580,6 +613,7 @@ impl RuleExecutor {
         field_missing: &FieldMissingBehavior,
         tracing: bool,
         remaining_call_depth: usize,
+        resolver: Option<&dyn super::RuleSetResolver>,
     ) -> Result<(Context, Vec<StepTrace>)> {
         let mut ctx = Context::new(input);
         let mut frames: Vec<StepTrace> = Vec::new();
@@ -637,6 +671,7 @@ impl RuleExecutor {
                     field_missing,
                     tracing,
                     remaining_call_depth - 1,
+                    resolver,
                 )?;
                 let dur = step_start
                     .map(|t| t.elapsed().as_micros() as u64)
@@ -671,11 +706,23 @@ impl RuleExecutor {
                 )
             } else if tracing {
                 let t = Instant::now();
-                let r = self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?;
+                let r = self.execute_step(
+                    step,
+                    &mut ctx,
+                    field_missing,
+                    remaining_call_depth,
+                    resolver,
+                )?;
                 (r, t.elapsed().as_micros() as u64, None, None)
             } else {
                 (
-                    self.execute_step(step, &mut ctx, field_missing, remaining_call_depth)?,
+                    self.execute_step(
+                        step,
+                        &mut ctx,
+                        field_missing,
+                        remaining_call_depth,
+                        resolver,
+                    )?,
                     0,
                     None,
                     None,
@@ -865,6 +912,7 @@ impl RuleExecutor {
         action: &super::step::Action,
         ctx: &mut Context,
         remaining_call_depth: usize,
+        resolver: Option<&dyn super::RuleSetResolver>,
     ) -> Result<()> {
         match &action.kind {
             ActionKind::SetVariable { name, value } => {
@@ -920,7 +968,7 @@ impl RuleExecutor {
                     )));
                 }
 
-                let resolver = self.resolver.as_ref().ok_or_else(|| {
+                let resolver = resolver.ok_or_else(|| {
                     OrdoError::eval_error("CallRuleSet requires a resolver to be configured")
                 })?;
                 let target =
@@ -932,7 +980,15 @@ impl RuleExecutor {
 
                 // Build input for the sub-ruleset
                 let sub_input = if let Some(mapping) = input_mapping {
-                    self.evaluator.eval(mapping, ctx)?
+                    let mut mapped = self.evaluator.eval(mapping, ctx)?;
+                    // Keep host-injected external data (`$data`) visible to the callee.
+                    if let (Value::Object(map), Some(data)) =
+                        (&mut mapped, ctx.data().get_path(EXTERNAL_DATA_KEY))
+                    {
+                        map.entry(std::sync::Arc::from(EXTERNAL_DATA_KEY))
+                            .or_insert_with(|| data.clone());
+                    }
+                    mapped
                 } else {
                     ctx.data().clone()
                 };
@@ -945,6 +1001,7 @@ impl RuleExecutor {
                     target.config.max_depth,
                     false,
                     remaining_call_depth - 1,
+                    Some(resolver),
                 )?;
 
                 // Store result as a variable
@@ -1541,6 +1598,51 @@ mod tests {
             sub_result.get_path("message"),
             Some(&Value::string("Score computed"))
         );
+    }
+
+    #[test]
+    fn test_call_ruleset_with_per_call_resolver_and_external_data() {
+        use crate::rule::RuleSetResolver;
+
+        struct One(Arc<RuleSet>);
+        impl RuleSetResolver for One {
+            fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
+                (name == self.0.config.name).then(|| self.0.clone())
+            }
+        }
+
+        // The callee reads external data; the caller passes it only `amount`.
+        let callee = RuleSet::from_json_compiled(
+            r#"{"config": {"name": "limit", "entry_step": "done"},
+                "steps": {"done": {"id": "done", "name": "Done", "type": "terminal",
+                  "result": {"code": "OK", "message": "",
+                             "output": [["over", "amount > $data.limits.max"]]}}}}"#,
+        )
+        .unwrap();
+        let caller = RuleSet::from_json_compiled(
+            r#"{"config": {"name": "main", "entry_step": "call"},
+                "steps": {
+                  "call": {"id": "call", "name": "Call", "type": "action",
+                           "actions": [{"action": "call_rule_set", "ruleset_name": "limit",
+                                        "input_mapping": "{\"amount\": amount}",
+                                        "result_variable": "r"}],
+                           "next_step": "done"},
+                  "done": {"id": "done", "name": "Done", "type": "terminal",
+                           "result": {"code": "DONE", "message": "",
+                                      "output": [["over", "$r.output.over"]]}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(caller.called_rulesets(), vec!["limit"]);
+        assert!(callee.called_rulesets().is_empty());
+
+        // No resolver on the executor itself: the per-call one is used.
+        let executor = RuleExecutor::new();
+        let input: Value =
+            serde_json::from_str(r#"{"amount": 9, "$data": {"limits": {"max": 5}}}"#).unwrap();
+        let result = executor
+            .execute_with_resolver(&caller, input, None, &One(Arc::new(callee)))
+            .unwrap();
+        assert_eq!(result.output.get_path("over"), Some(&Value::bool(true)));
     }
 
     #[test]

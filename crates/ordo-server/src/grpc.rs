@@ -241,11 +241,11 @@ impl OrdoService for OrdoGrpcService {
             let input: Value = simd_json::from_slice(&mut input_bytes)
                 .map_err(|e| Status::invalid_argument(format!("Invalid input JSON: {}", e)))?;
 
-            // Get ruleset for the tenant
-            let ruleset = {
+            // Get ruleset, external data and called rulesets for the tenant
+            let target = {
                 let store = self.store.read().await;
                 store
-                    .get_for_tenant(&tenant_id, &req.ruleset_name)
+                    .exec_target_for_tenant(&tenant_id, &req.ruleset_name)
                     .ok_or_else(|| {
                         Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
                     })?
@@ -271,7 +271,7 @@ impl OrdoService for OrdoGrpcService {
             // rather than dropping the connection (C12).
             let executor = self.executor.clone();
             let result = tokio::task::spawn_blocking(move || {
-                executor.execute_with_options(&ruleset, input, exec_options.as_ref())
+                target.execute(&executor, input, exec_options.as_ref())
             })
             .await
             .map_err(|e| Status::internal(format!("Execution task panicked: {}", e)))?
@@ -335,14 +335,17 @@ impl OrdoService for OrdoGrpcService {
                 include_trace: false,
             });
 
-            // Get ruleset for the tenant (single lock acquisition for entire batch)
-            let ruleset = {
+            // Get ruleset, external data and called rulesets for the tenant
+            // (single lock acquisition for entire batch)
+            let target = {
                 let store = self.store.read().await;
-                store
-                    .get_for_tenant(&tenant_id, &req.ruleset_name)
-                    .ok_or_else(|| {
-                        Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
-                    })?
+                Arc::new(
+                    store
+                        .exec_target_for_tenant(&tenant_id, &req.ruleset_name)
+                        .ok_or_else(|| {
+                            Status::not_found(format!("RuleSet '{}' not found", req.ruleset_name))
+                        })?,
+                )
             };
 
             // Build execution options
@@ -367,7 +370,7 @@ impl OrdoService for OrdoGrpcService {
             let results: Vec<BatchExecuteResultItem> = if options.parallel {
                 // Parallel execution using tokio::spawn_blocking
                 let futures = req.inputs_json.into_iter().map(|input_json| {
-                    let ruleset = Arc::clone(&ruleset);
+                    let target = Arc::clone(&target);
                     let executor = executor.clone();
                     let exec_options = Arc::clone(&exec_options);
 
@@ -407,7 +410,7 @@ impl OrdoService for OrdoGrpcService {
                         };
 
                         // Execute
-                        match executor.execute_with_options(&ruleset, input, Some(&exec_options)) {
+                        match target.execute(&executor, input, Some(&exec_options)) {
                             Ok(result) => {
                                 let trace =
                                     build_execution_trace(result.trace.as_ref(), trace_enabled);
@@ -489,11 +492,7 @@ impl OrdoService for OrdoGrpcService {
                         };
 
                         // Execute
-                        match self.executor.execute_with_options(
-                            &ruleset,
-                            input,
-                            Some(&exec_options),
-                        ) {
+                        match target.execute(&self.executor, input, Some(&exec_options)) {
                             Ok(result) => {
                                 let trace =
                                     build_execution_trace(result.trace.as_ref(), trace_enabled);
@@ -855,6 +854,66 @@ mod tests {
         assert_eq!(summary.total, 3);
         assert_eq!(summary.success, 3);
         assert_eq!(summary.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_execute_calls_ruleset_and_reads_data() {
+        let service = create_test_service().await;
+        {
+            let mut store = service.store.write().await;
+            store
+                .put(
+                    RuleSet::from_json_compiled(
+                        r#"{"config": {"name": "caller", "entry_step": "call"},
+                            "steps": {
+                              "call": {"id": "call", "name": "Call", "type": "action",
+                                       "actions": [{"action": "call_rule_set",
+                                                    "ruleset_name": "test_rule",
+                                                    "result_variable": "sub"}],
+                                       "next_step": "done"},
+                              "done": {"id": "done", "name": "Done", "type": "terminal",
+                                       "result": {"code": "DONE", "message": "",
+                                                  "output": [["level", "$sub.output.level"],
+                                                             ["max", "$data.limits.max"]]}}}}"#,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            store
+                .put_data_for_tenant(
+                    "default",
+                    "limits",
+                    serde_json::from_str(r#"{"max": 7}"#).unwrap(),
+                )
+                .unwrap();
+        }
+
+        let resp = service
+            .execute(Request::new(ExecuteRequest {
+                ruleset_name: "caller".to_string(),
+                input_json: r#"{"value": 75}"#.to_string(),
+                include_trace: false,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        let output: serde_json::Value = serde_json::from_str(&resp.output_json).unwrap();
+        assert_eq!(resp.code, "DONE");
+        assert_eq!(output["level"], "high");
+        assert_eq!(output["max"], 7);
+
+        let resp = service
+            .batch_execute(Request::new(BatchExecuteRequest {
+                ruleset_name: "caller".to_string(),
+                inputs_json: vec![r#"{"value": 10}"#.to_string()],
+                options: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        let output: serde_json::Value = serde_json::from_str(&resp.results[0].output_json).unwrap();
+        assert_eq!(output["level"], "low");
+        assert_eq!(output["max"], 7);
     }
 
     #[tokio::test]

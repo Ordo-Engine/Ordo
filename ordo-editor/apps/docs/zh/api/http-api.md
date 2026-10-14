@@ -21,6 +21,8 @@
 | `POST` | `/api/v1/rulesets/:name/test` | 对规则集跑测试用例 |
 | `POST` | `/api/v1/rulesets/:name/filter` | 把规则集转成数据库过滤条件 |
 | `POST` | `/api/v1/admin/reload` | 从 `--rules-dir` 重新加载所有规则 |
+| `GET` | `/api/v1/data` | 列出外部数据的名字 |
+| `GET`、`PUT`、`DELETE` | `/api/v1/data/:name` | 读取、设置或删除外部数据，规则里用 `$data.<name>` 读取 |
 | `GET`、`PUT` | `/api/v1/config/audit-sample-rate` | 查看或修改审计采样率 |
 | `GET`、`POST` | `/api/v1/tenants` | 列出或创建租户 |
 | `GET`、`PUT`、`DELETE` | `/api/v1/tenants/:id` | 管理单个租户 |
@@ -87,7 +89,11 @@ POST /api/v1/execute-pipeline
 { "rulesets": ["discount", "shipping"], "input": { "...": "..." } }
 ```
 
-响应的 `stages` 里每个规则集一项，另有最终的 `output`。
+响应的 `stages` 里每个规则集一项，另有最终的 `output`。每一步拿到的是输入加上前面各步的输出。
+
+## 外部数据
+
+`PUT /api/v1/data/limits`，请求体可以是任意 JSON 值，保存成功返回 `200`。之后该租户的所有规则集都能用 `$data.limits...` 读取。`GET /api/v1/data/limits` 读取，`DELETE` 删除，`GET /api/v1/data` 列出所有名字。见[运行服务](/zh/guide/server#外部数据)。
 
 ## 管理规则集
 

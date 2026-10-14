@@ -101,6 +101,7 @@
 | `log`           | `message`、`level`（`debug`、`info`、`warn`、`error`） | 写一行日志 |
 | `metric`        | `name`、`value`、`tags`                        | 记录一个数值，ordo-server 会导出为 gauge `ordo_rule_<name>` |
 | `external_call` | `service`、`method`、`params`、`result_variable`、`timeout_ms` | 调用宿主提供的能力（见下文） |
+| `call_rule_set` | `ruleset_name`、`result_variable`，可选 `input_mapping` | 运行另一个规则集并保存结果（见下文） |
 
 `value` 是表达式字符串。也接受 JSON AST 形式（`{"Binary": {...}}`），服务端保存的规则就是这种形式。
 
@@ -126,6 +127,23 @@
 ```
 
 响应存在 `$score` 下：`$score.payload.status`、`$score.payload.body`，响应体是 JSON 时还有 `$score.payload.json_body`。没有内置重试和降级，调用失败时在后面加一个判断步骤处理。自定义能力的写法见 [`examples/capability-demo`](https://github.com/Ordo-Engine/Ordo/tree/main/examples/capability-demo)。
+
+#### 调用另一个规则集
+
+`call_rule_set` 按名字运行另一个独立的规则集，这样几个规则集可以共用一份，比如同一套反欺诈检查：
+
+```json
+{
+  "action": "call_rule_set",
+  "ruleset_name": "fraud_check",
+  "input_mapping": "{\"amount\": order.amount, \"country\": user.country}",
+  "result_variable": "fraud"
+}
+```
+
+结果存在 `$fraud` 下：`$fraud.code`、`$fraud.message` 和 `$fraud.output.<字段>`。不写 `input_mapping` 时，被调用的规则集拿到完整输入。两种情况下外部数据（`$data`）都会传过去。最多嵌套 10 层。
+
+ordo-server 每次请求都在同一租户的规则集里按名字查找，所以改了 `fraud_check`，所有调用它的规则集都会用上新版本。在 Rust 里[嵌入](./embed)时，实现 `RuleSetResolver`，用 `executor.set_resolver(...)` 设置，或者用 `execute_with_resolver` 按次传入。命令行（`ordo exec`、`ordo test`）和编译后的 `.ordo` 文件暂不支持调用。想把一段图直接放进同一个文件，用 `sub_rule` 步骤。
 
 ### sub_rule
 

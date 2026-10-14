@@ -26,6 +26,7 @@ ordo eval 'order.amount >= 1000 && user.tier == "gold"' \
 user.name               # 输入里的字段
 order.items.0.price     # 按下标取数组元素
 $subtotal               # 前面步骤设置的变量
+$data.limits.vip_min    # 服务端或 `ordo exec --data` 提供的外部数据
 ```
 
 默认情况下，缺字段会让条件为假。想直接拒绝这样的输入，就声明[输入校验](./rule-structure#输入校验)，或者设置 `field_missing: strict`。

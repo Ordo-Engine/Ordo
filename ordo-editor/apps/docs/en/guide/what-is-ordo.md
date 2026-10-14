@@ -58,6 +58,8 @@ A good fit: decision logic that changes often, must be exact, and has to be expl
 
 A poor fit: long-running processes with waits and human steps (use a workflow engine), and general computation that needs loops or heavy data processing.
 
+It also depends on who owns the logic. If one person writes and changes it, and it already has tests, Ordo adds little. It matters most to teams where thresholds change often, the people changing them did not write the code, the model gets upgraded, and someone has to answer for every decision.
+
 ## Next steps
 
 - [Quick Start](./quick-start): write and run a first rule in five minutes

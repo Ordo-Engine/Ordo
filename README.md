@@ -52,6 +52,17 @@ The same goes for discounts, credit limits and risk thresholds, which usually en
 - Every ruleset carries its own tests. `ordo test` runs them locally and in CI, with no server.
 - Your application asks one question, such as "what do we do with this refund request?", and stays the same when the rules change.
 
+## When Ordo is worth it
+
+If one person writes and changes the decision logic, and it already has tests, Ordo adds little. It is a nice-to-have.
+
+It becomes a must-have when:
+
+- Thresholds change often, and the people changing them are not the ones who wrote the code.
+- The same judgment lives in several places and the numbers have drifted apart, such as 0.7 in one file and 0.75 in another.
+- The model gets upgraded, and you need to know which decisions change before you switch.
+- Decisions move money: refunds, credit, blocked payments. When one is wrong, you need to say which rule made it and why.
+
 ## Try it
 
 ```bash

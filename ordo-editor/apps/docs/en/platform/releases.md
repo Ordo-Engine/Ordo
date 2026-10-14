@@ -1,99 +1,34 @@
-# Release Pipeline
+# Drafts and Releases
 
-The release pipeline ties drafts, approvals, environments, and rollback together. Every action that pushes rules to a production ordo-server goes through it.
+Edits never go straight to an engine. They are saved as a draft, and a release sends a draft to the engines of an environment after review.
 
-## Flow Overview
+## Drafts
 
-```mermaid
-stateDiagram-v2
-  [*] --> Pending: create_release_request
-  Pending --> AwaitingReview: policy evaluation
-  AwaitingReview --> Approved: approve
-  AwaitingReview --> Rejected: reject
-  Approved --> Executing: execute
-  Executing --> Executing: canary / pause / resume
-  Executing --> Released: done
-  Executing --> Failed: failed
-  Released --> RolledBack: rollback
-  Released --> [*]
-  Rejected --> [*]
-  Failed --> [*]
-  RolledBack --> [*]
-```
+Saving in Studio, or `ordo push` from the CLI, updates the ruleset's draft. Each save carries the sequence number it started from. If someone else saved in between, the save is rejected with `409 Conflict`, and Studio (or `ordo pull`) brings in the newer draft first. Nothing is overwritten by accident.
 
-## Release Request
+You can try a draft on sample input before it is released. See [Studio](./studio#try-a-run).
 
-```http
-POST /api/v1/orgs/:oid/projects/:pid/releases
-{
-  "rulesets": [
-    { "name": "discount-check", "from_seq": 17 }
-  ],
-  "environments": ["staging", "prod"],
-  "title": "v1.4 — add VIP tiering",
-  "description": "..."
-}
-```
+Every release adds an entry to the ruleset's history, with the author and a snapshot. Studio shows the diff between any two entries.
 
-The platform will:
+## Release requests
 
-1. Run any test suites attached to the ruleset. Failures block creation.
-2. Generate a [diff](https://github.com/Ordo-Engine/Ordo) against the current active version in each target environment (step add/remove, branch deltas, contract diff).
-3. Evaluate [release policies](#release-policy) to determine required reviewers.
+A release request names the rulesets, their versions and the target environment. Studio shows the diff against what that environment runs now.
 
-## Release Policy
+Release policies decide who must approve. A policy applies to a project or an environment and sets:
 
-A project can define multiple policies, matched by priority:
+- the minimum number of approvals and who may approve,
+- whether authors may approve their own request,
+- how the release rolls out: all at once, in fixed-size batches, in percentage batches, or in batches on a timer,
+- when to pause (error rate, metric breach) and whether to roll back automatically when instances fail.
 
-```jsonc
-{
-  "name": "prod-strict",
-  "match": { "environments": ["prod"] },
-  "approvers": {
-    "min_count": 2,
-    "roles": ["admin"],
-    "exclude_authors": true
-  },
-  "auto_run_tests": true,
-  "freeze_window": { "cron": "0 0 * * 5-6", "duration": "48h" }
-}
-```
+Approvers see pending requests in their notifications. They approve or reject, with a reason.
 
-API: `/api/v1/orgs/:oid/projects/:pid/release-policies`.
+## Running a release
 
-## Approvals
+After approval, run the release. The platform sends the rules to the engines bound to that environment, batch by batch, and shows progress live. A running release can be paused, resumed or rolled back.
 
-- `POST .../releases/:rid/approve`: approve
-- `POST .../releases/:rid/reject`: reject (with reason)
-- `GET  /api/v1/orgs/:oid/releases/pending-for-me`: list pending for me
+Rolling back returns the environment to the version it ran before that release. The rollback is recorded like any other step, so history keeps every change.
 
-## Execution & Canary
+## Tests and releases
 
-```http
-POST .../releases/:rid/execute
-```
-
-On execute, the platform syncs rules to the target ordo-server cluster. Canary releases use these endpoints:
-
-| Operation        | Endpoint                                              |
-| ---------------- | ----------------------------------------------------- |
-| Pause            | `POST .../releases/:rid/pause`                        |
-| Resume           | `POST .../releases/:rid/resume`                       |
-| Rollback         | `POST .../releases/:rid/rollback`                     |
-| Current snapshot | `GET  .../releases/:rid/execution`                    |
-| History          | `GET  .../releases/:rid/history`                      |
-| Event stream     | `GET  .../releases/:rid/executions/:eid/events` (SSE) |
-
-Per-environment canary config: `PUT /api/v1/orgs/:oid/projects/:pid/environments/:eid/canary`.
-
-## Rollback
-
-Any completed release can be rolled back in one click. The platform finds the last stable version in history and creates a new, auto-approved rollback release. Nothing is overwritten, so the audit trail stays intact.
-
-## Preview
-
-```http
-POST .../releases/preview
-```
-
-Shows diffs and policy evaluation without creating a release. Use it as a final check before releasing.
+Tests do not run on their own when a release is created. Run them in Studio before you open the request, or in CI with `ordo test` on the files pulled with `ordo pull`. See [Testing and Impact](/en/guide/testing).

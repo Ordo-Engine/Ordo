@@ -1,71 +1,66 @@
-# Platform Overview
+# Studio and Platform
 
-Ordo Platform is the team layer on top of the Ordo engine. It adds organizations and projects, decision contracts, change review, multi-environment releases, test management, and audit.
+The engine works on its own. Add the platform when a team needs a browser editor, reviews before release, and several environments.
 
-> To build something right away, go to the [Quickstart](./quickstart). This
-> page explains the model behind it.
+| Part            | What it does                                                              |
+| --------------- | ------------------------------------------------------------------------- |
+| `ordo-platform` | Organizations, projects, members, drafts, tests, releases, audit. Serves Studio. |
+| Studio          | The web editor, in the browser                                            |
+| `ordo-server`   | Runs the rules. The platform never runs rules itself; it sends them to engines. |
 
-## Platform vs. Engine
+## How it fits together
 
-The Ordo repository ships two independently-running binaries:
+1. Model the inputs: [facts, concepts and contracts](./modeling).
+2. Write rules in [Studio](./studio), or as files with the [CLI](./cli). Both work on the same project.
+3. Try them on sample input and run their tests.
+4. Open a [release](./releases). Reviewers approve it, and the platform sends the rules to the engines of that environment.
+5. Applications call the engine. See [Engines](./servers).
 
-| Component         | Binary          | Role                                                                              |
-| ----------------- | --------------- | --------------------------------------------------------------------------------- |
-| **ordo-platform** | `ordo-platform` | Control plane: orgs, projects, members, contracts, drafts, releases, tests, audit |
-| **ordo-server**   | `ordo-server`   | Data plane: executes rules over HTTP / gRPC / UDS                                 |
-| **ordo-core**     | crate (library) | Engine core: parser, bytecode VM, JIT, trace; embeddable in any Rust app          |
+## Organizations and projects
 
-> The platform never executes rules. Rule delivery and execution happen on the `ordo-server` cluster; the platform only governs and coordinates.
+Everything lives in a project, and projects live in an organization.
 
-## Data Model
+- An organization holds members, roles, notifications and projects. It can have sub-organizations, for example one per business line.
+- A project holds facts, concepts, contracts, rulesets, sub-rules, tests, environments (`dev`, `staging`, `prod` by default, more if you add them), release policies and the engine it is bound to.
+- A new project can start from a template, such as loan approval or an e-commerce coupon.
 
-```mermaid
-flowchart LR
-  Org["Organization"]
-  Org --> SubOrg["Sub-Organization"]
-  Org --> Members["Members + roles"]
-  Org --> Roles["Roles (RBAC)"]
-  Org --> Notif["Notifications"]
-  Org --> Project["Project"]
+Built-in roles:
 
-  Project --> Envs["Environments<br/>dev · staging · prod · custom"]
-  Project --> Facts["Fact Catalog"]
-  Project --> Concepts["Concepts"]
-  Project --> Contracts["Decision Contracts"]
-  Project --> RuleSets["RuleSets"]
-  Project --> SubRules["Sub-Rule Assets"]
-  Project --> Policies["Release Policies"]
-  Project --> Releases["Releases · review · canary · rollback"]
-  Project --> Server["Bound execution cluster"]
+| Role     | Can                                                   |
+| -------- | ----------------------------------------------------- |
+| `owner`  | Everything, including members                         |
+| `admin`  | Manage projects, approve and run releases             |
+| `editor` | Edit drafts and open release requests                 |
+| `viewer` | Read only                                             |
 
-  RuleSets --> Drafts["Drafts"]
-  RuleSets --> History["History"]
-  RuleSets --> Tests["Test suites"]
-  RuleSets --> Deployments["Deployments"]
+Custom roles can be made from finer permissions, such as approving releases or publishing rulesets.
+
+Members get notifications for releases waiting on them, failed releases, and invitations.
+
+## First rule in Studio
+
+1. Sign in, create an organization, then a project.
+2. Click New ruleset and pick a template. You get a working decision graph, and the fact catalog is filled in for it.
+3. Open the trace panel, paste an input such as `{ "amount": 5000, "is_vip": true }` and click Run. You see the path, each step and the result.
+4. Open a release to `staging`. Once it is approved, the platform sends the rule to that environment's engine.
+5. Call it. Studio's Integrate tab shows the call for your project:
+
+```bash
+curl -X POST https://<engine>/api/v1/execute/loan-approval \
+  -H 'x-tenant-id: <project-id>' -H 'Content-Type: application/json' \
+  -d '{"input":{"amount":5000,"is_vip":true}}'
 ```
 
-## Core Workflow
+The project id is the tenant on the engine.
 
-1. Model: define the fact catalog, register concepts, and write typed decision contracts.
-2. Author: write rulesets in Studio against the contract. Use Sub-Rule assets to reuse logic.
-3. Test: attach test cases to the ruleset (YAML format, ordo-cli compatible). They run on save.
-4. Review: open a release request. Tests and a diff run automatically, the release policy picks reviewers, and they approve.
-5. Release: the platform syncs rules to the target environment's ordo-servers. Canary, pause and rollback are built into the release flow.
-6. Execute: apps call ordo-server directly (or through the platform's `/api/v1/engine/:project_id/*path` proxy) for millisecond-level rule evaluation.
-7. Audit: every action (draft edit, approval, release, rollback) is recorded in the audit log.
+## From files instead
 
-## Deployment Shapes
+```bash
+ordo init my-rules && cd my-rules
+ordo login
+ordo link --org <org> --project <project>
+ordo push
+ordo publish loan-approval --env staging
+```
 
-- All-in-one: a single host running the platform and one local ordo-server. Good for small teams or evaluation.
-- Multi-region: a central platform plus regional ordo-server clusters (NA, EU, APAC, …), using the [server registry](./server-registry) and execution proxy.
-- Embedded: no platform or server. Embed `ordo-core` directly in a Rust app for the lowest latency.
-
-## Next
-
-- [Quickstart](./quickstart): publish your first decision in five minutes
-- [Organizations & Projects](./organizations): team modeling and RBAC
-- [Fact Catalog](./catalog): typed inputs and shared concepts
-- [Decision Contracts](./contracts): input/output constraints
-- [Studio Editor](./studio): three modes, real-time sync
-- [Release Pipeline](./releases): draft → review → canary → rollback
-- [Test Management](./testing): cases, suites, CI integration
+See [CLI](./cli) for the sync commands. A coding agent can drive the same steps through the [MCP server](./mcp).

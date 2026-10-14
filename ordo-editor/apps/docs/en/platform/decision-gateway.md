@@ -171,6 +171,7 @@ For each logged request, the new model gets the same `state` and `questions`. It
 - The new model is called at `https://openrouter.ai/api/v1/systemone` unless you pass `--upstream` or set `ORDO_DECIDE_UPSTREAM`. The key comes from `ORDO_DECIDE_API_KEY`, `OPENROUTER_API_KEY` or `TYPESAFE_API_KEY`. Each request is a paid model call.
 - Pass the model you already use (`--model typesafe/jev-1.13`) to see how much changes from asking the same model twice. Models do not answer exactly the same way every time. `--repeat 3` asks each request three times and shows on how many asks the decision changed; one that changes on only some asks sits right at a threshold.
 - A rule edit in the working tree is applied on the new side too, so you can check "switch model and move the threshold" in one run.
+
 ## Options
 
 | Option | Environment variable | What it does |
@@ -182,7 +183,7 @@ For each logged request, the new model gets the same `state` and `questions`. It
 
 With `--api-token`, the gateway needs Ordo's token like every other data endpoint. The application's SDK key is then Ordo's token, and the upstream key comes from `ORDO_DECIDE_API_KEY`.
 
-## Not done yet
+## What it does not do
 
 - Retries, rate limiting and a fallback upstream. The gateway returns upstream errors as they are, and the caller's SDK retries.
 - Sending a share of live traffic to a second model in the background (shadow mode). Today the comparison runs on logged requests, from the CLI.

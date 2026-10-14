@@ -171,6 +171,7 @@ CHANGED line:5  (2 of 3 asks)  The jacket is too small. Can I send it back and g
 - 默认去 `https://openrouter.ai/api/v1/systemone` 问新模型，可以用 `--upstream` 或 `ORDO_DECIDE_UPSTREAM` 换。key 从 `ORDO_DECIDE_API_KEY`、`OPENROUTER_API_KEY` 或 `TYPESAFE_API_KEY` 读。每条请求都是一次付费的模型调用。
 - `--model` 写现在用的模型（比如 `typesafe/jev-1.13`），就能看出同一个模型问两次会变多少。模型每次的回答并不完全一样。`--repeat 3` 把每条请求问三次，并标出其中几次决定变了；只在部分几次里变的，说明它正好卡在门槛上。
 - 工作区里对规则的改动也会用在新的一边，所以"换模型同时调门槛"可以一次跑完。
+
 ## 选项
 
 | 选项 | 环境变量 | 说明 |
@@ -182,7 +183,7 @@ CHANGED line:5  (2 of 3 asks)  The jacket is too small. Can I send it back and g
 
 开了 `--api-token` 时，网关和其他数据接口一样需要 Ordo 的 token。这时应用的 SDK key 填 Ordo 的 token，上游的 key 由 `ORDO_DECIDE_API_KEY` 提供。
 
-## 还没有做的
+## 目前不支持
 
 - 重试、限流和备用上游。网关把上游的错误原样返回，由调用方的 SDK 重试。
 - 把一部分线上请求在后台同时发给第二个模型（影子模式）。现在的对比是在命令行里拿日志里的请求跑。

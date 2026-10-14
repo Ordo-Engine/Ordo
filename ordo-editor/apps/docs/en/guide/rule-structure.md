@@ -1,39 +1,35 @@
 # Rule Structure
 
-Ordo rules use a **Step Flow Model**: a series of connected steps that form a decision tree.
-
-## Rule Definition
-
-A rule (RuleSet) consists of two main parts:
+A rule file (a ruleset) is JSON or YAML with two parts: `config` and `steps`. Steps form a graph. Execution starts at `entry_step` and ends at a terminal step.
 
 ```json
 {
   "config": {
-    "name": "rule-name",
+    "name": "loan-approval",
     "version": "1.0.0",
-    "description": "Optional description",
-    "entry_step": "first_step"
+    "entry_step": "check_age"
   },
   "steps": {
-    "first_step": { ... },
-    "second_step": { ... }
+    "check_age": { "id": "check_age", "name": "Check age", "type": "decision", "...": "..." }
   }
 }
 ```
 
-### Config Section
+## config
 
-| Field         | Type   | Required | Description                      |
-| ------------- | ------ | -------- | -------------------------------- |
-| `name`        | string | Yes      | Unique identifier for the rule   |
-| `version`     | string | Yes      | Semantic version (e.g., "1.0.0") |
-| `description` | string | No       | Human-readable description       |
-| `entry_step`  | string | Yes      | ID of the first step to execute  |
-| `input_schema` | array | No       | Declared input fields, checked before execution (see below) |
+| Field          | Required | Description                                              |
+| -------------- | -------- | -------------------------------------------------------- |
+| `name`         | yes      | Ruleset name. Callers use it to run the rule.            |
+| `version`      | no       | Version string, default `1.0.0`                          |
+| `description`  | no       | Free text                                                |
+| `entry_step`   | yes      | ID of the first step                                     |
+| `input_schema` | no       | Declared input fields, checked before execution (below)  |
+| `timeout_ms`   | no       | Execution timeout, default `5000`                        |
+| `field_missing`| no       | `lenient` (default) or `strict`; what a missing field does in a condition |
 
-### Input Schema
+### Input schema
 
-Declare the fields a ruleset expects so that bad input is rejected instead of silently changing the decision. Without a schema, a missing field makes a condition false, so a rule like `applicant.age < 18` is skipped when `age` is not sent.
+Without a schema, a missing field makes a condition false. A rule like `applicant.age < 18` is then skipped when `age` is not sent. Declare the fields you need, and bad input is rejected instead:
 
 ```json
 "input_schema": [
@@ -46,58 +42,48 @@ Declare the fields a ruleset expects so that bad input is rejected instead of si
 ]
 ```
 
-- `type`: `string`, `number` (integer or float), `decimal` (exact, for money; numbers and numeric strings are converted), `boolean`, `array`, `object`, or `any`.
+- `type`: `string`, `number`, `decimal` (exact, for money), `boolean`, `array`, `object` or `any`.
 - `required`: the field must be present and not `null`.
 - `defaultValue`: used when the field is absent or `null`.
-- `fields` / `itemType`: nested object fields and array elements are checked the same way.
+- `fields` and `itemType` check nested objects and array items the same way.
 
-Every violation is reported at once. Over HTTP the response is `400` with code `INVALID_INPUT`, e.g. `Invalid input: applicant.age: required field is missing`; over gRPC it is `INVALID_ARGUMENT`. The Studio editor's input schema uses the same shape (`inputSchema` is accepted as an alias).
+All violations are reported together. Over HTTP the response is `400` with code `INVALID_INPUT`, for example `Invalid input: applicant.age: required field is missing`. Over gRPC it is `INVALID_ARGUMENT`.
 
-### Steps Section
+## Steps
 
-A map of step IDs to step definitions. Each step must have a unique ID.
+Every step has `id`, `name` and `type`. `id` must match the key in `steps`. `name` is required and shows up in traces.
 
-## Step Types
+| `type`           | What it does                                                    |
+| ---------------- | --------------------------------------------------------------- |
+| `decision`       | Checks conditions in order and follows the first that matches   |
+| `decision_table` | Matches table rows against the input and sets variables. See [Decision Tables](./decision-table) |
+| `action`         | Runs actions (set a variable, log, call out), then moves on     |
+| `sub_rule`       | Runs a reusable sub-graph and copies its results back           |
+| `terminal`       | Ends execution and returns a result                             |
 
-### Decision Step
-
-Evaluates conditions and branches to different steps:
+### decision
 
 ```json
 {
   "id": "check_amount",
-  "name": "Check Order Amount",
+  "name": "Check order amount",
   "type": "decision",
   "branches": [
-    {
-      "condition": "order.amount > 1000",
-      "next_step": "high_value"
-    },
-    {
-      "condition": "order.amount > 100",
-      "next_step": "medium_value"
-    }
+    { "condition": "order.amount > 1000", "next_step": "high_value" },
+    { "condition": "order.amount > 100", "next_step": "medium_value" }
   ],
   "default_next": "low_value"
 }
 ```
 
-| Field          | Type   | Required | Description                          |
-| -------------- | ------ | -------- | ------------------------------------ |
-| `id`           | string | Yes      | Unique step identifier               |
-| `name`         | string | No       | Human-readable name                  |
-| `type`         | string | Yes      | Must be `"decision"`                 |
-| `branches`     | array  | Yes      | List of condition-based branches     |
-| `default_next` | string | Yes      | Step to execute if no branch matches |
+Branches are checked top to bottom and the first true condition wins. `default_next` is used when none match. Conditions are [expressions](./expression-syntax).
 
-### Action Step
-
-Sets variables, then continues to `next_step`. Variables are read later as `$name`:
+### action
 
 ```json
 {
   "id": "calc",
-  "name": "Calculate Total",
+  "name": "Calculate total",
   "type": "action",
   "actions": [
     { "action": "set_variable", "name": "subtotal", "value": "price * qty" },
@@ -107,141 +93,123 @@ Sets variables, then continues to `next_step`. Variables are read later as `$nam
 }
 ```
 
-`value` is an expression string, written the same way as a branch condition. The JSON AST form (`{"Binary": {"op": "Mul", ...}}`) is still accepted, and saved rulesets are stored in that form. The same applies to terminal `output` values, metric values and sub-rule bindings.
+Later steps read a variable as `$subtotal`. The actions are:
 
-### Terminal Step
+| `action`        | Fields                                         | What it does |
+| --------------- | ---------------------------------------------- | ------------ |
+| `set_variable`  | `name`, `value`                                | Evaluates `value` and stores it as `$name` |
+| `log`           | `message`, `level` (`debug`, `info`, `warn`, `error`) | Writes a log line |
+| `metric`        | `name`, `value`, `tags`                        | Records a number. ordo-server exports it as the gauge `ordo_rule_<name>` |
+| `external_call` | `service`, `method`, `params`, `result_variable`, `timeout_ms` | Calls a capability provided by the host (below) |
 
-Ends execution and returns a result:
+`value` is an expression string. The JSON AST form (`{"Binary": {...}}`) is accepted too, and rulesets saved by the server are stored in that form.
+
+#### External calls
+
+On ordo-server, `external_call` can reach these built-in capabilities:
+
+| `service`            | `method`                                   | `params`                                |
+| -------------------- | ------------------------------------------ | --------------------------------------- |
+| `network.http`       | `GET`, `POST`, `PUT`, `PATCH`, `DELETE` … (upper case) | `url`, optional `headers`, `json_body` |
+| `metrics.prometheus` | `gauge`, `counter`                         | `name`, `value`, optional `tags`        |
+| `audit.logger`       | `rule_executed`                            | `rule_name`, `duration_us`, `result`    |
+
+```json
+{
+  "action": "external_call",
+  "service": "network.http",
+  "method": "GET",
+  "params": [["url", "\"https://api.example.com/score?id=\" + user.id"]],
+  "result_variable": "score",
+  "timeout_ms": 1000
+}
+```
+
+The response is stored under `$score`: `$score.payload.status`, `$score.payload.body`, and `$score.payload.json_body` when the body is JSON. Retries and fallbacks are not built in. Handle a failed call with a decision step after it. For a custom provider, see [`examples/capability-demo`](https://github.com/Ordo-Engine/Ordo/tree/main/examples/capability-demo).
+
+### sub_rule
+
+Sub-graphs live in `sub_rules` at the top level of the file. A `sub_rule` step binds inputs into it and copies variables back out:
+
+```json
+{
+  "config": { "name": "loan", "version": "1.0.0", "entry_step": "risk" },
+  "sub_rules": {
+    "risk_score": {
+      "entry_step": "score",
+      "steps": {
+        "score": { "id": "score", "name": "Score", "type": "action",
+          "actions": [{ "action": "set_variable", "name": "score", "value": "if age < 25 then 80 else 20" }],
+          "next_step": "end" },
+        "end": { "id": "end", "name": "End", "type": "terminal", "result": { "code": "DONE" } }
+      }
+    }
+  },
+  "steps": {
+    "risk": {
+      "id": "risk", "name": "Risk score", "type": "sub_rule",
+      "ref_name": "risk_score",
+      "bindings": [["age", "applicant.age"]],
+      "outputs": [["risk", "score"]],
+      "next_step": "done"
+    },
+    "done": { "id": "done", "name": "Done", "type": "terminal",
+      "result": { "code": "OK", "output": [["risk", "$risk"]] } }
+  }
+}
+```
+
+`bindings` are `[child_field, parent_expression]` pairs. `outputs` are `[parent_variable, child_variable]` pairs.
+
+### terminal
 
 ```json
 {
   "id": "approved",
-  "name": "Application Approved",
+  "name": "Approved",
   "type": "terminal",
   "result": {
     "code": "APPROVED",
-    "message": "Your application has been approved",
-    "data": {
-      "credit_limit": 5000
-    }
+    "message": "Application approved",
+    "output": [["limit", "applicant.income * 0.3"]],
+    "data": { "tier": "standard" }
   }
 }
 ```
 
-| Field    | Type   | Required | Description            |
-| -------- | ------ | -------- | ---------------------- |
-| `id`     | string | Yes      | Unique step identifier |
-| `name`   | string | No       | Human-readable name    |
-| `type`   | string | Yes      | Must be `"terminal"`   |
-| `result` | object | Yes      | Result to return       |
+| Field     | Description                                               |
+| --------- | --------------------------------------------------------- |
+| `code`    | Result code. Callers branch on it.                        |
+| `message` | Optional text                                             |
+| `output`  | `[name, expression]` pairs, evaluated at the end          |
+| `data`    | Fixed values, merged into the output                      |
 
-### Result Object
-
-| Field     | Type   | Required | Description                                |
-| --------- | ------ | -------- | ------------------------------------------ |
-| `code`    | string | Yes      | Result code (e.g., "APPROVED", "REJECTED") |
-| `message` | string | No       | Human-readable message                     |
-| `output`  | array  | No       | `[name, expression]` pairs, e.g. `["total", "round($subtotal * (1 - $discount), 2)"]` |
-| `data`    | object | No       | Additional output data                     |
-
-## Branch Conditions
-
-Branches are evaluated in order. The first matching condition wins.
+## A full example
 
 ```json
 {
-  "branches": [
-    { "condition": "score >= 90", "next_step": "excellent" },
-    { "condition": "score >= 70", "next_step": "good" },
-    { "condition": "score >= 50", "next_step": "average" }
-  ],
-  "default_next": "poor"
-}
-```
-
-## Complete Example
-
-A loan approval rule:
-
-```json
-{
-  "config": {
-    "name": "loan-approval",
-    "version": "1.0.0",
-    "entry_step": "check_age"
-  },
+  "config": { "name": "loan-approval", "version": "1.0.0", "entry_step": "check_age" },
   "steps": {
     "check_age": {
-      "id": "check_age",
-      "name": "Age Verification",
-      "type": "decision",
-      "branches": [
-        {
-          "condition": "applicant.age < 18",
-          "next_step": "reject_underage"
-        }
-      ],
+      "id": "check_age", "name": "Check age", "type": "decision",
+      "branches": [{ "condition": "applicant.age < 18", "next_step": "reject" }],
       "default_next": "check_income"
     },
     "check_income": {
-      "id": "check_income",
-      "name": "Income Check",
-      "type": "decision",
-      "branches": [
-        {
-          "condition": "applicant.income >= 50000",
-          "next_step": "approve_premium"
-        },
-        {
-          "condition": "applicant.income >= 30000",
-          "next_step": "approve_standard"
-        }
-      ],
-      "default_next": "reject_income"
+      "id": "check_income", "name": "Check income", "type": "decision",
+      "branches": [{ "condition": "applicant.income >= 30000", "next_step": "approve" }],
+      "default_next": "reject"
     },
-    "approve_premium": {
-      "id": "approve_premium",
-      "type": "terminal",
-      "result": {
-        "code": "APPROVED",
-        "message": "Premium loan approved",
-        "data": { "tier": "premium", "max_amount": 100000 }
-      }
+    "approve": {
+      "id": "approve", "name": "Approve", "type": "terminal",
+      "result": { "code": "APPROVED", "output": [["max_amount", "applicant.income * 2"]] }
     },
-    "approve_standard": {
-      "id": "approve_standard",
-      "type": "terminal",
-      "result": {
-        "code": "APPROVED",
-        "message": "Standard loan approved",
-        "data": { "tier": "standard", "max_amount": 50000 }
-      }
-    },
-    "reject_underage": {
-      "id": "reject_underage",
-      "type": "terminal",
-      "result": {
-        "code": "REJECTED",
-        "message": "Applicant must be 18 or older"
-      }
-    },
-    "reject_income": {
-      "id": "reject_income",
-      "type": "terminal",
-      "result": {
-        "code": "REJECTED",
-        "message": "Income below minimum requirement"
-      }
+    "reject": {
+      "id": "reject", "name": "Reject", "type": "terminal",
+      "result": { "code": "REJECTED" }
     }
   }
 }
 ```
 
-## Best Practices
-
-1. Use descriptive step IDs: `check_vip_status` is better than `step1`.
-2. Add step names. They make traces and debugging easier.
-3. Order branches by specificity, most specific conditions first.
-4. Always set a `default_next` so execution is deterministic.
-5. Keep rules focused: one rule per business decision.
-6. Version your rules with semantic versioning.
+The same file in YAML works the same way. Run `ordo validate` to compile every step and check that all `next_step` targets exist.

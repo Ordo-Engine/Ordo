@@ -1,280 +1,61 @@
 # gRPC API
 
-The gRPC API covers rule execution and management.
+Default address: `localhost:50051`. The service is `ordo.v1.OrdoService`, defined in [`crates/ordo-grpc/proto/ordo.proto`](https://github.com/Ordo-Engine/Ordo/blob/main/crates/ordo-grpc/proto/ordo.proto).
 
-## Connection
+| RPC | What it does |
+| --- | --- |
+| `Execute` | Run a ruleset |
+| `BatchExecute` | Run a ruleset on many inputs (up to 1000 per call) |
+| `Eval` | Evaluate one expression |
+| `ListRuleSets` | List rulesets, optionally by name prefix |
+| `GetRuleSet` | Get one ruleset as JSON |
+| `Health` | Status, version, ruleset count, uptime |
 
-Default address: `localhost:50051`
-
-```bash
-# Using grpcurl
-grpcurl -plaintext localhost:50051 list
-```
-
-## Protocol Definition
-
-```protobuf
-syntax = "proto3";
-
-package ordo;
-
-service OrdoService {
-  // Execute a rule
-  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
-
-  // List all rules
-  rpc ListRuleSets(ListRuleSetsRequest) returns (ListRuleSetsResponse);
-
-  // Get a rule by name
-  rpc GetRuleSet(GetRuleSetRequest) returns (GetRuleSetResponse);
-
-  // Health check
-  rpc Health(HealthRequest) returns (HealthResponse);
-
-  // Evaluate expression
-  rpc Eval(EvalRequest) returns (EvalResponse);
-}
-```
-
-## Messages
-
-### ExecuteRequest
+Inputs and outputs are passed as JSON strings.
 
 ```protobuf
 message ExecuteRequest {
-  string name = 1;           // Rule name
-  string input_json = 2;     // Input data as JSON string
-  bool trace = 3;            // Include execution trace
+  string ruleset_name = 1;
+  string input_json = 2;
+  bool include_trace = 3;
 }
-```
 
-### ExecuteResponse
-
-```protobuf
 message ExecuteResponse {
-  string code = 1;           // Result code
-  string message = 2;        // Result message
-  string output_json = 3;    // Output data as JSON string
-  uint64 duration_us = 4;    // Execution time in microseconds
-  TraceInfo trace = 5;       // Execution trace (if requested)
+  string code = 1;
+  string message = 2;
+  string output_json = 3;
+  uint64 duration_us = 4;
+  ExecutionTrace trace = 5;
 }
 
-message TraceInfo {
-  string path = 1;           // Execution path
-  repeated StepInfo steps = 2;
-}
-
-message StepInfo {
-  string id = 1;
-  string name = 2;
-  uint64 duration_us = 3;
+message BatchExecuteRequest {
+  string ruleset_name = 1;
+  repeated string inputs_json = 2;
+  BatchExecuteOptions options = 3;   // parallel, include_trace
 }
 ```
 
-### ListRuleSetsRequest / Response
+## Try it with grpcurl
 
-```protobuf
-message ListRuleSetsRequest {}
-
-message ListRuleSetsResponse {
-  repeated RuleSetInfo rulesets = 1;
-}
-
-message RuleSetInfo {
-  string name = 1;
-  string version = 2;
-  string description = 3;
-}
-```
-
-### GetRuleSetRequest / Response
-
-```protobuf
-message GetRuleSetRequest {
-  string name = 1;
-}
-
-message GetRuleSetResponse {
-  string ruleset_json = 1;   // Full rule definition as JSON
-}
-```
-
-### HealthRequest / Response
-
-```protobuf
-message HealthRequest {}
-
-message HealthResponse {
-  string status = 1;         // "healthy"
-  string version = 2;        // Server version
-  uint64 uptime_seconds = 3;
-  int32 rules_count = 4;
-}
-```
-
-### EvalRequest / Response
-
-```protobuf
-message EvalRequest {
-  string expression = 1;     // Expression to evaluate
-  string context_json = 2;   // Context data as JSON
-}
-
-message EvalResponse {
-  string result_json = 1;    // Result as JSON
-  string parsed = 2;         // Parsed expression (debug)
-}
-```
-
-## Usage Examples
-
-### Execute Rule (grpcurl)
+The server has no reflection, so pass the proto file:
 
 ```bash
-grpcurl -plaintext \
-  -d '{
-    "name": "discount-check",
-    "input_json": "{\"user\": {\"vip\": true}}",
-    "trace": true
-  }' \
-  localhost:50051 ordo.OrdoService/Execute
+grpcurl -plaintext -proto crates/ordo-grpc/proto/ordo.proto \
+  -d '{"ruleset_name":"discount","input_json":"{\"user\":{\"tier\":\"gold\"},\"order\":{\"amount\":1200}}"}' \
+  localhost:50051 ordo.v1.OrdoService/Execute
 ```
 
-Response:
+## Tenants, auth and TLS
 
-```json
-{
-  "code": "VIP",
-  "message": "VIP discount applied",
-  "outputJson": "{\"discount\":0.2}",
-  "durationUs": "2",
-  "trace": {
-    "path": "check_vip -> vip_discount",
-    "steps": [{ "id": "check_vip", "name": "Check VIP", "durationUs": "1" }]
-  }
-}
-```
+- With multi-tenancy, send the tenant in the `x-tenant-id` metadata key.
+- `--api-token` applies to HTTP only.
+- TLS: `--grpc-tls-cert` and `--grpc-tls-key`. Client certificates: `--grpc-mtls-enabled` with `--grpc-tls-client-ca`.
+- A reader instance answers writes with `FAILED_PRECONDITION`. Input that fails the input schema gets `INVALID_ARGUMENT`.
 
-### List Rules
+## Unix socket
 
-```bash
-grpcurl -plaintext localhost:50051 ordo.OrdoService/ListRuleSets
-```
+`--uds-path /var/run/ordo.sock` serves the same gRPC service on a Unix socket, for a caller on the same host.
 
-### Health Check
+## Clients
 
-```bash
-grpcurl -plaintext localhost:50051 ordo.OrdoService/Health
-```
-
-## Client Libraries
-
-### Rust
-
-```rust
-use ordo_proto::ordo_service_client::OrdoServiceClient;
-use ordo_proto::{ExecuteRequest, HealthRequest};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = OrdoServiceClient::connect("http://localhost:50051").await?;
-
-    // Health check
-    let response = client.health(HealthRequest {}).await?;
-    println!("Status: {}", response.into_inner().status);
-
-    // Execute rule
-    let response = client.execute(ExecuteRequest {
-        name: "discount-check".to_string(),
-        input_json: r#"{"user": {"vip": true}}"#.to_string(),
-        trace: false,
-    }).await?;
-
-    let result = response.into_inner();
-    println!("Code: {}, Duration: {}µs", result.code, result.duration_us);
-
-    Ok(())
-}
-```
-
-### Go
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    pb "github.com/your-org/ordo-proto"
-    "google.golang.org/grpc"
-)
-
-func main() {
-    conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conn.Close()
-
-    client := pb.NewOrdoServiceClient(conn)
-
-    // Execute rule
-    resp, err := client.Execute(context.Background(), &pb.ExecuteRequest{
-        Name:      "discount-check",
-        InputJson: `{"user": {"vip": true}}`,
-        Trace:     false,
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Code: %s, Duration: %dµs", resp.Code, resp.DurationUs)
-}
-```
-
-### Python
-
-```python
-import grpc
-import ordo_pb2
-import ordo_pb2_grpc
-
-channel = grpc.insecure_channel('localhost:50051')
-stub = ordo_pb2_grpc.OrdoServiceStub(channel)
-
-# Execute rule
-response = stub.Execute(ordo_pb2.ExecuteRequest(
-    name="discount-check",
-    input_json='{"user": {"vip": true}}',
-    trace=False
-))
-
-print(f"Code: {response.code}, Duration: {response.duration_us}µs")
-```
-
-## Performance
-
-At high throughput, gRPC has lower latency and higher QPS than HTTP:
-
-| Metric        | HTTP          | gRPC               |
-| ------------- | ------------- | ------------------ |
-| Latency (p99) | ~500µs        | ~200µs             |
-| Throughput    | 54K QPS       | 80K+ QPS           |
-| Payload size  | Larger (JSON) | Smaller (Protobuf) |
-
-## TLS Configuration
-
-For production, enable TLS:
-
-```bash
-ordo-server --grpc-addr 0.0.0.0:50051 --grpc-tls-cert cert.pem --grpc-tls-key key.pem
-```
-
-## Disable gRPC
-
-If you only need HTTP:
-
-```bash
-ordo-server --disable-grpc
-```
+Client SDKs for Go, Java and Python are in [`sdk/`](https://github.com/Ordo-Engine/Ordo/tree/main/sdk). For other languages, generate a client from the proto file.

@@ -1,99 +1,34 @@
-# 发布流程
+# 草稿与发布
 
-发布流程连接草稿、审批、环境与回滚。把规则下发到生产 ordo-server 必须经过这个流程。
+修改不会直接到达引擎。先存成草稿，审批后再通过发布把草稿发到某个环境的引擎。
 
-## 流程总览
+## 草稿
 
-```mermaid
-stateDiagram-v2
-  [*] --> Pending: create_release_request
-  Pending --> AwaitingReview: 策略评估
-  AwaitingReview --> Approved: approve
-  AwaitingReview --> Rejected: reject
-  Approved --> Executing: execute
-  Executing --> Executing: canary / pause / resume
-  Executing --> Released: done
-  Executing --> Failed: failed
-  Released --> RolledBack: rollback
-  Released --> [*]
-  Rejected --> [*]
-  Failed --> [*]
-  RolledBack --> [*]
-```
+在 Studio 里保存，或者用命令行 `ordo push`，都会更新规则集的草稿。每次保存都带着它开始时的序号。如果中间有别人保存过，这次保存会被 `409 Conflict` 拒绝，Studio（或 `ordo pull`）会先把新草稿拉过来。不会不小心覆盖别人的修改。
 
-## 发布请求（Release Request）
+草稿发布前可以用示例输入试运行，见 [Studio](./studio#试运行)。
 
-```http
-POST /api/v1/orgs/:oid/projects/:pid/releases
-{
-  "rulesets": [
-    { "name": "discount-check", "from_seq": 17 }
-  ],
-  "environments": ["staging", "prod"],
-  "title": "v1.4 — 增加 VIP 阶梯",
-  "description": "..."
-}
-```
+每次发布都会在规则集的历史里加一条记录，带作者和快照。Studio 可以显示任意两条记录之间的差异。
 
-创建发布请求后，平台会：
+## 发布申请
 
-1. 运行 ruleset 上的测试套件，失败则不允许创建。
-2. 生成与目标环境当前活跃版本之间的 [diff](https://github.com/Ordo-Engine/Ordo)（步骤增删、分支变化、契约对比）。
-3. 评估[审批策略](#审批策略-release-policy)，确定需要的审批人。
+发布申请写明规则集、版本和目标环境。Studio 会显示它和这个环境当前运行版本的差异。
 
-## 审批策略（Release Policy）
+发布策略决定谁要审批。策略作用于项目或环境，可以设置：
 
-每个项目可以定义多条策略，按优先级匹配：
+- 最少几个人审批，以及谁可以审批，
+- 作者能不能审批自己的申请，
+- 怎么铺开：一次全部、固定批次、按百分比分批，或按时间间隔分批，
+- 什么时候暂停（错误率、指标超限），以及实例失败时是否自动回滚。
 
-```jsonc
-{
-  "name": "prod-strict",
-  "match": { "environments": ["prod"] },
-  "approvers": {
-    "min_count": 2,
-    "roles": ["admin"],
-    "exclude_authors": true
-  },
-  "auto_run_tests": true,
-  "freeze_window": { "cron": "0 0 * * 5-6", "duration": "48h" }
-}
-```
+审批人会在通知里看到待审批的申请，可以通过或拒绝，并写明理由。
 
-API：`/api/v1/orgs/:oid/projects/:pid/release-policies`。
+## 执行发布
 
-## 审批
+审批通过后执行发布。平台把规则分批发到这个环境绑定的引擎，并实时显示进度。执行中的发布可以暂停、继续或回滚。
 
-- `POST .../releases/:rid/approve`：同意
-- `POST .../releases/:rid/reject`：拒绝并附原因
-- `GET  /api/v1/orgs/:oid/releases/pending-for-me`：列出待我审批的请求
+回滚会把环境恢复到这次发布之前运行的版本。回滚和其他操作一样被记录下来，历史里保留每一次变化。
 
-## 执行与灰度
+## 测试与发布
 
-```http
-POST .../releases/:rid/execute
-```
-
-执行时，平台向目标 ordo-server 集群同步规则，可以选择灰度：
-
-| 操作     | 端点                                                  |
-| -------- | ----------------------------------------------------- |
-| 暂停     | `POST .../releases/:rid/pause`                        |
-| 继续     | `POST .../releases/:rid/resume`                       |
-| 回滚     | `POST .../releases/:rid/rollback`                     |
-| 当前快照 | `GET  .../releases/:rid/execution`                    |
-| 历史     | `GET  .../releases/:rid/history`                      |
-| 事件流   | `GET  .../releases/:rid/executions/:eid/events` (SSE) |
-
-环境的灰度配置：`PUT /api/v1/orgs/:oid/projects/:pid/environments/:eid/canary`。
-
-## 回滚
-
-已发布的 release 都可以回滚。平台从历史中找到上一个稳定版本，新建一条 rollback release 并自动通过审批，不直接覆写，审计记录保持完整。
-
-## 预览
-
-```http
-POST .../releases/preview
-```
-
-不创建 release 也能查看 diff 和策略评估结果，用于发布前确认。
+创建发布申请时不会自动跑测试。请在发起申请前在 Studio 里跑，或者在 CI 里对 `ordo pull` 拉下来的文件跑 `ordo test`。见[测试与影响](/zh/guide/testing)。

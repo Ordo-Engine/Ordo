@@ -26,6 +26,7 @@ ordo eval 'order.amount >= 1000 && user.tier == "gold"' \
 user.name               # a field of the input
 order.items.0.price     # array element by index
 $subtotal               # a variable set by an earlier step
+$data.limits.vip_min    # external data loaded by the server or `ordo exec --data`
 ```
 
 A missing field makes a condition false by default. To reject such input instead, declare an [input schema](./rule-structure#input-schema) or set `field_missing: strict`.

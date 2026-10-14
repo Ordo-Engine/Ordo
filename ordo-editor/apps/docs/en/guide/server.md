@@ -57,6 +57,19 @@ Add `"trace": true` to see the path. For many inputs at once, use `POST /api/v1/
 
 Client libraries for Go, Python and Java are in [`sdk/`](https://github.com/Ordo-Engine/Ordo/tree/main/sdk) in the repository. They are not on the package registries yet.
 
+## External data
+
+Rules can read lookup tables and limits that change without a rule edit, such as a price list or a country risk table. The server keeps them as named JSON values and passes them to every rule as `$data`:
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/data/limits \
+  -H 'Content-Type: application/json' -d '{"vip_min": 1000, "eu_rate": 0.2}'
+```
+
+A rule then uses `$data.limits.vip_min` like any field, for example `order.amount >= $data.limits.vip_min`. The next request sees the new value.
+
+With `--rules-dir`, values are saved to `<rules-dir>/data/<name>.json`, and `.json`, `.yaml` or `.yml` files placed there are loaded at startup. With tenants, each tenant has its own data in `<rules-dir>/tenants/<id>/data/`. `GET /api/v1/data` lists the names. On the command line, `ordo exec --data limits.json` does the same for one run.
+
 ## Versions and rollback
 
 With `--rules-dir`, each update keeps the previous version next to the rule file (`discount.v1.json`, `discount.v2.json`, …). `--max-versions` (default 10) sets how many are kept.

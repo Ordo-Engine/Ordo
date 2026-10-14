@@ -21,6 +21,8 @@ With `--multi-tenancy-enabled`, send `X-Tenant-ID` on every request. With `--api
 | `POST` | `/api/v1/rulesets/:name/test` | Run test cases against a ruleset |
 | `POST` | `/api/v1/rulesets/:name/filter` | Turn a ruleset into a database filter |
 | `POST` | `/api/v1/admin/reload` | Reload every rule from `--rules-dir` |
+| `GET` | `/api/v1/data` | List external data names |
+| `GET`, `PUT`, `DELETE` | `/api/v1/data/:name` | Read, set or delete external data, read in rules as `$data.<name>` |
 | `GET`, `PUT` | `/api/v1/config/audit-sample-rate` | Read or change the audit sample rate |
 | `GET`, `POST` | `/api/v1/tenants` | List or create tenants |
 | `GET`, `PUT`, `DELETE` | `/api/v1/tenants/:id` | Manage one tenant |
@@ -87,7 +89,11 @@ POST /api/v1/execute-pipeline
 { "rulesets": ["discount", "shipping"], "input": { "...": "..." } }
 ```
 
-The response has one entry per ruleset in `stages`, plus the final `output`.
+The response has one entry per ruleset in `stages`, plus the final `output`. Each stage gets the input plus the outputs of the stages before it.
+
+## External data
+
+`PUT /api/v1/data/limits` with any JSON value as the body stores it (`200`). Every ruleset of the tenant can then read it as `$data.limits...`. `GET /api/v1/data/limits` returns it, `DELETE` removes it, `GET /api/v1/data` lists the names. See [Running the Server](/en/guide/server#external-data).
 
 ## Manage rulesets
 

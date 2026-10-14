@@ -1,6 +1,6 @@
 {
   "name": "@ordo-engine/cli",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "CLI for Ordo, an open-source decision engine. Write decisions as rule files, test and trace them, and see which decisions a change moves. Includes an MCP server for coding agents and Ordo Guard.",
   "bin": {
     "ordo": "bin/ordo.js"

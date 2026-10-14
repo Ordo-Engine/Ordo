@@ -245,12 +245,12 @@ async fn handle(
     let rule = match &ext {
         Some(ext) => {
             let store = state.store.read().await;
-            let ruleset = store
-                .get_for_tenant(&tenant.id, &ext.ruleset)
+            let target = store
+                .exec_target_for_tenant(&tenant.id, &ext.ruleset)
                 .ok_or_else(|| {
                     ApiError::not_found(format!("RuleSet '{}' not found", ext.ruleset))
                 })?;
-            Some((ruleset, store.get_all_data_for_tenant(&tenant.id)))
+            Some(target)
         }
         None => None,
     };
@@ -303,7 +303,7 @@ async fn handle(
     let answers = answer.get("answers").cloned().unwrap_or(JsonValue::Null);
     record["answers"] = answers.clone();
 
-    let (Some(ext), Some((ruleset, external_data))) = (ext, rule) else {
+    let (Some(ext), Some(target)) = (ext, rule) else {
         record["input"] = JsonValue::Null;
         gw.log.write_record(&record);
         return Ok(up.into_response());
@@ -317,16 +317,11 @@ async fn handle(
     let input = JsonValue::Object(input);
     record["ruleset"] = json!(ext.ruleset);
     record["answers_field"] = json!(field);
-    record["rule_version"] = json!(ruleset.config.version);
+    record["rule_version"] = json!(target.ruleset.config.version);
     record["input"] = input.clone();
 
-    let mut engine_input: Value = serde_json::from_value(input)
+    let engine_input: Value = serde_json::from_value(input)
         .map_err(|e| ApiError::bad_request(format!("invalid facts: {e}")))?;
-    if !external_data.is_null() {
-        if let Value::Object(ref mut map) = engine_input {
-            map.insert(std::sync::Arc::from("$data"), external_data);
-        }
-    }
 
     // Same tenant timeout and blocking-thread execution as /api/v1/execute.
     let options = (tenant.config.execution_timeout_ms > 0).then_some(ExecutionOptions {
@@ -337,7 +332,7 @@ async fn handle(
     let executor = state.executor.clone();
     let exec_start = Instant::now();
     let outcome = tokio::task::spawn_blocking(move || {
-        executor.execute_with_options(&ruleset, engine_input, options.as_ref())
+        target.execute(&executor, engine_input, options.as_ref())
     })
     .await
     .map_err(|e| ApiError::internal(format!("Execution task failed: {e}")))?;

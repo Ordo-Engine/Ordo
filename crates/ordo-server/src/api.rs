@@ -19,6 +19,7 @@ use crate::error::ApiError;
 use crate::json::SimdJson;
 use crate::metrics;
 use crate::middleware::tenant::TenantContext;
+use crate::store::ExecTarget;
 use crate::AppState;
 
 /// API Result type
@@ -443,25 +444,21 @@ pub async fn execute_ruleset(
     // Track active executions
     metrics::inc_active_executions();
 
-    // Get ruleset and external data with minimal lock hold time
-    let (ruleset, external_data) = {
+    // Get ruleset, external data and called rulesets with minimal lock hold time
+    let target = {
         let store = state.store.read().await;
-        let rs = store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
-            metrics::dec_active_executions();
-            ApiError::not_found(format!("RuleSet '{}' not found", name))
-        })?;
-        let data = store.get_all_data_for_tenant(&tenant.id);
-        (rs, data)
+        store
+            .exec_target_for_tenant(&tenant.id, &name)
+            .ok_or_else(|| {
+                metrics::dec_active_executions();
+                ApiError::not_found(format!("RuleSet '{}' not found", name))
+            })?
         // Lock is released here when store goes out of scope
     };
 
     // Inject external data as $data field in input
     let mut input = request.input;
-    if !external_data.is_null() {
-        if let ordo_core::context::Value::Object(ref mut obj) = input {
-            obj.insert(std::sync::Arc::from("$data"), external_data);
-        }
-    }
+    target.inject_data(&mut input);
 
     // Snapshot the input for replay capture — but only when capture is enabled
     // AND this request is sampled, so a disabled/unsampled request never clones
@@ -488,7 +485,7 @@ pub async fn execute_ruleset(
     // executor surfaces as a clean 500 rather than aborting the worker (C12).
     let exec_executor = state.executor.clone();
     let exec_outcome = tokio::task::spawn_blocking(move || {
-        exec_executor.execute_with_options(&ruleset, input, exec_options.as_ref())
+        target.run(&exec_executor, input, exec_options.as_ref())
     })
     .await;
 
@@ -632,12 +629,16 @@ pub async fn execute_ruleset_batch(
 
     // Get ruleset with minimal lock hold time (only once for the entire batch)
     // No cloning needed - we use ExecutionOptions for runtime overrides
-    let ruleset = {
+    let target = {
         let store = state.store.read().await;
-        store.get_for_tenant(&tenant.id, &name).ok_or_else(|| {
-            metrics::dec_active_executions();
-            ApiError::not_found(format!("RuleSet '{}' not found", name))
-        })?
+        Arc::new(
+            store
+                .exec_target_for_tenant(&tenant.id, &name)
+                .ok_or_else(|| {
+                    metrics::dec_active_executions();
+                    ApiError::not_found(format!("RuleSet '{}' not found", name))
+                })?,
+        )
     };
 
     // Build execution options for tenant-specific overrides (avoids cloning RuleSet)
@@ -660,7 +661,7 @@ pub async fn execute_ruleset_batch(
 
     let run_one = |input: Value, exec_opts: &ExecutionOptions| {
         let start_one = Instant::now();
-        match executor.execute_with_options(&ruleset, input, Some(exec_opts)) {
+        match target.execute(&executor, input, Some(exec_opts)) {
             Ok(result) => {
                 let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
                 BatchExecuteResultItem {
@@ -689,7 +690,7 @@ pub async fn execute_ruleset_batch(
         // work-stealing thread pool for efficient CPU utilization.
         let inputs = request.inputs;
         let par_executor = executor.clone();
-        let par_ruleset = Arc::clone(&ruleset);
+        let par_target = Arc::clone(&target);
         let par_exec_options = Arc::clone(&exec_options);
         tokio::task::spawn_blocking(move || {
             use rayon::prelude::*;
@@ -697,11 +698,7 @@ pub async fn execute_ruleset_batch(
                 .into_par_iter()
                 .map(|input| {
                     let start_one = Instant::now();
-                    match par_executor.execute_with_options(
-                        &par_ruleset,
-                        input,
-                        Some(&par_exec_options),
-                    ) {
+                    match par_target.execute(&par_executor, input, Some(&par_exec_options)) {
                         Ok(result) => {
                             let trace = build_trace_info(result.trace.as_ref(), trace_enabled);
                             BatchExecuteResultItem {
@@ -1409,18 +1406,6 @@ pub async fn compile_filter(
 
 // ==================== Rule Composition / Pipeline API ====================
 
-/// Resolver backed by an in-memory snapshot of rulesets for a given tenant.
-/// Used with CallRuleSet actions in the rule executor.
-struct SnapshotResolver {
-    rulesets: std::collections::HashMap<String, Arc<RuleSet>>,
-}
-
-impl RuleSetResolver for SnapshotResolver {
-    fn resolve(&self, name: &str) -> Option<Arc<RuleSet>> {
-        self.rulesets.get(name).cloned()
-    }
-}
-
 /// Pipeline execution request
 #[derive(Deserialize)]
 pub struct PipelineRequest {
@@ -1470,14 +1455,14 @@ pub async fn execute_pipeline(
     }
 
     // Resolve all rulesets upfront (single lock acquisition)
-    let resolved: Vec<(String, Arc<RuleSet>)> = {
+    let resolved: Vec<(String, ExecTarget)> = {
         let store = state.store.read().await;
         let mut result = Vec::with_capacity(request.rulesets.len());
         for name in &request.rulesets {
-            let rs = store
-                .get_for_tenant(&tenant.id, name)
+            let target = store
+                .exec_target_for_tenant(&tenant.id, name)
                 .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?;
-            result.push((name.clone(), rs));
+            result.push((name.clone(), target));
         }
         result
     };
@@ -1488,13 +1473,8 @@ pub async fn execute_pipeline(
         None
     };
 
-    // Build a resolver from the resolved rulesets so CallRuleSet works within pipeline stages
-    let snapshot = SnapshotResolver {
-        rulesets: resolved.iter().cloned().collect(),
-    };
     let mut pipeline_executor =
         RuleExecutor::with_trace_and_metrics(TraceConfig::minimal(), state.metric_sink.clone());
-    pipeline_executor.set_resolver(Arc::new(snapshot));
     if let Some(capability_invoker) = state.executor.capability_invoker() {
         pipeline_executor.set_capability_invoker(capability_invoker);
     }
@@ -1502,9 +1482,13 @@ pub async fn execute_pipeline(
     let mut current_input = request.input;
     let mut stages = Vec::with_capacity(resolved.len());
 
-    for (name, ruleset) in &resolved {
-        let result = pipeline_executor
-            .execute_with_options(ruleset, current_input.clone(), exec_options.as_ref())
+    for (name, target) in &resolved {
+        let result = target
+            .execute(
+                &pipeline_executor,
+                current_input.clone(),
+                exec_options.as_ref(),
+            )
             .map_err(|e| ApiError::internal(format!("Pipeline stage '{}' failed: {}", name, e)))?;
 
         stages.push(PipelineStageResult {

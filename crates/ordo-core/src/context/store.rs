@@ -56,17 +56,20 @@ impl Context {
     ///
     /// Supports the following prefixes:
     /// - No prefix or `data.`: get from root data
-    /// - `$`: get from variables
+    /// - `$`: get from variables, then from an input field with the same `$` name
     /// - `item.`: get from current iteration item
     /// - `_index`: get the current iteration index (if set)
     pub fn get(&self, path: &str) -> Option<&Value> {
         if let Some(var_name) = path.strip_prefix('$') {
             // Variable reference, with optional nested path access.
-            if let Some((name, nested)) = var_name.split_once('.') {
-                self.variables.get(name)?.get_path(nested)
+            let var = if let Some((name, nested)) = var_name.split_once('.') {
+                self.variables.get(name).and_then(|v| v.get_path(nested))
             } else {
                 self.variables.get(var_name)
-            }
+            };
+            // Fall back to an input field whose key starts with `$`, which is how
+            // hosts pass external data (`$data`, see `EXTERNAL_DATA_KEY`).
+            var.or_else(|| self.data.get_path(path))
         } else if let Some(item_path) = path.strip_prefix("item.") {
             // Current iteration item field
             self.current_item.as_ref()?.get_path(item_path)
@@ -202,6 +205,26 @@ mod tests {
         );
 
         assert_eq!(ctx.get("$result.payload.score"), Some(&Value::int(7)));
+    }
+
+    #[test]
+    fn test_dollar_path_falls_back_to_input_field() {
+        let mut ctx = Context::from_json(r#"{"$data": {"limits": {"max": 5}}}"#).unwrap();
+        assert_eq!(ctx.get("$data.limits.max"), Some(&Value::int(5)));
+        assert_eq!(ctx.get("$data.limits.min"), None);
+
+        // A variable with the same name wins.
+        ctx.set_variable("data", Value::object(Default::default()));
+        assert_eq!(ctx.get("$data.limits.max"), Some(&Value::int(5)));
+        ctx.set_variable(
+            "data",
+            Value::object({
+                let mut m = std::collections::HashMap::new();
+                m.insert("limits".to_string(), Value::int(1));
+                m
+            }),
+        );
+        assert_eq!(ctx.get("$data.limits"), Some(&Value::int(1)));
     }
 
     #[test]

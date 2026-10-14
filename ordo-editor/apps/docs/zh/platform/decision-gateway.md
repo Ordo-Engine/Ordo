@@ -97,7 +97,7 @@ SDK 会请求 `http://ordo:8080/systemone/v1/systemone`。Ordo 把请求转给�
 export TYPESAFE_BASE_URL=http://ordo:8080/systemone/rulesets/payment-risk
 ```
 
-之后每次调用 Ordo 都会跑 `payment-risk`：规则输入是 `state` 里的字段，加上放在 `jev` 下的回答。响应照样带 `ordo`，决定也写进决策日志。应用原来的逻辑一行都不用动，什么时候信得过规则了，再改成读 `ordo.code`。请求里带了 `ordo` 字段时，以那个字段为准。
+之后每次调用 Ordo 都会跑 `payment-risk`：规则输入是 `state` 里的字段，加上放在 `jev` 下的回答。响应照样带 `ordo`，决定也写进决策日志。应用原来的逻辑一行都不用动，什么时候信得过规则了，再改成读 `ordo.code`。请求里带了 `ordo` 字段时，以那个字段为准。这个地址需要 ordo-server 0.9.0 或更新的版本。
 
 ## 决策日志
 

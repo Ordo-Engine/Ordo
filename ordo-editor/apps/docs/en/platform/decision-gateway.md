@@ -97,7 +97,7 @@ Many applications already send their business facts to the model in `state`, as 
 export TYPESAFE_BASE_URL=http://ordo:8080/systemone/rulesets/payment-risk
 ```
 
-Ordo then runs `payment-risk` on every call. The rule input is the fields of `state` plus the answers under `jev`. The response carries `ordo` as above, and the decision goes into the decision log. The application's own logic stays as it is; once the rules are trusted, it can read `ordo.code` instead. A request that does carry an `ordo` field uses that field.
+Ordo then runs `payment-risk` on every call. The rule input is the fields of `state` plus the answers under `jev`. The response carries `ordo` as above, and the decision goes into the decision log. The application's own logic stays as it is; once the rules are trusted, it can read `ordo.code` instead. A request that does carry an `ordo` field uses that field. This route needs ordo-server 0.9.0 or later.
 
 ## Decision log
 

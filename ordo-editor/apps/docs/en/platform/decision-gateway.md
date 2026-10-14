@@ -89,6 +89,16 @@ A few details:
 - If the rules fail (a required field is missing, for example), the response is still 200 with the model's answers, and the error is in `ordo.error`. The model has already answered, and that call has already been paid for.
 - With multi-tenancy, pick the tenant with `X-Tenant-ID`, as on every other endpoint.
 
+### Without changing the application
+
+Many applications already send their business facts to the model in `state`, as a JSON object, because the model needs them to judge. Such an application does not need the `ordo` field. Put the ruleset in the base URL instead:
+
+```bash
+export TYPESAFE_BASE_URL=http://ordo:8080/systemone/rulesets/payment-risk
+```
+
+Ordo then runs `payment-risk` on every call. The rule input is the fields of `state` plus the answers under `jev`. The response carries `ordo` as above, and the decision goes into the decision log. The application's own logic stays as it is; once the rules are trusted, it can read `ordo.code` instead. A request that does carry an `ordo` field uses that field.
+
 ## Decision log
 
 With `--decide-log-dir`, each call adds one line to `decisions-YYYY-MM-DD.jsonl` (rotated daily):

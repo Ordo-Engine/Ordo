@@ -123,7 +123,7 @@ curl localhost:8080/systemone/v1/systemone \
   -H 'content-type: application/json' -d @request.json
 ```
 
-The response is Jev's answer plus an `ordo` field with the decision (`code`, `message`, `output`). In your application, set `TYPESAFE_BASE_URL=http://localhost:8080/systemone` and add the `ordo` field with your ruleset and order facts. `ordo decisions decisions/` sums up what was decided.
+The response is Jev's answer plus an `ordo` field with the decision (`code`, `message`, `output`). In your application, set `TYPESAFE_BASE_URL=http://localhost:8080/systemone` and add the `ordo` field with your ruleset and order facts. If your app already sends its facts to Jev in a JSON `state`, it needs no change at all: use `TYPESAFE_BASE_URL=http://localhost:8080/systemone/rulesets/<ruleset>` and the rules read the fields of `state`. `ordo decisions decisions/` sums up what was decided.
 
 Before you switch models, ask the new model the real requests in the log and see which decisions change:
 

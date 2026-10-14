@@ -1140,7 +1140,13 @@ async fn start_http_server(
         );
         app = app
             .route("/systemone/v1/systemone", post(decide::systemone))
-            .route("/systemone/v1/models", get(decide::models));
+            .route("/systemone/v1/models", get(decide::models))
+            // Base URL http://<ordo>/systemone/rulesets/<name>: rules with no code change.
+            .route(
+                "/systemone/rulesets/:ruleset/v1/systemone",
+                post(decide::systemone_for_ruleset),
+            )
+            .route("/systemone/rulesets/:ruleset/v1/models", get(decide::models));
     }
 
     // Register debug routes only in debug mode

@@ -123,7 +123,7 @@ curl localhost:8080/systemone/v1/systemone \
   -H 'content-type: application/json' -d @request.json
 ```
 
-返回的是 Jev 的回答，外加一个 `ordo` 字段，里面是决策（`code`、`message`、`output`）。在应用里设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone`，请求里加上 `ordo` 字段，写明规则集和订单信息就行。`ordo decisions decisions/` 汇总都做了哪些决定。
+返回的是 Jev 的回答，外加一个 `ordo` 字段，里面是决策（`code`、`message`、`output`）。在应用里设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone`，请求里加上 `ordo` 字段，写明规则集和订单信息就行。如果应用本来就把事实放在 JSON 格式的 `state` 里发给 Jev，代码一行都不用改：设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone/rulesets/<规则集>`，规则直接读 `state` 里的字段。`ordo decisions decisions/` 汇总都做了哪些决定。
 
 换模型之前，把日志里的真实请求拿去问新模型，看哪些决定会变：
 

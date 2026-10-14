@@ -89,6 +89,16 @@ SDK 会请求 `http://ordo:8080/systemone/v1/systemone`。Ordo 把请求转给�
 - 规则执行出错时（比如缺了必填字段），响应仍然是 200，模型的回答照常返回，错误放在 `ordo.error` 里。模型已经回答过了，这次调用的费用也已经产生。
 - 多租户时，用 `X-Tenant-ID` 指定租户，和其他接口一样。
 
+### 不改应用代码
+
+很多应用本来就把业务事实写进 `state` 发给模型（一个 JSON 对象），因为模型判断时也要看。这种应用不用加 `ordo` 字段，把规则集名字写进基础地址就行：
+
+```bash
+export TYPESAFE_BASE_URL=http://ordo:8080/systemone/rulesets/payment-risk
+```
+
+之后每次调用 Ordo 都会跑 `payment-risk`：规则输入是 `state` 里的字段，加上放在 `jev` 下的回答。响应照样带 `ordo`，决定也写进决策日志。应用原来的逻辑一行都不用动，什么时候信得过规则了，再改成读 `ordo.code`。请求里带了 `ordo` 字段时，以那个字段为准。
+
 ## 决策日志
 
 开了 `--decide-log-dir` 之后，每次调用往 `decisions-YYYY-MM-DD.jsonl` 写一行（按天轮转）：

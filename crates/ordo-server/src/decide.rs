@@ -11,6 +11,10 @@
 //!   {...} }`. Ordo then runs that ruleset on the facts plus the model's
 //!   answers (under `jev` by default) and adds the decision to the response
 //!   as `ordo`. The model judges, the rules decide.
+//! - An app that already sends its business facts as a JSON `state` can run
+//!   rules without any code change: with the base URL
+//!   `http://<ordo>/systemone/rulesets/<name>`, Ordo runs that ruleset on the
+//!   fields of `state` plus the answers.
 //! - Each call is written to the decision log, one JSON line with the model,
 //!   its answers and, when a ruleset ran, the rule input and the decision.
 //!   `ordo impact --inputs` reads those lines, so a threshold change can be
@@ -23,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use axum::{
     body::{Body, Bytes},
-    extract::{Extension, State},
+    extract::{Extension, Path, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -183,7 +187,22 @@ pub async fn systemone(
     headers: HeaderMap,
     Json(mut body): Json<JsonValue>,
 ) -> Response {
-    match handle(&state, &tenant, &headers, &mut body).await {
+    match handle(&state, &tenant, &headers, &mut body, None).await {
+        Ok(res) => res,
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `POST /systemone/rulesets/{ruleset}/v1/systemone`: the same, with the
+/// ruleset named by the base URL, so an app runs rules by changing only that.
+pub async fn systemone_for_ruleset(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(ruleset): Path<String>,
+    headers: HeaderMap,
+    Json(mut body): Json<JsonValue>,
+) -> Response {
+    match handle(&state, &tenant, &headers, &mut body, Some(ruleset)).await {
         Ok(res) => res,
         Err(e) => e.into_response(),
     }
@@ -194,6 +213,7 @@ async fn handle(
     tenant: &TenantContext,
     headers: &HeaderMap,
     body: &mut JsonValue,
+    url_ruleset: Option<String>,
 ) -> Result<Response, ApiError> {
     let gw = state
         .decide
@@ -205,7 +225,16 @@ async fn handle(
 
     // The extension is Ordo's, so it is removed before the request goes upstream.
     let ext = match obj.remove("ordo") {
-        None | Some(JsonValue::Null) => None,
+        // Without the field, a ruleset named by the URL runs on the fields of
+        // a JSON `state`: the facts the app already sends to the model.
+        None | Some(JsonValue::Null) => url_ruleset.map(|ruleset| DecideExtension {
+            ruleset,
+            facts: match obj.get("state") {
+                Some(JsonValue::Object(state)) => state.clone(),
+                _ => Map::new(),
+            },
+            answers_field: None,
+        }),
         Some(v) => Some(
             serde_json::from_value::<DecideExtension>(v)
                 .map_err(|e| ApiError::bad_request(format!("invalid `ordo` field: {e}")))?,

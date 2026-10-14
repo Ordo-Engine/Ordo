@@ -31,18 +31,16 @@
 
 ---
 
-## Every app that uses a decision model has a 0.85 in it
+## A 0.85 in the code
 
 ```python
 if jev.confidence > 0.85:
     refund(order)
 ```
 
-That line decides who gets money back. Someone wrote it once, nobody reviews it, and no test covers it. When the model is updated, 0.85 starts to mean something else, and nobody notices.
+That line decides who gets money back. It was written once, without review or a test. When the model is updated, 0.85 starts to mean something else, and nothing tells you.
 
 Decision models like [Jev](https://typesafe.ai) are good at reading a customer's message and answering "is this a refund request?" with a confidence. They don't know your refund window, your amount limits, or how sure is sure enough to pay out without a person looking. That part is a decision, and it is what Ordo is for.
-
-> Jev turns text into judgments. Ordo turns judgments into decisions.
 
 The same goes for discounts, credit limits and risk thresholds, which usually end up as if/else branches spread across dozens of files. Ordo keeps all of these decisions in their own rule files:
 
@@ -54,9 +52,9 @@ The same goes for discounts, credit limits and risk thresholds, which usually en
 
 ## When Ordo is worth it
 
-If one person writes and changes the decision logic, and it already has tests, Ordo adds little. It is a nice-to-have.
+If one person writes and changes the decision logic, and it already has tests, Ordo adds little.
 
-It becomes a must-have when:
+It helps most when:
 
 - Thresholds change often, and the people changing them are not the ones who wrote the code.
 - The same judgment lives in several places and the numbers have drifted apart, such as 0.7 in one file and 0.75 in another.
@@ -150,7 +148,7 @@ $ ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
   ROUTE_TEAM → HUMAN_REVIEW  2 inputs
 ```
 
-Not one rule changed, only the model, and 7 of 24 requests would be handled differently. In two of three asks, a customer whose jacket was too small would be sent to a senior agent as a chargeback threat. See the [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway).
+No rule changed, only the model, and 7 of 24 requests would be handled differently. In two of three asks, a customer whose jacket was too small would be sent to a senior agent as a chargeback threat. See the [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway).
 
 ## Rule packs
 

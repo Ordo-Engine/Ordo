@@ -1,6 +1,6 @@
 # gRPC API
 
-Ordo 提供高性能的 gRPC API 用于规则执行和管理。
+gRPC API 用于执行和管理规则。
 
 ## 连接
 
@@ -255,7 +255,7 @@ print(f"Code: {response.code}, Duration: {response.duration_us}µs")
 
 ## 性能
 
-在高吞吐量场景下，gRPC 提供比 HTTP 更好的性能：
+高吞吐量下，gRPC 的延迟比 HTTP 低，QPS 更高：
 
 | 指标       | HTTP        | gRPC            |
 | ---------- | ----------- | --------------- |

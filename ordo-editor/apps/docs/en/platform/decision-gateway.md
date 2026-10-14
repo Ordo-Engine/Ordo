@@ -1,6 +1,6 @@
 # Decision Model Gateway
 
-Decision models like Jev judge. Ordo decides what happens next. The gateway joins the two steps: your application keeps calling Jev, but the request goes through Ordo first. Ordo forwards it to the model, can run a ruleset on the model's answers on the way back, and writes every call to a decision log. When you later want to move a threshold, you can run `ordo impact` over those real requests.
+The gateway puts Ordo between your application and a decision model such as Jev. Your application keeps calling Jev, but the request goes through Ordo first. Ordo forwards it to the model, can run a ruleset on the model's answers on the way back, and writes every call to a decision log. When you later want to move a threshold, you can run `ordo impact` over those real requests.
 
 The gateway speaks the System One API (`/v1/systemone`). TypeSafe's own API, OpenRouter and other compatible services can all be the upstream.
 

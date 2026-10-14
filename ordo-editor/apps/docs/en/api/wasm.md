@@ -1,6 +1,6 @@
 # WebAssembly API
 
-Ordo can run directly in the browser via WebAssembly, enabling client-side rule execution with the same performance as the server.
+Ordo compiles to WebAssembly, so rules can run in the browser. Execution takes 2-5 µs per rule, against 1.63 µs native (see [Performance](#performance)).
 
 ## Installation
 
@@ -212,7 +212,7 @@ function RuleExecutor({ ruleset, input }) {
 
 ## Performance
 
-WASM execution is nearly as fast as native Rust:
+WASM execution is slower than native Rust, but stays in the low microseconds:
 
 | Environment    | Execution Time |
 | -------------- | -------------- |

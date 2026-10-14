@@ -1,6 +1,6 @@
 # HTTP REST API
 
-Ordo provides a RESTful HTTP API for rule management and execution.
+The HTTP API manages and executes rules over REST.
 
 ## Base URL
 

@@ -1,14 +1,14 @@
 # Agent Guardrails (`ordo guard`)
 
-An LLM can give two different answers to the same question. That is fine for
-drafting prose and risky once an agent runs a shell command, edits a file, or
-calls an API. `ordo guard` puts a deterministic decision layer in front of your
-coding agent: a local Ordo rule evaluates every tool call and answers allow,
-deny, or ask.
+An LLM can give two different answers to the same question. That is fine in a
+draft, and risky once an agent runs a shell command, edits a file or calls an
+API. `ordo guard` runs a local Ordo rule on every tool call your coding agent
+makes, and the rule answers allow, deny or ask. The same input always gets the
+same answer.
 
-Unlike an ad-hoc `if` block or a hand-written allowlist, the policy is a normal
-Ordo project. Your guardrails get a test suite and execution traces, and every
-decision goes to an audit log.
+The policy is a normal Ordo project rather than an `if` block or a hand-written
+allowlist, so it has tests and execution traces, and every decision goes to an
+audit log.
 
 The same policy applies to every agent you hook up:
 

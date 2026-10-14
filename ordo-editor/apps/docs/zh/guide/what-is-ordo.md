@@ -42,7 +42,7 @@ Ordo 的做法是把这些规则从代码里拿出来，集中成规则文件。
 
 ## 和决策模型一起用
 
-[Jev](https://typesafe.ai) 这类决策模型能读懂一段文字，回答"这是不是退款请求""客户有多急"，并给出置信度。它们只负责判断。退不退款、要不要人工看，还要结合金额、期限、退款记录和你们的政策，这一步是决策，写在 Ordo 规则里。
+[Jev](https://typesafe.ai) 这类决策模型能读懂一段文字，回答"这是不是退款请求""客户有多急"，并给出置信度。退不退款、要不要人工看，还要结合金额、期限、退款记录和你们的政策，这一步是决策，写在 Ordo 规则里。
 
 模型的回答作为输入字段传给规则，比如 `jev.intent.confidence`。阈值写在规则文件里，带测试，改之前可以用 `ordo impact` 看会影响哪些决策。完整的例子见 [jev-routing 规则包](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing)。
 

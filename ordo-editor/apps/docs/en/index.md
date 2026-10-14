@@ -20,7 +20,7 @@ hero:
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - title: Models judge, rules decide
+  - title: After the model answers
     details: Decision models like Jev read a customer's message and give you a judgment with a confidence. Whether to refund, and whether a person should look first, also depends on the amount, the window and your policy. That part lives in rules.
     link: https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing
     linkText: Refund routing pack
@@ -34,18 +34,16 @@ features:
     linkText: Rule structure
 ---
 
-## Every app that uses a decision model has a 0.85 in it
+## A 0.85 in the code
 
 ```python
 if jev.confidence > 0.85:
     refund(order)
 ```
 
-That line decides who gets money back. Nobody reviews it, no test covers it, and when the model is updated, 0.85 starts to mean something else.
+That line decides who gets money back. It usually has no review and no test, and when the model is updated, 0.85 starts to mean something else.
 
 Jev can tell that a customer wants a refund. It doesn't know your refund window, your amount limits, or how sure is sure enough to pay out without a person looking. That part is a decision, and it belongs in Ordo.
-
-> Jev turns text into judgments. Ordo turns judgments into decisions.
 
 ## What a rule looks like
 

@@ -1,6 +1,6 @@
 # Metrics & Monitoring
 
-Ordo exposes Prometheus-compatible metrics for comprehensive monitoring, alerting, and performance analysis.
+Ordo exposes metrics in Prometheus format. Use them for dashboards, alerts and latency analysis.
 
 ## Quick Start
 

@@ -1,6 +1,6 @@
 # HTTP REST API
 
-Ordo 提供了一个 RESTful HTTP API 用于规则管理和执行。
+HTTP API 以 REST 风格管理和执行规则。
 
 ## 基础 URL
 

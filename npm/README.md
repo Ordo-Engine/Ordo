@@ -2,9 +2,9 @@
 
 Turn judgments into decisions. Ordo is an open-source decision engine: models
 and scores tell you what is going on, and Ordo decides what to do about it.
-Write those decisions as rule files with tests, see which decisions a change
-moves before you ship it, and run the rules anywhere the Ordo engine runs.
-Works offline, and coding agents can drive it over MCP.
+Write those decisions as rule files with tests, and see which decisions a
+change moves before you ship it. It works offline, and coding agents can use it
+over MCP.
 
 ## Write and test rules as files
 
@@ -33,9 +33,9 @@ cargo install --git https://github.com/Ordo-Engine/Ordo ordo-cli
 
 ## See what a change affects
 
-Every app that uses a decision model like Jev has a line such as
-`if jev.confidence > 0.85: refund(order)`. Nobody reviews it, and it means
-something else after the next model update. In the
+Apps that use a decision model like Jev often have a line such as
+`if jev.confidence > 0.85: refund(order)`. It rarely gets reviewed, and it
+means something else after the next model update. In the
 [jev-routing](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing)
 rule pack that threshold is a rule with tests. Lower it to 0.80 and all 12
 tests still pass. `impact` shows what they missed:
@@ -81,30 +81,30 @@ npx @ordo-engine/cli guard init --agent codex,cursor    # …and/or Codex CLI, C
 ```
 
 Every tool call from the hooked agent(s) now runs through the same local rule
-that decides **allow / deny / ask**. When the agent tries something
+that decides allow, deny or ask. When the agent tries something
 destructive, Ordo stops it with a reason:
 
 ```text
 ⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.1.0 · DENY]
 ```
 
-The policy lives in `.ordo-guard/` as a normal Ordo project — so your guardrails
-have a test suite:
+The policy lives in `.ordo-guard/` as a normal Ordo project, so it has its own
+tests:
 
 ```bash
-ordo guard doctor    # is the hook registered, present, and actually answering?
+ordo guard doctor    # check the hook is registered, present and answering
 ordo guard test      # run the policy's own tests
-ordo guard log       # every decision, timestamped and auditable
+ordo guard log       # every decision, with a timestamp
 ordo guard upgrade   # move a policy scaffolded by an older CLI to the current default
 ```
 
 Edit `.ordo-guard/rulesets/policy.json` in plain expressions
-(`tool == 'Bash' && 'terraform destroy' in subcommands`), add a test, ship.
+(`tool == 'Bash' && 'terraform destroy' in subcommands`) and add a test.
 Shell commands are parsed, not substring-matched, so `rm -r -f`, `/bin/rm -Rf`
 and `bash -c 'rm -rf x'` hit the same rule. The default policy blocks
 destructive shell + secret access, asks before `git push` / `npm publish`, and
-fast-paths read-only git. Fails open on any
-internal error (`--fail-closed` to deny instead).
+allows read-only git right away. On an internal error the hook allows the
+call (`--fail-closed` denies it instead).
 
 ## Commands
 

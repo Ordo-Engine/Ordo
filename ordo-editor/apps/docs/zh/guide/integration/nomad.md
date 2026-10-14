@@ -2,11 +2,11 @@
 
 <img src="/integration/nomad.png" alt="Nomad Logo" width="120" style="margin-bottom: 20px;" />
 
-Ordo 提供了完整的 [HashiCorp Nomad](https://www.nomadproject.io/) 集成支持，包含用于生产环境和开发环境的 Job 配置文件。
+仓库里带有 [HashiCorp Nomad](https://www.nomadproject.io/) 的 Job 配置文件，分生产和开发两套。
 
 ## 概述
 
-Nomad 集成提供了以下特性：
+这些 Job 文件配置了：
 
 - **服务发现**：自动注册 HTTP 和 gRPC 服务
 - **健康检查**：配置了 HTTP (`/health`) 和 TCP 健康检查

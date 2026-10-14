@@ -1,6 +1,6 @@
 # Built-in Functions
 
-Ordo provides a comprehensive set of built-in functions for use in expressions.
+These functions can be called inside any expression.
 
 ## String Functions
 
@@ -258,7 +258,6 @@ Functions return sensible defaults on errors:
 
 ## Performance Notes
 
-- All functions are optimized for high performance
 - String operations use zero-copy where possible
 - Array functions use iterators (no intermediate allocations)
 - Function calls add ~10-50ns overhead

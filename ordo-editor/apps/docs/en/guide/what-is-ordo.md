@@ -42,7 +42,7 @@ When a team needs visual editing, approvals and multiple environments, add [Stud
 
 ## With decision models
 
-Decision models like [Jev](https://typesafe.ai) read a piece of text and answer questions such as "is this a refund request?" or "how urgent is it?", each with a confidence. They only judge. Whether to refund, and whether a person should look first, also depends on the amount, the refund window, the customer's history and your policy. That part is a decision, and it lives in Ordo rules.
+Decision models like [Jev](https://typesafe.ai) read a piece of text and answer questions such as "is this a refund request?" or "how urgent is it?", each with a confidence. Whether to refund, and whether a person should look first, also depends on the amount, the refund window, the customer's history and your policy. That part is a decision, and it lives in Ordo rules.
 
 The model's answers reach the rules as input fields, such as `jev.intent.confidence`. Thresholds sit in the rule file with tests, and `ordo impact` shows which decisions a change moves before you make it. For a full example, see the [jev-routing rule pack](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing).
 

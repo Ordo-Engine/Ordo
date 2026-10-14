@@ -1,6 +1,6 @@
 # gRPC API
 
-Ordo provides a high-performance gRPC API for rule execution and management.
+The gRPC API covers rule execution and management.
 
 ## Connection
 
@@ -255,7 +255,7 @@ print(f"Code: {response.code}, Duration: {response.duration_us}µs")
 
 ## Performance
 
-gRPC provides better performance than HTTP for high-throughput scenarios:
+At high throughput, gRPC has lower latency and higher QPS than HTTP:
 
 | Metric        | HTTP          | gRPC               |
 | ------------- | ------------- | ------------------ |

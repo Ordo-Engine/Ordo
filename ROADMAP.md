@@ -1,9 +1,9 @@
 # Roadmap
 
-For the full roadmap with details on each milestone, visit our documentation site:
+For the full roadmap with details on each milestone, see the website:
 
-- **English**: [Roadmap](https://ordo-engine.github.io/Ordo/docs/en/roadmap)
-- **中文**: [产品路线图](https://ordo-engine.github.io/Ordo/docs/zh/roadmap)
+- **English**: [Roadmap](https://ordoengine.com/en/roadmap)
+- **中文**: [产品路线图](https://ordoengine.com/roadmap)
 
 ## Quick Overview
 

@@ -1,51 +1,28 @@
-# Agent Guardrails (`ordo guard`)
+# Guard (`ordo guard`)
 
-An LLM can give two different answers to the same question. That is fine in a
-draft, and risky once an agent runs a shell command, edits a file or calls an
-API. `ordo guard` runs a local Ordo rule on every tool call your coding agent
-makes, and the rule answers allow, deny or ask. The same input always gets the
-same answer.
+`ordo guard` runs a local Ordo rule on every tool call your coding agent makes. The rule answers allow, deny or ask, and the same call always gets the same answer. The policy is an ordinary Ordo project, so it has tests and traces, and every decision goes to a log.
 
-The policy is a normal Ordo project rather than an `if` block or a hand-written
-allowlist, so it has tests and execution traces, and every decision goes to an
-audit log.
+| Agent       | Hook                   | Config file              | Sees                                      |
+| ----------- | ---------------------- | ------------------------ | ----------------------------------------- |
+| Claude Code | `PreToolUse`           | `.claude/settings*.json` | every tool (Bash, Read, Write, Edit, WebFetch, …) |
+| Codex CLI   | `PreToolUse`           | `.codex/hooks.json`      | Bash only, for now (upstream limit)       |
+| Cursor      | `beforeShellExecution` | `.cursor/hooks.json`     | shell commands only                       |
 
-The same policy applies to every agent you hook up:
+Claude Code and Codex CLI send the same event shape, so a rule behaves the same on both. Cursor only sees shell commands, so rules on `file_path` or `url` never fire there.
 
-| Agent           | Hook                    | Config file            | Coverage                                     |
-| --------------- | ------------------------ | ----------------------- | --------------------------------------------- |
-| **Claude Code** | `PreToolUse`             | `.claude/settings*.json` | every tool (Bash, Read, Write, Edit, WebFetch, …) |
-| **Codex CLI**   | `PreToolUse`             | `.codex/hooks.json`      | Bash today (upstream limitation)              |
-| **Cursor**      | `beforeShellExecution`   | `.cursor/hooks.json`     | shell commands only                           |
+## Install
 
-Claude Code and Codex CLI speak the identical envelope, so a rule written for
-one behaves the same on the other. Cursor only sees shell commands, so
-`file_path`/`url`-based rules never fire there, and `tool` is always `"Bash"`
-for a Cursor event.
-
-## Install (5 minutes)
-
-From the repo you want to guard:
+From the repository you want to guard:
 
 ```bash
-npx @ordo-engine/cli guard init                        # Claude Code (default)
-npx @ordo-engine/cli guard init --agent codex           # Codex CLI
-npx @ordo-engine/cli guard init --agent cursor          # Cursor
-npx @ordo-engine/cli guard init --agent claude,codex,cursor   # all three at once
+npx @ordo-engine/cli guard init                         # Claude Code
+npx @ordo-engine/cli guard init --agent codex            # Codex CLI
+npx @ordo-engine/cli guard init --agent claude,codex,cursor
 ```
 
-`--agent` is repeatable (`--agent codex --agent cursor`) or comma-separated;
-each selected agent gets its own hook command and config file, all evaluating
-the same `.ordo-guard/rulesets/policy.json`. This does two things:
+This creates `.ordo-guard/` (the policy in `rulesets/policy.json`, its tests, `facts.json`, `AGENTS.md`) and registers the hook for each agent. All agents share the one policy.
 
-1. Scaffolds `.ordo-guard/`, an Ordo project holding `rulesets/policy.json`,
-   `tests/policy.json`, `facts.json`, and an `AGENTS.md`. It is created once
-   and shared by every agent.
-2. Registers the hook for each selected agent (see the table above for
-   which file).
-
-Restart the agent (or, for Claude Code, run `/hooks`) to pick it up, then
-check the setup:
+Restart the agent (in Claude Code, `/hooks` is enough), then check:
 
 ```bash
 ordo guard doctor
@@ -54,122 +31,60 @@ ordo guard doctor
 # ✔ Claude Code hook (.claude/settings.local.json): answers `rm -rf /` with deny
 ```
 
-Every tool call now runs through your policy:
-
 ```text
 $ (agent tries) rm -r -f ./build
 ⛔ Denied by policy: Destructive shell command blocked by policy [policy@1.1.0 · DENY]
 ```
 
-The default policy blocks destructive shell (recursive `rm`, `find -delete`,
-`dd`, `mkfs`, `shred`) and secret access (`.env`, `.pem`, `id_rsa`, aws
-credentials, whether through file tools, `Grep`, or shell arguments). It asks
-before `git push` / `npm publish` / `git reset --hard` / `git clean` and before
-edits to the guardrails or the agent's hook config. It fast-paths a single
-read-only git command and passes everything else to the agent's normal
-permission flow. Shell rules match the *parsed* command (see
-[Shell commands](#shell-commands)), so `rm -rf`, `rm -r -f`, `/bin/rm -Rf`,
-`sudo env X=1 rm --recursive` and `bash -c 'rm -rf x'` are all the same rule.
+The default policy:
 
-::: tip Running through npx
-`npx` runs the binary out of its package cache, which `npm cache clean` can
-delete, and agents silently skip a hook whose program is missing. So when
-`guard init` runs from the npx cache it copies the binary to `~/.ordo/bin/ordo`
-and registers that path. Re-run `guard init` after upgrading to refresh it.
-:::
+- denies destructive shell commands (recursive `rm`, `find -delete`, `dd`, `mkfs`, `shred`),
+- denies reading secrets (`.env`, `.pem`, `id_rsa`, AWS credentials), through file tools, `Grep` or shell arguments,
+- asks before `git push`, `npm publish`, `git reset --hard`, `git clean`, and before edits to the guard or the agent's hook config,
+- allows a single read-only git command,
+- leaves everything else to the agent's normal permission flow.
 
-::: tip Sharing across a team
-The default registration uses an absolute binary path in the git-ignored,
-agent-local settings file. To commit a portable hook for the whole team, add
-`--shared`. It registers `npx -y @ordo-engine/cli guard hook` (with an
-`--agent` suffix for Codex/Cursor) in the agent's shared/committed config
-instead. Claude Code is the only agent that distinguishes shared vs. local
-files (`.claude/settings.json` vs. `.claude/settings.local.json`); Codex CLI
-and Cursor each have one project-local file, but `--shared` still swaps in the
-portable command.
-:::
+By default the hook is registered with an absolute path in the git-ignored local settings. When `guard init` runs through `npx`, it copies the binary to `~/.ordo/bin/ordo` first, because agents silently skip a hook whose program is gone. Run `guard init` again after upgrading. To commit a hook the whole team can use, add `--shared`: it registers `npx -y @ordo-engine/cli guard hook` in the shared config instead.
 
-::: warning Cursor's decision envelope
-Cursor's `beforeShellExecution` schema documents `allow` / `deny` / `ask`
-outcomes but no explicit "no opinion". On Claude Code and Codex CLI, a call
-that matches no rule prints nothing and defers to the agent's own flow. On
-Cursor, the hook emits an explicit `allow` instead.
-:::
+## What the policy sees
 
-## The input your policy sees
+The hook turns the agent's event into one input object, the same shape for every agent:
 
-The hook flattens the agent's event into one input object. Its shape is the
-same whichever agent sent the event, so a rule behaves the same everywhere it
-can fire. Reference these fields directly in conditions:
+| Field             | Example             | Notes |
+| ----------------- | ------------------- | ----- |
+| `tool`            | `"Bash"`, `"Edit"`  | always `"Bash"` on Cursor |
+| `command`         | `"git push origin"` | Bash |
+| `file_path`       | `"src/main.rs"`     | Read, Write, Edit (not on Cursor) |
+| `url`             | `"https://…"`       | WebFetch (not on Cursor) |
+| `cwd`             | `"/repo"`           | |
+| `permission_mode` | `"default"`         | not on Cursor |
+| `session_id`      | `"c1a2…"`           | |
+| `tool_input`      | `{ … }`             | the full tool input. Its other keys are copied to the top level too |
+| `task_context`, `task`, `rel_path` | | see [Task scope](#task-scope) |
+| `programs`, `subcommands`, `argv`, `commands`, `words`, `shell_parse` | | Bash, see below |
 
-| Field             | Example             | Notes                                                    |
-| ----------------- | -------------------- | --------------------------------------------------------- |
-| `tool`            | `"Bash"`, `"Edit"`   | the tool name; always `"Bash"` for a Cursor event         |
-| `command`         | `"git push origin"`  | Bash; hoisted from `tool_input`                           |
-| `file_path`       | `"src/main.rs"`      | Read/Write/Edit; hoisted (Claude Code / Codex CLI only)   |
-| `url`             | `"https://…"`        | WebFetch; hoisted (Claude Code / Codex CLI only)          |
-| `cwd`             | `"/repo"`            | working directory                                          |
-| `permission_mode` | `"default"`          | Claude Code / Codex CLI permission mode; absent on Cursor |
-| `session_id`      | `"c1a2…"`             | Cursor's `conversation_id` maps into this field too       |
-| `tool_input`      | `{ … }`              | the full, nested tool input                                |
-| `task_context`    | `"active"`           | always set; see [Task context](#task-context)               |
-| `task`, `rel_path` | `{ … }`, `"src/a.ts"` | only when a task context is active                        |
-| `programs`, `subcommands`, `argv`, `commands`, `words`, `shell_parse` | | Bash only; see [Shell commands](#shell-commands) |
-
-Any other key inside `tool_input` is hoisted to the top level too, so a new tool
-is usable in conditions without a code change.
-
-::: warning Missing fields are lenient
-A condition referencing an absent field is `false`, so a `command`-based
-rule is safely skipped for non-Bash tools. Be careful with negation:
-`!(command contains 'x')` is _also_ false when `command` is absent. Prefer
-guarding with the tool first: `tool == 'Bash' && !(command contains 'x')`.
-:::
+A condition on a missing field is false. So `command`-based rules are skipped for other tools, but `!(command contains 'x')` is also false when there is no `command`. Check the tool first: `tool == 'Bash' && !(command contains 'x')`.
 
 ## Shell commands
 
-Matching substrings of `command` is easy to bypass: `command contains 'rm -rf'`
-misses `rm -r -f`, `rm  -rf` (two spaces), and `rm -Rf`. So for every `Bash`
-call the hook also parses `command` the way a POSIX shell would. It handles
-quotes and escapes, `&&` `||` `;` `|` `&`, subshells, `$(…)` and backticks,
-`bash -c '…'` and `eval` payloads, and heredocs (their bodies are treated as
-data). It unwraps `sudo`, `doas`, `env`, `nohup`, `nice`, `timeout`, `xargs`,
-`command`, …, and adds these fields:
+Matching text in `command` is easy to get around: `rm -r -f`, `rm  -rf` and `rm -Rf` all miss `'rm -rf'`. So the hook parses each Bash command the way a shell would: quotes, `&&` `||` `;` `|`, subshells, `$(…)`, `bash -c '…'`, `eval`, heredocs. It looks through `sudo`, `env`, `nohup`, `timeout`, `xargs` and similar wrappers, and adds:
 
-| Field         | Example for `sudo git -C web push && rm -rf /tmp/x` | Use it as                         |
-| ------------- | ---------------------------------------------------- | --------------------------------- |
-| `programs`    | `["sudo", "git", "rm"]`                              | `'rm' in programs`                |
-| `subcommands` | `["git push", "rm /tmp/x"]` (program + first non-flag argument, skipping options like `git -C dir`) | `'git push' in subcommands` |
-| `argv`        | `{"git": ["-C", "web", "push"], "rm": ["-rf", "-r", "-f", "/tmp/x"], …}`; short-flag clusters are also split | `'-r' in argv.rm` |
-| `commands`    | `["sudo git -C web push", "rm -rf /tmp/x"]`          | `len(commands) == 1`              |
-| `words`       | every single-token argument and redirect target (free text such as a commit message is left out) | `regex_match('[.]env', join(words, ' '))` |
-| `shell_parse` | `"ok"`, or `"error"` for unbalanced quoting / too-deep nesting | `shell_parse == 'error'` |
+| Field         | For `sudo git -C web push && rm -rf /tmp/x` | Use it as |
+| ------------- | ------------------------------------------- | --------- |
+| `programs`    | `["sudo", "git", "rm"]`                     | `'rm' in programs` |
+| `subcommands` | `["git push", "rm /tmp/x"]`                 | `'git push' in subcommands` |
+| `argv`        | `{"git": ["-C", "web", "push"], "rm": ["-rf", "-r", "-f", "/tmp/x"]}` | `'-r' in argv.rm` |
+| `commands`    | `["sudo git -C web push", "rm -rf /tmp/x"]` | `len(commands) == 1` |
+| `words`       | single-token arguments and redirect targets | `regex_match('[.]env', join(words, ' '))` |
+| `shell_parse` | `"ok"`, or `"error"` for broken quoting     | `shell_parse == 'error'` |
 
-```json
-{
-  "id": "gate-tf",
-  "label": "block terraform destroy",
-  "condition": "tool == 'Bash' && 'terraform destroy' in subcommands",
-  "nextStepId": "deny_infra"
-}
-```
+The command is analyzed, not run. Variables, aliases and functions are invisible to the parser, so this makes bypasses harder but does not rule them out.
 
-The hook analyzes the command without running it. Variables, aliases and
-shell functions are invisible to it, so it makes bypasses harder but does not
-rule them out.
-
-::: warning One missing field makes the whole condition false
-`'-r' in argv.rm` works when `rm` ran. If it didn't, `argv.rm` is missing and
-the entire condition is false, including an `||` alternative that would have
-matched. Guard each lookup (`'rm' in programs && '-r' in argv.rm`)
-and put alternatives that read different fields in separate branches.
-:::
+`argv.rm` is missing when `rm` did not run, and then the whole condition is false, including an `||` alternative. Write `'rm' in programs && '-r' in argv.rm`, and put alternatives on different fields in separate branches.
 
 ## Writing rules
 
-Branch conditions are plain expression strings, evaluated top to bottom. The
-first match wins. Terminal codes map to decisions: `DENY`, `ASK`, `ALLOW`, and `PASS`
-(or any other code) = no opinion.
+The policy is a ruleset in the Studio file format. Branches are checked top to bottom and the first match wins. A terminal's code is the decision: `DENY`, `ASK`, `ALLOW`, and `PASS` (or any other code) for no opinion. The reason shown to the agent is the terminal's `message`, or a `reason` output.
 
 ```json
 {
@@ -180,27 +95,11 @@ first match wins. Terminal codes map to decisions: `DENY`, `ASK`, `ALLOW`, and `
 }
 ```
 
-The expression language has `== != > >= < <=`, `&&` `||` `!`, `in`, `contains`,
-and functions like `starts_with(s, prefix)`, `ends_with(s, suffix)`, and
-`regex_match(pattern, s)`, and `glob_match(pattern_or_patterns, s)`.
+Conditions are normal [expressions](/en/guide/expression-syntax). Useful functions here are `starts_with`, `ends_with`, `regex_match(pattern, s)` and `glob_match(patterns, s)`. In `regex_match` the pattern comes first. A backslash in an expression string is an escape (`'\s'` reaches the regex as `s`), so write `[.]` and a plain space instead of `\.` and `\s`.
 
-::: warning `regex_match` argument order and backslashes
-The pattern comes first: `regex_match('[.]pem$', file_path)`, not the other
-way around. A backslash inside an expression string is an escape (`'\s'`
-reaches the regex as plain `s`), so prefer `[.]` and a literal space over
-`\.` and `\s`.
-:::
+## Task scope
 
-The decision reason shown to the agent comes from the matched terminal's
-`message` (or a `reason` output field, if you set one).
-
-## Task context
-
-A tool-call event says nothing about *the task* the agent is working on, so a
-policy can say "never run `terraform destroy`" but not "for this task, only
-touch `src/auth/`". To scope a task, write `.ordo-guard/context.json` (by
-hand, or from a task-planning tool) and keep one hand-written policy that
-reads it:
+A tool call says nothing about the task the agent is on. To limit a task to some files, write `.ordo-guard/context.json`:
 
 ```json
 {
@@ -211,31 +110,9 @@ reads it:
 }
 ```
 
-`task` is passed through as-is: put whatever your policy needs in it. The
-context only applies when it is bound to the event:
+The context applies only when the event's `cwd` is inside `root`, the session matches (if set) and it has not expired. Then the input gets `task` (passed through as written) and `rel_path` (the edited file, relative to `root`). `task_context` is always set: `active`, `absent`, `mismatch`, `expired` or `invalid`.
 
-| Check        | Rule                                                                     |
-| ------------ | ------------------------------------------------------------------------ |
-| `root`       | the event's `cwd` must be inside it (default: the repo holding `.ordo-guard/`) |
-| `session_id` | if set, must equal the event's session id                                |
-| `expires_at` | if set (RFC 3339), must be in the future                                 |
-
-When it applies, the input gains `task` and `rel_path`: the edited file
-(`file_path` / `notebook_path`) relative to `root`, `/`-separated, with `.`
-and `..` resolved. Paths outside the root come back as `../…`. The input
-always carries `task_context`, so the policy can decide what "no usable
-task" means:
-
-| `task_context` | Meaning                                                    |
-| -------------- | ----------------------------------------------------------- |
-| `active`       | context applied: `task` and `rel_path` are set              |
-| `absent`       | no `context.json`                                           |
-| `mismatch`     | wrong `cwd` (outside `root`) or wrong session               |
-| `expired`      | past `expires_at`                                           |
-| `invalid`      | unreadable or malformed (a warning goes to stderr)          |
-
-Put the scope rule *after* your base rules, so `rm -rf` and secret access are
-still denied inside the task:
+Put the scope rule after your base rules, so `rm -rf` and secrets stay denied inside the task:
 
 ```json
 {
@@ -246,22 +123,11 @@ still denied inside the task:
 }
 ```
 
-`glob_match` takes one pattern or an array of patterns (true if any
-matches). Its `*` also matches `/`, so `src/auth/*` covers subdirectories
-too; avoid patterns that start with a wildcard (`**`, `*/…`), since those
-also match `../` paths outside the root.
+`glob_match`'s `*` also matches `/`. Avoid patterns that start with a wildcard, since they also match `../` paths outside the root. The check compares path strings and does not follow symlinks, and a Bash command can still write anywhere. Add an `ASK` on Bash if that matters for the task.
 
-Every audit-log entry made under a context records `task_context`,
-`task_id`, and `context_hash` (`sha256:` of the exact `context.json`), so a
-decision can be traced back to the task definition that was active. Like the
-rest of guard, the check is on tool *calls*: it compares path strings and
-does not resolve symlinks, and a `Bash` command can still write anywhere.
-Pair a scope rule with an `ASK` on `Bash` if that matters for the task.
+## Test the policy
 
-## Test your guardrails
-
-The policy is an Ordo project, so you test it like one. Add a case to
-`tests/policy.json`:
+Add a case to `.ordo-guard/tests/policy.json`:
 
 ```json
 {
@@ -271,79 +137,33 @@ The policy is an Ordo project, so you test it like one. Add a case to
 }
 ```
 
-and run:
-
 ```bash
 ordo guard test
-# --- PASS: blocks rm -rf (0.10ms)
-# --- PASS: asks before git push (0.09ms)
-# …
 ```
 
-`ordo guard test` derives the [shell fields](#shell-commands) from `command`
-exactly like the live hook, so a case only needs `tool` and `command`.
-
-See what the live hook answers for a specific event:
+`guard test` fills in the shell fields from `command` the same way the hook does, so a case only needs `tool` and `command`. To see what the hook answers for one event:
 
 ```bash
 echo '{"tool_name":"Bash","tool_input":{"command":"git -C web push"}}' | ordo guard hook
 ```
 
-## Audit log
+## Log
 
-Every decision is appended to `.ordo-guard/log.jsonl` (git-ignored):
+Every decision is appended to `.ordo-guard/log.jsonl` (git-ignored), with the time, session, tool, decision, reason and a one-line summary. Entries made under a task context also record the task id and a hash of `context.json`.
 
 ```bash
 ordo guard log --tail 20
 ordo guard log --json | jq 'select(.decision=="deny")'
 ```
 
-Each entry records the timestamp, session id, tool, decision, reason, duration,
-and a one-line summary of what the call was about.
+## When guard itself fails
 
-## Fail-open by design
+If the policy is missing, does not compile, or the event is malformed, the hook warns on stderr and lets the call go through the agent's normal flow. A broken guard should not block your agent. Register the hook with `--fail-closed` to deny instead.
 
-If the guard itself fails (the policy is missing, a rule doesn't compile, the
-event is malformed), the hook fails open: it warns on stderr, stays silent on
-stdout, and the tool call proceeds under the agent's normal flow. On Cursor,
-"silent" means an explicit `allow` rather than empty stdout; see the note
-above. A broken guard should never block your agent. Pass
-`--fail-closed` (in the registered command) to invert this and deny on
-internal error instead.
+Because of that, guard can be off without you noticing. `ordo guard doctor` checks every link: the policy runs, its tests pass, each hook is registered, its program exists, and it answers a sample `rm -rf /`. It exits non-zero when guard is not protecting the repo, so it works in CI or a pre-commit hook.
 
-When the hook fails open, or its program has gone missing (every agent skips
-such a hook silently), you may not notice guard is off. `ordo guard doctor`
-checks each link: the policy evaluates, its tests pass, a hook is registered,
-its program exists, and each registered hook answers a sample `rm -rf /` the
-way the agent would run it. It exits non-zero when guard isn't protecting the
-repo, so it also works as a CI or pre-commit check.
+`guard init` never overwrites an existing `.ordo-guard/`. To move an older default policy to the current one, run `ordo guard upgrade` (`--dry-run` to preview). Files you edited are kept unless you pass `--force`, which saves the old file as `<file>.bak`.
 
-### Upgrading an existing policy
+## Limits
 
-`ordo guard init` never overwrites an existing `.ordo-guard/`, so a repo
-scaffolded by an older CLI keeps its old default policy (before 0.6.0 that
-policy matched substrings of `command`, so `rm -r -f` got through; `doctor`
-warns about it). `ordo guard upgrade` replaces every file that is still an
-unedited copy of an older default: the policy, its tests and `AGENTS.md`.
-Files you have edited are left alone unless you pass `--force`, which keeps
-the old file as `<file>.bak`. `--dry-run` shows what would change.
-
-```bash
-ordo guard upgrade --dry-run
-ordo guard upgrade
-ordo guard test && ordo guard doctor
-```
-
-## Limitations
-
-Guard is a defense-in-depth layer. It is not a sandbox. It sees tool _calls_, not their
-side effects, and shell parsing can't see through variables or scripts: the
-default policy asks before `sed -i … .ordo-guard/…`, but not before a script
-that edits the same file. Layer it with the agent's own permission
-system; don't treat it as a security boundary against an adversarial process.
-
-Per-agent gaps to know about, both upstream limitations rather than anything
-`ordo guard` can work around: Codex CLI's `PreToolUse` currently only fires for
-Bash (Read/Write/Edit/MCP calls don't trigger it yet), and Cursor's
-`beforeShellExecution` only ever sees shell commands (no file-edit hook at
-all), so file-path rules are unreachable there.
+Guard is an extra layer, not a sandbox. It sees tool calls, not what they do, and it cannot see into variables or scripts. Use it together with the agent's own permissions, and do not rely on it against a process that is trying to get around it.

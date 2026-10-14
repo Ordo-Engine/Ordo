@@ -57,7 +57,7 @@ Create `rulesets/discount.json`. It picks a discount rate from the membership ti
 }
 ```
 
-`pick_rate` is a decision table. Rows are matched top to bottom and the first match wins; `*` matches anything, and `default` applies when no row matches. `done` is a terminal step, and `$rate` is the variable the table set. See [Decision Table](./decision-table) for the full syntax.
+`pick_rate` is a decision table. Rows are matched top to bottom and the first match wins; `*` matches anything, and `default` applies when no row matches. `done` is a terminal step, and `$rate` is the variable the table set. See [Decision Tables](./decision-table) for the full syntax.
 
 ## 4. Run it
 
@@ -101,7 +101,7 @@ Create `tests/discount.json`:
 ordo test
 ```
 
-From now on, run `ordo test` after every rule change. Add it to CI and a broken rule can't be merged.
+From now on, run `ordo test` after every rule change. Before you change a threshold, `ordo impact discount` lists every decision the edit moves. See [Testing and Impact](./testing).
 
 ## 6. Call it as a service
 
@@ -127,10 +127,10 @@ curl -X POST http://localhost:8080/api/v1/execute/discount \
 { "code": "OK", "message": "", "output": { "rate": 0.15, "pay": 1020.0 }, "duration_us": 12 }
 ```
 
-To load rules from a directory and keep version history, see [Rule Persistence](./persistence). For other ways to run the server, see [Install & Run](./getting-started).
+To load rules from a folder and keep version history, see [Running the Server](./server).
 
 ## Next steps
 
 - [Rule Structure](./rule-structure): every step type and field
-- [Expression Syntax](./expression-syntax): what you can write in conditions and outputs
-- [HTTP API](/en/api/http-api): the full API
+- [Expressions](./expression-syntax): what you can write in conditions and outputs
+- [Testing and Impact](./testing): tests, traces and `ordo impact`

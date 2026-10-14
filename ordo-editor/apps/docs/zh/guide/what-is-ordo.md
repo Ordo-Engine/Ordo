@@ -26,7 +26,7 @@ Ordo 的做法是把这些规则从代码里拿出来，集中成规则文件。
 | `sub_rule` | 调用一段可复用的子规则 |
 | `terminal` | 结束执行，返回结果码和输出 |
 
-**表达式** 写在条件和输出里，例如 `order.amount >= 1000 && user.tier == "gold"`。表达式语言是有意做小的：没有循环，不能修改外部状态，执行时间可预期。见[表达式语法](./expression-syntax)。
+**表达式** 写在条件和输出里，例如 `order.amount >= 1000 && user.tier == "gold"`。表达式语言是有意做小的：没有循环，不能修改外部状态，执行时间可预期。见[表达式](./expression-syntax)。
 
 **输入校验** 用 `input_schema` 声明规则需要的字段和类型，缺字段或类型不对时直接返回错误，不会悄悄走错分支。金额可以用 `decimal` 类型做精确计算。见[规则结构](./rule-structure)。
 
@@ -34,9 +34,9 @@ Ordo 的做法是把这些规则从代码里拿出来，集中成规则文件。
 
 同一份规则文件，可以用几种方式运行：
 
-- **命令行**：`ordo exec`、`ordo test`、`ordo trace`，适合本地开发和 CI。见[命令行](/zh/platform/cli)。
-- **服务**：`ordo-server` 提供 HTTP、gRPC 和 Unix Socket 接口，支持热更新、版本管理和多租户。见 [HTTP API](/zh/api/http-api)。
-- **嵌入**：在 Rust 程序里直接用 `ordo-core`，或者编译成 [WebAssembly](/zh/api/wasm) 在浏览器里跑。
+- 命令行：`ordo test`、`ordo trace`、`ordo impact`，适合本地开发和 CI。见[测试与影响](./testing)。
+- 服务：`ordo-server` 提供 HTTP、gRPC 和 Unix Socket 接口，支持热更新、版本管理和多租户。见[运行服务](./server)。
+- 嵌入：在 Rust 程序里直接用 `ordo-core`，或者在浏览器里用 WebAssembly 版本。见[嵌入使用](./embed)。
 
 团队需要可视化编辑、审批和多环境发布时，可以再加上 [Studio 与平台](/zh/platform/overview)。不用平台也能完整使用引擎。
 
@@ -44,11 +44,11 @@ Ordo 的做法是把这些规则从代码里拿出来，集中成规则文件。
 
 [Jev](https://typesafe.ai) 这类决策模型能读懂一段文字，回答"这是不是退款请求""客户有多急"，并给出置信度。退不退款、要不要人工看，还要结合金额、期限、退款记录和你们的政策，这一步是决策，写在 Ordo 规则里。
 
-模型的回答作为输入字段传给规则，比如 `jev.intent.confidence`。阈值写在规则文件里，带测试，改之前可以用 `ordo impact` 看会影响哪些决策。完整的例子见 [jev-routing 规则包](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing)。
+模型的回答作为输入字段传给规则，比如 `jev.intent.confidence`。阈值写在规则文件里，带测试，改之前可以用 `ordo impact` 看会影响哪些决策。ordo-server 也可以作为[网关](/zh/platform/decision-gateway)放在模型前面。完整的例子见 [jev-routing 规则包](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing)。
 
 ## 和 AI 一起用
 
-规则是结构化的文件，表达式语言又很小，所以 AI 写出来的规则可以先用 `ordo validate` 编译检查，再用 `ordo test` 跑测试，结果不对时用 `ordo trace` 看到底走了哪条路径。`ordo mcp` 可以把这些能力作为工具提供给编码 Agent。
+规则是结构化的文件，表达式语言又很小，所以 AI 写出来的规则可以先用 `ordo validate` 编译检查，再用 `ordo test` 跑测试，结果不对时用 `ordo trace` 看到底走了哪条路径。`ordo mcp` 可以把这些能力作为工具提供给编码 Agent，见 [MCP 服务](/zh/platform/mcp)。
 
 [Ordo Guard](/zh/platform/guard) 是另一个方向的例子：它用 Ordo 规则决定编码 Agent 的每一次工具调用是放行、拒绝还是询问。
 

@@ -1,70 +1,66 @@
-# 平台概览
+# Studio 与平台
 
-Ordo Platform 是 Ordo 的治理与协作层。它在执行引擎之上提供团队需要的功能：组织建模、契约定义、变更审批、多环境发布、测试管理与审计。
+引擎可以单独使用。团队需要浏览器里的编辑器、发布前的审批和多套环境时，再加上平台。
 
-> 想直接动手？见[快速上手](./quickstart)，五分钟发出第一个决策。本页介绍它背后的概念。
+| 组成            | 作用                                                             |
+| --------------- | ---------------------------------------------------------------- |
+| `ordo-platform` | 组织、项目、成员、草稿、测试、发布、审计，并提供 Studio          |
+| Studio          | 浏览器里的编辑器                                                 |
+| `ordo-server`   | 执行规则。平台自己不执行规则，只把规则发给引擎                   |
 
-## 平台与引擎
+## 整体流程
 
-Ordo 仓库里有两个独立运行的二进制：
+1. 描述输入：[事实、概念和契约](./modeling)。
+2. 在 [Studio](./studio) 里写规则，或者用[命令行](./cli)以文件的方式写。两种方式操作的是同一个项目。
+3. 用示例输入试跑，跑测试。
+4. 发起[发布](./releases)。审批通过后，平台把规则发到这个环境的引擎。
+5. 业务系统调用引擎，见[引擎](./servers)。
 
-| 组件              | 二进制          | 作用                                                           |
-| ----------------- | --------------- | -------------------------------------------------------------- |
-| **ordo-platform** | `ordo-platform` | 治理面：组织/项目/成员、契约、草稿、审批、发布、测试套件、审计 |
-| **ordo-server**   | `ordo-server`   | 数据面：实际执行规则（HTTP / gRPC / UDS）                      |
-| **ordo-core**     | crate（库）     | 引擎核心：解析、字节码、JIT、追踪，可嵌入任意 Rust 应用        |
+## 组织与项目
 
-> 平台不执行规则。规则的下发与执行都在 `ordo-server` 集群完成，平台负责治理与协调。
+所有东西都在项目里，项目属于组织。
 
-## 数据模型
+- 组织下有成员、角色、通知和项目，也可以建子组织，比如每条业务线一个。
+- 项目下有事实、概念、契约、规则集、子规则、测试、环境（默认 `dev`、`staging`、`prod`，可以再加）、发布策略，以及绑定的引擎。
+- 新项目可以从模板开始，比如贷款审批或电商优惠券。
 
-```mermaid
-flowchart LR
-  Org["Organization 组织"]
-  Org --> SubOrg["Sub-Organization 子组织"]
-  Org --> Members["Members 用户 + 角色"]
-  Org --> Roles["Roles RBAC 自定义角色"]
-  Org --> Notif["Notifications"]
-  Org --> Project["Project 项目"]
+内置角色：
 
-  Project --> Envs["Environments<br/>dev · staging · prod · 自定义"]
-  Project --> Facts["Fact Catalog 事实目录"]
-  Project --> Concepts["Concepts 复用类型"]
-  Project --> Contracts["Decision Contracts 契约"]
-  Project --> RuleSets["RuleSets 规则集"]
-  Project --> SubRules["Sub-Rule Assets 子规则资产"]
-  Project --> Policies["Release Policies 发布策略"]
-  Project --> Releases["Releases 发布 / 审批 / 灰度 / 回滚"]
-  Project --> Server["Server 绑定的执行集群"]
+| 角色     | 能做什么                                   |
+| -------- | ------------------------------------------ |
+| `owner`  | 所有操作，包括管理成员                     |
+| `admin`  | 管理项目，审批和执行发布                   |
+| `editor` | 编辑草稿，发起发布申请                     |
+| `viewer` | 只读                                       |
 
-  RuleSets --> Drafts["Drafts 草稿"]
-  RuleSets --> History["History 历史版本"]
-  RuleSets --> Tests["Tests 测试套件"]
-  RuleSets --> Deployments["Deployments 部署记录"]
+也可以用更细的权限组合出自定义角色，比如审批发布、发布规则集。
+
+成员会收到通知：等自己审批的发布、失败的发布、邀请。
+
+## 在 Studio 里写第一条规则
+
+1. 登录，建一个组织，再建一个项目。
+2. 点「新建规则集」，选一个模板。你会得到一个能直接运行的决策图，事实目录也一起填好了。
+3. 打开追踪面板，粘贴一个输入，比如 `{ "amount": 5000, "is_vip": true }`，点「运行」。可以看到执行路径、每一步和结果。
+4. 发起一个到 `staging` 的发布。审批通过后，平台把规则发到这个环境的引擎。
+5. 调用它。Studio 的「接入」页会给出你项目的调用方式：
+
+```bash
+curl -X POST https://<engine>/api/v1/execute/loan-approval \
+  -H 'x-tenant-id: <project-id>' -H 'Content-Type: application/json' \
+  -d '{"input":{"amount":5000,"is_vip":true}}'
 ```
 
-## 核心流程
+项目 ID 就是它在引擎上的租户。
 
-1. **建模**：在项目中定义事实目录 → 注册概念 → 编写带类型的决策契约。
-2. **创作**：在 Studio 编辑器里基于契约编写规则集，可拖入 Sub-Rule 资产复用逻辑。
-3. **测试**：为规则集挂载测试用例（YAML 格式，与 ordo-cli 兼容），保存时即可运行。
-4. **审批**：发起发布请求 → 自动跑测试并生成 diff → 触发审批策略 → 审批人通过。
-5. **发布**：平台向目标环境对应的 ordo-server 同步规则，支持灰度、暂停、回滚。
-6. **执行**：业务系统直连 ordo-server（或经平台 `/api/v1/engine/:project_id/*path` 代理）执行规则，响应在毫秒级。
-7. **审计**：所有操作（草稿编辑、审批、发布、回滚）写入审计日志。
+## 用文件来做
 
-## 部署形态
+```bash
+ordo init my-rules && cd my-rules
+ordo login
+ordo link --org <org> --project <project>
+ordo push
+ordo publish loan-approval --env staging
+```
 
-- **All-in-one**：单机部署平台和一个本地 ordo-server，适合小团队或评估。
-- **多区域**：中央平台加多个区域的 ordo-server 集群（北美、欧洲、亚洲等），通过[服务器注册](./server-registry)与执行代理统一调度。
-- **嵌入式**：不用平台与服务器，直接在 Rust 应用中使用 `ordo-core`，适合对延迟要求极高的内联场景。
-
-## 下一步
-
-- [快速上手](./quickstart)：五分钟发出第一个决策
-- [组织与项目](./organizations)：团队建模与 RBAC
-- [事实目录](./catalog)：类型化输入与共享概念
-- [决策契约](./contracts)：规则的输入/输出约束
-- [Studio 编辑器](./studio)：三种模式与协同
-- [发布流程](./releases)：草稿 → 审批 → 灰度 → 回滚
-- [测试管理](./testing)：用例、套件、CI 集成
+同步命令见[命令行](./cli)。编码 Agent 可以通过 [MCP 服务](./mcp)做同样的事。

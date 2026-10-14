@@ -12,114 +12,136 @@ const POSTHOG_HOST = 'https://us.i.posthog.com'
 const isCustomDomain = process.env.CUSTOM_DOMAIN === 'true'
 const BASE_PATH = process.env.DOCS_BASE_PATH || (isCustomDomain ? '/' : '/Ordo/docs/')
 
-const docs_en = [
+const sidebar_en = [
   {
     text: 'Getting Started',
     items: [
-        { text: 'What is Ordo?', link: '/en/guide/what-is-ordo' },
-        { text: 'Quick Start', link: '/en/guide/quick-start' },
-        { text: 'Install & Run', link: '/en/guide/getting-started' },
+      { text: 'What is Ordo?', link: '/en/guide/what-is-ordo' },
+      { text: 'Quick Start', link: '/en/guide/quick-start' },
     ]
   },
   {
     text: 'Writing Rules',
     items: [
-        { text: 'Rule Structure', link: '/en/guide/rule-structure' },
-        { text: 'Expression Syntax', link: '/en/guide/expression-syntax' },
-        { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
-        { text: 'Decision Table', link: '/en/guide/decision-table' },
-        { text: 'Execution Model', link: '/en/guide/execution-model' },
+      { text: 'Rule Structure', link: '/en/guide/rule-structure' },
+      { text: 'Expressions', link: '/en/guide/expression-syntax' },
+      { text: 'Decision Tables', link: '/en/guide/decision-table' },
+      { text: 'Built-in Functions', link: '/en/guide/builtin-functions' },
     ]
   },
   {
-    text: 'Integration',
+    text: 'Testing and Impact',
     items: [
-        { text: 'HTTP API', link: '/en/api/http-api' },
-        { text: 'gRPC API', link: '/en/api/grpc-api' },
-        { text: 'WebAssembly', link: '/en/api/wasm' },
-        { text: 'Data Filter API', link: '/en/api/filter-api' },
-        { text: 'Capabilities & External Calls', link: '/en/guide/capabilities' },
+      { text: 'Test, Trace, Impact', link: '/en/guide/testing' },
     ]
   },
   {
-    text: 'Operations',
+    text: 'With a Decision Model',
     items: [
-        { text: 'Rule Persistence', link: '/en/guide/persistence' },
-        { text: 'Version Management', link: '/en/guide/versioning' },
-        { text: 'Rule Signing', link: '/en/guide/rule-signing' },
-        { text: 'Audit Logging', link: '/en/guide/audit-logging' },
-        { text: 'Distributed Deployment', link: '/en/guide/distributed-deployment' },
-        { text: 'Kubernetes', link: '/en/guide/integration/kubernetes' },
-        { text: 'HashiCorp Nomad', link: '/en/guide/integration/nomad' },
+      { text: 'Decision Model Gateway', link: '/en/platform/decision-gateway' },
     ]
   },
-]
-
-const reference_en = [
+  {
+    text: 'Running It',
+    items: [
+      { text: 'Running the Server', link: '/en/guide/server' },
+      { text: 'Deployment', link: '/en/guide/deployment' },
+      { text: 'Embedding', link: '/en/guide/embed' },
+    ]
+  },
+  {
+    text: 'Studio and Platform',
+    items: [
+      { text: 'Overview', link: '/en/platform/overview' },
+      { text: 'Studio', link: '/en/platform/studio' },
+      { text: 'Facts, Concepts, Contracts', link: '/en/platform/modeling' },
+      { text: 'Drafts and Releases', link: '/en/platform/releases' },
+      { text: 'Engines', link: '/en/platform/servers' },
+    ]
+  },
+  {
+    text: 'Coding Agents',
+    items: [
+      { text: 'Guard', link: '/en/platform/guard' },
+      { text: 'MCP Server', link: '/en/platform/mcp' },
+    ]
+  },
   {
     text: 'Reference',
     items: [
-        { text: 'Server Options', link: '/en/reference/server-options' },
-        { text: 'Configuration', link: '/en/reference/configuration' },
-        { text: 'Metrics', link: '/en/reference/metrics' },
-        { text: 'Benchmarks', link: '/en/reference/benchmarks' },
-        { text: 'Roadmap', link: '/en/roadmap' },
+      { text: 'HTTP API', link: '/en/api/http-api' },
+      { text: 'gRPC API', link: '/en/api/grpc-api' },
+      { text: 'Server Options', link: '/en/reference/server-options' },
+      { text: 'CLI', link: '/en/platform/cli' },
+      { text: 'Metrics', link: '/en/reference/metrics' },
+      { text: 'Benchmarks', link: '/en/reference/benchmarks' },
     ]
   },
 ]
 
-const docs_zh = [
+const sidebar_zh = [
   {
     text: '入门',
     items: [
-        { text: 'Ordo 是什么？', link: '/zh/guide/what-is-ordo' },
-        { text: '快速上手', link: '/zh/guide/quick-start' },
-        { text: '安装与运行', link: '/zh/guide/getting-started' },
+      { text: 'Ordo 是什么？', link: '/zh/guide/what-is-ordo' },
+      { text: '快速上手', link: '/zh/guide/quick-start' },
     ]
   },
   {
     text: '编写规则',
     items: [
-        { text: '规则结构', link: '/zh/guide/rule-structure' },
-        { text: '表达式语法', link: '/zh/guide/expression-syntax' },
-        { text: '内置函数', link: '/zh/guide/builtin-functions' },
-        { text: '决策表', link: '/zh/guide/decision-table' },
-        { text: '执行模型', link: '/zh/guide/execution-model' },
+      { text: '规则结构', link: '/zh/guide/rule-structure' },
+      { text: '表达式', link: '/zh/guide/expression-syntax' },
+      { text: '决策表', link: '/zh/guide/decision-table' },
+      { text: '内置函数', link: '/zh/guide/builtin-functions' },
     ]
   },
   {
-    text: '接入',
+    text: '测试与影响',
     items: [
-        { text: 'HTTP API', link: '/zh/api/http-api' },
-        { text: 'gRPC API', link: '/zh/api/grpc-api' },
-        { text: 'WebAssembly', link: '/zh/api/wasm' },
-        { text: '数据过滤 API', link: '/zh/api/filter-api' },
-        { text: '能力与外部调用', link: '/zh/guide/capabilities' },
+      { text: '测试、追踪、影响分析', link: '/zh/guide/testing' },
     ]
   },
   {
-    text: '运行与运维',
+    text: '配合决策模型',
     items: [
-        { text: '规则持久化', link: '/zh/guide/persistence' },
-        { text: '版本管理', link: '/zh/guide/versioning' },
-        { text: '规则签名', link: '/zh/guide/rule-signing' },
-        { text: '审计日志', link: '/zh/guide/audit-logging' },
-        { text: '分布式部署', link: '/zh/guide/distributed-deployment' },
-        { text: 'Kubernetes', link: '/zh/guide/integration/kubernetes' },
-        { text: 'HashiCorp Nomad', link: '/zh/guide/integration/nomad' },
+      { text: '决策模型网关', link: '/zh/platform/decision-gateway' },
     ]
   },
-]
-
-const reference_zh = [
+  {
+    text: '运行',
+    items: [
+      { text: '运行服务', link: '/zh/guide/server' },
+      { text: '部署', link: '/zh/guide/deployment' },
+      { text: '嵌入使用', link: '/zh/guide/embed' },
+    ]
+  },
+  {
+    text: 'Studio 与平台',
+    items: [
+      { text: '概览', link: '/zh/platform/overview' },
+      { text: 'Studio', link: '/zh/platform/studio' },
+      { text: '事实、概念、契约', link: '/zh/platform/modeling' },
+      { text: '草稿与发布', link: '/zh/platform/releases' },
+      { text: '引擎', link: '/zh/platform/servers' },
+    ]
+  },
+  {
+    text: '编码 Agent',
+    items: [
+      { text: 'Guard', link: '/zh/platform/guard' },
+      { text: 'MCP 服务', link: '/zh/platform/mcp' },
+    ]
+  },
   {
     text: '参考',
     items: [
-        { text: '服务器选项', link: '/zh/reference/server-options' },
-        { text: '配置', link: '/zh/reference/configuration' },
-        { text: '指标', link: '/zh/reference/metrics' },
-        { text: '性能基准', link: '/zh/reference/benchmarks' },
-        { text: '路线图', link: '/zh/roadmap' },
+      { text: 'HTTP API', link: '/zh/api/http-api' },
+      { text: 'gRPC API', link: '/zh/api/grpc-api' },
+      { text: '服务器选项', link: '/zh/reference/server-options' },
+      { text: '命令行', link: '/zh/platform/cli' },
+      { text: '指标', link: '/zh/reference/metrics' },
+      { text: '性能基准', link: '/zh/reference/benchmarks' },
     ]
   },
 ]
@@ -135,8 +157,8 @@ export default withMermaid(defineConfig({
   // Clean URLs without .html extension
   cleanUrls: true,
 
-  // Internal repo-ops docs that ship in the tree but are not public pages
-  srcExclude: ['DEPLOYMENT.md', '*/guide/editor-store.md'],
+  // Repo-ops notes that ship in the tree but are not a public page
+  srcExclude: ['DEPLOYMENT.md'],
   
   // Last updated timestamp
   lastUpdated: true,
@@ -166,74 +188,13 @@ export default withMermaid(defineConfig({
       link: '/en/',
       themeConfig: {
         nav: [
-          { text: 'Docs', link: '/en/guide/what-is-ordo', activeMatch: '^/en/(guide|api)/' },
-          { text: 'Guard', link: '/en/platform/guard', activeMatch: '^/en/platform/guard' },
-          { text: 'Studio & Platform', link: '/en/platform/overview', activeMatch: '^/en/platform/(?!guard)' },
-          { text: 'Reference', link: '/en/reference/server-options', activeMatch: '^/en/(reference/|roadmap)' },
+          { text: 'Docs', link: '/en/guide/what-is-ordo', activeMatch: '^/en/(guide/|platform/decision-gateway)' },
+          { text: 'Studio & Platform', link: '/en/platform/overview', activeMatch: '^/en/platform/(overview|studio|modeling|releases|servers)' },
+          { text: 'Guard', link: '/en/platform/guard', activeMatch: '^/en/platform/(guard|mcp)' },
+          { text: 'Reference', link: '/en/api/http-api', activeMatch: '^/en/(api/|reference/|platform/cli)' },
           { text: 'Playground', link: 'https://ordo-engine.github.io/Ordo/', target: '_self' },
         ],
-        sidebar: {
-          // Keys of equal depth resolve in insertion order, so the guard page
-          // must be listed before the rest of /en/platform/.
-          '/en/platform/guard': [
-            {
-              text: 'Ordo Guard',
-              items: [
-                  { text: 'Agent Guardrails', link: '/en/platform/guard' },
-                  { text: 'CLI (ordo)', link: '/en/platform/cli' },
-                  { text: 'MCP Server', link: '/en/platform/mcp' },
-              ]
-            },
-          ],
-          '/en/platform/': [
-            {
-              text: 'Platform',
-              items: [
-                  { text: 'Overview', link: '/en/platform/overview' },
-                  { text: 'Quickstart', link: '/en/platform/quickstart' },
-                  { text: 'Organizations & Projects', link: '/en/platform/organizations' },
-                  { text: 'Studio Editor', link: '/en/platform/studio' },
-              ]
-            },
-            {
-              text: 'Develop & Integrate',
-              items: [
-                  { text: 'CLI (ordo)', link: '/en/platform/cli' },
-                  { text: 'MCP Server', link: '/en/platform/mcp' },
-                  { text: 'Runtime Integration', link: '/en/platform/integrate' },
-                  { text: 'Traffic Capture & Replay', link: '/en/platform/capture-replay' },
-                  { text: 'Decision Model Gateway', link: '/en/platform/decision-gateway' },
-              ]
-            },
-            {
-              text: 'Modeling',
-              items: [
-                  { text: 'Fact Catalog', link: '/en/platform/catalog' },
-                  { text: 'Decision Contracts', link: '/en/platform/contracts' },
-                  { text: 'Sub-Rule Assets', link: '/en/platform/sub-rules' },
-              ]
-            },
-            {
-              text: 'Delivery',
-              items: [
-                  { text: 'Rule Drafts', link: '/en/platform/drafts' },
-                  { text: 'Release Pipeline', link: '/en/platform/releases' },
-                  { text: 'Test Management', link: '/en/platform/testing' },
-              ]
-            },
-            {
-              text: 'Operations',
-              items: [
-                  { text: 'Server Registry', link: '/en/platform/server-registry' },
-                  { text: 'GitHub Integration', link: '/en/platform/github' },
-              ]
-            },
-          ],
-          '/en/guide/': docs_en,
-          '/en/api/': docs_en,
-          '/en/reference/': reference_en,
-          '/en/roadmap': reference_en,
-        },
+        sidebar: sidebar_en,
         footer: {
           message: 'Released under the MIT License.',
           copyright: 'Copyright © 2024-present Ordo Contributors'
@@ -256,74 +217,13 @@ export default withMermaid(defineConfig({
       description: "Ordo 是开源的决策引擎，用带测试、带版本的规则处理业务数据和决策模型的回答。",
       themeConfig: {
         nav: [
-          { text: '文档', link: '/zh/guide/what-is-ordo', activeMatch: '^/zh/(guide|api)/' },
-          { text: 'Guard', link: '/zh/platform/guard', activeMatch: '^/zh/platform/guard' },
-          { text: 'Studio 与平台', link: '/zh/platform/overview', activeMatch: '^/zh/platform/(?!guard)' },
-          { text: '参考', link: '/zh/reference/server-options', activeMatch: '^/zh/(reference/|roadmap)' },
+          { text: '文档', link: '/zh/guide/what-is-ordo', activeMatch: '^/zh/(guide/|platform/decision-gateway)' },
+          { text: 'Studio 与平台', link: '/zh/platform/overview', activeMatch: '^/zh/platform/(overview|studio|modeling|releases|servers)' },
+          { text: 'Guard', link: '/zh/platform/guard', activeMatch: '^/zh/platform/(guard|mcp)' },
+          { text: '参考', link: '/zh/api/http-api', activeMatch: '^/zh/(api/|reference/|platform/cli)' },
           { text: '演练场', link: 'https://ordo-engine.github.io/Ordo/', target: '_self' },
         ],
-        sidebar: {
-          // Keys of equal depth resolve in insertion order, so the guard page
-          // must be listed before the rest of /zh/platform/.
-          '/zh/platform/guard': [
-            {
-              text: 'Ordo Guard',
-              items: [
-                  { text: 'Agent 护栏', link: '/zh/platform/guard' },
-                  { text: '命令行 (ordo)', link: '/zh/platform/cli' },
-                  { text: 'MCP 服务', link: '/zh/platform/mcp' },
-              ]
-            },
-          ],
-          '/zh/platform/': [
-            {
-              text: '平台',
-              items: [
-                  { text: '概览', link: '/zh/platform/overview' },
-                  { text: '快速上手', link: '/zh/platform/quickstart' },
-                  { text: '组织与项目', link: '/zh/platform/organizations' },
-                  { text: 'Studio 编辑器', link: '/zh/platform/studio' },
-              ]
-            },
-            {
-              text: '开发与接入',
-              items: [
-                  { text: '命令行 (ordo)', link: '/zh/platform/cli' },
-                  { text: 'MCP 服务', link: '/zh/platform/mcp' },
-                  { text: '运行时接入', link: '/zh/platform/integrate' },
-                  { text: '流量捕获与重放', link: '/zh/platform/capture-replay' },
-                  { text: '决策模型网关', link: '/zh/platform/decision-gateway' },
-              ]
-            },
-            {
-              text: '建模',
-              items: [
-                  { text: '事实目录', link: '/zh/platform/catalog' },
-                  { text: '决策契约', link: '/zh/platform/contracts' },
-                  { text: '子规则资产', link: '/zh/platform/sub-rules' },
-              ]
-            },
-            {
-              text: '交付',
-              items: [
-                  { text: '规则草稿', link: '/zh/platform/drafts' },
-                  { text: '发布流程', link: '/zh/platform/releases' },
-                  { text: '测试管理', link: '/zh/platform/testing' },
-              ]
-            },
-            {
-              text: '运维',
-              items: [
-                  { text: '服务器注册', link: '/zh/platform/server-registry' },
-                  { text: 'GitHub 集成', link: '/zh/platform/github' },
-              ]
-            },
-          ],
-          '/zh/guide/': docs_zh,
-          '/zh/api/': docs_zh,
-          '/zh/reference/': reference_zh,
-          '/zh/roadmap': reference_zh,
-        },
+        sidebar: sidebar_zh,
         footer: {
           message: '基于 MIT 许可发布。',
           copyright: '版权所有 © 2024-present Ordo 贡献者'

@@ -1,506 +1,129 @@
-# Server Options (`ordo-server`)
-
-Complete reference for the `ordo-server` engine's command-line options.
-
-> Looking for the `ordo` developer CLI (projects, `validate`, `push`, `publish`)?
-> That's a different tool; see [CLI (ordo)](/en/platform/cli).
-
-## Usage
-
-```bash
-ordo-server [OPTIONS]
-```
-
-## Server Options
-
-### --http-addr
-
-HTTP server bind address.
-
-```bash
-ordo-server --http-addr 0.0.0.0:8080
-```
-
-|             |                |
-| ----------- | -------------- |
-| **Default** | `0.0.0.0:8080` |
-| **Format**  | `host:port`    |
-
-### --grpc-addr
-
-gRPC server bind address.
-
-```bash
-ordo-server --grpc-addr 0.0.0.0:50051
-```
-
-|             |                 |
-| ----------- | --------------- |
-| **Default** | `0.0.0.0:50051` |
-| **Format**  | `host:port`     |
-
-### --uds-path
-
-Unix Domain Socket path (Unix only).
-
-```bash
-ordo-server --uds-path /tmp/ordo.sock
-```
-
-|             |                 |
-| ----------- | --------------- |
-| **Default** | None (disabled) |
-| **Format**  | File path       |
-
-### --disable-http
-
-Disable HTTP server.
-
-```bash
-ordo-server --disable-http
-```
-
-|             |         |
-| ----------- | ------- |
-| **Default** | `false` |
-
-### --disable-grpc
-
-Disable gRPC server.
-
-```bash
-ordo-server --disable-grpc
-```
-
-|             |         |
-| ----------- | ------- |
-| **Default** | `false` |
-
-## Storage Options
-
-### --rules-dir
-
-Directory for rule persistence.
-
-```bash
-ordo-server --rules-dir ./rules
-```
-
-|             |                       |
-| ----------- | --------------------- |
-| **Default** | None (in-memory only) |
-| **Format**  | Directory path        |
-
-When specified:
-
-- Rules are loaded from this directory on startup
-- Rules are saved here when created/updated via API
-- Rules are deleted from here when removed via API
-- Supports `.json`, `.yaml`, `.yml` files
-
-### --max-versions
-
-Maximum historical versions to keep per rule.
-
-```bash
-ordo-server --rules-dir ./rules --max-versions 10
-```
-
-|              |               |
-| ------------ | ------------- |
-| **Default**  | `10`          |
-| **Range**    | 1 - unlimited |
-| **Requires** | `--rules-dir` |
-
-## Audit Options
-
-### --audit-dir
-
-Directory for audit log files.
-
-```bash
-ordo-server --audit-dir ./audit
-```
-
-|             |                    |
-| ----------- | ------------------ |
-| **Default** | None (stdout only) |
-| **Format**  | Directory path     |
-
-When specified:
-
-- Audit events are written to JSON Lines files
-- Files are rotated daily (`audit-YYYY-MM-DD.jsonl`)
-- Events are also logged to stdout
-
-### --audit-sample-rate
-
-Execution log sampling rate (percentage).
-
-```bash
-ordo-server --audit-sample-rate 10
-```
-
-|             |         |
-| ----------- | ------- |
-| **Default** | `10`    |
-| **Range**   | 0 - 100 |
-
-- `0` = No execution logging
-- `100` = Log all executions
-- Can be changed at runtime via API
-
-## Signature Options
-
-### --signature-enabled
-
-Enable signature verification for rule updates and loads.
-
-```bash
-ordo-server --signature-enabled
-```
-
-|             |         |
-| ----------- | ------- |
-| **Default** | `false` |
-
-### --signature-require
-
-Reject unsigned rules on API updates.
-
-```bash
-ordo-server --signature-enabled --signature-require
-```
-
-|             |         |
-| ----------- | ------- |
-| **Default** | `false` |
-
-### --signature-trusted-keys
-
-Comma-separated base64 public keys.
-
-```bash
-ordo-server --signature-enabled --signature-trusted-keys "BASE64_KEY_1,BASE64_KEY_2"
-```
-
-### --signature-trusted-keys-file
-
-File with one base64 public key per line.
-
-```bash
-ordo-server --signature-enabled --signature-trusted-keys-file /etc/ordo/trusted_keys.txt
-```
-
-### --signature-allow-unsigned-local
-
-Allow unsigned local files on startup.
-
-```bash
-ordo-server --signature-enabled --signature-allow-unsigned-local false
-```
-
-|             |        |
-| ----------- | ------ |
-| **Default** | `true` |
-
-## Deployment Options
-
-### --role
-
-Instance role for distributed deployment.
-
-```bash
-ordo-server --role reader --writer-addr http://writer-node:8080
-```
-
-|             |                                  |
-| ----------- | -------------------------------- |
-| **Default** | `standalone`                     |
-| **Values**  | `standalone`, `writer`, `reader` |
-| **Env**     | `ORDO_ROLE`                      |
-
-- `standalone`: full read/write access (default single-node mode)
-- `writer`: full read/write access; serves as the primary write node
-- `reader`: read-only; write requests (`POST`/`PUT`/`DELETE` on rulesets, tenants, config) return `409 Conflict` with the writer address
-
-### --writer-addr
-
-Writer node address, returned to clients in `409` responses when running as a reader.
-
-```bash
-ordo-server --role reader --writer-addr http://ordo-writer:8080
-```
-
-|             |                    |
-| ----------- | ------------------ |
-| **Default** | None               |
-| **Format**  | URL                |
-| **Env**     | `ORDO_WRITER_ADDR` |
-
-### --watch-rules
-
-Enable file system watcher for hot-reloading rules when files change on disk.
-
-```bash
-ordo-server --rules-dir ./rules --watch-rules
-```
-
-|              |                    |
-| ------------ | ------------------ |
-| **Default**  | `false`            |
-| **Requires** | `--rules-dir`      |
-| **Env**      | `ORDO_WATCH_RULES` |
-
-When enabled:
-
-- Monitors `--rules-dir` for `.json`, `.yaml`, `.yml` file changes
-- 200ms debounce to batch rapid file changes
-- Falls back to 30-second polling if native file system events are unavailable
-- In multi-tenancy mode, monitors `<rules-dir>/tenants/` and reloads tenant configs on `tenants.json` change
-
-### --nats-url
-
-NATS server URL for distributed sync via JetStream. Requires `nats-sync` feature.
-
-```bash
-ordo-server --role writer --nats-url nats://localhost:4222
-```
-
-|             |                 |
-| ----------- | --------------- |
-| **Default** | None (disabled) |
-| **Format**  | NATS URL        |
-| **Env**     | `ORDO_NATS_URL` |
-| **Feature** | `nats-sync`     |
-
-On a writer, publishes rule changes to NATS JetStream.
-On a reader, subscribes to receive rule updates.
-
-### --nats-subject-prefix
-
-Subject prefix for NATS sync events.
-
-```bash
-ordo-server --nats-url nats://localhost:4222 --nats-subject-prefix myapp.rules
-```
-
-|             |                            |
-| ----------- | -------------------------- |
-| **Default** | `ordo.rules`               |
-| **Env**     | `ORDO_NATS_SUBJECT_PREFIX` |
-
-Events are published to `{prefix}.{tenant_id}.{name}` (rules) or `{prefix}.tenants` (tenant config).
-
-### --instance-id
-
-Unique instance identifier for NATS consumer naming and echo suppression.
-
-```bash
-ordo-server --nats-url nats://localhost:4222 --instance-id reader-1
-```
-
-|             |                         |
-| ----------- | ----------------------- |
-| **Default** | Random (auto-generated) |
-| **Env**     | `ORDO_INSTANCE_ID`      |
-
-If not specified, a random hex string is generated at startup. Set explicitly in Kubernetes to use the pod name via `metadata.name`.
-
-### --max-request-body-bytes
-
-Maximum HTTP request body size in bytes.
-
-```bash
-ordo-server --max-request-body-bytes 5242880
-```
-
-|             |                               |
-| ----------- | ----------------------------- |
-| **Default** | `10485760` (10 MB)            |
-| **Env**     | `ORDO_MAX_REQUEST_BODY_BYTES` |
-
-Also applies to gRPC max decoding message size.
-
-### --request-timeout-secs
-
-HTTP request timeout in seconds. Returns `408 Request Timeout` if exceeded.
-
-```bash
-ordo-server --request-timeout-secs 60
-```
-
-|             |                             |
-| ----------- | --------------------------- |
-| **Default** | `30`                        |
-| **Env**     | `ORDO_REQUEST_TIMEOUT_SECS` |
-
-## Decision Model Gateway Options
-
-Put Ordo in front of a decision model such as Jev: forward requests, optionally run a ruleset on the answers, and log every call. See [Decision Model Gateway](/en/platform/decision-gateway).
-
-### --decide-upstream
-
-Base URL of a System One compatible API, such as `https://api.typesafe.ai` or `https://openrouter.ai/api`. Setting it turns on `/systemone/v1/systemone`.
-
-|                          |                        |
-| ------------------------ | ---------------------- |
-| **Default**              | None (off)             |
-| **Environment variable** | `ORDO_DECIDE_UPSTREAM` |
-
-### --decide-api-key
-
-API key sent to the upstream. Without it, the caller's `Authorization` header is forwarded. Required together with `--api-token`.
-
-|                          |                       |
-| ------------------------ | --------------------- |
-| **Default**              | None                  |
-| **Environment variable** | `ORDO_DECIDE_API_KEY` |
-
-### --decide-log-dir
-
-Decision log directory, rotated daily (`decisions-YYYY-MM-DD.jsonl`). `ordo impact --inputs` reads these files.
-
-|                          |                       |
-| ------------------------ | --------------------- |
-| **Default**              | None (no log)         |
-| **Environment variable** | `ORDO_DECIDE_LOG_DIR` |
-
-### --decide-log-requests
-
-Also write each request (`state`, `questions`, `model`) to the decision log, so `ordo impact --model` can ask another model the same questions. Off by default, because `state` is usually customer text.
-
-|                          |                            |
-| ------------------------ | -------------------------- |
-| **Default**              | `false`                    |
-| **Environment variable** | `ORDO_DECIDE_LOG_REQUESTS` |
-
-## Logging Options
-
-### --log-level
-
-Log verbosity level.
-
-```bash
-ordo-server --log-level debug
-```
-
-|             |                                           |
-| ----------- | ----------------------------------------- |
-| **Default** | `info`                                    |
-| **Values**  | `trace`, `debug`, `info`, `warn`, `error` |
-
-## Examples
-
-### Development
-
-```bash
-# Simple in-memory server
-ordo-server
-
-# With debug logging
-ordo-server --log-level debug
-```
-
-### Production
-
-```bash
-# Full-featured setup
-ordo-server \
-  --http-addr 0.0.0.0:8080 \
-  --grpc-addr 0.0.0.0:50051 \
-  --rules-dir /var/lib/ordo/rules \
-  --max-versions 20 \
-  --audit-dir /var/log/ordo/audit \
-  --audit-sample-rate 10 \
-  --watch-rules \
-  --max-request-body-bytes 10485760 \
-  --request-timeout-secs 30 \
-  --log-level info
-```
-
-### Writer/Reader with File Watch
-
-```bash
-# Writer node
-ordo-server --role writer \
-  --rules-dir /shared/rules \
-  --watch-rules
-
-# Reader node
-ordo-server --role reader \
-  --writer-addr http://ordo-writer:8080 \
-  --rules-dir /shared/rules \
-  --watch-rules
-```
-
-### Writer/Reader with NATS Sync
-
-```bash
-# Writer node
-ordo-server --role writer \
-  --rules-dir /data/rules \
-  --nats-url nats://nats:4222 \
-  --instance-id writer-1
-
-# Reader node
-ordo-server --role reader \
-  --writer-addr http://ordo-writer:8080 \
-  --nats-url nats://nats:4222 \
-  --instance-id reader-1
-```
-
-### HTTP Only
-
-```bash
-ordo-server --disable-grpc --http-addr 0.0.0.0:8080
-```
-
-### gRPC Only
-
-```bash
-ordo-server --disable-http --grpc-addr 0.0.0.0:50051
-```
-
-### Unix Domain Socket
-
-```bash
-ordo-server --uds-path /var/run/ordo.sock --disable-http --disable-grpc
-```
-
-## Environment Variables
-
-Ordo supports environment variables using the `ORDO_*` prefix. See the configuration reference for the full list.
-
-## Signature CLI Tools
-
-### ordo-keygen
-
-Generate an Ed25519 keypair:
+# Server Options
+
+Options of `ordo-server`. Every option can also be set with the environment variable shown. `ordo-server --help` prints the same list. For the `ordo` developer CLI, see [CLI](/en/platform/cli).
+
+## Listening
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--http-addr` | `ORDO_HTTP_ADDR` | `0.0.0.0:8080` | HTTP address |
+| `-p`, `--port` | `ORDO_PORT` | | HTTP port only. `--http-addr` wins if both are set |
+| `--grpc-addr` | `ORDO_GRPC_ADDR` | `0.0.0.0:50051` | gRPC address |
+| `--grpc-port` | `ORDO_GRPC_PORT` | | gRPC port only |
+| `--uds-path` | `ORDO_UDS_PATH` | off | Also serve gRPC on this Unix socket |
+| `--disable-http` | `ORDO_DISABLE_HTTP` | | Turn HTTP off |
+| `--disable-grpc` | `ORDO_DISABLE_GRPC` | | Turn gRPC off |
+
+## Rules on disk
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--rules-dir` | `ORDO_RULES_DIR` | memory only | Load rules from this folder and save changes to it |
+| `--max-versions` | `ORDO_MAX_VERSIONS` | `10` | Old versions kept per rule |
+| `--watch-rules` | `ORDO_WATCH_RULES` | off | Reload files that change on disk |
+| `--wal-dir` | `ORDO_WAL_DIR` | `<rules-dir>/wal` | Write-ahead log folder |
+| `--wal-disabled` | `ORDO_WAL_DISABLED` | | Turn the write-ahead log off. Writes are then not crash safe |
+| `--wal-max-segment-bytes` | `ORDO_WAL_MAX_SEGMENT_BYTES` | `67108864` | Size at which a log segment is rotated |
+| `--wal-max-closed-segments` | `ORDO_WAL_MAX_CLOSED_SEGMENTS` | `3` | Closed segments kept |
+| `--max-rules-per-tenant` | `ORDO_MAX_RULES_PER_TENANT` | no limit | Further creates get `422` |
+| `--max-total-rules` | `ORDO_MAX_TOTAL_RULES` | no limit | Same, across all tenants |
+
+## Several instances
+
+See [Deployment](/en/guide/deployment#several-instances).
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--role` | `ORDO_ROLE` | `standalone` | `standalone`, `writer` or `reader`. Readers reject writes with `409` |
+| `--writer-addr` | `ORDO_WRITER_ADDR` | | Writer address, returned by readers in the `409` |
+| `--nats-url` | `ORDO_NATS_URL` | off | Sync rule changes through NATS JetStream |
+| `--nats-subject-prefix` | `ORDO_NATS_SUBJECT_PREFIX` | `ordo.rules` | Subject prefix for sync events |
+| `--instance-id` | `ORDO_INSTANCE_ID` | random | Unique name of this instance for NATS |
+
+## Access and limits
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--api-token` | `ORDO_API_TOKEN` | off | HTTP data routes need `Authorization: Bearer <token>` or `X-API-Token` |
+| `--cors-allowed-origins` | `ORDO_CORS_ORIGINS` | none | Allowed browser origins, comma-separated, or `*` |
+| `--max-concurrent-executions` | `ORDO_MAX_CONCURRENT_EXECUTIONS` | `0` (no limit) | Requests in flight at once, HTTP and gRPC together |
+| `--request-timeout-secs` | `ORDO_REQUEST_TIMEOUT_SECS` | `30` | HTTP requests that take longer get `408` |
+| `--max-request-body-bytes` | `ORDO_MAX_REQUEST_BODY_BYTES` | `10485760` | Largest request body, HTTP and gRPC |
+| `--shutdown-timeout-secs` | `ORDO_SHUTDOWN_TIMEOUT_SECS` | `30` | How long shutdown waits for requests in flight |
+| `--grpc-tls-enabled` | `ORDO_GRPC_TLS_ENABLED` | | TLS for gRPC, with the two options below |
+| `--grpc-tls-cert` | `ORDO_GRPC_TLS_CERT` | | PEM certificate |
+| `--grpc-tls-key` | `ORDO_GRPC_TLS_KEY` | | PEM private key (PKCS8) |
+| `--grpc-mtls-enabled` | `ORDO_GRPC_MTLS_ENABLED` | | Require client certificates. Implies TLS |
+| `--grpc-tls-client-ca` | `ORDO_GRPC_TLS_CLIENT_CA` | | CA that signs client certificates |
+
+## Tenants
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--multi-tenancy-enabled` | `ORDO_MULTI_TENANCY_ENABLED` | off | Separate rules and limits per `X-Tenant-ID` |
+| `--default-tenant` | `ORDO_DEFAULT_TENANT` | `default` | Tenant for requests without the header |
+| `--default-tenant-qps` | `ORDO_DEFAULT_TENANT_QPS` | no limit | Requests per second for that tenant |
+| `--default-tenant-burst` | `ORDO_DEFAULT_TENANT_BURST` | no limit | Burst size for that tenant |
+| `--default-tenant-timeout-ms` | `ORDO_DEFAULT_TENANT_TIMEOUT_MS` | `100` | Execution timeout for that tenant |
+| `--tenants-dir` | `ORDO_TENANTS_DIR` | `<rules-dir>/tenants/tenants.json` | File where tenant settings are stored |
+
+## Signed rules
+
+See [Signed rules](/en/guide/deployment#signed-rules).
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--signature-enabled` | `ORDO_SIGNATURE_ENABLED` | off | Check signatures |
+| `--signature-require` | `ORDO_SIGNATURE_REQUIRE` | off | Reject unsigned rules, from the API and from files |
+| `--signature-trusted-keys` | `ORDO_SIGNATURE_TRUSTED_KEYS` | | Trusted public keys, base64, comma-separated |
+| `--signature-trusted-keys-file` | `ORDO_SIGNATURE_TRUSTED_KEYS_FILE` | | The same, one per line |
+| `--signature-allow-unsigned-local` | `ORDO_SIGNATURE_ALLOW_UNSIGNED_LOCAL` | `true` | Load unsigned local files. Only the variable can turn it off: `ORDO_SIGNATURE_ALLOW_UNSIGNED_LOCAL=false` |
+
+## Logs, audit and capture
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--log-level` | `ORDO_LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn` or `error` |
+| `--log-format` | `ORDO_LOG_FORMAT` | `text` | `text` or `json` |
+| `--audit-dir` | `ORDO_AUDIT_DIR` | stdout only | Also write the audit log to daily files here |
+| `--audit-sample-rate` | `ORDO_AUDIT_SAMPLE_RATE` | `10` | Percent of executions in the audit log |
+| `--capture-io-path` | `ORDO_CAPTURE_IO_PATH` | off | Record each execution's input and output, for `ordo replay` and `ordo impact` |
+| `--capture-io-sample-rate` | `ORDO_CAPTURE_IO_SAMPLE_RATE` | `100` | Percent of executions recorded |
+| `--service-name` | `ORDO_SERVICE_NAME` | `ordo-server` | Service name in traces |
+| `--otlp-endpoint` | `ORDO_OTLP_ENDPOINT` | off | Export OpenTelemetry traces over OTLP HTTP, such as `http://otel-collector:4318` |
+| `--debug-mode` | `ORDO_DEBUG_MODE` | off | Add the debug API. Not for production |
+
+## Decision model gateway
+
+See [Decision Model Gateway](/en/platform/decision-gateway).
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--decide-upstream` | `ORDO_DECIDE_UPSTREAM` | off | System One compatible API to forward to. Turns the gateway on |
+| `--decide-api-key` | `ORDO_DECIDE_API_KEY` | | Key sent upstream. Without it the caller's `Authorization` is forwarded. Needed with `--api-token` |
+| `--decide-log-dir` | `ORDO_DECIDE_LOG_DIR` | off | Write the decision log here |
+| `--decide-log-requests` | `ORDO_DECIDE_LOG_REQUESTS` | off | Also log each request's `state` and `questions` |
+
+## Platform
+
+See [Engines](/en/platform/servers).
+
+| Option | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--platform-url` | `ORDO_PLATFORM_URL` | | Platform to register with |
+| `--server-token` | `ORDO_SERVER_TOKEN` | | Unique token of this engine. Needed to register |
+| `--platform-connect-token` | `ORDO_CONNECT_TOKEN` | | Puts the engine in an organization |
+| `--platform-registration-secret` | `ORDO_PLATFORM_REGISTRATION_SECRET` | | Platform-wide secret, when not using connect tokens |
+| `--server-name` | `ORDO_SERVER_NAME` | `ordo-server` | Name shown in the platform |
+| `--server-url` | `ORDO_SERVER_URL` | `http://<http-addr>` | Address the platform uses to reach this engine |
+| `--stats-interval-secs` | `ORDO_STATS_INTERVAL_SECS` | `15` | How often execution stats are sent to the platform |
+
+## Signing tools
+
+`cargo build --release` also builds `ordo-keygen`, `ordo-sign` and `ordo-verify`:
 
 ```bash
 ordo-keygen --output ./keys
-```
-
-### ordo-sign
-
-Sign JSON/YAML/.ordo files:
-
-```bash
-ordo-sign --key ./keys/private.key --input rule.json
-```
-
-### ordo-verify
-
-Verify signatures for JSON/YAML/.ordo files:
-
-```bash
+ordo-sign --key ./keys/private.key --input rule.json [--output rule.signed.json]
 ordo-verify --key ./keys/public.key --input rule.signed.json
-```
-
-## Help
-
-```bash
-ordo-server --help
-ordo-server --version
 ```

@@ -127,7 +127,7 @@ const reference_zh = [
 // https://vitepress.dev/reference/site-config
 export default withMermaid(defineConfig({
   title: "Ordo",
-  description: "An open-source decision engine: models give judgments, Ordo decides what happens next",
+  description: "Ordo is an open-source decision engine. It runs tested, versioned rules on your data and on a decision model's answers.",
   
   // Dynamic base path for dual deployment
   base: BASE_PATH,
@@ -253,7 +253,7 @@ export default withMermaid(defineConfig({
       lang: 'zh-Hans',
       link: '/zh/',
       title: "Ordo",
-      description: "开源决策引擎：模型给出判断，Ordo 决定接下来怎么做",
+      description: "Ordo 是开源的决策引擎，用带测试、带版本的规则处理业务数据和决策模型的回答。",
       themeConfig: {
         nav: [
           { text: '文档', link: '/zh/guide/what-is-ordo', activeMatch: '^/zh/(guide|api)/' },

@@ -1,6 +1,6 @@
 # WebAssembly API
 
-Ordo 可以通过 WebAssembly 直接在浏览器中运行，实现与服务器相同的性能的客户端规则执行。
+Ordo 可以编译成 WebAssembly，在浏览器里执行规则。单次执行 2-5 µs，原生为 1.63 µs（见[性能](#性能)）。
 
 ## 安装
 
@@ -212,7 +212,7 @@ function RuleExecutor({ ruleset, input }) {
 
 ## 性能
 
-WASM 执行几乎与原生 Rust 一样快：
+WASM 比原生 Rust 慢一些，但仍在几微秒以内：
 
 | 环境           | 执行时间 |
 | -------------- | -------- |

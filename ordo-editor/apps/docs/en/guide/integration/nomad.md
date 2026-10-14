@@ -2,11 +2,11 @@
 
 <img src="/integration/nomad.png" alt="Nomad Logo" width="120" style="margin-bottom: 20px;" />
 
-Ordo provides comprehensive support for [HashiCorp Nomad](https://www.nomadproject.io/) integration, including job configuration files for both production and development environments.
+The repository ships [HashiCorp Nomad](https://www.nomadproject.io/) job files for production and development.
 
 ## Overview
 
-Nomad integration features:
+The job files set up:
 
 - **Service Discovery**: Automatic registration for HTTP and gRPC services
 - **Health Checks**: Configured HTTP (`/health`) and TCP checks

@@ -2,7 +2,7 @@
 
 <img src="/integration/kubernetes.png" alt="Kubernetes Logo" width="120" style="margin-bottom: 20px;" />
 
-Ordo can be easily deployed into a [Kubernetes](https://kubernetes.io/) cluster. As a stateless service, Ordo works perfectly in a K8s environment.
+Ordo is stateless, so it deploys to a [Kubernetes](https://kubernetes.io/) cluster as an ordinary Deployment.
 
 ## Deployment Manifests
 
@@ -87,7 +87,7 @@ spec:
 - **Health Checks**: Liveness and Readiness probes are configured pointing to the `/health` endpoint.
 - **Ports**: Container exposes 8080 (HTTP) and 50051 (gRPC).
 - **Resource Limits**: Adjust CPU and memory requests/limits based on your load.
-- **Scaling**: Easily scale the service by changing the `replicas` count.
+- **Scaling**: Change the `replicas` count to add or remove instances.
 
 ## Deployment
 

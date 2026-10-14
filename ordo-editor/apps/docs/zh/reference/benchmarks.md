@@ -38,7 +38,7 @@ Ordo 规则引擎的性能基准测试，包括核心引擎微基准测试、HTT
 | Rhai (AST 解释器)             | 728 ns       | 0.79x    | 1,374,000     |
 | Zen Engine / GoRules (图求值) | 4,200 ns     | 0.14x    | 238,000       |
 
-**核心结论**：Ordo 的字节码 VM 比 Zen Engine 快 7.3 倍，比 Rhai 快 1.27 倍。
+Ordo 的字节码 VM 比 Zen Engine 快 7.3 倍，比 Rhai 快 1.27 倍。
 
 ### 2.2 Ordo 详细微基准测试
 

@@ -20,7 +20,7 @@ hero:
       link: https://github.com/Ordo-Engine/Ordo
 
 features:
-  - title: 模型判断，规则决定
+  - title: 模型回答之后
     details: Jev 这类决策模型能读懂客户的一段话，给出判断和置信度。退不退款、要不要人工看，还要看金额、期限和你们的政策，这一步写在规则里。
     link: https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing
     linkText: 退款分流规则包
@@ -34,18 +34,16 @@ features:
     linkText: 规则结构
 ---
 
-## 每一个用决策模型的应用里，都藏着一个 0.85
+## 代码里的一个 0.85
 
 ```python
 if jev.confidence > 0.85:
     refund(order)
 ```
 
-这一行在决定谁能拿回钱。它没人 review，也没有测试，模型一升级，0.85 的含义就变了。
+这一行决定谁能拿回钱。它通常没经过 review，也没有测试，模型一升级，0.85 的含义就变了。
 
 Jev 能读懂客户想退款，但它不知道你们的退款期限、金额上限，也不知道多大把握才敢不经人工直接退钱。这一步是决策，交给 Ordo。
-
-> Jev 把文字变成判断，Ordo 把判断变成决策。
 
 ## 一条规则长什么样
 
@@ -108,7 +106,7 @@ impact refund-routing  (HEAD → working tree)
 21 changed · 288 unchanged
 ```
 
-测试没发现问题，但有 18 个原本要人确认的请求，现在没人看就直接退钱了。加上 `--inputs` 用真实请求跑一遍，看到的就是真实客户的数量，而且是在改动上线之前。
+测试都过了，但有 18 个原本要人确认的请求，现在没人看就直接退钱了。加上 `--inputs` 用真实请求跑一遍，看到的就是真实客户的数量，而且是在改动上线之前。
 
 ## 用在哪里
 

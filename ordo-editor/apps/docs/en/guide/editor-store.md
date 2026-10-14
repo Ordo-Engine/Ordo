@@ -1,17 +1,17 @@
 # Editor Store & Undo/Redo
 
-The Editor Store provides state management for the visual rule editor, with full undo/redo support via a command pattern.
+The Editor Store holds the state of the visual rule editor. Every edit is a command, which is how undo and redo work.
 
 ## Overview
 
-Each open ruleset file has its own independent `EditorStore` instance, ensuring that undo/redo history is isolated per file.
+Each open ruleset file gets its own `EditorStore` instance, so undo/redo history is kept per file.
 
 ### Key Features
 
-- **Command Pattern** — All mutations go through commands, enabling undo/redo
-- **Per-file History** — Each file maintains its own undo/redo stack
-- **Schema-aware Editing** — Condition builders and value inputs adapt to the ruleset's schema
-- **Keyboard Shortcuts** — `Cmd/Ctrl+Z` for undo, `Cmd/Ctrl+Shift+Z` for redo
+- **Command Pattern**: all mutations go through commands, enabling undo/redo
+- **Per-file History**: each file maintains its own undo/redo stack
+- **Schema-aware Editing**: condition builders and value inputs adapt to the ruleset's schema
+- **Keyboard Shortcuts**: `Cmd/Ctrl+Z` for undo, `Cmd/Ctrl+Shift+Z` for redo
 
 ## Commands
 
@@ -38,20 +38,20 @@ All rule changes are expressed as commands:
 
 ## Schema-Aware Editing
 
-When a ruleset has a schema defined, the editor provides enhanced editing capabilities:
+When a ruleset defines a schema, the editor uses it as follows:
 
 ### Smart Condition Builder
 
 The `OrdoSmartConditionBuilder` component replaces the basic condition editor when a schema is available:
 
-- **Field Picker** — Browse and search schema fields by group, with type labels
-- **Operator Selection** — Operators are filtered by field type (e.g., numeric fields show `>`, `<`, `>=`, `<=`)
-- **Type-Aware Values** — Input widgets adapt to the field type:
+- **Field Picker**: browse and search schema fields by group, with type labels
+- **Operator Selection**: operators are filtered by field type (e.g., numeric fields show `>`, `<`, `>=`, `<=`)
+- **Type-Aware Values**: input widgets adapt to the field type:
   - String → text input
   - Number → numeric input
   - Boolean → toggle switch
   - Enum → dropdown selector
-- **Mode Switching** — Toggle between Simple, Group (AND/OR), and Expression modes
+- **Mode Switching**: toggle between Simple, Group (AND/OR), and Expression modes
 
 ### Schema Field Picker
 

@@ -1,6 +1,6 @@
 # Rule Signing
 
-Ordo supports digital signatures for rules to ensure integrity and prevent tampering. This feature uses Ed25519 asymmetric cryptography to sign and verify rules across all formats (JSON, YAML, and compiled `.ordo` binary).
+Ordo can sign rules with Ed25519 and verify the signature before loading them, so a rule changed after signing is rejected. Signing works for JSON, YAML and compiled `.ordo` binaries.
 
 ## Overview
 

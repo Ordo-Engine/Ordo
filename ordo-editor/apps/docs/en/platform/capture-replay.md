@@ -5,10 +5,8 @@ see which ones flip. An Ordo test case is `{input, expect:{code, output}}`, the
 same shape as a captured `{input, code, output}` decision, so captured traffic
 converts directly into regression tests.
 
-The loop:
-
-> change a rule → replay last week's real decisions → inspect the flips → fixate
-> them as regression tests → ship.
+The loop: change a rule, replay last week's real decisions, inspect the flips,
+save them as regression tests, ship.
 
 ## 1. Capture (ordo-server)
 

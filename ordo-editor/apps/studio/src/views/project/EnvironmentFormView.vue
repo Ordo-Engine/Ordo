@@ -6,6 +6,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import type { ProjectEnvironment, ServerInfo } from '@/api/types';
 import { useEnvironmentStore } from '@/stores/environment';
 import { useServerStore } from '@/stores/server';
+import { readReturnTo } from '@/utils/return-to';
 
 const route = useRoute();
 const router = useRouter();
@@ -247,6 +248,50 @@ watch(
   }
 );
 
+// Set when another page (e.g. a release request) sent the user here to create an environment.
+const returnTo = readReturnTo(route.query);
+
+// The form survives the detour to connect a new server.
+const draftKey = computed(() => `ordo:environment-form-draft:${projectId}:${envId.value ?? 'new'}`);
+
+function goToConnectServer() {
+  try {
+    sessionStorage.setItem(
+      draftKey.value,
+      JSON.stringify({ form: form.value, natsPrefixTouched: natsPrefixTouched.value })
+    );
+  } catch {
+    // Storage unavailable: the detour still works, the form just starts fresh.
+  }
+  router.push({
+    name: 'org-servers',
+    params: { orgId },
+    query: { connect: '1', returnTo: route.fullPath },
+  });
+}
+
+function restoreDraft() {
+  try {
+    const raw = sessionStorage.getItem(draftKey.value);
+    sessionStorage.removeItem(draftKey.value);
+    if (raw) {
+      const draft = JSON.parse(raw);
+      form.value = { ...form.value, ...draft.form };
+      natsPrefixTouched.value = !!draft.natsPrefixTouched;
+    }
+  } catch {
+    // ignore a broken draft
+  }
+  // Coming back from connecting a server: select it.
+  const connected = route.query.connectedServer;
+  if (typeof connected === 'string' && serverStore.getById(connected)) {
+    if (!form.value.server_ids.includes(connected)) form.value.server_ids.push(connected);
+    const nextQuery = { ...route.query };
+    delete nextQuery.connectedServer;
+    router.replace({ query: nextQuery });
+  }
+}
+
 onMounted(async () => {
   try {
     await Promise.all([envStore.fetchEnvironments(orgId, projectId), serverStore.fetchServers()]);
@@ -259,6 +304,7 @@ onMounted(async () => {
       return;
     }
     fillForm(current);
+    restoreDraft();
   } catch (e: any) {
     MessagePlugin.error(e.message || t('common.loadFailed'));
   } finally {
@@ -295,7 +341,8 @@ async function save() {
       canary_percentage: form.value.canary_percentage,
     });
 
-    router.replace({ name: 'project-environments', params: { orgId, projectId } });
+    if (returnTo) router.replace(returnTo);
+    else router.replace({ name: 'project-environments', params: { orgId, projectId } });
   } catch (e: any) {
     MessagePlugin.error(e.message || t('common.saveFailed'));
   } finally {
@@ -304,7 +351,8 @@ async function save() {
 }
 
 function cancel() {
-  router.push({ name: 'project-environments', params: { orgId, projectId } });
+  if (returnTo) router.push(returnTo);
+  else router.push({ name: 'project-environments', params: { orgId, projectId } });
 }
 </script>
 
@@ -351,6 +399,10 @@ function cancel() {
                       t('environment.serverFilterAll')
                     }}</t-radio-button>
                   </t-radio-group>
+                  <t-button variant="outline" @click="goToConnectServer">
+                    <template #icon><t-icon name="add" /></template>
+                    {{ t('environment.connectServer') }}
+                  </t-button>
                 </div>
               </div>
 
@@ -367,7 +419,11 @@ function cancel() {
               </div>
 
               <div v-if="visibleServers.length === 0" class="server-picker__empty">
-                {{ t('environment.noServer') }}
+                {{
+                  serverStore.servers.length === 0
+                    ? t('environment.noServerAvailable')
+                    : t('environment.noServer')
+                }}
               </div>
 
               <div v-else class="server-grid">

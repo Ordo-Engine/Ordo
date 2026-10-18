@@ -46,7 +46,11 @@ async fn mock_systemone(
         .and_then(|v| v.to_str().ok())
         .map(String::from);
     seen.lock().unwrap().push((auth, body.clone()));
-    match body["state"].as_str() {
+    // A JSON state carries the customer text under `message`.
+    let text = body["state"]
+        .as_str()
+        .or_else(|| body["state"]["message"].as_str());
+    match text {
         Some("rate-limit") => (
             StatusCode::TOO_MANY_REQUESTS,
             [("retry-after", "3")],
@@ -55,8 +59,7 @@ async fn mock_systemone(
             .into_response(),
         Some("not-an-object") => Json(json!(["unexpected"])).into_response(),
         _ => {
-            let confidence = body["state"]
-                .as_str()
+            let confidence = text
                 .and_then(|s| s.strip_prefix("refund "))
                 .and_then(|c| c.parse::<f64>().ok())
                 .unwrap_or(0.95);
@@ -150,6 +153,14 @@ async fn build_app(config: ServerConfig) -> Router {
         .route("/api/v1/rulesets", post(api::create_ruleset))
         .route("/systemone/v1/systemone", post(decide::systemone))
         .route("/systemone/v1/models", get(decide::models))
+        .route(
+            "/systemone/rulesets/:ruleset/v1/systemone",
+            post(decide::systemone_for_ruleset),
+        )
+        .route(
+            "/systemone/rulesets/:ruleset/v1/models",
+            get(decide::models),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::tenant::tenant_middleware,
@@ -317,12 +328,78 @@ async fn runs_the_ruleset_on_the_answers() {
     assert_eq!(line["input"]["jev"]["intent"]["confidence"], 0.72);
     assert_eq!(line["input"]["order"]["amount"], "129.00");
     assert_eq!(line["request"]["state"], "refund 0.72");
+    assert_eq!(line["request"]["model"], "jev-1.13");
+    assert_eq!(line["request"]["questions"], questions());
+    assert!(line["request"].get("ordo").is_none());
+    assert_eq!(line["answers_field"], "jev");
 
     // The same request with a higher confidence is refunded automatically.
     let mut sure = request.clone();
     sure["state"] = json!("refund 0.9");
     let (_, _, body) = call(&app, "POST", "/systemone/v1/systemone", None, Some(&sure)).await;
     assert_eq!(body["ordo"]["code"], "AUTO_REFUND");
+}
+
+#[tokio::test]
+async fn a_ruleset_in_the_base_url_runs_on_the_state() {
+    let (upstream, seen) = start_upstream().await;
+    let log_dir = temp_dir("url");
+    let app = build_app(gateway_config(upstream, |c| {
+        c.decide_log_dir = Some(log_dir.clone());
+    }))
+    .await;
+    upload_refund_routing(&app).await;
+    let base = "/systemone/rulesets/refund-routing";
+
+    // An unchanged app: the facts are already in its JSON state, and there is
+    // no `ordo` field.
+    let request = json!({
+        "model": "jev-1.13",
+        "state": {
+            "message": "refund 0.72",
+            "order": {"amount": "129.00", "days_since_delivery": 1},
+            "customer": {"refunds_90d": 0}
+        },
+        "questions": questions()
+    });
+    let uri = format!("{base}/v1/systemone");
+    let (status, _, body) = call(&app, "POST", &uri, None, Some(&request)).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["ordo"]["ruleset"], "refund-routing");
+    assert_eq!(body["ordo"]["code"], "LLM_DRAFT");
+    assert_eq!(seen.lock().unwrap()[0].1, request);
+
+    let lines = log_lines(&log_dir);
+    assert_eq!(lines[0]["ruleset"], "refund-routing");
+    assert_eq!(lines[0]["input"]["order"]["amount"], "129.00");
+    assert_eq!(lines[0]["input"]["jev"]["intent"]["confidence"], 0.72);
+    assert_eq!(lines[0]["input"]["message"], "refund 0.72");
+
+    // The SDK's model listing works under the same base URL.
+    let (status, _, models) = call(&app, "GET", &format!("{base}/v1/models"), None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(models["data"][0]["id"], "jev-1.13.0");
+
+    // A text state has no facts, so this ruleset reports its missing input
+    // next to the answers.
+    let text = json!({"state": "refund 0.9", "questions": questions()});
+    let (status, _, body) = call(&app, "POST", &uri, None, Some(&text)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["ordo"]["error"]["code"], "INVALID_INPUT");
+
+    // An unknown ruleset in the URL fails before the model is paid for.
+    let calls = seen.lock().unwrap().len();
+    let (status, _, _) = call(
+        &app,
+        "POST",
+        "/systemone/rulesets/nope/v1/systemone",
+        None,
+        Some(&request),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(seen.lock().unwrap().len(), calls);
 }
 
 #[tokio::test]

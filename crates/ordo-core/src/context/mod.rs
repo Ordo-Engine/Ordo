@@ -13,3 +13,7 @@ pub use schema::{FieldSchema, FieldType, MessageSchema, ResolvedField, SchemaReg
 pub use store::Context;
 pub(crate) use value::{decimal_arith, int_div, to_decimal, DecOp};
 pub use value::{IString, SmallArray, Value};
+
+/// Input field under which hosts (the server, the CLI) pass external data.
+/// Rules read it as `$data.<name>.<path>`.
+pub const EXTERNAL_DATA_KEY: &str = "$data";

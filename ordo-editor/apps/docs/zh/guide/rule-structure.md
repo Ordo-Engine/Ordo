@@ -1,39 +1,35 @@
 # 规则结构
 
-Ordo 规则用**步骤流模型**（Step Flow Model）定义：一组相互连接的步骤构成一棵决策树。
-
-## 规则定义
-
-一个规则（RuleSet）由两个主要部分组成：
+一个规则文件（规则集）是 JSON 或 YAML，分两部分：`config` 和 `steps`。步骤组成一张图，从 `entry_step` 开始执行，到终止步骤结束。
 
 ```json
 {
   "config": {
-    "name": "rule-name",
+    "name": "loan-approval",
     "version": "1.0.0",
-    "description": "Optional description",
-    "entry_step": "first_step"
+    "entry_step": "check_age"
   },
   "steps": {
-    "first_step": { ... },
-    "second_step": { ... }
+    "check_age": { "id": "check_age", "name": "检查年龄", "type": "decision", "...": "..." }
   }
 }
 ```
 
-### 配置部分（Config）
+## config
 
-| 字段          | 类型   | 必填 | 描述                      |
-| ------------- | ------ | ---- | ------------------------- |
-| `name`        | string | 是   | 规则的唯一标识符          |
-| `version`     | string | 是   | 语义化版本（例如 "1.0.0"） |
-| `description` | string | 否   | 人类可读的描述            |
-| `entry_step`  | string | 是   | 第一个要执行的步骤 ID     |
-| `input_schema` | array | 否   | 声明的输入字段，执行前校验（见下文） |
+| 字段           | 必填 | 说明                                                   |
+| -------------- | ---- | ------------------------------------------------------ |
+| `name`         | 是   | 规则集名称，调用方用它来执行规则                       |
+| `version`      | 否   | 版本号，默认 `1.0.0`                                   |
+| `description`  | 否   | 说明文字                                               |
+| `entry_step`   | 是   | 第一个步骤的 ID                                        |
+| `input_schema` | 否   | 声明输入字段，执行前先校验（见下文）                   |
+| `timeout_ms`   | 否   | 执行超时，默认 `5000`                                  |
+| `field_missing`| 否   | `lenient`（默认）或 `strict`，决定条件里缺字段时怎么处理 |
 
-### 输入声明（Input Schema）
+### 输入校验
 
-声明规则需要的输入字段后，错误的输入会被拒绝，不会悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。只有读到缺失字段的那一项受影响：`applicant.age < 18 || blacklisted` 遇到黑名单用户照样命中。声明了 schema 后，`ordo validate` 还会报出读取了 schema 里没有的字段的条件，这通常是拼写错误。
+没有声明时，缺字段会让它所在的比较为假。比如没传 `age`，`applicant.age < 18` 这条规则就被跳过了。声明之后，`ordo validate` 还会报出读取了未声明字段的规则，这通常是拼写错误。把需要的字段声明出来，错误的输入会被直接拒绝：
 
 ```json
 "input_schema": [
@@ -46,53 +42,43 @@ Ordo 规则用**步骤流模型**（Step Flow Model）定义：一组相互连�
 ]
 ```
 
-- `type`：`string`、`number`（整数或小数）、`decimal`（精确小数，用于金额；数字和数字字符串会被转换）、`boolean`、`array`、`object` 或 `any`。
+- `type`：`string`、`number`、`decimal`（精确小数，用于金额）、`boolean`、`array`、`object` 或 `any`。
 - `required`：字段必须存在且不为 `null`。
-- `defaultValue`：字段缺失或为 `null` 时使用的默认值。
-- `fields` / `itemType`：嵌套对象字段和数组元素按同样规则校验。
+- `defaultValue`：字段缺失或为 `null` 时使用。
+- `fields` 和 `itemType` 用同样的方式校验嵌套对象和数组元素。
 
-所有问题一次性返回。HTTP 返回 `400`，code 为 `INVALID_INPUT`，例如 `Invalid input: applicant.age: required field is missing`；gRPC 返回 `INVALID_ARGUMENT`。Studio 编辑器里的输入声明是同一结构（也接受 `inputSchema` 写法）。
+所有错误会一次性报出来。HTTP 返回 `400`，错误码 `INVALID_INPUT`，例如 `Invalid input: applicant.age: required field is missing`；gRPC 返回 `INVALID_ARGUMENT`。
 
-### 步骤部分（Steps）
+## 步骤
 
-步骤 ID 到步骤定义的映射。每个步骤的 ID 必须唯一。
+每个步骤都有 `id`、`name` 和 `type`。`id` 要和 `steps` 里的键一致。`name` 必填，会显示在执行追踪里。
 
-## 步骤类型
+| `type`           | 作用                                                     |
+| ---------------- | -------------------------------------------------------- |
+| `decision`       | 按顺序检查条件，走第一个成立的分支                       |
+| `decision_table` | 用表格的行匹配输入，设置变量。见[决策表](./decision-table) |
+| `action`         | 执行动作（设置变量、写日志、调用外部服务），然后继续     |
+| `sub_rule`       | 执行一段可复用的子图，再把结果带回来                     |
+| `terminal`       | 结束执行，返回结果                                       |
 
-### 决策步骤（Decision Step）
-
-评估条件并分支到不同的步骤：
+### decision
 
 ```json
 {
   "id": "check_amount",
-  "name": "Check Order Amount",
+  "name": "检查订单金额",
   "type": "decision",
   "branches": [
-    {
-      "condition": "order.amount > 1000",
-      "next_step": "high_value"
-    },
-    {
-      "condition": "order.amount > 100",
-      "next_step": "medium_value"
-    }
+    { "condition": "order.amount > 1000", "next_step": "high_value" },
+    { "condition": "order.amount > 100", "next_step": "medium_value" }
   ],
   "default_next": "low_value"
 }
 ```
 
-| 字段           | 类型   | 必填 | 描述                           |
-| -------------- | ------ | ---- | ------------------------------ |
-| `id`           | string | 是   | 唯一的步骤标识符               |
-| `name`         | string | 否   | 人类可读的名称                 |
-| `type`         | string | 是   | 必须是 `"decision"`            |
-| `branches`     | array  | 是   | 基于条件的分支列表             |
-| `default_next` | string | 是   | 没有分支匹配时执行此步骤 |
+分支从上往下检查，第一个为真的条件生效。都不成立时走 `default_next`。条件是[表达式](./expression-syntax)。
 
-### 动作步骤（Action Step）
-
-设置变量后跳到 `next_step`，之后用 `$name` 读取变量：
+### action
 
 ```json
 {
@@ -107,141 +93,141 @@ Ordo 规则用**步骤流模型**（Step Flow Model）定义：一组相互连�
 }
 ```
 
-`value` 是表达式字符串，写法和分支条件一样。JSON AST 形式（`{"Binary": {"op": "Mul", ...}}`）仍然可用，保存后的规则集也以这种形式存储。终结步骤的 `output`、指标值和子规则绑定同样支持表达式字符串。
+后面的步骤用 `$subtotal` 读取变量。可用的动作：
 
-### 终结步骤（Terminal Step）
+| `action`        | 字段                                           | 作用 |
+| --------------- | ---------------------------------------------- | ---- |
+| `set_variable`  | `name`、`value`                                | 计算 `value`，存为 `$name` |
+| `log`           | `message`、`level`（`debug`、`info`、`warn`、`error`） | 写一行日志 |
+| `metric`        | `name`、`value`、`tags`                        | 记录一个数值，ordo-server 会导出为 gauge `ordo_rule_<name>` |
+| `external_call` | `service`、`method`、`params`、`result_variable`、`timeout_ms` | 调用宿主提供的能力（见下文） |
+| `call_rule_set` | `ruleset_name`、`result_variable`，可选 `input_mapping` | 运行另一个规则集并保存结果（见下文） |
 
-结束执行并返回结果：
+`value` 是表达式字符串。也接受 JSON AST 形式（`{"Binary": {...}}`），服务端保存的规则就是这种形式。
+
+#### 外部调用
+
+在 ordo-server 上，`external_call` 可以用这些内置能力：
+
+| `service`            | `method`                                   | `params`                              |
+| -------------------- | ------------------------------------------ | ------------------------------------- |
+| `network.http`       | `GET`、`POST`、`PUT`、`PATCH`、`DELETE` 等（大写） | `url`，可选 `headers`、`json_body` |
+| `metrics.prometheus` | `gauge`、`counter`                         | `name`、`value`，可选 `tags`          |
+| `audit.logger`       | `rule_executed`                            | `rule_name`、`duration_us`、`result`  |
+
+```json
+{
+  "action": "external_call",
+  "service": "network.http",
+  "method": "GET",
+  "params": [["url", "\"https://api.example.com/score?id=\" + user.id"]],
+  "result_variable": "score",
+  "timeout_ms": 1000
+}
+```
+
+响应存在 `$score` 下：`$score.payload.status`、`$score.payload.body`，响应体是 JSON 时还有 `$score.payload.json_body`。没有内置重试和降级，调用失败时在后面加一个判断步骤处理。自定义能力的写法见 [`examples/capability-demo`](https://github.com/Ordo-Engine/Ordo/tree/main/examples/capability-demo)。
+
+#### 调用另一个规则集
+
+`call_rule_set` 按名字运行另一个独立的规则集，这样几个规则集可以共用一份，比如同一套反欺诈检查：
+
+```json
+{
+  "action": "call_rule_set",
+  "ruleset_name": "fraud_check",
+  "input_mapping": "{\"amount\": order.amount, \"country\": user.country}",
+  "result_variable": "fraud"
+}
+```
+
+结果存在 `$fraud` 下：`$fraud.code`、`$fraud.message` 和 `$fraud.output.<字段>`。不写 `input_mapping` 时，被调用的规则集拿到完整输入。两种情况下外部数据（`$data`）都会传过去。最多嵌套 10 层。
+
+ordo-server 每次请求都在同一租户的规则集里按名字查找，所以改了 `fraud_check`，所有调用它的规则集都会用上新版本。在 Rust 里[嵌入](./embed)时，实现 `RuleSetResolver`，用 `executor.set_resolver(...)` 设置，或者用 `execute_with_resolver` 按次传入。命令行（`ordo exec`、`ordo test`）和编译后的 `.ordo` 文件暂不支持调用。想把一段图直接放进同一个文件，用 `sub_rule` 步骤。
+
+### sub_rule
+
+子图写在文件顶层的 `sub_rules` 里。`sub_rule` 步骤把输入绑定进去，再把变量带回来：
+
+```json
+{
+  "config": { "name": "loan", "version": "1.0.0", "entry_step": "risk" },
+  "sub_rules": {
+    "risk_score": {
+      "entry_step": "score",
+      "steps": {
+        "score": { "id": "score", "name": "打分", "type": "action",
+          "actions": [{ "action": "set_variable", "name": "score", "value": "if age < 25 then 80 else 20" }],
+          "next_step": "end" },
+        "end": { "id": "end", "name": "结束", "type": "terminal", "result": { "code": "DONE" } }
+      }
+    }
+  },
+  "steps": {
+    "risk": {
+      "id": "risk", "name": "风险分", "type": "sub_rule",
+      "ref_name": "risk_score",
+      "bindings": [["age", "applicant.age"]],
+      "outputs": [["risk", "score"]],
+      "next_step": "done"
+    },
+    "done": { "id": "done", "name": "完成", "type": "terminal",
+      "result": { "code": "OK", "output": [["risk", "$risk"]] } }
+  }
+}
+```
+
+`bindings` 是 `[子图字段, 父级表达式]` 对，`outputs` 是 `[父级变量, 子图变量]` 对。
+
+### terminal
 
 ```json
 {
   "id": "approved",
-  "name": "Application Approved",
+  "name": "通过",
   "type": "terminal",
   "result": {
     "code": "APPROVED",
-    "message": "Your application has been approved",
-    "data": {
-      "credit_limit": 5000
-    }
+    "message": "申请已通过",
+    "output": [["limit", "applicant.income * 0.3"]],
+    "data": { "tier": "standard" }
   }
 }
 ```
 
-| 字段     | 类型   | 必填 | 描述                |
-| -------- | ------ | ---- | ------------------- |
-| `id`     | string | 是   | 唯一的步骤标识符    |
-| `name`   | string | 否   | 人类可读的名称      |
-| `type`   | string | 是   | 必须是 `"terminal"` |
-| `result` | object | 是   | 要返回的结果        |
-
-### 结果对象（Result Object）
-
-| 字段      | 类型   | 必填 | 描述                                   |
-| --------- | ------ | ---- | -------------------------------------- |
-| `code`    | string | 是   | 结果代码（例如 "APPROVED"、"REJECTED"） |
-| `message` | string | 否   | 人类可读的消息                         |
-| `output`  | array  | 否   | `[名称, 表达式]` 列表，如 `["total", "round($subtotal * (1 - $discount), 2)"]` |
-| `data`    | object | 否   | 额外的输出数据                         |
-
-## 分支条件
-
-分支按顺序求值，第一个匹配的条件生效。
-
-```json
-{
-  "branches": [
-    { "condition": "score >= 90", "next_step": "excellent" },
-    { "condition": "score >= 70", "next_step": "good" },
-    { "condition": "score >= 50", "next_step": "average" }
-  ],
-  "default_next": "poor"
-}
-```
+| 字段      | 说明                                   |
+| --------- | -------------------------------------- |
+| `code`    | 结果码，调用方按它分支                 |
+| `message` | 可选的文字说明                         |
+| `output`  | `[名称, 表达式]` 对，在结束时计算      |
+| `data`    | 固定值，合并进输出                     |
 
 ## 完整示例
 
-贷款审批规则示例：
-
 ```json
 {
-  "config": {
-    "name": "loan-approval",
-    "version": "1.0.0",
-    "entry_step": "check_age"
-  },
+  "config": { "name": "loan-approval", "version": "1.0.0", "entry_step": "check_age" },
   "steps": {
     "check_age": {
-      "id": "check_age",
-      "name": "Age Verification",
-      "type": "decision",
-      "branches": [
-        {
-          "condition": "applicant.age < 18",
-          "next_step": "reject_underage"
-        }
-      ],
+      "id": "check_age", "name": "检查年龄", "type": "decision",
+      "branches": [{ "condition": "applicant.age < 18", "next_step": "reject" }],
       "default_next": "check_income"
     },
     "check_income": {
-      "id": "check_income",
-      "name": "Income Check",
-      "type": "decision",
-      "branches": [
-        {
-          "condition": "applicant.income >= 50000",
-          "next_step": "approve_premium"
-        },
-        {
-          "condition": "applicant.income >= 30000",
-          "next_step": "approve_standard"
-        }
-      ],
-      "default_next": "reject_income"
+      "id": "check_income", "name": "检查收入", "type": "decision",
+      "branches": [{ "condition": "applicant.income >= 30000", "next_step": "approve" }],
+      "default_next": "reject"
     },
-    "approve_premium": {
-      "id": "approve_premium",
-      "type": "terminal",
-      "result": {
-        "code": "APPROVED",
-        "message": "Premium loan approved",
-        "data": { "tier": "premium", "max_amount": 100000 }
-      }
+    "approve": {
+      "id": "approve", "name": "通过", "type": "terminal",
+      "result": { "code": "APPROVED", "output": [["max_amount", "applicant.income * 2"]] }
     },
-    "approve_standard": {
-      "id": "approve_standard",
-      "type": "terminal",
-      "result": {
-        "code": "APPROVED",
-        "message": "Standard loan approved",
-        "data": { "tier": "standard", "max_amount": 50000 }
-      }
-    },
-    "reject_underage": {
-      "id": "reject_underage",
-      "type": "terminal",
-      "result": {
-        "code": "REJECTED",
-        "message": "Applicant must be 18 or older"
-      }
-    },
-    "reject_income": {
-      "id": "reject_income",
-      "type": "terminal",
-      "result": {
-        "code": "REJECTED",
-        "message": "Income below minimum requirement"
-      }
+    "reject": {
+      "id": "reject", "name": "拒绝", "type": "terminal",
+      "result": { "code": "REJECTED" }
     }
   }
 }
 ```
 
-## 最佳实践
-
-1.  使用描述性的步骤 ID：`check_vip_status` 优于 `step1`
-2.  添加步骤名称：便于追踪和调试
-3.  按具体程度排序分支：最具体的条件放在最前面
-4.  始终设置 default_next：保证执行结果确定
-5.  每个业务决策一个规则
-6.  用语义化版本号跟踪规则变更
+同样的内容写成 YAML 也一样能用。`ordo validate` 会编译每个步骤，并检查所有 `next_step` 指向的步骤都存在。

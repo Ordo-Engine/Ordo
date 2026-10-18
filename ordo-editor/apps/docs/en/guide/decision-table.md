@@ -1,130 +1,6 @@
-# Decision Table
+# Decision Tables
 
-The Decision Table is a spreadsheet-like editing mode for rule logic, alongside the Flow diagram and Form views.
-
-## Overview
-
-A decision table shows business rules as a compact table. Each row is a rule with input conditions and output values, which makes large rule sets easier to review and maintain.
-
-### Three Editing Modes
-
-The visual editor has three editing modes, and you can switch between them at any time:
-
-- Form: form-based editing with fields and dropdowns
-- Flow: a flow diagram of the step graph
-- Table: a spreadsheet-like decision table (new)
-
-Data is automatically synchronized when switching between modes.
-
-## Table Structure
-
-A decision table consists of:
-
-| Component      | Description                                                 |
-| -------------- | ----------------------------------------------------------- |
-| Input Columns  | Schema field paths used as conditions (e.g., `user.age`)    |
-| Output Columns | Result fields produced by the rule                          |
-| Rows (Rules)   | Each row is one rule with priority, conditions, and outputs |
-| Hit Policy     | How matching is resolved: `first`, `all`, or `collect`      |
-
-### Cell Types
-
-Each input cell can use one of five condition types:
-
-| Type         | Example           | Description                  |
-| ------------ | ----------------- | ---------------------------- |
-| `exact`      | `"premium"`       | Exact value match            |
-| `range`      | `[18, 65]`        | Numeric range (inclusive)    |
-| `in`         | `["A", "B", "C"]` | Value in set                 |
-| `any`        | `*`               | Matches any value (wildcard) |
-| `expression` | `age > 18 && vip` | Free-form Ordo expression    |
-
-## Usage
-
-### Creating a Decision Table
-
-1. Open or create a ruleset in the visual editor
-2. Switch to **Table** mode using the toolbar icon or status bar
-3. Use the toolbar to add input/output columns
-4. Add rows and fill in conditions and output values
-
-### Column Operations
-
-- **Add Input Column**: select a schema field path as a new input condition
-- **Add Output Column**: define a new output field
-- **Import from Schema**: bulk-import columns from the ruleset's schema definition
-- **Remove Column**: open the column header menu and remove the column
-
-### Row Operations
-
-- **Add Row**: append a new rule row
-- **Duplicate Row**: copy an existing row
-- **Delete Row**: remove a row
-- Reorder: drag rows to change priority order
-
-### Hit Policies
-
-| Policy    | Behavior                                            |
-| --------- | --------------------------------------------------- |
-| `first`   | Returns the first matching row's output (default)   |
-| `all`     | Returns outputs from all matching rows              |
-| `collect` | Collects outputs from all matching rows into a list |
-
-::: tip
-Only `first` hit policy is currently supported for bidirectional conversion with the Flow diagram. Rule files can also contain [decision table steps](#decision-table-steps-in-rule-files) that the engine evaluates directly, including `collect`.
-:::
-
-## Conversion Between Modes
-
-The decision table supports bidirectional conversion with the Step graph model:
-
-- Table → Flow: `compileTableToSteps()` converts the table into a Decision step with branches pointing to Terminal steps
-- Flow → Table: `decompileStepsToTable()` analyzes the step graph and extracts it into table form
-
-This conversion is automatic when switching between Table and Flow modes.
-
-### Conversion Constraints
-
-The automatic decompilation works for rulesets that follow the pattern:
-
-- A single Decision step as the entry point
-- Each branch points to a Terminal step
-- Conditions use standard comparison operators
-
-Complex step graphs with multiple chained decisions or action steps will fall back to manual editing in Flow mode.
-
-## Export
-
-Use the **Export JSON** button in the toolbar to download the decision table as a standalone JSON file.
-
-## Programmatic API
-
-```typescript
-import {
-  type DecisionTable,
-  createEmptyTable,
-  createInputColumn,
-  createOutputColumn,
-  createEmptyRow,
-  compileTableToSteps,
-  decompileStepsToTable,
-} from '@ordo-engine/editor-core';
-
-// Create a table programmatically
-const table = createEmptyTable();
-table.inputColumns.push(createInputColumn('user.age', 'number'));
-table.outputColumns.push(createOutputColumn('discount', 'number'));
-
-// Convert to steps for execution
-const steps = compileTableToSteps(table, 'my-rule');
-
-// Convert steps back to table
-const recovered = decompileStepsToTable(steps);
-```
-
-## Decision Table Steps in Rule Files
-
-Rule files (JSON or YAML) can contain a decision table directly, as a step of type `decision_table`. The engine evaluates it natively; no editor is needed.
+A decision table is a step of type `decision_table`. Each row is a rule: input cells on the left, output values on the right. It is often shorter and easier to review than a chain of decision steps.
 
 ```json
 {
@@ -143,33 +19,76 @@ Rule files (JSON or YAML) can contain a decision table directly, as a step of ty
 }
 ```
 
-`inputs` are expressions, one per column. `outputs` are variable names: after the step runs, later steps read them as `$discount` and `$reason`.
+- `inputs` are expressions, one per column.
+- `outputs` are variable names. Later steps read them as `$discount` and `$reason`.
+- Rows are checked top to bottom.
 
-### Input Cells
+The same table in YAML:
 
-| Cell                              | Matches when                                      |
-| --------------------------------- | ------------------------------------------------- |
-| `"*"`, `"-"`, `""` or `null`      | always                                            |
-| `"gold"`, `42`, `true`            | the input equals the value                        |
-| `["silver", "bronze"]`            | the input is one of the values                    |
-| `">= 1000"`, `"< 18"`, `"!= \"x\""` | the comparison holds (right side is an expression) |
-| `"in [...]"`, `"not in [...]"`    | membership                                        |
-| `"18..65"`                        | inclusive numeric range                           |
-| `"= <expression>"`                | the boolean expression is true (any fields)       |
+```yaml
+discount:
+  id: discount
+  name: Discount
+  type: decision_table
+  inputs: [customer.tier, order.amount]
+  outputs: [discount, reason]
+  rules:
+    - when: [gold, ">= 1000"]
+      then: [0.15, "Gold, large order"]
+    - when: [[silver, bronze], "100..999"]
+      then: [0.05, "= customer.tier + \" tier\""]
+  default: [0, "No discount"]
+  next_step: price
+```
 
-A plain string is compared literally. To compare with a string that starts with an operator or with `in `, write `"== \"in stock\""`.
+## Input cells
 
-### Output Cells
+| Cell                               | Matches when                                |
+| ---------------------------------- | ------------------------------------------- |
+| `"*"`, `"-"`, `""` or `null`       | always                                      |
+| `"gold"`, `42`, `true`             | the input equals the value                  |
+| `["silver", "bronze"]`             | the input is one of the values              |
+| `">= 1000"`, `"< 18"`, `"!= \"x\""` | the comparison holds                       |
+| `"in [...]"`, `"not in [...]"`     | membership                                  |
+| `"18..65"`                         | the number is in the range, ends included   |
+| `"= <expression>"`                 | the expression is true (it can use any field) |
 
-A cell is a literal value (`0.15`, `"Gold"`, `null`, an array or an object), or `"= <expression>"` to compute it, e.g. `"= order.amount * 0.1"`.
+A plain string is compared as text. To compare with a string that starts with an operator or with `in `, write `"== \"in stock\""`.
 
-### Hit Policies
+## Output cells
 
-| `hit_policy`      | Result                                                                                                                                                                  |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `first` (default) | The first matching row sets the outputs. With no match, `default` is used; without a `default` the execution fails instead of continuing with missing values.           |
-| `collect`         | Every matching row, in order. Each output becomes an array, or one value when `aggregate` is `sum`, `count`, `min` or `max` (e.g. adding up risk scores from all rules). |
+A literal (`0.15`, `"Gold"`, `null`, an array or an object), or `"= <expression>"` to compute it, such as `"= order.amount * 0.1"`.
 
-With `collect` and no matching row, outputs are `[]`, `sum` is `0`, `count` is `0`, and `min`/`max` are `null`.
+## Hit policies
+
+| `hit_policy`      | Result |
+| ----------------- | ------ |
+| `first` (default) | The first matching row sets the outputs. With no match, `default` is used. Without a `default`, execution fails instead of going on with missing values. |
+| `collect`         | Every matching row, in order. Each output becomes an array, or a single value when `aggregate` is `sum`, `count`, `min` or `max`. |
+
+With `collect` and no match, outputs are `[]`, `sum` and `count` are `0`, and `min` and `max` are `null`.
+
+Adding up risk points from every row that matches:
+
+```json
+{
+  "id": "risk",
+  "name": "Risk points",
+  "type": "decision_table",
+  "hit_policy": "collect",
+  "aggregate": "sum",
+  "inputs": ["order.amount"],
+  "outputs": ["points"],
+  "rules": [
+    { "when": ["> 100"], "then": [10] },
+    { "when": ["> 500"], "then": [20] }
+  ],
+  "next_step": "decide"
+}
+```
+
+For an amount of 600, `$points` is 30.
+
+Studio also has a table view for editing rules as a table. See [Studio](/en/platform/studio).
 
 Decision table steps cannot be compiled to the binary `.ordo` format yet.

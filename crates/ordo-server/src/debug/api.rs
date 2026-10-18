@@ -34,16 +34,16 @@ pub async fn debug_execute_ruleset(
 ) -> ApiResult<Json<DebugExecuteResponse>> {
     let start = Instant::now();
 
-    // Get ruleset
-    let ruleset = {
+    // Get ruleset, external data and called rulesets
+    let target = {
         let store = state.store.read().await;
         store
-            .get(&name)
+            .exec_target(&name)
             .ok_or_else(|| ApiError::not_found(format!("RuleSet '{}' not found", name)))?
     };
 
     // Execute with tracing
-    let result = state.executor.execute(&ruleset, request.input.clone());
+    let result = target.execute(&state.executor, request.input.clone(), None);
 
     let duration_us = start.elapsed().as_micros() as u64;
 

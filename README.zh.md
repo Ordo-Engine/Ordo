@@ -31,18 +31,16 @@
 
 ---
 
-## 每一个用决策模型的应用里，都藏着一个 0.85
+## 代码里的一个 0.85
 
 ```python
 if jev.confidence > 0.85:
     refund(order)
 ```
 
-这一行在决定谁能拿回钱。它是某个工程师随手写的，没人 review，也没有测试。模型一升级，0.85 的含义就变了，没有人会发现。
+这一行决定谁能拿回钱。它往往是某个工程师随手写的，没经过 review，也没有测试。模型一升级，0.85 的含义就变了，也不会有任何提示。
 
-[Jev](https://typesafe.ai) 这类决策模型很擅长读懂客户的一段话，回答"这是不是退款请求"，并给出一个置信度。但它不知道你们的退款期限、金额上限，也不知道多大把握才敢不经人工直接退钱。这一步是决策，正是 Ordo 要做的事。
-
-> Jev 把文字变成判断，Ordo 把判断变成决策。
+[Jev](https://typesafe.ai) 这类决策模型很擅长读懂客户的一段话，回答"这是不是退款请求"，并给出一个置信度。但它不知道你们的退款期限、金额上限，也不知道多大把握才敢不经人工直接退钱。这一步是决策，由 Ordo 来做。
 
 折扣、额度、风控阈值也一样，通常是散在几十个文件里的 if/else。Ordo 把这些决策都放进单独的规则文件：
 
@@ -52,6 +50,17 @@ if jev.confidence > 0.85:
 - 每个规则集带自己的测试。`ordo test` 在本地和 CI 里都能跑，不需要启动服务。
 - 业务代码只需要问一句"这个退款请求怎么处理"，规则怎么变，这句代码都不用动。
 
+## 什么时候值得用
+
+如果判断逻辑只有一个人在写、在改，代码也有测试，Ordo 帮得不多。
+
+下面这些情况用它最合适：
+
+- 门槛经常改，改的人不是写代码的人。
+- 同一个判断散在好几处，数字已经对不上了，比如一处写 0.7，另一处写 0.75。
+- 模型会升级，升级之前要知道哪些决定会变。
+- 决定会退钱、放款、拦下付款。出了错，要能说清是哪条规则、为什么。
+
 ## 跑起来看看
 
 ```bash
@@ -60,24 +69,24 @@ git clone https://github.com/Ordo-Engine/Ordo
 cd Ordo/examples/rule-packs/jev-routing
 
 ordo test
-ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.72},
-  "urgency":{"score":0.3},"chargeback":{"noul":0.02}},
+ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.97},
+  "urgency":{"score":0.43},"chargeback":{"noul":0.04}},
   "order":{"amount":"129.00","days_since_delivery":1},"customer":{"refunds_90d":0}}'
 ```
 
 ```text
-code:    LLM_DRAFT
-message: An LLM drafts the reply, an agent approves it
+code:    AUTO_REFUND
+message: Refund issued without review
 output:  {
-  "reason": "medium_confidence",
-  "jev_confidence": 0.72,
+  "amount": 129,
+  "jev_confidence": 0.97,
   "priority": "normal"
 }
 
-path:    escalation -> intent -> priority -> route -> dispatch -> llm_draft
+path:    escalation -> intent -> priority -> route -> dispatch -> auto_refund
 ```
 
-Jev 判断客户想退款的置信度是 0.72。规则认为这还不够直接动钱，所以让 LLM 起草回复，再由客服确认。`trace` 把一次执行走过的每一步都打出来，有人问"为什么没有马上退款"，可以直接回答。规则包里的 `route.mjs` 会帮你调用 Jev，没有 API key 时用自带的示例答案。
+这是 Jev 的真实回答。客户写的是"搅拌机比视频里吵很多，不确定要不要，我有什么选择？"客户只是在问问题，Jev 却有 0.97 的把握认为这是退款请求，于是规则没经过任何人就退了 129 欧。Jev 读文字很准，但它给的置信度不是概率，TypeSafe 自己也说没有通用的阈值。`trace` 把一次执行走过的每一步都打出来，有人问"为什么没人看就退款了"，可以直接回答，要修也是改一条能测试的规则。规则包里的 `route.mjs` 会帮你调用 Jev，没有 API key 时用录下来的真实答案。
 
 ## 改之前先看影响
 
@@ -99,11 +108,47 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 21 changed · 288 unchanged
 ```
 
-测试没发现任何问题，但有 18 个原本要人确认的输入，现在没人看就直接退钱了。加上 `--inputs last-week.jsonl` 用上周的真实请求跑一遍，看到的就是真实客户的数量，而且是在改动上线之前。
+测试都过了，但有 18 个原本要人确认的输入，现在没人看就直接退钱了。加上 `--inputs last-week.jsonl` 用上周的真实请求跑一遍，看到的就是真实客户的数量，而且是在改动上线之前。
 
 加上 `--fail-on-change` 可以在 CI 里拦住意外的改动，`--json` 方便接到别的工具里。编码 Agent 通过 `ordo mcp` 调用同一个检查，改完规则先自己看一遍影响，再交给人 review。
 
-`ordo impact` 需要命令行 0.7.0 或更新的版本（[下载](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)）。详见 [CLI 文档](https://docs.ordoengine.com/zh/platform/cli)。
+`ordo impact` 需要命令行 0.7.0 或更新的版本，`--model` 和 `ordo decisions` 需要 0.8.0（[下载](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.8.0)）。详见 [CLI 文档](https://docs.ordoengine.com/zh/platform/cli)。
+
+## 把 Ordo 放在 Jev 前面
+
+ordo-server 可以放在应用和 Jev 之间。代码照常调用 Jev，每个回答返回时都会带上 Ordo 的决策，每次调用也会记进决策日志。
+
+```bash
+mkdir -p decisions && chmod 777 decisions   # 容器里的用户要往这里写日志
+docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<你的 OpenRouter key> \
+  -v "$PWD/decisions:/decisions" \
+  ghcr.io/ordo-engine/ordo:latest \
+  --rules-dir /app/rule-packs/jev-routing/rulesets \
+  --decide-upstream https://openrouter.ai/api \
+  --decide-log-dir /decisions --decide-log-requests
+
+# 在 examples/rule-packs/jev-routing 目录下
+curl localhost:8080/systemone/v1/systemone \
+  -H 'content-type: application/json' -d @request.json
+```
+
+返回的是 Jev 的回答，外加一个 `ordo` 字段，里面是决策（`code`、`message`、`output`）。在应用里设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone`，请求里加上 `ordo` 字段，写明规则集和订单信息就行。如果应用本来就把事实放在 JSON 格式的 `state` 里发给 Jev，代码一行都不用改：设置 `TYPESAFE_BASE_URL=http://localhost:8080/systemone/rulesets/<规则集>`，规则直接读 `state` 里的字段。`ordo decisions decisions/` 汇总都做了哪些决定。
+
+换模型之前，把日志里的真实请求拿去问新模型，看哪些决定会变：
+
+```text
+$ ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+    --model cloudflare/clef-flash --repeat 3
+  model: typesafe/jev-1.13-20260917 → cloudflare/clef-flash
+  24 logged requests asked again, 3 times each
+
+  AUTO_REFUND → ESCALATE  1 input
+  AUTO_REFUND → LLM_DRAFT  3 inputs
+  HUMAN_REVIEW → ESCALATE  1 input
+  ROUTE_TEAM → HUMAN_REVIEW  2 inputs
+```
+
+规则一条没改，只是换了模型，24 个请求里就有 7 个换了处理方式。一位嫌夹克太小想退货的客户，问三次有两次会被当成要发起拒付，转给资深客服。详见[决策模型网关文档](https://docs.ordoengine.com/zh/platform/decision-gateway)。
 
 ## 规则包
 
@@ -123,19 +168,17 @@ CHANGED probe:jev.intent.confidence=0.84  {... "order":{"amount":"129.00",
 ```bash
 # ordo-server，走 HTTP 或 gRPC
 docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
-curl -X POST localhost:8080/api/v1/execute/<ruleset> -d '{"input": {...}}'
+curl localhost:8080/api/v1/execute/<ruleset> \
+  -H 'content-type: application/json' -d '{"input": {...}}'
 
 # 嵌入 Rust 程序
 cargo add ordo-core --git https://github.com/Ordo-Engine/Ordo
 
 # 在浏览器里，以 WASM 运行
 npm install @ordo-engine/wasm
-
-# 从业务服务调用
-go get github.com/pama-lee/ordo-go     # Go
-pip install ordo-sdk                    # Python
-# Java (Maven): com.ordoengine:ordo-sdk-java
 ```
+
+业务服务通过 HTTP 或 gRPC 接口调用。Go、Python、Java 的客户端 SDK 在 [`sdk/`](sdk) 目录里，还没有发布到各自的包仓库。
 
 引擎用 Rust 编写：字节码虚拟机，加上给数值表达式用的 Cranelift JIT。字节码执行一次规则 1.63 µs，JIT 编译后的数值表达式 50–80 ns，HTTP 单线程大约 54k QPS。详见[基准测试](https://ordoengine.com/benchmarks)。
 
@@ -158,7 +201,7 @@ Studio 把同一份规则画成流程图和决策表。不写代码的同事可�
 
 ## Ordo Guard
 
-同一个引擎，也能管住编码 Agent。Claude Code、Codex CLI 或 Cursor 每次执行命令之前，先过一遍本地规则：放行、拒绝，或者先问你。
+同一个引擎也可以用来约束编码 Agent。Claude Code、Codex CLI 或 Cursor 每次执行命令之前，先过一遍本地规则：放行、拒绝，或者先问你。
 
 ```bash
 npx @ordo-engine/cli guard init

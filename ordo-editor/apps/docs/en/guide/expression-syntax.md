@@ -1,196 +1,85 @@
-# Expression Syntax
+# Expressions
 
-Conditions, outputs and assignments are all written as expressions. This page lists the syntax they support.
+Conditions, `set_variable` values and terminal outputs are all expressions. The language is small: no loops, no assignments, no side effects.
 
-## Basic Syntax
+You can try any expression with the CLI:
 
-### Comparisons
-
-```
-age >= 18
-status == "active"
-score != 0
-amount < 1000
-count <= 10
-level > 5
+```bash
+ordo eval 'order.amount >= 1000 && user.tier == "gold"' \
+  --input '{"order":{"amount":1200},"user":{"tier":"gold"}}'
 ```
 
-### Logical Operators
+## Values
+
+| Kind    | Examples                         |
+| ------- | -------------------------------- |
+| Number  | `42`, `3.14`                     |
+| String  | `"gold"`, `'gold'`               |
+| Boolean | `true`, `false`                  |
+| Null    | `null`                           |
+| Array   | `[1, 2, 3]`, `["a", "b"]`        |
+| Object  | `{"a": 1}`                       |
+
+## Fields and variables
 
 ```
-# AND
+user.name               # a field of the input
+order.items.0.price     # array element by index
+$subtotal               # a variable set by an earlier step
+$data.limits.vip_min    # external data loaded by the server or `ordo exec --data`
+```
+
+A missing field makes its own comparison false by default, and the rest of the condition still counts: `age < 18 || blacklisted` is true for a blacklisted applicant who sent no age. To reject such input instead, declare an [input schema](./rule-structure#input-schema) or set `field_missing: strict`.
+
+## Operators
+
+| Operator                        | Meaning                       |
+| ------------------------------- | ----------------------------- |
+| `+ - * / %`                     | Arithmetic. `+` also joins strings |
+| `== != < <= > >=`               | Comparison                    |
+| `&&` or `and`, `\|\|` or `or`    | Logic                         |
+| `!` or `not`                    | Negation                      |
+| `x in [..]`, `x not in [..]`    | Membership                    |
+| `s contains "sub"`, `arr contains x` | Substring or array item  |
+
+```
 age >= 18 && status == "active"
-
-# OR
-tier == "gold" || tier == "platinum"
-
-# NOT
-!is_blocked
-
-# Combined
-(age >= 18 && income > 30000) || has_cosigner == true
+tier in ["gold", "platinum"]
+email contains "@example.com"
 ```
 
-### Arithmetic
+Binding, from loosest to tightest: `||`, `&&`, comparisons, `in` / `not in` / `contains`, `+ -`, `* / %`. Use parentheses when in doubt.
 
-```
-price * quantity
-total - discount
-(base + bonus) * multiplier
-amount / 100
-count % 2
-```
+## Numbers
 
-Numbers compare by value: `3 == 3.0` is `true`, so it doesn't matter whether a client sends `3` or `3.0`. Division never silently truncates: `10 / 4` is `2.5`, and `10 / 5` stays the integer `2`. Use `floor(a / b)` when you want integer division.
-
-For money, use exact decimals: `decimal(0.1) + 0.2 == 0.3` is `true` (with plain floats it is `false`). Wrap an amount in `decimal(...)`, or declare the input field as `"type": "decimal"` in the ruleset's `input_schema`. Any arithmetic with a decimal operand returns a decimal; `round(total, 2)` keeps it a decimal.
-
-## Field Access
-
-### Object Properties
-
-```
-user.name
-order.items.count
-profile.settings.notifications
-```
-
-### Array Elements
-
-Use the index as a path segment:
-
-```
-items.0
-items.0.price
-users.1.name
-```
-
-## Built-in Functions
-
-### String Functions
-
-| Function                 | Description       | Example                    |
-| ------------------------ | ----------------- | -------------------------- |
-| `len(s)`                 | String length     | `len(name) > 0`            |
-| `upper(s)`               | Uppercase         | `upper(code) == "VIP"`     |
-| `lower(s)`               | Lowercase         | `lower(email)`             |
-| `trim(s)`                | Remove whitespace | `trim(input)`              |
-| `contains_str(s, sub)`   | Check substring   | `contains_str(email, "@")` |
-| `starts_with(s, prefix)` | Check prefix      | `starts_with(code, "PRE")` |
-| `ends_with(s, suffix)`   | Check suffix      | `ends_with(file, ".pdf")`  |
-
-### Array Functions
-
-| Function   | Description    | Example              |
-| ---------- | -------------- | -------------------- |
-| `len(arr)` | Array length   | `len(items) > 0`     |
-| `sum(arr)` | Sum of numbers | `sum(prices) >= 100` |
-| `avg(arr)` | Average        | `avg(scores) > 70`   |
-| `min(arr)` | Minimum value  | `min(bids)`          |
-| `max(arr)` | Maximum value  | `max(scores) == 100` |
-
-### Numeric Functions
-
-| Function   | Description      | Example              |
-| ---------- | ---------------- | -------------------- |
-| `abs(n)`   | Absolute value   | `abs(balance) < 100` |
-| `round(n)` | Round to nearest | `round(price)`       |
-| `round(n, digits)` | Round to decimal places | `round(price * 0.85, 2)` |
-| `floor(n)` | Round down       | `floor(score)`       |
-| `ceil(n)`  | Round up         | `ceil(amount)`       |
-
-### Utility Functions
-
-| Function              | Description           | Example                             |
-| --------------------- | --------------------- | ----------------------------------- |
-| `exists(field)`       | Check if field exists | `exists(discount)`                  |
-| `coalesce(a, b, ...)` | First non-null value  | `coalesce(nickname, name, "Guest")` |
-
-## Conditional Expressions
-
-```
-# If-then-else
-if exists(discount) then price * (1 - discount) else price
-
-# Nested conditionals
-if tier == "gold" then 0.20
-else if tier == "silver" then 0.10
-else 0.05
-```
-
-## Types
-
-Numbers compare across int and float, but nothing else is converted for you:
-
-```
-10 == 10.0           # true
-"100" > 50           # error: cannot compare string and int
-to_int("100") > 50   # true
-1 == true            # false
-```
+- Numbers compare by value: `3 == 3.0` is true.
+- Division does not truncate: `10 / 4` is `2.5`, `10 / 5` is `2`. Use `floor(a / b)` for integer division.
+- Strings and numbers are not converted for you: `"100" > 50` is an error. Use `to_int(...)` or `to_float(...)`.
+- For money, use `decimal(...)` or declare the field as `decimal` in the input schema. `decimal(0.1) + 0.2 == 0.3` is true. Arithmetic with a decimal stays decimal.
 
 ## Strings
 
-`\n`, `\t`, `\r`, `\\`, `\"` and `\'` are escapes. Any other backslash is kept, so a
-regex reads as written: `regex_match("^\d+\.\d{2}$", amount_text)`.
+`\n`, `\t`, `\r`, `\\`, `\"` and `\'` are escapes. Any other backslash is kept, so a regex reads as written: `regex_match("^\d+\.\d{2}$", s)`.
 
-## Examples
-
-### Complex Discount Calculation
+## Conditionals
 
 ```
-# VIP users get 20%, others get 5%
-if user.vip == true then order.total * 0.80 else order.total * 0.95
+if tier == "gold" then 0.20 else if tier == "silver" then 0.10 else 0.05
 ```
 
-### Risk Score Evaluation
+## Missing values
 
 ```
-# Check multiple risk factors
-credit_score >= 700 && debt_ratio < 0.4 && employment_years >= 2
+exists(user.discount)                       # true if the field is there and not null
+coalesce(user.nickname, user.name, "Guest") # first value that is not null
 ```
 
-### Order Validation
+## Functions
 
 ```
-# Validate order has items and meets minimum
-len(order.items) > 0 && sum(map_extract(order.items, "price")) >= 10
+len(items) > 0
+round(price * 0.85, 2)
+starts_with(order_id, "ORD-")
 ```
 
-### Null-safe Field Access
-
-```
-# Use coalesce for optional fields
-coalesce(user.preferred_name, user.name, "Customer")
-```
-
-### Array Aggregation
-
-```
-# Check if any item exceeds limit
-max(map_extract(order.items, "quantity")) <= 100
-
-# Validate total
-sum(map_extract(cart.items, "price")) <= user.credit_limit
-```
-
-## Operator Precedence
-
-From highest to lowest:
-
-1. `()` - Parentheses
-2. `!` - NOT
-3. `*`, `/`, `%` - Multiplication, Division, Modulo
-4. `+`, `-` - Addition, Subtraction
-5. `<`, `<=`, `>`, `>=` - Comparisons
-6. `==`, `!=` - Equality
-7. `&&` - AND
-8. `||` - OR
-
-## Best Practices
-
-1. **Use parentheses for clarity**: `(a && b) || c` is clearer than `a && b || c`
-2. **Check for existence**: Use `exists(field)` before accessing optional fields
-3. **Use coalesce for defaults**: `coalesce(value, default)` instead of complex conditionals
-4. **Keep expressions simple**: Break complex logic into multiple steps
-5. **Test edge cases**: Empty arrays, null values, missing fields
+See [Built-in Functions](./builtin-functions) for the full list.

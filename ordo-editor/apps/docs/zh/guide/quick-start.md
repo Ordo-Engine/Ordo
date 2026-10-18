@@ -101,7 +101,7 @@ path:    pick_rate -> done
 ordo test
 ```
 
-以后改规则，先跑 `ordo test`。把它加进 CI，规则改错了就过不了。
+以后改规则，先跑 `ordo test`。要改阈值之前，`ordo impact discount` 会列出这次改动影响的每一个决策。见[测试与影响](./testing)。
 
 ## 6. 作为服务调用
 
@@ -127,10 +127,10 @@ curl -X POST http://localhost:8080/api/v1/execute/discount \
 { "code": "OK", "message": "", "output": { "rate": 0.15, "pay": 1020.0 }, "duration_us": 12 }
 ```
 
-要让服务从目录加载规则、保存版本历史，见[规则持久化](./persistence)。其他启动方式见[安装与运行](./getting-started)。
+要让服务从目录加载规则、保存版本历史，见[运行服务](./server)。
 
 ## 下一步
 
 - [规则结构](./rule-structure)：所有步骤类型和字段
-- [表达式语法](./expression-syntax)：条件和输出里能写什么
-- [HTTP API](/zh/api/http-api)：完整的接口说明
+- [表达式](./expression-syntax)：条件和输出里能写什么
+- [测试与影响](./testing)：测试、追踪和 `ordo impact`

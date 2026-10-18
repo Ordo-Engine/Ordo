@@ -11,6 +11,10 @@
 //!   {...} }`. Ordo then runs that ruleset on the facts plus the model's
 //!   answers (under `jev` by default) and adds the decision to the response
 //!   as `ordo`. The model judges, the rules decide.
+//! - An app that already sends its business facts as a JSON `state` can run
+//!   rules without any code change: with the base URL
+//!   `http://<ordo>/systemone/rulesets/<name>`, Ordo runs that ruleset on the
+//!   fields of `state` plus the answers.
 //! - Each call is written to the decision log, one JSON line with the model,
 //!   its answers and, when a ruleset ran, the rule input and the decision.
 //!   `ordo impact --inputs` reads those lines, so a threshold change can be
@@ -23,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use axum::{
     body::{Body, Bytes},
-    extract::{Extension, State},
+    extract::{Extension, Path, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -183,7 +187,22 @@ pub async fn systemone(
     headers: HeaderMap,
     Json(mut body): Json<JsonValue>,
 ) -> Response {
-    match handle(&state, &tenant, &headers, &mut body).await {
+    match handle(&state, &tenant, &headers, &mut body, None).await {
+        Ok(res) => res,
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `POST /systemone/rulesets/{ruleset}/v1/systemone`: the same, with the
+/// ruleset named by the base URL, so an app runs rules by changing only that.
+pub async fn systemone_for_ruleset(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(ruleset): Path<String>,
+    headers: HeaderMap,
+    Json(mut body): Json<JsonValue>,
+) -> Response {
+    match handle(&state, &tenant, &headers, &mut body, Some(ruleset)).await {
         Ok(res) => res,
         Err(e) => e.into_response(),
     }
@@ -194,6 +213,7 @@ async fn handle(
     tenant: &TenantContext,
     headers: &HeaderMap,
     body: &mut JsonValue,
+    url_ruleset: Option<String>,
 ) -> Result<Response, ApiError> {
     let gw = state
         .decide
@@ -205,7 +225,16 @@ async fn handle(
 
     // The extension is Ordo's, so it is removed before the request goes upstream.
     let ext = match obj.remove("ordo") {
-        None | Some(JsonValue::Null) => None,
+        // Without the field, a ruleset named by the URL runs on the fields of
+        // a JSON `state`: the facts the app already sends to the model.
+        None | Some(JsonValue::Null) => url_ruleset.map(|ruleset| DecideExtension {
+            ruleset,
+            facts: match obj.get("state") {
+                Some(JsonValue::Object(state)) => state.clone(),
+                _ => Map::new(),
+            },
+            answers_field: None,
+        }),
         Some(v) => Some(
             serde_json::from_value::<DecideExtension>(v)
                 .map_err(|e| ApiError::bad_request(format!("invalid `ordo` field: {e}")))?,
@@ -216,12 +245,12 @@ async fn handle(
     let rule = match &ext {
         Some(ext) => {
             let store = state.store.read().await;
-            let ruleset = store
-                .get_for_tenant(&tenant.id, &ext.ruleset)
+            let target = store
+                .exec_target_for_tenant(&tenant.id, &ext.ruleset)
                 .ok_or_else(|| {
                     ApiError::not_found(format!("RuleSet '{}' not found", ext.ruleset))
                 })?;
-            Some((ruleset, store.get_all_data_for_tenant(&tenant.id)))
+            Some(target)
         }
         None => None,
     };
@@ -239,10 +268,9 @@ async fn handle(
         "latency_ms": latency_ms,
     });
     if gw.log_requests {
-        record["request"] = json!({
-            "state": body.get("state"),
-            "questions": body.get("questions"),
-        });
+        // The whole request as sent upstream (the `ordo` field is already
+        // removed), so `ordo impact --model` can ask another model the same thing.
+        record["request"] = body.clone();
     }
 
     let up = match up {
@@ -275,7 +303,7 @@ async fn handle(
     let answers = answer.get("answers").cloned().unwrap_or(JsonValue::Null);
     record["answers"] = answers.clone();
 
-    let (Some(ext), Some((ruleset, external_data))) = (ext, rule) else {
+    let (Some(ext), Some(target)) = (ext, rule) else {
         record["input"] = JsonValue::Null;
         gw.log.write_record(&record);
         return Ok(up.into_response());
@@ -285,19 +313,15 @@ async fn handle(
         .answers_field
         .unwrap_or_else(|| DEFAULT_ANSWERS_FIELD.to_string());
     let mut input = ext.facts;
-    input.insert(field, answers);
+    input.insert(field.clone(), answers);
     let input = JsonValue::Object(input);
     record["ruleset"] = json!(ext.ruleset);
-    record["rule_version"] = json!(ruleset.config.version);
+    record["answers_field"] = json!(field);
+    record["rule_version"] = json!(target.ruleset.config.version);
     record["input"] = input.clone();
 
-    let mut engine_input: Value = serde_json::from_value(input)
+    let engine_input: Value = serde_json::from_value(input)
         .map_err(|e| ApiError::bad_request(format!("invalid facts: {e}")))?;
-    if !external_data.is_null() {
-        if let Value::Object(ref mut map) = engine_input {
-            map.insert(std::sync::Arc::from("$data"), external_data);
-        }
-    }
 
     // Same tenant timeout and blocking-thread execution as /api/v1/execute.
     let options = (tenant.config.execution_timeout_ms > 0).then_some(ExecutionOptions {
@@ -308,7 +332,7 @@ async fn handle(
     let executor = state.executor.clone();
     let exec_start = Instant::now();
     let outcome = tokio::task::spawn_blocking(move || {
-        executor.execute_with_options(&ruleset, engine_input, options.as_ref())
+        target.execute(&executor, engine_input, options.as_ref())
     })
     .await
     .map_err(|e| ApiError::internal(format!("Execution task failed: {e}")))?;

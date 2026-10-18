@@ -291,9 +291,9 @@ function getTypeLabel(type: string): string {
 function getStepSummary(step: Step): string {
   switch (step.type) {
     case 'decision':
-      return `${step.branches?.length || 0} branches`;
+      return `${step.branches?.length || 0} ${t('flow.branchUnit')}`;
     case 'action':
-      return `${step.assignments?.length || 0} vars`;
+      return `${step.assignments?.length || 0} ${t('flow.varUnit')}`;
     case 'terminal':
       return step.code || 'END';
     case 'sub_rule':
@@ -318,7 +318,7 @@ function getGroupColorStyle(group: StepGroup) {
     <div class="ordo-step-list__header">
       <div class="header-title">
         <OrdoIcon name="terminal" :size="16" />
-        <span>{{ t('flow.steps') }}</span>
+        <span>{{ t('flow.stepsTitle') }}</span>
         <span class="step-count">{{ modelValue.steps.length }} {{ t('flow.steps') }}</span>
       </div>
       <div class="header-actions">

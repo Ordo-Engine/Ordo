@@ -4,6 +4,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 mod api;
 mod catalog;
 mod config;
+mod decisions;
 mod deployments;
 mod diff;
 mod eval;
@@ -22,6 +23,7 @@ mod project;
 mod publish;
 mod pull;
 mod push;
+mod remodel;
 mod replay;
 mod runtime;
 mod test_runner;
@@ -31,6 +33,7 @@ mod validate;
 #[derive(Parser)]
 #[command(
     name = "ordo",
+    bin_name = "ordo",
     version,
     about = "Ordo — author, test, and ship decision rules"
 )]
@@ -72,6 +75,9 @@ enum Commands {
     /// Show which decisions an edit changed: baseline (git HEAD) vs working tree
     /// over tests, captured inputs, and boundary probes
     Impact(impact::ImpactArgs),
+    /// Summarize the decision log written by the ordo-server gateway
+    /// (--decide-log-dir): decisions per code, models, latest calls
+    Decisions(decisions::DecisionsArgs),
 
     // ── platform (remote) ──
     /// Log in to the platform
@@ -140,6 +146,7 @@ fn dispatch(command: Commands, json: bool) -> Result<()> {
         Commands::Guard(a) => guard::run(a, json),
         Commands::Replay(a) => replay::run(a, json),
         Commands::Impact(a) => impact::run(a, json),
+        Commands::Decisions(a) => decisions::run(a, json),
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "ordo", &mut std::io::stdout());
             Ok(())

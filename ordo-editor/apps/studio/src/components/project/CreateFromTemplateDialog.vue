@@ -89,7 +89,9 @@ watch(
   async (open) => {
     if (!open) return;
     await onOpen();
-  }
+  },
+  // The sidebar's "start from template" link mounts this dialog already open.
+  { immediate: true }
 );
 
 watch(source, async (mode) => {

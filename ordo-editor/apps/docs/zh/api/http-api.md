@@ -1,444 +1,194 @@
-# HTTP REST API
+# HTTP API
 
-Ordo 提供了一个 RESTful HTTP API 用于规则管理和执行。
+基础地址：`http://localhost:8080`。请求体和响应体都是 JSON。
 
-## 基础 URL
+开启 `--multi-tenancy-enabled` 时，每个请求都要带 `X-Tenant-ID`。开启 `--api-token` 时，带 `Authorization: Bearer <token>` 或 `X-API-Token: <token>`。健康检查和指标两者都不需要。
 
-```
-http://localhost:8080/api/v1
-```
+## 接口
 
-## 端点概览
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| `POST` | `/api/v1/execute/:name` | 执行规则集 |
+| `POST` | `/api/v1/execute/:name/batch` | 对多条输入执行规则集 |
+| `POST` | `/api/v1/execute-pipeline` | 依次执行几个规则集 |
+| `POST` | `/api/v1/eval` | 计算一个表达式 |
+| `GET` | `/api/v1/rulesets` | 列出规则集 |
+| `POST` | `/api/v1/rulesets` | 创建或更新规则集 |
+| `GET`、`DELETE` | `/api/v1/rulesets/:name` | 获取或删除规则集 |
+| `GET` | `/api/v1/rulesets/:name/versions` | 列出保存的版本 |
+| `GET` | `/api/v1/rulesets/:name/versions/:seq` | 获取某个保存的版本 |
+| `POST` | `/api/v1/rulesets/:name/rollback` | 回滚到某个保存的版本 |
+| `POST` | `/api/v1/rulesets/:name/test` | 对规则集跑测试用例 |
+| `POST` | `/api/v1/rulesets/:name/filter` | 把规则集转成数据库过滤条件 |
+| `POST` | `/api/v1/admin/reload` | 从 `--rules-dir` 重新加载所有规则 |
+| `GET` | `/api/v1/data` | 列出外部数据的名字 |
+| `GET`、`PUT`、`DELETE` | `/api/v1/data/:name` | 读取、设置或删除外部数据，规则里用 `$data.<name>` 读取 |
+| `GET`、`PUT` | `/api/v1/config/audit-sample-rate` | 查看或修改审计采样率 |
+| `GET`、`POST` | `/api/v1/tenants` | 列出或创建租户 |
+| `GET`、`PUT`、`DELETE` | `/api/v1/tenants/:id` | 管理单个租户 |
+| `GET`、`POST` | `/api/v1/webhooks` | 列出或添加 webhook |
+| `GET`、`PUT`、`DELETE` | `/api/v1/webhooks/:id` | 管理单个 webhook |
+| `POST` | `/systemone/v1/systemone` | 决策模型网关，见[决策模型网关](/zh/platform/decision-gateway) |
+| `GET` | `/health`、`/healthz/live`、`/healthz/ready` | 健康检查 |
+| `GET` | `/metrics` | Prometheus 指标，见[指标](/zh/reference/metrics) |
 
-| 方法   | 端点                        | 描述             |
-| ------ | --------------------------- | ---------------- |
-| GET    | `/rulesets`                 | 列出所有规则     |
-| POST   | `/rulesets`                 | 创建或更新规则   |
-| GET    | `/rulesets/:name`           | 根据名称获取规则 |
-| DELETE | `/rulesets/:name`           | 删除规则         |
-| POST   | `/execute/:name`            | 执行规则         |
-| GET    | `/rulesets/:name/versions`  | 列出规则版本     |
-| POST   | `/rulesets/:name/rollback`  | 回滚到版本       |
-| POST   | `/eval`                     | 评估表达式       |
-| GET    | `/config/audit-sample-rate` | 获取采样率       |
-| PUT    | `/config/audit-sample-rate` | 设置采样率       |
+开启 `--debug-mode` 后会多出 `/api/v1/debug/` 下的接口。生产环境不要开。
 
----
-
-## 规则管理
-
-### 列出规则
-
-```http
-GET /api/v1/rulesets
-```
-
-**响应:**
-
-```json
-[
-  {
-    "name": "discount-check",
-    "version": "1.0.0",
-    "description": "Check user discount eligibility"
-  },
-  {
-    "name": "fraud-detection",
-    "version": "2.1.0",
-    "description": null
-  }
-]
-```
-
-### 获取规则
+## 执行规则集
 
 ```http
-GET /api/v1/rulesets/:name
+POST /api/v1/execute/discount
 ```
 
-**响应:**
+```json
+{ "input": { "user": { "tier": "gold" }, "order": { "amount": 1200 } }, "trace": true }
+```
 
 ```json
 {
-  "config": {
-    "name": "discount-check",
-    "version": "1.0.0",
-    "entry_step": "check_vip"
-  },
-  "steps": {
-    "check_vip": {
-      "id": "check_vip",
-      "type": "decision",
-      "branches": [...],
-      "default_next": "normal"
-    }
-  }
-}
-```
-
-**错误:**
-
-| 状态码 | 描述       |
-| ------ | ---------- |
-| 404    | 规则未找到 |
-
-### 创建或更新规则
-
-```http
-POST /api/v1/rulesets
-Content-Type: application/json
-```
-
-**请求体:**
-
-```json
-{
-  "config": {
-    "name": "discount-check",
-    "version": "1.0.0",
-    "entry_step": "check_vip"
-  },
-  "steps": {
-    "check_vip": {
-      "id": "check_vip",
-      "type": "decision",
-      "branches": [{ "condition": "user.vip == true", "next_step": "vip" }],
-      "default_next": "normal"
-    },
-    "vip": {
-      "id": "vip",
-      "type": "terminal",
-      "result": { "code": "VIP", "message": "VIP discount" }
-    },
-    "normal": {
-      "id": "normal",
-      "type": "terminal",
-      "result": { "code": "NORMAL", "message": "Normal discount" }
-    }
-  }
-}
-```
-
-**响应 (创建成功):**
-
-```json
-{
-  "status": "created",
-  "name": "discount-check"
-}
-```
-
-**响应 (更新成功):**
-
-```json
-{
-  "status": "updated",
-  "name": "discount-check"
-}
-```
-
-**错误:**
-
-| 状态码 | 描述                      |
-| ------ | ------------------------- |
-| 400    | 验证错误 (无效的规则结构) |
-
-### 删除规则
-
-```http
-DELETE /api/v1/rulesets/:name
-```
-
-**响应:** `204 No Content`
-
-**错误:**
-
-| 状态码 | 描述       |
-| ------ | ---------- |
-| 404    | 规则未找到 |
-
----
-
-## 规则执行
-
-### 执行规则
-
-```http
-POST /api/v1/execute/:name
-Content-Type: application/json
-```
-
-**请求体:**
-
-```json
-{
-  "input": {
-    "user": {
-      "id": "u123",
-      "vip": true,
-      "age": 25
-    },
-    "order": {
-      "total": 150.0
-    }
-  },
-  "trace": false
-}
-```
-
-| 字段    | 类型    | 必填 | 描述                       |
-| ------- | ------- | ---- | -------------------------- |
-| `input` | object  | 是   | 规则评估的输入数据         |
-| `trace` | boolean | 否   | 包含执行追踪 (默认: false) |
-
-**响应:**
-
-```json
-{
-  "code": "VIP",
-  "message": "VIP discount applied",
-  "output": {
-    "discount": 0.2
-  },
-  "duration_us": 2
-}
-```
-
-**包含追踪的响应:**
-
-```json
-{
-  "code": "VIP",
-  "message": "VIP discount applied",
-  "output": { "discount": 0.2 },
-  "duration_us": 3,
+  "code": "OK",
+  "message": "",
+  "output": { "rate": 0.15, "pay": 1020.0 },
+  "duration_us": 103,
   "trace": {
-    "path": "check_vip -> vip_discount",
+    "path": "pick_rate -> done",
     "steps": [
-      { "id": "check_vip", "name": "Check VIP", "duration_us": 1 },
-      { "id": "vip_discount", "name": "VIP Discount", "duration_us": 0 }
+      { "id": "pick_rate", "name": "Pick discount rate", "duration_us": 53 },
+      { "id": "done", "name": "Done", "duration_us": 0 }
     ]
   }
 }
 ```
 
-**错误:**
+`trace` 可选，默认关闭。
 
-| 状态码 | 描述       |
-| ------ | ---------- |
-| 404    | 规则未找到 |
-| 500    | 执行错误   |
-
----
-
-## 版本管理
-
-### 列出版本
+## 批量执行
 
 ```http
-GET /api/v1/rulesets/:name/versions
+POST /api/v1/execute/discount/batch
 ```
 
-**响应:**
+```json
+{ "inputs": [ { "user": { "tier": "gold" }, "order": { "amount": 1200 } }, { "...": "..." } ] }
+```
 
 ```json
 {
-  "name": "discount-check",
-  "current_version": "2.0.0",
-  "versions": [
-    {
-      "seq": 3,
-      "version": "1.5.0",
-      "timestamp": "2024-01-08T10:00:00Z"
-    },
-    {
-      "seq": 2,
-      "version": "1.2.0",
-      "timestamp": "2024-01-07T15:30:00Z"
-    }
-  ]
+  "results": [ { "code": "OK", "message": "", "output": { "rate": 0.15, "pay": 1020.0 }, "duration_us": 91 } ],
+  "summary": { "total": 1, "success": 1, "failed": 0, "total_duration_us": 91 }
 }
 ```
 
-### 回滚
+## 依次执行几个规则集
 
 ```http
-POST /api/v1/rulesets/:name/rollback
-Content-Type: application/json
+POST /api/v1/execute-pipeline
 ```
-
-**请求体:**
 
 ```json
-{
-  "seq": 2
-}
+{ "rulesets": ["discount", "shipping"], "input": { "...": "..." } }
 ```
 
-**响应:**
+响应的 `stages` 里每个规则集一项，另有最终的 `output`。每一步拿到的是输入加上前面各步的输出。
+
+## 外部数据
+
+`PUT /api/v1/data/limits`，请求体可以是任意 JSON 值，保存成功返回 `200`。之后该租户的所有规则集都能用 `$data.limits...` 读取。`GET /api/v1/data/limits` 读取，`DELETE` 删除，`GET /api/v1/data` 列出所有名字。见[运行服务](/zh/guide/server#外部数据)。
+
+## 管理规则集
+
+`POST /api/v1/rulesets`，请求体是规则集。新建返回 `201` 和 `{"name": "discount", "status": "created"}`，替换返回 `200` 和 `"status": "updated"`。编译不通过的规则集返回 `400`。开启签名校验时见[签名规则](/zh/guide/deployment#签名规则)。
+
+`GET /api/v1/rulesets` 返回 `[{ "name", "version", "description", "step_count" }]`。`DELETE` 返回 `204`。
+
+## 版本
+
+需要 `--rules-dir`。
+
+```http
+GET /api/v1/rulesets/discount/versions
+```
 
 ```json
-{
-  "status": "rolled_back",
-  "name": "discount-check",
-  "from_version": "2.0.0",
-  "to_version": "1.2.0"
-}
+{ "name": "discount", "current_version": "1.1.0",
+  "versions": [ { "seq": 1, "version": "1.0.0", "created_at": "2026-10-14T06:23:51Z" } ] }
 ```
 
-**错误:**
+```http
+POST /api/v1/rulesets/discount/rollback
+```
 
-| 状态码 | 描述                    |
-| ------ | ----------------------- |
-| 400    | 回滚不可用 (仅内存模式) |
-| 404    | 规则或版本未找到        |
+```json
+{ "seq": 1 }
+```
 
----
+```json
+{ "status": "rolled_back", "name": "discount", "from_version": "1.1.0", "to_version": "1.0.0" }
+```
 
-## 表达式评估
-
-### 评估表达式
-
-用于测试表达式的调试端点。
+## 计算表达式
 
 ```http
 POST /api/v1/eval
-Content-Type: application/json
 ```
-
-**请求体:**
 
 ```json
-{
-  "expression": "user.age >= 18 && user.vip == true",
-  "context": {
-    "user": {
-      "age": 25,
-      "vip": true
-    }
-  }
-}
+{ "expression": "user.age >= 18", "context": { "user": { "age": 25 } } }
 ```
-
-**响应:**
 
 ```json
-{
-  "result": true,
-  "parsed": "BinaryOp(And, ...)"
-}
+{ "result": true, "parsed": "Binary { op: Ge, ... }" }
 ```
 
----
+## 数据库过滤条件
 
-## 配置
-
-### 获取审计采样率
+像"这个用户能看哪些文档"这样的问题，对每一行都跑一遍规则很慢。过滤接口先代入已知的信息（用户），再把规则剩下的部分转成 `WHERE` 条件。
 
 ```http
-GET /api/v1/config/audit-sample-rate
+POST /api/v1/rulesets/doc_access/filter
 ```
-
-**响应:**
 
 ```json
 {
-  "sample_rate": 10
+  "known_input": { "user": { "role": "member", "id": "alice" } },
+  "target_results": ["ALLOW"],
+  "format": "sql",
+  "field_mapping": { "doc.owner_id": "owner_id", "doc.visibility": "visibility", "doc.status": "status" }
 }
 ```
-
-### 设置审计采样率
-
-```http
-PUT /api/v1/config/audit-sample-rate
-Content-Type: application/json
-```
-
-**请求体:**
 
 ```json
 {
-  "sample_rate": 50
+  "format": "sql",
+  "filter": "(owner_id = 'alice') OR ((visibility = 'public' AND status = 'published'))",
+  "always_matches": false,
+  "never_matches": false,
+  "unknown_fields": ["doc.owner_id", "doc.status", "doc.visibility"]
 }
 ```
 
-**响应:**
+| 请求字段         | 含义 |
+| ---------------- | ---- |
+| `known_input`    | 查询时已知的字段 |
+| `target_results` | 算作匹配的结果码 |
+| `format`         | `sql`（默认）、`json` 或 `mongo` |
+| `field_mapping`  | 规则字段到列名的映射。没映射的字段用路径把 `.` 换成 `_` |
+| `max_paths`      | 最多收集多少条路径，默认 `100`，`0` 表示不限 |
+
+`always_matches` 为真时（比如管理员），不用加 `WHERE`。`never_matches` 为真时，`filter` 是 `null`，结果为空。如果达到了 `max_paths`，`truncated` 为真，同时 `always_matches` 也会设为真，保证不会漏掉数据。
+
+## 错误
 
 ```json
-{
-  "sample_rate": 50,
-  "previous": 10
-}
+{ "code": "NOT_FOUND", "message": "RuleSet 'nope' not found" }
 ```
 
----
-
-## 健康与指标
-
-### 健康检查
-
-```http
-GET /health
-```
-
-**响应:**
-
-```json
-{
-  "status": "healthy",
-  "version": "0.1.0",
-  "uptime_seconds": 3600,
-  "storage": {
-    "mode": "persistent",
-    "rules_dir": "./rules",
-    "rules_count": 12
-  }
-}
-```
-
-### Prometheus 指标
-
-```http
-GET /metrics
-```
-
-**响应:**
-
-```
-# HELP ordo_info Ordo server info
-# TYPE ordo_info gauge
-ordo_info{version="0.1.0"} 1
-
-# HELP ordo_uptime_seconds Server uptime
-# TYPE ordo_uptime_seconds counter
-ordo_uptime_seconds 3600
-
-# HELP ordo_rules_total Number of loaded rules
-# TYPE ordo_rules_total gauge
-ordo_rules_total 12
-
-# HELP ordo_executions_total Rule executions
-# TYPE ordo_executions_total counter
-ordo_executions_total{ruleset="discount-check",result="success"} 1000
-```
-
----
-
-## 错误响应
-
-所有错误都遵循此格式：
-
-```json
-{
-  "error": "Error message",
-  "code": "ERROR_CODE"
-}
-```
-
-### 常见错误代码
-
-| 状态码 | 代码             | 描述         |
-| ------ | ---------------- | ------------ |
-| 400    | `BAD_REQUEST`    | 无效的请求体 |
-| 404    | `NOT_FOUND`      | 资源未找到   |
-| 500    | `INTERNAL_ERROR` | 服务器错误   |
+| 状态码 | `code` | 什么时候 |
+| --- | --- | --- |
+| `400` | `BAD_REQUEST`、`INVALID_INPUT` | 请求体不对、规则集编译不过、输入没通过输入校验 |
+| `401` | `UNAUTHORIZED` | 缺少或错误的 API token |
+| `403` | `FORBIDDEN` | 签名校验失败 |
+| `404` | `NOT_FOUND` | 规则集或版本不存在 |
+| `408` | | 超过 `--request-timeout-secs` |
+| `409` | `CONFLICT`，或 `error` 为 `read_only` | 写冲突，或写请求发到了读节点 |
+| `500` | `INTERNAL_ERROR` | 执行失败，比如 `field_missing: strict` 时缺字段 |

@@ -31,18 +31,16 @@
 
 ---
 
-## Every app that uses a decision model has a 0.85 in it
+## A 0.85 in the code
 
 ```python
 if jev.confidence > 0.85:
     refund(order)
 ```
 
-That line decides who gets money back. Someone wrote it once, nobody reviews it, and no test covers it. When the model is updated, 0.85 starts to mean something else, and nobody notices.
+That line decides who gets money back. It was written once, without review or a test. When the model is updated, 0.85 starts to mean something else, and nothing tells you.
 
 Decision models like [Jev](https://typesafe.ai) are good at reading a customer's message and answering "is this a refund request?" with a confidence. They don't know your refund window, your amount limits, or how sure is sure enough to pay out without a person looking. That part is a decision, and it is what Ordo is for.
-
-> Jev turns text into judgments. Ordo turns judgments into decisions.
 
 The same goes for discounts, credit limits and risk thresholds, which usually end up as if/else branches spread across dozens of files. Ordo keeps all of these decisions in their own rule files:
 
@@ -52,6 +50,17 @@ The same goes for discounts, credit limits and risk thresholds, which usually en
 - Every ruleset carries its own tests. `ordo test` runs them locally and in CI, with no server.
 - Your application asks one question, such as "what do we do with this refund request?", and stays the same when the rules change.
 
+## When Ordo is worth it
+
+If one person writes and changes the decision logic, and it already has tests, Ordo adds little.
+
+It helps most when:
+
+- Thresholds change often, and the people changing them are not the ones who wrote the code.
+- The same judgment lives in several places and the numbers have drifted apart, such as 0.7 in one file and 0.75 in another.
+- The model gets upgraded, and you need to know which decisions change before you switch.
+- Decisions move money: refunds, credit, blocked payments. When one is wrong, you need to say which rule made it and why.
+
 ## Try it
 
 ```bash
@@ -60,24 +69,24 @@ git clone https://github.com/Ordo-Engine/Ordo
 cd Ordo/examples/rule-packs/jev-routing
 
 ordo test
-ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.72},
-  "urgency":{"score":0.3},"chargeback":{"noul":0.02}},
+ordo trace refund-routing --input '{"jev":{"intent":{"choice":"refund","confidence":0.97},
+  "urgency":{"score":0.43},"chargeback":{"noul":0.04}},
   "order":{"amount":"129.00","days_since_delivery":1},"customer":{"refunds_90d":0}}'
 ```
 
 ```text
-code:    LLM_DRAFT
-message: An LLM drafts the reply, an agent approves it
+code:    AUTO_REFUND
+message: Refund issued without review
 output:  {
-  "reason": "medium_confidence",
-  "jev_confidence": 0.72,
+  "amount": 129,
+  "jev_confidence": 0.97,
   "priority": "normal"
 }
 
-path:    escalation -> intent -> priority -> route -> dispatch -> llm_draft
+path:    escalation -> intent -> priority -> route -> dispatch -> auto_refund
 ```
 
-Jev's confidence that the customer wants a refund was 0.72. The rules say that is not enough to move money on its own, so an LLM drafts the reply and an agent approves it. `trace` lists every step a run took, so "why wasn't this refunded right away?" has an answer. The pack's `route.mjs` asks Jev for you, and uses stored example answers when no API key is set.
+These are real Jev answers. The customer wrote "the blender is louder than the video showed, not sure it is for me, what are my options?" They only asked a question, but Jev was 0.97 sure it was a refund request, so the rules paid out 129 EUR without anyone reading the message. Jev reads text well, but its confidence is not a probability, and TypeSafe says there is no universal threshold. `trace` lists every step a run took, so "why was this refunded without a person looking?" has an answer, and the fix is a rule change you can test. The pack's `route.mjs` asks Jev for you, and uses the recorded answers when no API key is set.
 
 ## See what a change affects
 
@@ -103,7 +112,43 @@ The tests did not notice, but 18 inputs that used to wait for a person now get t
 
 Add `--fail-on-change` to stop surprise changes in CI, or `--json` to feed the result to other tools. Coding agents get the same check through `ordo mcp`, so an agent can look at the effect of its own rule edit before a person reviews it.
 
-`ordo impact` needs CLI 0.7.0 or later ([release](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.7.0)). See the [CLI docs](https://docs.ordoengine.com/en/platform/cli).
+`ordo impact` needs CLI 0.7.0 or later, and `--model` and `ordo decisions` need 0.8.0 ([release](https://github.com/Ordo-Engine/Ordo/releases/tag/cli-v0.8.0)). See the [CLI docs](https://docs.ordoengine.com/en/platform/cli).
+
+## Put Ordo in front of Jev
+
+ordo-server can sit between your application and Jev. Your code keeps calling Jev, each answer comes back with Ordo's decision attached, and every call goes to a decision log.
+
+```bash
+mkdir -p decisions && chmod 777 decisions   # the container user writes the log here
+docker run -p 8080:8080 -e ORDO_DECIDE_API_KEY=<your OpenRouter key> \
+  -v "$PWD/decisions:/decisions" \
+  ghcr.io/ordo-engine/ordo:latest \
+  --rules-dir /app/rule-packs/jev-routing/rulesets \
+  --decide-upstream https://openrouter.ai/api \
+  --decide-log-dir /decisions --decide-log-requests
+
+# from examples/rule-packs/jev-routing
+curl localhost:8080/systemone/v1/systemone \
+  -H 'content-type: application/json' -d @request.json
+```
+
+The response is Jev's answer plus an `ordo` field with the decision (`code`, `message`, `output`). In your application, set `TYPESAFE_BASE_URL=http://localhost:8080/systemone` and add the `ordo` field with your ruleset and order facts. If your app already sends its facts to Jev in a JSON `state`, it needs no change at all: use `TYPESAFE_BASE_URL=http://localhost:8080/systemone/rulesets/<ruleset>` and the rules read the fields of `state`. `ordo decisions decisions/` sums up what was decided.
+
+Before you switch models, ask the new model the real requests in the log and see which decisions change:
+
+```text
+$ ordo impact refund-routing --inputs decisions/decisions-2026-10-13.jsonl \
+    --model cloudflare/clef-flash --repeat 3
+  model: typesafe/jev-1.13-20260917 → cloudflare/clef-flash
+  24 logged requests asked again, 3 times each
+
+  AUTO_REFUND → ESCALATE  1 input
+  AUTO_REFUND → LLM_DRAFT  3 inputs
+  HUMAN_REVIEW → ESCALATE  1 input
+  ROUTE_TEAM → HUMAN_REVIEW  2 inputs
+```
+
+No rule changed, only the model, and 7 of 24 requests would be handled differently. In two of three asks, a customer whose jacket was too small would be sent to a senior agent as a chargeback threat. See the [decision model gateway docs](https://docs.ordoengine.com/en/platform/decision-gateway).
 
 ## Rule packs
 
@@ -123,19 +168,17 @@ A rule pack is a plain Ordo project. Rules your team writes can be shared the sa
 ```bash
 # ordo-server, over HTTP or gRPC
 docker run -p 8080:8080 ghcr.io/ordo-engine/ordo:latest
-curl -X POST localhost:8080/api/v1/execute/<ruleset> -d '{"input": {...}}'
+curl localhost:8080/api/v1/execute/<ruleset> \
+  -H 'content-type: application/json' -d '{"input": {...}}'
 
 # Embedded in a Rust program
 cargo add ordo-core --git https://github.com/Ordo-Engine/Ordo
 
 # In the browser, as WASM
 npm install @ordo-engine/wasm
-
-# From your services
-go get github.com/pama-lee/ordo-go     # Go
-pip install ordo-sdk                    # Python
-# Java (Maven): com.ordoengine:ordo-sdk-java
 ```
+
+From your services, call the HTTP or gRPC API. Client SDKs for Go, Python and Java are in [`sdk/`](sdk) and are not on the package registries yet.
 
 The engine is written in Rust: a bytecode VM, plus a Cranelift JIT for hot numeric expressions. A rule run takes 1.63 µs on the VM, numeric expressions take 50–80 ns after JIT, and a single HTTP thread serves about 54k QPS. See the [benchmarks](https://ordoengine.com/en/benchmarks).
 

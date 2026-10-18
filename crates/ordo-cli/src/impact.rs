@@ -57,6 +57,22 @@ pub struct ImpactArgs {
     /// Exit non-zero if any decision changed (for CI gating; default: report only)
     #[arg(long)]
     fail_on_change: bool,
+
+    /// Before switching models: ask this model again for every request in the
+    /// --inputs decision log (ordo-server --decide-log-requests) and compare
+    /// its decisions with the logged ones
+    #[arg(long, value_name = "MODEL", requires = "inputs")]
+    model: Option<String>,
+
+    /// System One compatible API used by --model (default: $ORDO_DECIDE_UPSTREAM,
+    /// else https://openrouter.ai/api)
+    #[arg(long, value_name = "URL", requires = "model")]
+    upstream: Option<String>,
+
+    /// Ask --model each request N times: models do not answer the same way
+    /// twice, and a decision that changes on only some asks sits on a threshold
+    #[arg(long, value_name = "N", default_value_t = 1, requires = "model")]
+    repeat: usize,
 }
 
 /// Where the baseline comes from.
@@ -103,6 +119,41 @@ pub(crate) struct Change {
     after: Side,
     /// Human-readable field-level differences
     diffs: Vec<String>,
+    /// With --model: the text the model was asked about
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<String>,
+    /// With --model: how the model's answers moved (`jev.intent.confidence: 0.97 → 0.87`)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    answers: Vec<String>,
+    /// With --model --repeat: on how many asks the decision changed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    asks: Option<Asks>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct Asks {
+    changed: usize,
+    answered: usize,
+}
+
+/// With --model: which model was asked again, and how that went.
+#[derive(Serialize)]
+pub(crate) struct ModelSwitch {
+    /// The model(s) that answered the logged requests
+    from: String,
+    /// The model asked again, as the upstream reports it
+    to: String,
+    upstream: String,
+    /// How many times each request was asked
+    repeat: usize,
+    /// Requests asked
+    asked: usize,
+    /// Requests the model answered on no ask
+    failed: usize,
+    /// Decisions for this ruleset logged without their request
+    without_request: usize,
+    /// The first few failures
+    errors: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -120,6 +171,8 @@ pub(crate) struct Report {
     /// `code transitions` → count, e.g. `"REJECTED → APPROVED": 3`
     transitions: BTreeMap<String, usize>,
     changes: Vec<Change>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<ModelSwitch>,
 }
 
 pub fn run(args: ImpactArgs, json: bool) -> Result<()> {
@@ -129,11 +182,31 @@ pub fn run(args: ImpactArgs, json: bool) -> Result<()> {
         Some(f) => Base::File(f),
         None => Base::Rev(args.base.unwrap_or_else(|| "HEAD".to_string())),
     };
-    let extra = match &args.inputs {
-        Some(path) => read_inputs(Path::new(path), &name)?,
-        None => Vec::new(),
+    let report = match (&args.model, &args.inputs) {
+        (Some(model), Some(log)) => {
+            let upstream = args
+                .upstream
+                .clone()
+                .or_else(|| std::env::var("ORDO_DECIDE_UPSTREAM").ok())
+                .unwrap_or_else(|| crate::remodel::DEFAULT_UPSTREAM.to_string());
+            compute_remodel(
+                &project,
+                &name,
+                &base,
+                Path::new(log),
+                model,
+                &upstream,
+                args.repeat,
+            )?
+        }
+        _ => {
+            let extra = match &args.inputs {
+                Some(path) => read_inputs(Path::new(path), &name)?,
+                None => Vec::new(),
+            };
+            compute(&project, &name, &base, extra, !args.no_probes)?
+        }
     };
-    let report = compute(&project, &name, &base, extra, !args.no_probes)?;
     let changed = report.changed;
     if json {
         crate::output::emit_json(&report)?;
@@ -154,19 +227,7 @@ pub(crate) fn compute(
     extra: Vec<Json>,
     probes: bool,
 ) -> Result<Report> {
-    let mut after_rs = project.load_engine(name)?;
-    after_rs
-        .compile()
-        .map_err(|e| anyhow::anyhow!("compile error in {name} (working tree): {e}"))?;
-
-    let before_rs = match load_base(project, name, base)? {
-        Some(mut rs) => {
-            rs.compile()
-                .map_err(|e| anyhow::anyhow!("compile error in {name} at {}: {e}", base.label()))?;
-            Some(rs)
-        }
-        None => None,
-    };
+    let (after_rs, before_rs) = load_versions(project, name, base)?;
 
     // ── corpus: tests, captured inputs, boundary probes ──
     let mut corpus: Vec<(String, Json)> = Vec::new();
@@ -257,6 +318,9 @@ pub(crate) fn compute(
             before: before_out,
             after: after_out,
             diffs,
+            state: None,
+            answers: Vec::new(),
+            asks: None,
         });
     }
 
@@ -272,6 +336,204 @@ pub(crate) fn compute(
         changed: changes.len(),
         transitions,
         changes,
+        model: None,
+    })
+}
+
+/// The working-tree ruleset and the baseline (`None` for a new ruleset), compiled.
+fn load_versions(project: &Project, name: &str, base: &Base) -> Result<(RuleSet, Option<RuleSet>)> {
+    let mut after_rs = project.load_engine(name)?;
+    after_rs
+        .compile()
+        .map_err(|e| anyhow::anyhow!("compile error in {name} (working tree): {e}"))?;
+    let before_rs = match load_base(project, name, base)? {
+        Some(mut rs) => {
+            rs.compile()
+                .map_err(|e| anyhow::anyhow!("compile error in {name} at {}: {e}", base.label()))?;
+            Some(rs)
+        }
+        None => None,
+    };
+    Ok((after_rs, before_rs))
+}
+
+/// `--model`: ask another model the logged requests and compare decisions.
+///
+/// Before: the baseline ruleset on the logged input (the old model's answers).
+/// After: the working-tree ruleset on the same facts with the new model's
+/// answers. With no rule edit, every change comes from the model. Only a
+/// different code or message counts as a change here: output fields that echo
+/// the model's probabilities move on every call.
+pub(crate) fn compute_remodel(
+    project: &Project,
+    name: &str,
+    base: &Base,
+    log_path: &Path,
+    model: &str,
+    upstream: &str,
+    repeat: usize,
+) -> Result<Report> {
+    let (after_rs, before_rs) = load_versions(project, name, base)?;
+    let log = crate::remodel::read_log(log_path, name)?;
+    if log.calls.is_empty() {
+        if log.without_request > 0 {
+            anyhow::bail!(
+                "{} has {} decision(s) for {name} but none with its request, so there is nothing to ask {model}. \
+                 Start ordo-server with --decide-log-requests (ORDO_DECIDE_LOG_REQUESTS=true) to log requests.",
+                log_path.display(),
+                log.without_request
+            );
+        }
+        anyhow::bail!("{} has no decisions for {name}", log_path.display());
+    }
+
+    let asker = crate::remodel::Asker::new(upstream, model)?;
+    let repeat = repeat.max(1);
+    // Each request `repeat` times in a row, so replies[i * repeat..] belong to call i.
+    let asks: Vec<&Json> = log
+        .calls
+        .iter()
+        .flat_map(|c| std::iter::repeat(&c.request).take(repeat))
+        .collect();
+    let mut replies = asker.ask_all(&asks).into_iter();
+
+    let after = LoadedRule::Source(after_rs);
+    let before = before_rs.map(LoadedRule::Source);
+    let mut changes = Vec::new();
+    let mut transitions: BTreeMap<String, usize> = BTreeMap::new();
+    let mut unchanged = 0usize;
+    let mut errors = Vec::new();
+    let mut failed = 0usize;
+    let mut to: BTreeSet<String> = BTreeSet::new();
+    let from: BTreeSet<String> = log.calls.iter().map(|c| c.model.clone()).collect();
+
+    for call in &log.calls {
+        let before_out = match &before {
+            Some(rule) => run_one(rule, &call.input),
+            None => Err(NEW.to_string()),
+        };
+        // Every answered ask whose decision moved, plus how many asks answered.
+        let mut moved: Vec<(Json, Side, Vec<String>, Json)> = Vec::new();
+        let mut answered = 0usize;
+        for reply in replies.by_ref().take(repeat) {
+            let reply = match reply {
+                Ok(r) => r,
+                Err(e) => {
+                    errors.push(format!("line {}: {e}", call.line));
+                    continue;
+                }
+            };
+            answered += 1;
+            to.insert(reply.model.clone());
+            let mut input = call.input.clone();
+            if let Json::Object(map) = &mut input {
+                map.insert(call.answers_field.clone(), reply.answers.clone());
+            }
+            let after_out = run_one(&after, &input);
+            let diffs = diff_outcomes(&before_out, &after_out);
+            // A new model moves every echoed probability in the output; what
+            // counts is whether the decision itself (code, message) changed.
+            let changed = match (&before_out, &after_out) {
+                (Ok(b), Ok(a)) => b.code != a.code || b.message != a.message,
+                _ => !diffs.is_empty(),
+            };
+            if changed {
+                moved.push((input, after_out, diffs, reply.answers));
+            }
+        }
+        if answered == 0 {
+            failed += 1;
+            continue;
+        }
+        if moved.is_empty() {
+            unchanged += 1;
+            continue;
+        }
+        // Report the new decision the model gave most often.
+        let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+        for (_, out, _, _) in &moved {
+            *tally.entry(code_label(out)).or_default() += 1;
+        }
+        let top = tally
+            .iter()
+            .max_by_key(|(_, n)| **n)
+            .map(|(c, _)| c.clone())
+            .unwrap_or_default();
+        let times = moved.len();
+        let (input, after_out, diffs, new_answers) = moved
+            .into_iter()
+            .find(|(_, out, _, _)| code_label(out) == top)
+            .expect("top code comes from moved");
+        *transitions
+            .entry(format!("{} → {}", code_label(&before_out), top))
+            .or_default() += 1;
+        let old_answers = call
+            .input
+            .get(&call.answers_field)
+            .cloned()
+            .unwrap_or(Json::Null);
+        let mut answers = Vec::new();
+        diff_json(
+            &call.answers_field,
+            &crate::remodel::verdict(&old_answers),
+            &crate::remodel::verdict(&new_answers),
+            &mut answers,
+        );
+        changes.push(Change {
+            source: format!("line:{}", call.line),
+            input,
+            before: before_out,
+            after: after_out,
+            diffs,
+            state: call.request.get("state").map(|s| {
+                s.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| s.to_string())
+            }),
+            answers,
+            asks: (repeat > 1).then_some(Asks {
+                changed: times,
+                answered,
+            }),
+        });
+    }
+
+    if failed == log.calls.len() {
+        anyhow::bail!(
+            "{model} answered none of the {} requests: {}",
+            failed,
+            errors.first().map(String::as_str).unwrap_or("")
+        );
+    }
+    errors.truncate(5);
+    let asked = log.calls.len();
+    let join = |s: BTreeSet<String>| s.into_iter().collect::<Vec<_>>().join(", ");
+    Ok(Report {
+        ruleset: name.to_string(),
+        base: base.label(),
+        base_found: before.is_some(),
+        inputs: asked - failed,
+        tests: 0,
+        captured: asked - failed,
+        probes: 0,
+        unchanged,
+        changed: changes.len(),
+        transitions,
+        changes,
+        model: Some(ModelSwitch {
+            from: join(from),
+            to: if to.is_empty() {
+                model.to_string()
+            } else {
+                join(to)
+            },
+            upstream: upstream.to_string(),
+            repeat,
+            asked,
+            failed,
+            without_request: log.without_request,
+            errors,
+        }),
     })
 }
 
@@ -611,10 +873,42 @@ fn print_report(r: &Report) {
             format!("{} has no baseline at {} (new ruleset)", r.ruleset, r.base).yellow()
         );
     }
-    println!(
-        "  {} inputs: {} tests, {} captured, {} boundary probes",
-        r.inputs, r.tests, r.captured, r.probes
-    );
+    match &r.model {
+        Some(m) => {
+            println!("  model: {} → {}", m.from, m.to.bold());
+            println!(
+                "  {} logged requests asked again{}{}",
+                m.asked,
+                if m.repeat > 1 {
+                    format!(", {} times each", m.repeat)
+                } else {
+                    String::new()
+                },
+                if m.failed > 0 {
+                    format!(", {} failed", m.failed).red().to_string()
+                } else {
+                    String::new()
+                }
+            );
+            for e in &m.errors {
+                println!("    {}", e.red());
+            }
+            if m.without_request > 0 {
+                println!(
+                    "  {}",
+                    format!(
+                        "{} decisions skipped: logged without their request (--decide-log-requests)",
+                        m.without_request
+                    )
+                    .yellow()
+                );
+            }
+        }
+        None => println!(
+            "  {} inputs: {} tests, {} captured, {} boundary probes",
+            r.inputs, r.tests, r.captured, r.probes
+        ),
+    }
     println!();
 
     if r.changed == 0 {
@@ -636,14 +930,33 @@ fn print_report(r: &Report) {
     }
     println!();
     for c in r.changes.iter().take(MAX_LISTED) {
-        println!(
-            "{} {}  {}",
-            "CHANGED".yellow().bold(),
-            c.source,
-            c.input.to_string().dimmed()
-        );
+        match &c.state {
+            Some(state) => {
+                let asks = c
+                    .asks
+                    .as_ref()
+                    .map(|a| format!("  ({} of {} asks)", a.changed, a.answered))
+                    .unwrap_or_default();
+                println!(
+                    "{} {}{}  {}",
+                    "CHANGED".yellow().bold(),
+                    c.source,
+                    asks.bold(),
+                    short(state, 100)
+                );
+            }
+            None => println!(
+                "{} {}  {}",
+                "CHANGED".yellow().bold(),
+                c.source,
+                c.input.to_string().dimmed()
+            ),
+        }
         for d in &c.diffs {
             println!("    {d}");
+        }
+        for a in &c.answers {
+            println!("    {}", a.dimmed());
         }
     }
     if r.changes.len() > MAX_LISTED {
@@ -658,6 +971,16 @@ fn print_report(r: &Report) {
         r.changed.to_string().yellow(),
         r.unchanged.to_string().green()
     );
+}
+
+/// The first `max` characters of `s`, on one line.
+fn short(s: &str, max: usize) -> String {
+    let one_line = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.chars().count() <= max {
+        return one_line;
+    }
+    let cut: String = one_line.chars().take(max).collect();
+    format!("{cut}…")
 }
 
 #[cfg(test)]

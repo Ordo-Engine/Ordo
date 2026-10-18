@@ -163,6 +163,9 @@ export interface LocaleMessages {
     deleteGroup: string;
     groupDropZone: string;
     steps: string;
+    stepsTitle: string;
+    branchUnit: string;
+    varUnit: string;
     ungroupedSteps: string;
     allSteps: string;
     moveTo: string;
@@ -386,6 +389,9 @@ const en: LocaleMessages = {
     deleteGroup: 'Delete Group',
     groupDropZone: 'Drag nodes here or select nodes and right-click to group',
     steps: 'steps',
+    stepsTitle: 'Steps',
+    branchUnit: 'branches',
+    varUnit: 'vars',
     ungroupedSteps: 'Ungrouped Steps',
     allSteps: 'All Steps',
     moveTo: 'Move to...',
@@ -610,6 +616,9 @@ const zhCN: LocaleMessages = {
     deleteGroup: '删除分组',
     groupDropZone: '拖入节点到此处，或右键点击选中的节点来创建分组',
     steps: '个步骤',
+    stepsTitle: '步骤',
+    branchUnit: '个分支',
+    varUnit: '个赋值',
     ungroupedSteps: '未分组步骤',
     allSteps: '所有步骤',
     moveTo: '移动到...',
@@ -833,6 +842,9 @@ const zhTW: LocaleMessages = {
     deleteGroup: '刪除群組',
     groupDropZone: '拖曳節點至此處，或右鍵點擊所選節點來建立群組',
     steps: '個步驟',
+    stepsTitle: '步驟',
+    branchUnit: '個分支',
+    varUnit: '個賦值',
     ungroupedSteps: '未分組步驟',
     allSteps: '所有步驟',
     moveTo: '移至...',

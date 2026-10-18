@@ -1,17 +1,46 @@
 {
   "message": "The blender arrived yesterday but it is much louder than the video showed. Not sure it is for me. What are my options?",
-  "order": { "amount": "129.00", "days_since_delivery": 1 },
-  "customer": { "refunds_90d": 0 },
+  "order": {
+    "amount": "129.00",
+    "days_since_delivery": 1
+  },
+  "customer": {
+    "refunds_90d": 0
+  },
   "jev_response": {
-    "model": "typesafe/jev-1.13",
+    "model": "typesafe/jev-1.13-20260917",
     "answers": {
+      "chargeback": {
+        "noul": 0.04,
+        "type": "noul"
+      },
       "intent": {
         "choice": "refund",
-        "probabilities": { "refund": 0.72, "delivery": 0.01, "product_question": 0.22, "account": 0.01, "other": 0.04 },
-        "confidence": 0.72
+        "confidence": 0.97,
+        "probabilities": {
+          "account": 0,
+          "delivery": 0,
+          "other": 0.01,
+          "product_question": 0.01,
+          "refund": 0.98
+        },
+        "type": "choice"
       },
-      "urgency": { "score": 0.3, "probabilities": [0.72, 0.26, 0.02], "confidence": 0.72 },
-      "chargeback": { "noul": 0.02 }
+      "urgency": {
+        "confidence": 0.34,
+        "legend": {
+          "0": "Routine, no deadline mentioned",
+          "1": "Wants it handled soon, nothing is blocked",
+          "2": "Names a deadline, or is clearly upset and stuck"
+        },
+        "probabilities": {
+          "0": 0.57,
+          "1": 0.42,
+          "2": 0.01
+        },
+        "score": 0.43,
+        "type": "score"
+      }
     }
   }
 }

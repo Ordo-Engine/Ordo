@@ -775,7 +775,12 @@ export default {
       revoked: '權杖已撤銷',
       createdTitle: '接入權杖已建立',
       createdWarning: '現在就複製——它只顯示這一次,之後無法再取回。',
-      useHint: '用 flag 或環境變數交給引擎:',
+      useHint: '在要接入的機器上執行：',
+      replaceHint:
+        '把 ENGINE_HOST 換成平台能存取到這台機器的位址，NATS_HOST 換成平台使用的同一個 NATS。引擎上線後會自動出現在下方。',
+      waiting: '等待引擎上線…',
+      connected: '引擎 {name} 已上線',
+      backToForm: '回到上一步',
       copy: '複製',
       copied: '已複製到剪貼簿',
       copyFailed: '複製失敗——請手動選擇複製。',
@@ -1122,6 +1127,9 @@ export default {
     name: '名稱',
     server: '綁定伺服器',
     serverNodes: '綁定節點',
+    connectServer: '接入新節點',
+    noServerAvailable:
+      '還沒有執行節點。點「接入新節點」，在機器上執行給出的命令，引擎上線後會出現在這裡。',
     noServer: '未綁定',
     default: '預設（生產）',
     canary: '金絲雀',
@@ -1359,7 +1367,9 @@ export default {
     batchIntervalField: '批次間隔（秒）',
     maxFailedInstancesField: '最大失敗實例數',
     noPolicyForRequestTitle: '目前還沒有發佈策略',
+    noEnvironmentForRequestDesc: '發佈需要一個目標環境。先建立環境，回來後這裡填過的內容還在。',
     noPolicyForRequestDesc: '請先建立策略，讓發佈單可以綁定審批人、放量方式與回退規則。',
+    bindServers: '綁定節點',
     noBoundServer: '目前環境未綁定執行節點，發佈單會記錄為 0 個受影響實例。',
     serverStatusLabel: '節點狀態',
     serverStatusMap: {

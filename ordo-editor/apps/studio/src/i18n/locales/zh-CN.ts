@@ -775,7 +775,12 @@ export default {
       revoked: '令牌已吊销',
       createdTitle: '接入令牌已创建',
       createdWarning: '现在就复制——它只显示这一次,之后无法再取回。',
-      useHint: '用 flag 或环境变量交给引擎:',
+      useHint: '在要接入的机器上运行：',
+      replaceHint:
+        '把 ENGINE_HOST 换成平台能访问到这台机器的地址，NATS_HOST 换成平台使用的同一个 NATS。引擎上线后会自动出现在下面。',
+      waiting: '等待引擎上线…',
+      connected: '引擎 {name} 已上线',
+      backToForm: '回到上一步',
       copy: '复制',
       copied: '已复制到剪贴板',
       copyFailed: '复制失败——请手动选择复制。',
@@ -1122,6 +1127,9 @@ export default {
     name: '名称',
     server: '绑定服务器',
     serverNodes: '绑定节点',
+    connectServer: '接入新节点',
+    noServerAvailable:
+      '还没有执行节点。点「接入新节点」，在机器上运行给出的命令，引擎上线后会出现在这里。',
     noServer: '未绑定',
     default: '默认（生产）',
     canary: '灰度',
@@ -1359,7 +1367,9 @@ export default {
     batchIntervalField: '批次间隔（秒）',
     maxFailedInstancesField: '最大失败实例数',
     noPolicyForRequestTitle: '当前还没有发布策略',
+    noEnvironmentForRequestDesc: '发布需要一个目标环境。先创建环境，回来后这里填过的内容还在。',
     noPolicyForRequestDesc: '请先创建策略，让发布单可以绑定审批人、放量方式和回退规则。',
+    bindServers: '绑定节点',
     noBoundServer: '当前环境未绑定执行节点，发布单会记录为 0 个受影响实例。',
     serverStatusLabel: '节点状态',
     serverStatusMap: {

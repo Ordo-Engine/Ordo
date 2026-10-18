@@ -1,17 +1,46 @@
 {
   "message": "Hi, I was charged twice for order #4471 (EUR 39.90 each). Could you refund one of them? Thanks.",
-  "order": { "amount": "39.90", "days_since_delivery": 2 },
-  "customer": { "refunds_90d": 0 },
+  "order": {
+    "amount": "39.90",
+    "days_since_delivery": 2
+  },
+  "customer": {
+    "refunds_90d": 0
+  },
   "jev_response": {
-    "model": "typesafe/jev-1.13",
+    "model": "typesafe/jev-1.13-20260917",
     "answers": {
+      "chargeback": {
+        "noul": 0.02,
+        "type": "noul"
+      },
       "intent": {
         "choice": "refund",
-        "probabilities": { "refund": 0.95, "delivery": 0.01, "product_question": 0.01, "account": 0.01, "other": 0.02 },
-        "confidence": 0.95
+        "confidence": 1,
+        "probabilities": {
+          "account": 0,
+          "delivery": 0,
+          "other": 0,
+          "product_question": 0,
+          "refund": 1
+        },
+        "type": "choice"
       },
-      "urgency": { "score": 0.7, "probabilities": [0.38, 0.54, 0.08], "confidence": 0.54 },
-      "chargeback": { "noul": 0.04 }
+      "urgency": {
+        "confidence": 0.7,
+        "legend": {
+          "0": "Routine, no deadline mentioned",
+          "1": "Wants it handled soon, nothing is blocked",
+          "2": "Names a deadline, or is clearly upset and stuck"
+        },
+        "probabilities": {
+          "0": 0.8,
+          "1": 0.2,
+          "2": 0
+        },
+        "score": 0.2,
+        "type": "score"
+      }
     }
   }
 }

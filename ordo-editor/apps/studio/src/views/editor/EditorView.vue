@@ -74,7 +74,7 @@ const projectBase = computed(() => `/orgs/${orgId.value}/projects/${projectId.va
 // ── Editor mode — stored per-tab so switching tabs restores correct mode ─────
 const editorMode = ref<'form' | 'flow' | 'table'>('form');
 const tabModes = new Map<string, 'form' | 'flow' | 'table'>();
-const openMenu = ref<'file' | 'edit' | 'select' | 'view' | 'window' | null>(null);
+const openMenu = ref<'file' | 'edit' | 'view' | 'window' | null>(null);
 const showHistoryPanel = ref(false);
 const showAiPanel = ref(false);
 const showKnowledgeAdvisorPanel = ref(false);
@@ -110,6 +110,32 @@ function cloneRuleset(ruleset: RuleSet): RuleSet {
 
 function serializeRuleset(ruleset: RuleSet): string {
   return JSON.stringify(ruleset);
+}
+
+// Dirty tracking ignores what only the editor writes on its own (node positions
+// from auto-layout, edge style / layout direction, document timestamps, empty
+// groups) and key order, so just opening a ruleset in flow mode doesn't mark it
+// unsaved.
+function normalizeForDirtyCheck(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeForDirtyCheck);
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) {
+    if (key === 'position' || key === 'createdAt' || key === 'updatedAt') continue;
+    if (key.startsWith('_flow')) continue;
+    const normalized = normalizeForDirtyCheck((value as Record<string, unknown>)[key]);
+    // An empty list/object and a missing key mean the same thing here.
+    if (normalized === undefined) continue;
+    if (normalized && typeof normalized === 'object' && Object.keys(normalized).length === 0) {
+      continue;
+    }
+    out[key] = normalized;
+  }
+  return out;
+}
+
+function serializeForDirtyCheck(ruleset: RuleSet): string {
+  return JSON.stringify(normalizeForDirtyCheck(ruleset));
 }
 
 function isSameRuleset(a: RuleSet, b: RuleSet): boolean {
@@ -185,7 +211,7 @@ function syncDecisionTableFromRuleset(name: string, ruleset: RuleSet) {
 function updateRulesetState(name: string, ruleset: RuleSet) {
   const snapshot = cloneRuleset(ruleset);
   const savedSnapshot = savedRulesetSnapshots.get(name);
-  const dirty = savedSnapshot ? savedSnapshot !== serializeRuleset(snapshot) : true;
+  const dirty = savedSnapshot ? savedSnapshot !== serializeForDirtyCheck(snapshot) : true;
   projectStore.setTabRuleset(name, snapshot, dirty);
   syncDecisionTableFromRuleset(name, snapshot);
 }
@@ -443,7 +469,7 @@ async function ensureHistoryLoaded(name: string, ruleset: RuleSet) {
   state.loading = false;
   state.syncing = false;
 
-  savedRulesetSnapshots.set(name, serializeRuleset(currentSnapshot));
+  savedRulesetSnapshots.set(name, serializeForDirtyCheck(currentSnapshot));
 }
 
 // ── Execution panel ──────────────────────────────────────────────────────────
@@ -2074,11 +2100,11 @@ function closeMenus() {
   openMenu.value = null;
 }
 
-function toggleMenu(menu: 'file' | 'edit' | 'select' | 'view' | 'window') {
+function toggleMenu(menu: 'file' | 'edit' | 'view' | 'window') {
   openMenu.value = openMenu.value === menu ? null : menu;
 }
 
-function hoverMenu(menu: 'file' | 'edit' | 'select' | 'view' | 'window') {
+function hoverMenu(menu: 'file' | 'edit' | 'view' | 'window') {
   if (openMenu.value) {
     openMenu.value = menu;
   }
@@ -2109,13 +2135,13 @@ onMounted(() => document.addEventListener('mousedown', onDocumentPointerDown));
 onUnmounted(() => document.removeEventListener('mousedown', onDocumentPointerDown));
 
 // ── Actions ───────────────────────────────────────────────────────────────────
-async function openRuleset(name: string) {
+async function openRuleset(name: string, preferredMode?: 'form' | 'flow' | 'table') {
   try {
     await projectStore.openRuleset(name);
     const tab = projectStore.openTabs.find((t) => t.name === name);
     if (tab) {
       syncDecisionTableFromRuleset(name, tab.ruleset);
-      editorMode.value = canBeTable(tab.ruleset) ? 'table' : 'form';
+      editorMode.value = preferredMode ?? tabModes.get(name) ?? defaultModeFor(tab.ruleset);
       await ensureHistoryLoaded(name, tab.ruleset);
     }
     tabModes.set(name, editorMode.value);
@@ -2123,6 +2149,14 @@ async function openRuleset(name: string) {
   } catch (e: any) {
     MessagePlugin.error(e.message || t('editor.loadFailed'));
   }
+}
+
+// Only rulesets authored as a decision table open in table mode. A flow that
+// merely happens to decompile into a table (e.g. a fresh decision -> terminal
+// pair, or a template graph) stays a flow, since editing it as a table would
+// rewrite the graph.
+function defaultModeFor(rs: RuleSet): 'form' | 'table' {
+  return rs.config.metadata?._table && canBeTable(rs) ? 'table' : 'form';
 }
 
 function canBeTable(rs: RuleSet): boolean {
@@ -2162,8 +2196,12 @@ function applyRulesetChange(ruleset: RuleSet, actionOverride?: string) {
     incomingRuleset
   );
   const action = actionOverride ?? buildHistoryAction(tab.ruleset, normalizedRuleset);
+  // Auto-layout and canvas preferences aren't edits worth an undo step.
+  const layoutOnly =
+    !actionOverride &&
+    serializeForDirtyCheck(tab.ruleset) === serializeForDirtyCheck(normalizedRuleset);
   updateRulesetState(tab.name, normalizedRuleset);
-  scheduleEditHistoryEntry(tab.name, normalizedRuleset, action);
+  if (!layoutOnly) scheduleEditHistoryEntry(tab.name, normalizedRuleset, action);
 
   for (const refName of refsToCreate) {
     void ensureProjectSubRuleAsset(refName);
@@ -2613,7 +2651,7 @@ async function handleSave(name: string) {
     }
     const tab = projectStore.openTabs.find((item) => item.name === name);
     if (tab) {
-      savedRulesetSnapshots.set(name, serializeRuleset(tab.ruleset));
+      savedRulesetSnapshots.set(name, serializeForDirtyCheck(tab.ruleset));
       projectStore.setTabRuleset(name, cloneRuleset(tab.ruleset), false);
       if (tab.kind === 'sub_rule') {
         await refreshSubRuleAssets();
@@ -2639,7 +2677,7 @@ async function resolveConflictUseServer() {
   }
 
   tab.draft_seq = conflict.serverSeq;
-  savedRulesetSnapshots.set(conflict.rulesetName, serializeRuleset(conflict.serverDraft));
+  savedRulesetSnapshots.set(conflict.rulesetName, serializeForDirtyCheck(conflict.serverDraft));
   projectStore.setTabRuleset(conflict.rulesetName, cloneRuleset(conflict.serverDraft), false);
   syncDecisionTableFromRuleset(conflict.rulesetName, conflict.serverDraft);
   conflictState.value = null;
@@ -2750,6 +2788,10 @@ async function handleCreateRuleset() {
     if (newType.value === 'table') {
       const doc = createEmptyTableDocument(name);
       rs = documentToRuleSet(doc);
+      rs.config = {
+        ...rs.config,
+        metadata: { ...(rs.config.metadata ?? {}), _table: JSON.stringify(doc.table) },
+      };
     } else {
       // Flow: Decision → Terminal
       const decisionId = generateId();
@@ -2777,7 +2819,7 @@ async function handleCreateRuleset() {
     showCreate.value = false;
     newName.value = '';
     MessagePlugin.success(t('editor.createSuccess'));
-    await openRuleset(name);
+    await openRuleset(name, newType.value === 'table' ? 'table' : 'flow');
     pushHistoryEntry(name, rs, t('historyPanel.actionCreateRuleset'), 'create');
     showHistoryPanel.value = true;
   } catch (e: any) {
@@ -2990,21 +3032,6 @@ onUnmounted(() => {
             >
               <span>{{ t('menuBar.redo') }}</span>
               <span class="editor-menu__shortcut">Ctrl+Shift+Z</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="editor-menu" @mouseenter="hoverMenu('select')">
-          <button
-            class="editor-menu__trigger"
-            :class="{ 'is-open': openMenu === 'select' }"
-            @click="toggleMenu('select')"
-          >
-            {{ t('menuBar.select') }}
-          </button>
-          <div v-if="openMenu === 'select'" class="editor-menu__dropdown">
-            <button class="editor-menu__item is-disabled" disabled>
-              <span>{{ t('menuBar.selectionSoon') }}</span>
             </button>
           </div>
         </div>
@@ -3465,6 +3492,7 @@ onUnmounted(() => {
             :ruleset="executionPanelRuleset"
             :visible="showExecution"
             :height="executionHeight"
+            local-only
             @update:visible="showExecution = $event"
             @update:height="executionHeight = $event"
             @show-in-flow="handleShowInFlow"

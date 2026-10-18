@@ -1062,3 +1062,179 @@ async fn test_health_check_fields() {
     assert!(body["checks"]["disk_writable"].as_bool().unwrap());
     assert!(body["storage"]["rules_count"].is_number());
 }
+
+// ==================== External data and ruleset calls ====================
+
+/// Uses `$data.limits.vip_min` in a condition and `$data.limits.rate` in the output.
+fn data_ruleset(name: &str) -> Value {
+    json!({
+        "config": { "name": name, "entry_step": "check" },
+        "steps": {
+            "check": {
+                "id": "check", "name": "Check", "type": "decision",
+                "branches": [
+                    { "condition": "amount >= $data.limits.vip_min", "next_step": "vip" }
+                ],
+                "default_next": "normal"
+            },
+            "vip": {
+                "id": "vip", "name": "VIP", "type": "terminal",
+                "result": { "code": "VIP", "message": "", "output": [["rate", "$data.limits.rate"]] }
+            },
+            "normal": {
+                "id": "normal", "name": "Normal", "type": "terminal",
+                "result": { "code": "NORMAL", "message": "" }
+            }
+        }
+    })
+}
+
+/// Calls `callee` and returns its code and `doubled` output.
+fn caller_ruleset(name: &str, callee: &str) -> Value {
+    json!({
+        "config": { "name": name, "entry_step": "call" },
+        "steps": {
+            "call": {
+                "id": "call", "name": "Call", "type": "action",
+                "actions": [
+                    { "action": "call_rule_set", "ruleset_name": callee, "result_variable": "sub" }
+                ],
+                "next_step": "done"
+            },
+            "done": {
+                "id": "done", "name": "Done", "type": "terminal",
+                "result": {
+                    "code": "DONE", "message": "",
+                    "output": [["callee_code", "$sub.code"], ["doubled", "$sub.output.doubled"]]
+                }
+            }
+        }
+    })
+}
+
+/// Returns `x * 2` as `doubled`.
+fn doubling_ruleset(name: &str) -> Value {
+    json!({
+        "config": { "name": name, "entry_step": "done" },
+        "steps": {
+            "done": {
+                "id": "done", "name": "Done", "type": "terminal",
+                "result": { "code": "DOUBLED", "message": "", "output": [["doubled", "x * 2"]] }
+            }
+        }
+    })
+}
+
+#[tokio::test]
+async fn test_execute_reads_external_data() {
+    let app = build_full_test_app().await;
+    post_json(&app, "/api/v1/rulesets", &data_ruleset("vip_check")).await;
+    let (status, _) = put_json(
+        &app,
+        "/api/v1/data/limits",
+        &json!({ "vip_min": 1000, "rate": 0.2 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = post_json(
+        &app,
+        "/api/v1/execute/vip_check",
+        &json!({ "input": { "amount": 1500 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["code"], "VIP");
+    assert_eq!(body["output"]["rate"], 0.2);
+
+    let (status, body) = post_json(
+        &app,
+        "/api/v1/execute/vip_check/batch",
+        &json!({ "inputs": [{ "amount": 1500 }, { "amount": 10 }] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["results"][0]["code"], "VIP");
+    assert_eq!(body["results"][1]["code"], "NORMAL");
+
+    // Updated data is used by the next request.
+    put_json(
+        &app,
+        "/api/v1/data/limits",
+        &json!({ "vip_min": 2000, "rate": 0.2 }),
+    )
+    .await;
+    let (_, body) = post_json(
+        &app,
+        "/api/v1/execute/vip_check",
+        &json!({ "input": { "amount": 1500 } }),
+    )
+    .await;
+    assert_eq!(body["code"], "NORMAL");
+}
+
+#[tokio::test]
+async fn test_execute_calls_other_ruleset() {
+    let app = build_full_test_app().await;
+    post_json(&app, "/api/v1/rulesets", &doubling_ruleset("double")).await;
+    post_json(
+        &app,
+        "/api/v1/rulesets",
+        &caller_ruleset("caller", "double"),
+    )
+    .await;
+
+    let (status, body) = post_json(
+        &app,
+        "/api/v1/execute/caller",
+        &json!({ "input": { "x": 21 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["code"], "DONE");
+    assert_eq!(body["output"]["callee_code"], "DOUBLED");
+    assert_eq!(body["output"]["doubled"], 42);
+
+    let (status, body) = post_json(
+        &app,
+        "/api/v1/execute/caller/batch",
+        &json!({ "inputs": [{ "x": 1 }, { "x": 2 }], "options": { "parallel": true } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["results"][0]["output"]["doubled"], 2);
+    assert_eq!(body["results"][1]["output"]["doubled"], 4);
+
+    // The callee does not have to be a pipeline stage.
+    let (status, body) = post_json(
+        &app,
+        "/api/v1/execute-pipeline",
+        &json!({ "rulesets": ["caller"], "input": { "x": 5 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["output"]["doubled"], 10);
+}
+
+#[tokio::test]
+async fn test_execute_call_to_missing_ruleset_names_it() {
+    let app = build_full_test_app().await;
+    post_json(
+        &app,
+        "/api/v1/rulesets",
+        &caller_ruleset("caller", "nowhere"),
+    )
+    .await;
+
+    let (status, body) = post_json(
+        &app,
+        "/api/v1/execute/caller",
+        &json!({ "input": { "x": 1 } }),
+    )
+    .await;
+    assert_ne!(status, StatusCode::OK);
+    assert!(
+        body["message"].as_str().unwrap_or("").contains("nowhere"),
+        "{body}"
+    );
+}

@@ -1,6 +1,6 @@
 [package]
 name = "ordo-server"
-version = "0.5.2"
+version = "0.9.0"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -12,8 +12,8 @@ axum.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 once_cell = "1.19"
-ordo-core = { version = "0.5.2", path = "../ordo-core" }
-ordo-grpc = { version = "0.5.2", path = "../ordo-grpc" }
+ordo-core = { version = "0.9.0", path = "../ordo-core" }
+ordo-grpc = { version = "0.9.0", path = "../ordo-grpc" }
 ordo-studio-format = { path = "../ordo-studio-format" }
 parking_lot.workspace = true
 hashbrown.workspace = true
@@ -44,7 +44,8 @@ notify = { version = "6", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.4"
 async-nats = { version = "0.38", optional = true }
 hostname = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Native roots too, so the decision gateway trusts a corporate or proxy CA installed on the host.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
 hex.workspace = true
 hmac = "0.12"
 sha2 = "0.10"

@@ -795,7 +795,12 @@ export default {
       revoked: 'Token revoked',
       createdTitle: 'Connect token created',
       createdWarning: 'Copy it now — it is shown only once and cannot be retrieved later.',
-      useHint: 'Give it to an engine via flag or env:',
+      useHint: 'Run this on the machine you want to connect:',
+      replaceHint:
+        'Replace ENGINE_HOST with an address the platform can reach this machine on, and NATS_HOST with the NATS server the platform uses. The engine shows up below once it is online.',
+      waiting: 'Waiting for the engine to come online…',
+      connected: 'Engine {name} is online',
+      backToForm: 'Back to where I was',
       copy: 'Copy',
       copied: 'Copied to clipboard',
       copyFailed: 'Copy failed — select and copy manually.',
@@ -1154,6 +1159,9 @@ export default {
     name: 'Name',
     server: 'Bound Server',
     serverNodes: 'Bound Nodes',
+    connectServer: 'Connect a server',
+    noServerAvailable:
+      'No servers yet. Click "Connect a server", run the command on a machine, and the engine shows up here once it is online.',
     noServer: 'No server',
     default: 'Default (Production)',
     canary: 'Canary',
@@ -1399,8 +1407,11 @@ export default {
     batchIntervalField: 'Batch interval (seconds)',
     maxFailedInstancesField: 'Max failed instances',
     noPolicyForRequestTitle: 'No release policy is configured yet',
+    noEnvironmentForRequestDesc:
+      'A release needs a target. Create an environment first; this form keeps what you filled in.',
     noPolicyForRequestDesc:
       'Create a policy first so this release request can bind approvers, rollout, and rollback rules.',
+    bindServers: 'Bind servers',
     noBoundServer:
       'This environment has no bound execution node. The request will record 0 affected instances.',
     serverStatusLabel: 'Node status',

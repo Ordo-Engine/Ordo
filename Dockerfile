@@ -37,6 +37,9 @@ RUN apt-get update && apt-get install -y \
 # Copy binary from builder
 COPY --from=builder /tmp/ordo-server /app/ordo-server
 
+# Rule packs, so `--rules-dir /app/rule-packs/<pack>/rulesets` works without a mount
+COPY --from=builder /app/examples/rule-packs /app/rule-packs
+
 # Create non-root user and pre-create writable data dirs so fresh named
 # volumes inherit the expected ownership on first mount.
 RUN useradd -r -s /bin/false ordo \

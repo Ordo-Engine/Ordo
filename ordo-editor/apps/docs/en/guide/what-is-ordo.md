@@ -26,7 +26,7 @@ A **ruleset** is a graph of steps. Execution starts at the entry step and ends a
 | `sub_rule` | Calls a reusable sub-rule |
 | `terminal` | Ends execution and returns a result code and outputs |
 
-**Expressions** appear in conditions and outputs, for example `order.amount >= 1000 && user.tier == "gold"`. The expression language is small on purpose: no loops, no side effects, predictable run time. See [Expression Syntax](./expression-syntax).
+**Expressions** appear in conditions and outputs, for example `order.amount >= 1000 && user.tier == "gold"`. The expression language is small on purpose: no loops, no side effects, predictable run time. See [Expressions](./expression-syntax).
 
 **Input validation** with `input_schema` declares the fields and types a rule needs. A missing field or a wrong type returns an error instead of quietly taking the wrong branch. Money can use the `decimal` type for exact arithmetic. See [Rule Structure](./rule-structure).
 
@@ -34,21 +34,21 @@ A **ruleset** is a graph of steps. Execution starts at the entry step and ends a
 
 The same rule file runs in several ways:
 
-- **CLI**: `ordo exec`, `ordo test` and `ordo trace` for local development and CI. See [CLI](/en/platform/cli).
-- **Service**: `ordo-server` serves HTTP, gRPC and a Unix socket, with live reload, versioning and multi-tenancy. See [HTTP API](/en/api/http-api).
-- **Embedded**: use `ordo-core` directly from Rust, or compile to [WebAssembly](/en/api/wasm) and run it in the browser.
+- CLI: `ordo test`, `ordo trace` and `ordo impact` for local development and CI. See [Testing and Impact](./testing).
+- Service: `ordo-server` serves HTTP, gRPC and a Unix socket, with live reload, versions and multi-tenancy. See [Running the Server](./server).
+- Embedded: use `ordo-core` from Rust, or the WebAssembly build in a browser. See [Embedding](./embed).
 
 When a team needs visual editing, approvals and multiple environments, add [Studio & Platform](/en/platform/overview). The engine is fully usable without it.
 
 ## With decision models
 
-Decision models like [Jev](https://typesafe.ai) read a piece of text and answer questions such as "is this a refund request?" or "how urgent is it?", each with a confidence. They only judge. Whether to refund, and whether a person should look first, also depends on the amount, the refund window, the customer's history and your policy. That part is a decision, and it lives in Ordo rules.
+Decision models like [Jev](https://typesafe.ai) read a piece of text and answer questions such as "is this a refund request?" or "how urgent is it?", each with a confidence. Whether to refund, and whether a person should look first, also depends on the amount, the refund window, the customer's history and your policy. That part is a decision, and it lives in Ordo rules.
 
-The model's answers reach the rules as input fields, such as `jev.intent.confidence`. Thresholds sit in the rule file with tests, and `ordo impact` shows which decisions a change moves before you make it. For a full example, see the [jev-routing rule pack](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing).
+The model's answers reach the rules as input fields, such as `jev.intent.confidence`. Thresholds sit in the rule file with tests, and `ordo impact` shows which decisions a change moves before you make it. ordo-server can also sit in front of the model as a [gateway](/en/platform/decision-gateway). For a full example, see the [jev-routing rule pack](https://github.com/Ordo-Engine/Ordo/tree/main/examples/rule-packs/jev-routing).
 
 ## Working with AI
 
-Rules are structured files and the expression language is small, so a rule an AI writes can be compiled and checked with `ordo validate`, tested with `ordo test`, and, when the result is wrong, inspected with `ordo trace` to see which path it took. `ordo mcp` exposes these as tools to a coding agent.
+Rules are structured files and the expression language is small, so a rule an AI writes can be compiled and checked with `ordo validate`, tested with `ordo test`, and, when the result is wrong, inspected with `ordo trace` to see which path it took. `ordo mcp` exposes these as tools to a coding agent. See [MCP Server](/en/platform/mcp).
 
 [Ordo Guard](/en/platform/guard) is an example from the other direction: it uses Ordo rules to decide whether each tool call a coding agent makes is allowed, denied or needs a confirmation.
 
@@ -58,8 +58,10 @@ A good fit: decision logic that changes often, must be exact, and has to be expl
 
 A poor fit: long-running processes with waits and human steps (use a workflow engine), and general computation that needs loops or heavy data processing.
 
+It also depends on who owns the logic. If one person writes and changes it, and it already has tests, Ordo adds little. It matters most to teams where thresholds change often, the people changing them did not write the code, the model gets upgraded, and someone has to answer for every decision.
+
 ## Next steps
 
 - [Quick Start](./quick-start): write and run a first rule in five minutes
 - [Rule Structure](./rule-structure): the full rule file format
-- [Decision Table](./decision-table): rules as tables
+- [Decision Tables](./decision-table): rules as tables

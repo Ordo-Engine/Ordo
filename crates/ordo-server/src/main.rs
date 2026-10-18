@@ -110,6 +110,20 @@ pub struct AppState {
     pub decide: Option<Arc<decide::DecideGateway>>,
 }
 
+/// Startup error for a data path the server user cannot write, such as a
+/// read-only volume or a host folder mounted into the container.
+fn unwritable(what: &str, path: &std::path::Path, err: std::io::Error) -> anyhow::Error {
+    if err.kind() == std::io::ErrorKind::PermissionDenied {
+        anyhow::anyhow!(
+            "{what} at {path:?}: {err}. The server user cannot write there. Make the \
+             rules directory writable, or point --wal-dir (ORDO_WAL_DIR) and \
+             --tenants-dir (ORDO_TENANTS_DIR, a file path) at a writable location."
+        )
+    } else {
+        anyhow::anyhow!("{what} at {path:?}: {err}")
+    }
+}
+
 fn build_signature_verifier(config: &ServerConfig) -> anyhow::Result<Option<RuleVerifier>> {
     if !config.signature_enabled {
         return Ok(None);
@@ -318,13 +332,7 @@ async fn main() -> anyhow::Result<()> {
                     replay_wal(&mut store, &wal);
                     Some(wal)
                 }
-                Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "Failed to open WAL at {:?}: {}",
-                        wal_dir,
-                        e
-                    ));
-                }
+                Err(e) => return Err(unwritable("Failed to open WAL", &wal_dir, e)),
             }
         } else {
             warn!("WAL is disabled; crash-safe persistence is not guaranteed");
@@ -419,11 +427,17 @@ async fn main() -> anyhow::Result<()> {
             .as_ref()
             .map(|dir| default_tenant_store_path(dir))
     });
+    let tenant_store_path = tenant_store.clone().unwrap_or_default();
     let tenant_store = tenant_store.map(TenantStore::new);
-    let tenant_manager = Arc::new(TenantManager::new(tenant_store, tenant_defaults).await?);
+    let tenant_manager = Arc::new(
+        TenantManager::new(tenant_store, tenant_defaults)
+            .await
+            .map_err(|e| unwritable("Failed to load tenant settings", &tenant_store_path, e))?,
+    );
     tenant_manager
         .ensure_default(&config.default_tenant)
-        .await?;
+        .await
+        .map_err(|e| unwritable("Failed to save tenant settings", &tenant_store_path, e))?;
 
     let rate_limiter = Arc::new(RateLimiter::new());
     let recent_writes = Arc::new(RecentWrites::new());
@@ -1126,7 +1140,13 @@ async fn start_http_server(
         );
         app = app
             .route("/systemone/v1/systemone", post(decide::systemone))
-            .route("/systemone/v1/models", get(decide::models));
+            .route("/systemone/v1/models", get(decide::models))
+            // Base URL http://<ordo>/systemone/rulesets/<name>: rules with no code change.
+            .route(
+                "/systemone/rulesets/:ruleset/v1/systemone",
+                post(decide::systemone_for_ruleset),
+            )
+            .route("/systemone/rulesets/:ruleset/v1/models", get(decide::models));
     }
 
     // Register debug routes only in debug mode

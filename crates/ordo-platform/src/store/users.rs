@@ -44,6 +44,13 @@ impl PlatformStore {
         Ok(row.map(|r| row_to_user(&r)))
     }
 
+    pub async fn count_users(&self) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count)
+    }
+
     pub async fn update_user(&self, user: &User) -> Result<()> {
         self.save_user(user).await
     }

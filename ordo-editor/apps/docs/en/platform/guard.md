@@ -158,11 +158,11 @@ The hook analyzes the command without running it. Variables, aliases and
 shell functions are invisible to it, so it makes bypasses harder but does not
 rule them out.
 
-::: warning One missing field makes the whole condition false
+::: warning A missing field makes its own comparison unknown
 `'-r' in argv.rm` works when `rm` ran. If it didn't, `argv.rm` is missing and
-the entire condition is false, including an `||` alternative that would have
-matched. Guard each lookup (`'rm' in programs && '-r' in argv.rm`)
-and put alternatives that read different fields in separate branches.
+that comparison counts as unknown: an `||` alternative that is true still
+matches, but `&&` and `!` around it cannot. Guard each lookup
+(`'rm' in programs && '-r' in argv.rm`).
 :::
 
 ## Writing rules

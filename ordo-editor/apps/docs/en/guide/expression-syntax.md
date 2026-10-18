@@ -55,19 +55,14 @@ order.items.count
 profile.settings.notifications
 ```
 
-### Array Indexing
+### Array Elements
+
+Use the index as a path segment:
 
 ```
-items[0]
-items[0].price
-users[1].name
-```
-
-### Nested Access
-
-```
-data.users[0].profile.email
-order.items[2].product.category
+items.0
+items.0.price
+users.1.name
 ```
 
 ## Built-in Functions
@@ -80,7 +75,7 @@ order.items[2].product.category
 | `upper(s)`               | Uppercase         | `upper(code) == "VIP"`     |
 | `lower(s)`               | Lowercase         | `lower(email)`             |
 | `trim(s)`                | Remove whitespace | `trim(input)`              |
-| `contains(s, sub)`       | Check substring   | `contains(email, "@")`     |
+| `contains_str(s, sub)`   | Check substring   | `contains_str(email, "@")` |
 | `starts_with(s, prefix)` | Check prefix      | `starts_with(code, "PRE")` |
 | `ends_with(s, suffix)`   | Check suffix      | `ends_with(file, ".pdf")`  |
 
@@ -123,18 +118,21 @@ else if tier == "silver" then 0.10
 else 0.05
 ```
 
-## Type Coercion
+## Types
 
-Ordo automatically handles type conversions:
+Numbers compare across int and float, but nothing else is converted for you:
 
 ```
-# String to number comparison
-"100" > 50  # true (string converted to number)
-
-# Boolean expressions
-1 == true   # true
-0 == false  # true
+10 == 10.0           # true
+"100" > 50           # error: cannot compare string and int
+to_int("100") > 50   # true
+1 == true            # false
 ```
+
+## Strings
+
+`\n`, `\t`, `\r`, `\\`, `\"` and `\'` are escapes. Any other backslash is kept, so a
+regex reads as written: `regex_match("^\d+\.\d{2}$", amount_text)`.
 
 ## Examples
 
@@ -156,7 +154,7 @@ credit_score >= 700 && debt_ratio < 0.4 && employment_years >= 2
 
 ```
 # Validate order has items and meets minimum
-len(order.items) > 0 && sum(order.items.*.price) >= 10
+len(order.items) > 0 && sum(map_extract(order.items, "price")) >= 10
 ```
 
 ### Null-safe Field Access
@@ -170,10 +168,10 @@ coalesce(user.preferred_name, user.name, "Customer")
 
 ```
 # Check if any item exceeds limit
-max(order.items.*.quantity) <= 100
+max(map_extract(order.items, "quantity")) <= 100
 
 # Validate total
-sum(cart.items.*.price) <= user.credit_limit
+sum(map_extract(cart.items, "price")) <= user.credit_limit
 ```
 
 ## Operator Precedence

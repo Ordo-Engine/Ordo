@@ -9,7 +9,7 @@ use super::step::{ActionKind, Condition, LogLevel, Step, StepKind, SubRuleGraph,
 use crate::capability::{CapabilityInvoker, CapabilityRequest};
 use crate::context::{Context, Value};
 use crate::error::{OrdoError, Result};
-use crate::expr::{Evaluator, Expr, ExprParser};
+use crate::expr::{BinaryOp, Evaluator, Expr, ExprParser, UnaryOp};
 use crate::trace::{ExecutionTrace, StepTrace, SubRuleCallTrace, SubRuleOutputTrace, TraceConfig};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -754,9 +754,57 @@ impl RuleExecutor {
             Err(OrdoError::FieldNotFound { .. })
                 if *field_missing == FieldMissingBehavior::Lenient =>
             {
-                Ok(false)
+                Ok(self.eval_with_missing_fields(expr, ctx)?.unwrap_or(false))
             }
             Err(e) => Err(e),
+        }
+    }
+
+    /// Truth of a condition in which a field is missing, or `None` when the
+    /// missing field decides it. A missing field leaves its own comparison
+    /// unknown, not the whole condition: `age < 18 || blacklisted` is still
+    /// true for a blacklisted applicant who sent no age.
+    fn eval_with_missing_fields(&self, expr: &Expr, ctx: &Context) -> Result<Option<bool>> {
+        match expr {
+            Expr::Binary {
+                op: BinaryOp::And,
+                left,
+                right,
+            } => {
+                let left = self.eval_with_missing_fields(left, ctx)?;
+                if left == Some(false) {
+                    return Ok(Some(false));
+                }
+                Ok(match (left, self.eval_with_missing_fields(right, ctx)?) {
+                    (_, Some(false)) => Some(false),
+                    (Some(true), Some(true)) => Some(true),
+                    _ => None,
+                })
+            }
+            Expr::Binary {
+                op: BinaryOp::Or,
+                left,
+                right,
+            } => {
+                let left = self.eval_with_missing_fields(left, ctx)?;
+                if left == Some(true) {
+                    return Ok(Some(true));
+                }
+                Ok(match (left, self.eval_with_missing_fields(right, ctx)?) {
+                    (_, Some(true)) => Some(true),
+                    (Some(false), Some(false)) => Some(false),
+                    _ => None,
+                })
+            }
+            Expr::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => Ok(self.eval_with_missing_fields(operand, ctx)?.map(|b| !b)),
+            _ => match self.evaluator.eval(expr, ctx) {
+                Ok(value) => Ok(Some(value.is_truthy())),
+                Err(OrdoError::FieldNotFound { .. }) => Ok(None),
+                Err(e) => Err(e),
+            },
         }
     }
 
@@ -1891,6 +1939,48 @@ mod tests {
             errors.iter().any(|e| e.contains("Cycle")),
             "Expected cycle error, got: {:?}",
             errors
+        );
+    }
+
+    #[test]
+    fn test_missing_field_only_makes_its_own_comparison_unknown() {
+        let rules = r#"{
+            "config": {"name": "kleene", "version": "1.0.0", "entry_step": "d"},
+            "steps": {
+                "d": {"id": "d", "name": "d", "type": "decision",
+                      "branches": [{"condition": "applicant.age < 18 || blacklisted == true", "next_step": "rej"},
+                                   {"condition": "!(applicant.age >= 18)", "next_step": "rej"},
+                                   {"condition": "vip == true && applicant.age >= 18", "next_step": "vip"}],
+                      "default_next": "ok"},
+                "rej": {"id": "rej", "name": "r", "type": "terminal", "result": {"code": "REJECTED"}},
+                "vip": {"id": "vip", "name": "v", "type": "terminal", "result": {"code": "VIP"}},
+                "ok": {"id": "ok", "name": "o", "type": "terminal", "result": {"code": "APPROVED"}}
+            }
+        }"#;
+        let ruleset = RuleSet::from_json_compiled(rules).unwrap();
+        let executor = RuleExecutor::new();
+        let code = |input: &str| {
+            let input: Value = serde_json::from_str(input).unwrap();
+            executor.execute(&ruleset, input).unwrap().code
+        };
+
+        // A true side of `||` decides, whichever side holds the missing field.
+        assert_eq!(
+            code(r#"{"blacklisted": true, "applicant": {}}"#),
+            "REJECTED"
+        );
+        // Nothing decides: the condition stays false, as before.
+        assert_eq!(
+            code(r#"{"blacklisted": false, "applicant": {}}"#),
+            "APPROVED"
+        );
+        assert_eq!(
+            code(r#"{"blacklisted": false, "vip": true, "applicant": {}}"#),
+            "APPROVED"
+        );
+        assert_eq!(
+            code(r#"{"blacklisted": false, "vip": true, "applicant": {"age": 30}}"#),
+            "VIP"
         );
     }
 }

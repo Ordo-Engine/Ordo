@@ -41,13 +41,13 @@ trim("  hello  ")   # "hello"
 trim(input)         # 去除空格后的 input
 ```
 
-### contains(string, substring)
+### contains_str(string, substring)
 
 检查字符串是否包含子字符串。
 
 ```
-contains("hello world", "world")    # true
-contains(email, "@gmail.com")       # 如果是 Gmail 则为 true
+contains_str("hello world", "world")    # true
+contains_str(email, "@gmail.com")     # 如果是 Gmail 则为 true
 ```
 
 ### starts_with(string, prefix)

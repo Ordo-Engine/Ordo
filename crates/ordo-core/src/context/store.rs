@@ -67,18 +67,23 @@ impl Context {
             } else {
                 self.variables.get(var_name)
             }
-        } else if let Some(item_path) = path.strip_prefix("item.") {
+        } else if let (Some(item_path), Some(item)) =
+            (path.strip_prefix("item."), self.current_item.as_ref())
+        {
             // Current iteration item field
-            self.current_item.as_ref()?.get_path(item_path)
-        } else if path == "item" {
+            item.get_path(item_path)
+        } else if let (true, Some(item)) = (path == "item", self.current_item.as_ref()) {
             // Current iteration item itself
-            self.current_item.as_ref()
+            Some(item)
         } else if path == "_index" {
             // Special handling for index - backed by an internal variable
             self.variables.get("_index")
         } else if let Some(data_path) = path.strip_prefix("data.") {
-            // Explicit data prefix
-            self.data.get_path(data_path)
+            // Explicit data prefix, unless the input has its own `data` field:
+            // `data.x` must read that field, not quietly miss it.
+            self.data
+                .get_path(path)
+                .or_else(|| self.data.get_path(data_path))
         } else {
             // Default: get from data
             self.data.get_path(path)
@@ -222,5 +227,16 @@ mod tests {
         assert_eq!(ctx.current_index(), Some(0));
         // `_index` should be available as a special variable reflecting the current index.
         assert_eq!(ctx.get("_index"), Some(&Value::int(0)));
+    }
+
+    #[test]
+    fn test_input_fields_named_data_and_item() {
+        let ctx =
+            Context::from_json(r#"{"x": 1, "data": {"y": 2}, "item": {"sku": "A1"}}"#).unwrap();
+
+        assert_eq!(ctx.get("data.y"), Some(&Value::int(2)));
+        assert_eq!(ctx.get("data.x"), Some(&Value::int(1)));
+        assert_eq!(ctx.get("item.sku"), Some(&Value::string("A1")));
+        assert!(ctx.get("item").is_some());
     }
 }

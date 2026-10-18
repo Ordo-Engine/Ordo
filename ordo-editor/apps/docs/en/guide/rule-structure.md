@@ -33,7 +33,7 @@ A rule (RuleSet) consists of two main parts:
 
 ### Input Schema
 
-Declare the fields a ruleset expects so that bad input is rejected instead of silently changing the decision. Without a schema, a missing field makes a condition false, so a rule like `applicant.age < 18` is skipped when `age` is not sent.
+Declare the fields a ruleset expects so that bad input is rejected instead of silently changing the decision. Without a schema, a missing field makes a condition false, so a rule like `applicant.age < 18` is skipped when `age` is not sent. Only the comparison that reads the missing field is affected: `applicant.age < 18 || blacklisted` still matches a blacklisted applicant. With a schema, `ordo validate` also reports a condition that reads a field the schema does not declare, which is usually a typo.
 
 ```json
 "input_schema": [

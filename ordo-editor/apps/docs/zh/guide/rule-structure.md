@@ -33,7 +33,7 @@ Ordo 规则用**步骤流模型**（Step Flow Model）定义：一组相互连�
 
 ### 输入声明（Input Schema）
 
-声明规则需要的输入字段后，错误的输入会被拒绝，不会悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。
+声明规则需要的输入字段后，错误的输入会被拒绝，不会悄悄改变决策结果。没有声明时，缺失字段会让条件判为 false，比如没传 `age` 时 `applicant.age < 18` 会被直接跳过。只有读到缺失字段的那一项受影响：`applicant.age < 18 || blacklisted` 遇到黑名单用户照样命中。声明了 schema 后，`ordo validate` 还会报出读取了 schema 里没有的字段的条件，这通常是拼写错误。
 
 ```json
 "input_schema": [

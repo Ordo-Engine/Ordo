@@ -164,6 +164,15 @@ pub(crate) fn validate_one(
             step_id: None,
             message: e.to_string(),
         });
+    } else {
+        // a field outside the declared input schema is a typo that would
+        // quietly never match at run time
+        for (step_id, path) in ordo_core::rule::undeclared_fields(&engine) {
+            errors.push(ValidationError {
+                step_id: Some(step_id),
+                message: format!("`{path}` is not in the input schema"),
+            });
+        }
     }
 
     // graph validation (missing/dangling steps, sub-rule cycles)

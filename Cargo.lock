@@ -2425,6 +2425,7 @@ dependencies = [
  "colored",
  "dirs",
  "hashbrown 0.14.5",
+ "libc",
  "ordo-api-client",
  "ordo-core",
  "ordo-studio-format",

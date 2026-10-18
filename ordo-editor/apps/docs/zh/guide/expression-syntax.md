@@ -55,19 +55,14 @@ order.items.count
 profile.settings.notifications
 ```
 
-### 数组索引 (Array Indexing)
+### 数组元素
+
+把下标当作路径的一段：
 
 ```
-items[0]
-items[0].price
-users[1].name
-```
-
-### 嵌套访问 (Nested Access)
-
-```
-data.users[0].profile.email
-order.items[2].product.category
+items.0
+items.0.price
+users.1.name
 ```
 
 ## 内置函数
@@ -80,7 +75,7 @@ order.items[2].product.category
 | `upper(s)`               | 大写         | `upper(code) == "VIP"`     |
 | `lower(s)`               | 小写         | `lower(email)`             |
 | `trim(s)`                | 去除空格     | `trim(input)`              |
-| `contains(s, sub)`       | 检查子字符串 | `contains(email, "@")`     |
+| `contains_str(s, sub)`   | 检查子字符串 | `contains_str(email, "@")` |
 | `starts_with(s, prefix)` | 检查前缀     | `starts_with(code, "PRE")` |
 | `ends_with(s, suffix)`   | 检查后缀     | `ends_with(file, ".pdf")`  |
 
@@ -123,18 +118,21 @@ else if tier == "silver" then 0.10
 else 0.05
 ```
 
-## 类型强制转换
+## 类型
 
-Ordo 自动处理类型转换：
+整数和浮点数可以直接比较，其他类型不会自动转换：
 
 ```
-# 字符串转数字比较
-"100" > 50  # true (字符串被转换为数字)
-
-# 布尔表达式
-1 == true   # true
-0 == false  # true
+10 == 10.0           # true
+"100" > 50           # 报错：字符串不能和整数比较
+to_int("100") > 50   # true
+1 == true            # false
 ```
+
+## 字符串
+
+`\n`、`\t`、`\r`、`\\`、`\"`、`\'` 是转义。其他反斜杠原样保留，所以正则按写的意思生效：
+`regex_match("^\d+\.\d{2}$", amount_text)`。
 
 ## 示例
 
@@ -156,7 +154,7 @@ credit_score >= 700 && debt_ratio < 0.4 && employment_years >= 2
 
 ```
 # 验证订单包含项目且满足最低金额
-len(order.items) > 0 && sum(order.items.*.price) >= 10
+len(order.items) > 0 && sum(map_extract(order.items, "price")) >= 10
 ```
 
 ### 空安全字段访问
@@ -170,10 +168,10 @@ coalesce(user.preferred_name, user.name, "Customer")
 
 ```
 # 检查是否有任何项目的数量超过限制
-max(order.items.*.quantity) <= 100
+max(map_extract(order.items, "quantity")) <= 100
 
 # 验证总额
-sum(cart.items.*.price) <= user.credit_limit
+sum(map_extract(cart.items, "price")) <= user.credit_limit
 ```
 
 ## 运算符优先级

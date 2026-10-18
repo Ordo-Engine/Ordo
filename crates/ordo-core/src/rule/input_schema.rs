@@ -10,8 +10,11 @@
 //! The shape matches the Studio editor's `SchemaField`, so a schema authored
 //! there is enforced by the engine as-is.
 
+use super::model::RuleSet;
+use super::step::{Action, ActionKind, Condition, Step, StepKind};
 use crate::context::Value;
 use crate::error::{OrdoError, Result};
+use crate::expr::Expr;
 use serde::{Deserialize, Serialize};
 
 /// Declared type of an input field
@@ -203,6 +206,117 @@ fn check_value(field: &InputField, value: &mut Value, path: &str, errors: &mut V
     }
 }
 
+/// Input fields a ruleset reads but its input schema does not declare, as
+/// `(step id, field path)` pairs. Empty when no schema is declared.
+///
+/// With a schema, a field outside it is almost always a typo: the input
+/// check passes, the field is then missing at run time, and its comparison
+/// quietly stops matching. Call after `RuleSet::compile()`.
+pub fn undeclared_fields(ruleset: &RuleSet) -> Vec<(String, String)> {
+    let schema = &ruleset.config.input_schema;
+    if schema.is_empty() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut step_ids: Vec<&String> = ruleset.steps.keys().collect();
+    step_ids.sort();
+    for id in step_ids {
+        let mut paths = Vec::new();
+        step_fields(&ruleset.steps[id], &mut paths);
+        for path in paths {
+            if !declares(schema, &path) && !found.contains(&(id.clone(), path.clone())) {
+                found.push((id.clone(), path));
+            }
+        }
+    }
+    found
+}
+
+fn step_fields(step: &Step, paths: &mut Vec<String>) {
+    let mut expr = |e: &Expr| expr_fields(e, paths);
+    match &step.kind {
+        StepKind::Decision { branches, .. } => {
+            for branch in branches {
+                if let Condition::Expression(e) = &branch.condition {
+                    expr(e);
+                }
+                for action in &branch.actions {
+                    action_exprs(action, &mut expr);
+                }
+            }
+        }
+        StepKind::Action { actions, .. } => {
+            for action in actions {
+                action_exprs(action, &mut expr);
+            }
+        }
+        StepKind::Terminal { result } => result.output.iter().for_each(|(_, e)| expr(e)),
+        StepKind::SubRule { bindings, .. } => bindings.iter().for_each(|(_, e)| expr(e)),
+        StepKind::DecisionTable(table) => {
+            for row in &table.compiled_rules {
+                row.condition.iter().for_each(&mut expr);
+                row.outputs.iter().for_each(&mut expr);
+            }
+            table.compiled_default.iter().flatten().for_each(&mut expr);
+        }
+    }
+}
+
+fn action_exprs(action: &Action, f: &mut impl FnMut(&Expr)) {
+    match &action.kind {
+        ActionKind::SetVariable { value, .. } | ActionKind::Metric { value, .. } => f(value),
+        ActionKind::CallRuleSet { input_mapping, .. } => input_mapping.iter().for_each(f),
+        ActionKind::ExternalCall { params, .. } => params.iter().for_each(|(_, e)| f(e)),
+        ActionKind::Log { .. } => {}
+    }
+}
+
+fn expr_fields(expr: &Expr, paths: &mut Vec<String>) {
+    match expr {
+        Expr::Field(path) | Expr::Exists(path) => {
+            // `$name` is a variable and `$data.x` external data, not input.
+            if !path.starts_with('$') {
+                paths.push(path.clone());
+            }
+        }
+        Expr::Literal(_) => {}
+        Expr::Binary { left, right, .. } => {
+            expr_fields(left, paths);
+            expr_fields(right, paths);
+        }
+        Expr::Unary { operand, .. } => expr_fields(operand, paths),
+        Expr::Call { args, .. } | Expr::Array(args) | Expr::Coalesce(args) => {
+            args.iter().for_each(|e| expr_fields(e, paths))
+        }
+        Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_fields(condition, paths);
+            expr_fields(then_branch, paths);
+            expr_fields(else_branch, paths);
+        }
+        Expr::Object(pairs) => pairs.iter().for_each(|(_, e)| expr_fields(e, paths)),
+    }
+}
+
+/// Whether `path` is declared. Past an object without listed fields, or any
+/// non-object type, the rest of the path is not checked.
+fn declares(fields: &[InputField], path: &str) -> bool {
+    let mut fields = fields;
+    for segment in path.split('.') {
+        let Some(field) = fields.iter().find(|f| f.name == segment) else {
+            return false;
+        };
+        if field.field_type != InputFieldType::Object || field.fields.is_empty() {
+            return true;
+        }
+        fields = &field.fields;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +439,38 @@ mod tests {
     #[test]
     fn empty_schema_accepts_anything() {
         apply_input_schema(&[], &mut Value::int(1)).unwrap();
+    }
+
+    #[test]
+    fn reports_fields_the_schema_does_not_declare() {
+        let mut ruleset = RuleSet::from_json(
+            r#"{
+              "config": {"name": "t", "version": "1", "entry_step": "d", "input_schema": [
+                {"name": "jev", "type": "object", "fields": [
+                  {"name": "intent", "type": "object", "fields": [{"name": "confidence", "type": "number"}]}
+                ]},
+                {"name": "order", "type": "object"}
+              ]},
+              "steps": {
+                "d": {"id": "d", "name": "d", "type": "decision", "branches": [
+                  {"condition": "jev.intent.confidense >= 0.6 && order.amount > 1 && $x > 0 && $data.limits.max > 0", "next_step": "t"},
+                  {"condition": "jev.intent.confidence >= 0.6 || amount > 5", "next_step": "t"}
+                ], "default_next": "t"},
+                "t": {"id": "t", "name": "t", "type": "terminal", "result": {"code": "OK"}}
+              }
+            }"#,
+        )
+        .unwrap();
+        ruleset.compile().unwrap();
+        assert_eq!(
+            undeclared_fields(&ruleset),
+            vec![
+                ("d".to_string(), "jev.intent.confidense".to_string()),
+                ("d".to_string(), "amount".to_string()),
+            ]
+        );
+
+        ruleset.config.input_schema.clear();
+        assert!(undeclared_fields(&ruleset).is_empty());
     }
 }

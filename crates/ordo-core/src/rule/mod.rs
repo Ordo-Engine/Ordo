@@ -39,7 +39,7 @@ pub use decision_table::{Aggregate, CompiledTableRow, DecisionTable, HitPolicy, 
 pub use executor::{
     BatchExecutionResult, ExecutionOptions, ExecutionResult, RuleExecutor, SingleExecutionResult,
 };
-pub use input_schema::{apply_input_schema, InputField, InputFieldType};
+pub use input_schema::{apply_input_schema, undeclared_fields, InputField, InputFieldType};
 pub use metrics::{LoggingMetricSink, MetricSink, MetricType, NoOpMetricSink};
 pub use model::{FieldMissingBehavior, RuleSet, RuleSetConfig};
 pub use step::{

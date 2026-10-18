@@ -41,13 +41,13 @@ trim("  hello  ")   # "hello"
 trim(input)         # trimmed input
 ```
 
-### contains(string, substring)
+### contains_str(string, substring)
 
 Checks if string contains substring.
 
 ```
-contains("hello world", "world")    # true
-contains(email, "@gmail.com")       # true if Gmail
+contains_str("hello world", "world")    # true
+contains_str(email, "@gmail.com")     # true if Gmail
 ```
 
 ### starts_with(string, prefix)

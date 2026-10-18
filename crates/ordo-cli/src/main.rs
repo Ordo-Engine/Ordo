@@ -108,6 +108,12 @@ enum Commands {
 }
 
 fn main() {
+    // `ordo trace ... | head` closes stdout early: end quietly, as other
+    // command-line tools do, instead of panicking inside println!.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = Cli::parse();
     let json = cli.json;
     if let Err(e) = dispatch(cli.command, json) {

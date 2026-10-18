@@ -44,10 +44,10 @@
 | `abs(n)` | `abs(-5)` | `5` |
 | `floor(n)`、`ceil(n)` | `floor(-3.1)` | `-4` |
 | `round(n, digits?)` | `round(19.99 * 0.85, 2)` | `16.99` |
-| `min(a, b, ...)`、`max(a, b, ...)` | `max(3, 1, 2)` | `3` |
+| `min(a, b, ...)`、`max(a, b, ...)`、`max(arr)` | `max(3, 1, 2)` | `3` |
 | `decimal(x)` | `decimal("19.99") * 3` | `59.97`，精确 |
 
-`round` 四舍五入时远离零（`round(-3.5)` 是 `-4`）。`min` 和 `max` 接收多个值，不接收数组。要取数组里最大的元素，用 `last(sort(arr))`。
+`round` 四舍五入时远离零（`round(-3.5)` 是 `-4`）。`min` 和 `max` 接收多个值，或者一个数组：`max(scores)`。
 
 ## 数组
 

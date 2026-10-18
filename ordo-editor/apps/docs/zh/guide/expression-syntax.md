@@ -29,7 +29,7 @@ $subtotal               # 前面步骤设置的变量
 $data.limits.vip_min    # 服务端或 `ordo exec --data` 提供的外部数据
 ```
 
-默认情况下，缺字段会让条件为假。想直接拒绝这样的输入，就声明[输入校验](./rule-structure#输入校验)，或者设置 `field_missing: strict`。
+默认情况下，缺字段只让它所在的那一项为假，条件的其余部分照常生效：没传 age 时，`age < 18 || blacklisted` 遇到黑名单用户仍然为真。想直接拒绝这样的输入，就声明[输入校验](./rule-structure#输入校验)，或者设置 `field_missing: strict`。
 
 ## 运算符
 
@@ -56,6 +56,10 @@ email contains "@example.com"
 - 除法不截断：`10 / 4` 是 `2.5`，`10 / 5` 是 `2`。要整除就写 `floor(a / b)`。
 - 字符串和数字不会自动转换：`"100" > 50` 会报错。用 `to_int(...)` 或 `to_float(...)`。
 - 金额用 `decimal(...)`，或在输入校验里把字段声明为 `decimal`。`decimal(0.1) + 0.2 == 0.3` 为真。有 decimal 参与的运算结果仍是 decimal。
+
+## 字符串
+
+`\n`、`\t`、`\r`、`\\`、`\"`、`\'` 是转义。其他反斜杠原样保留，所以正则按写的意思生效：`regex_match("^\d+\.\d{2}$", s)`。
 
 ## 条件表达式
 

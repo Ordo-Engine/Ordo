@@ -29,7 +29,7 @@ A rule file (a ruleset) is JSON or YAML with two parts: `config` and `steps`. St
 
 ### Input schema
 
-Without a schema, a missing field makes a condition false. A rule like `applicant.age < 18` is then skipped when `age` is not sent. Declare the fields you need, and bad input is rejected instead:
+Without a schema, a missing field makes its comparison false. A rule like `applicant.age < 18` is then skipped when `age` is not sent. With a schema, `ordo validate` also reports a rule that reads a field the schema does not declare, which is usually a typo. Declare the fields you need, and bad input is rejected instead:
 
 ```json
 "input_schema": [

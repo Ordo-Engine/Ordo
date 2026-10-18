@@ -29,7 +29,7 @@ $subtotal               # a variable set by an earlier step
 $data.limits.vip_min    # external data loaded by the server or `ordo exec --data`
 ```
 
-A missing field makes a condition false by default. To reject such input instead, declare an [input schema](./rule-structure#input-schema) or set `field_missing: strict`.
+A missing field makes its own comparison false by default, and the rest of the condition still counts: `age < 18 || blacklisted` is true for a blacklisted applicant who sent no age. To reject such input instead, declare an [input schema](./rule-structure#input-schema) or set `field_missing: strict`.
 
 ## Operators
 
@@ -56,6 +56,10 @@ Binding, from loosest to tightest: `||`, `&&`, comparisons, `in` / `not in` / `c
 - Division does not truncate: `10 / 4` is `2.5`, `10 / 5` is `2`. Use `floor(a / b)` for integer division.
 - Strings and numbers are not converted for you: `"100" > 50` is an error. Use `to_int(...)` or `to_float(...)`.
 - For money, use `decimal(...)` or declare the field as `decimal` in the input schema. `decimal(0.1) + 0.2 == 0.3` is true. Arithmetic with a decimal stays decimal.
+
+## Strings
+
+`\n`, `\t`, `\r`, `\\`, `\"` and `\'` are escapes. Any other backslash is kept, so a regex reads as written: `regex_match("^\d+\.\d{2}$", s)`.
 
 ## Conditionals
 

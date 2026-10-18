@@ -44,10 +44,10 @@ The pattern comes first.
 | `abs(n)` | `abs(-5)` | `5` |
 | `floor(n)`, `ceil(n)` | `floor(-3.1)` | `-4` |
 | `round(n, digits?)` | `round(19.99 * 0.85, 2)` | `16.99` |
-| `min(a, b, ...)`, `max(a, b, ...)` | `max(3, 1, 2)` | `3` |
+| `min(a, b, ...)`, `max(a, b, ...)`, `max(arr)` | `max(3, 1, 2)` | `3` |
 | `decimal(x)` | `decimal("19.99") * 3` | `59.97`, exact |
 
-`round` rounds half away from zero (`round(-3.5)` is `-4`). `min` and `max` take separate values, not an array. For the largest item of an array, use `last(sort(arr))`.
+`round` rounds half away from zero (`round(-3.5)` is `-4`). `min` and `max` take separate values or one array: `max(scores)`.
 
 ## Arrays
 

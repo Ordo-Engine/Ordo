@@ -350,7 +350,12 @@ impl ExprParser {
                     Some('\\') => s.push('\\'),
                     Some('"') => s.push('"'),
                     Some('\'') => s.push('\''),
-                    Some(c) => s.push(c),
+                    // Any other escape keeps its backslash, so a regex like
+                    // "\d+" or "a\sb" means what it says instead of "d+" or "asb".
+                    Some(c) => {
+                        s.push('\\');
+                        s.push(c);
+                    }
                     None => return Err(OrdoError::parse_error("Unexpected end of string")),
                 }
             } else {
@@ -712,5 +717,21 @@ mod tests {
         let deep = format!("{}true", nots);
         let err = ExprParser::parse(&deep).unwrap_err();
         assert!(err.to_string().contains("nesting depth"));
+    }
+
+    #[test]
+    fn test_unknown_escape_keeps_backslash() {
+        assert_eq!(
+            ExprParser::parse(r#""a\sb""#).unwrap(),
+            Expr::literal(r"a\sb")
+        );
+        assert_eq!(
+            ExprParser::parse(r#""\d+\.\d{2}""#).unwrap(),
+            Expr::literal(r"\d+\.\d{2}")
+        );
+        assert_eq!(
+            ExprParser::parse(r#""a\\s\n""#).unwrap(),
+            Expr::literal("a\\s\n")
+        );
     }
 }

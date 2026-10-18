@@ -80,7 +80,7 @@ Matching text in `command` is easy to get around: `rm -r -f`, `rm  -rf` and `rm 
 
 The command is analyzed, not run. Variables, aliases and functions are invisible to the parser, so this makes bypasses harder but does not rule them out.
 
-`argv.rm` is missing when `rm` did not run, and then the whole condition is false, including an `||` alternative. Write `'rm' in programs && '-r' in argv.rm`, and put alternatives on different fields in separate branches.
+`argv.rm` is missing when `rm` did not run, and then that comparison is unknown: a true `||` alternative still matches, but `&&` or `!` around it does not. Write `'rm' in programs && '-r' in argv.rm`.
 
 ## Writing rules
 

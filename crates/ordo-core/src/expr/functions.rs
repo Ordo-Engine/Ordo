@@ -168,36 +168,10 @@ impl FunctionRegistry {
             }
         });
 
-        self.register("min", |args| {
-            if args.is_empty() {
-                return Err(OrdoError::FunctionArgError {
-                    name: "min".into(),
-                    message: "expected at least 1 argument".into(),
-                });
-            }
-            let mut result = &args[0];
-            for arg in &args[1..] {
-                if arg.compare(result) == Some(std::cmp::Ordering::Less) {
-                    result = arg;
-                }
-            }
-            Ok(result.clone())
-        });
+        self.register("min", |args| extreme("min", args, std::cmp::Ordering::Less));
 
         self.register("max", |args| {
-            if args.is_empty() {
-                return Err(OrdoError::FunctionArgError {
-                    name: "max".into(),
-                    message: "expected at least 1 argument".into(),
-                });
-            }
-            let mut result = &args[0];
-            for arg in &args[1..] {
-                if arg.compare(result) == Some(std::cmp::Ordering::Greater) {
-                    result = arg;
-                }
-            }
-            Ok(result.clone())
+            extreme("max", args, std::cmp::Ordering::Greater)
         });
 
         self.register("floor", |args| {
@@ -1470,36 +1444,12 @@ impl FunctionRegistry {
 
     #[inline]
     fn builtin_max_static(args: &[Value]) -> Result<Value> {
-        if args.is_empty() {
-            return Err(OrdoError::FunctionArgError {
-                name: "max".into(),
-                message: "expected at least 1 argument".into(),
-            });
-        }
-        let mut result = &args[0];
-        for arg in &args[1..] {
-            if arg.compare(result) == Some(std::cmp::Ordering::Greater) {
-                result = arg;
-            }
-        }
-        Ok(result.clone())
+        extreme("max", args, std::cmp::Ordering::Greater)
     }
 
     #[inline]
     fn builtin_min_static(args: &[Value]) -> Result<Value> {
-        if args.is_empty() {
-            return Err(OrdoError::FunctionArgError {
-                name: "min".into(),
-                message: "expected at least 1 argument".into(),
-            });
-        }
-        let mut result = &args[0];
-        for arg in &args[1..] {
-            if arg.compare(result) == Some(std::cmp::Ordering::Less) {
-                result = arg;
-            }
-        }
-        Ok(result.clone())
+        extreme("min", args, std::cmp::Ordering::Less)
     }
 
     #[inline]
@@ -1684,6 +1634,30 @@ fn compile_regex(pattern: &str) -> Result<regex::Regex> {
     })
 }
 
+/// `min`/`max` over the arguments, or over the elements of a single array
+/// argument (`max(scores)`), which is `null` when the array is empty.
+fn extreme(name: &'static str, args: &[Value], keep: std::cmp::Ordering) -> Result<Value> {
+    let values = match args {
+        [] => {
+            return Err(OrdoError::FunctionArgError {
+                name: name.into(),
+                message: "expected at least 1 argument".into(),
+            })
+        }
+        [Value::Array(items)] => items.as_slice(),
+        _ => args,
+    };
+    let Some(mut result) = values.first() else {
+        return Ok(Value::Null);
+    };
+    for value in &values[1..] {
+        if value.compare(result) == Some(keep) {
+            result = value;
+        }
+    }
+    Ok(result.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1738,6 +1712,28 @@ mod tests {
             )
             .unwrap(),
             Value::string("")
+        );
+    }
+
+    #[test]
+    fn test_min_max_over_one_array() {
+        let registry = FunctionRegistry::new();
+        let scores = Value::array(vec![Value::int(100), Value::int(20), Value::int(55)]);
+
+        assert_eq!(
+            registry.call("max", std::slice::from_ref(&scores)).unwrap(),
+            Value::int(100)
+        );
+        assert_eq!(registry.call("min", &[scores]).unwrap(), Value::int(20));
+        assert_eq!(
+            registry
+                .call("max", &[Value::int(2), Value::int(3)])
+                .unwrap(),
+            Value::int(3)
+        );
+        assert_eq!(
+            registry.call("max", &[Value::array(vec![])]).unwrap(),
+            Value::Null
         );
     }
 

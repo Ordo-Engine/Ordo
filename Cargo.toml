@@ -75,8 +75,8 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["trace", "cors", "limit", "timeout"] }
 
 # gRPC
-tonic = { version = "0.10", features = ["tls"] }
-prost = "0.12"
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
 
 # 监控
 prometheus = { version = "0.13", default-features = false }

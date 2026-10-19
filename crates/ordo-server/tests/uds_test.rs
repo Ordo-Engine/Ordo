@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use hyper_util::rt::TokioIo;
 use ordo_grpc::ordo_service_client::OrdoServiceClient;
 use ordo_grpc::ordo_service_server::OrdoServiceServer;
 use ordo_grpc::{
@@ -28,7 +29,7 @@ async fn create_uds_client(
         .unwrap()
         .connect_with_connector(service_fn(move |_: Uri| {
             let path = socket_path.clone();
-            async move { UnixStream::connect(path).await }
+            async move { UnixStream::connect(path).await.map(TokioIo::new) }
         }))
         .await
         .unwrap();

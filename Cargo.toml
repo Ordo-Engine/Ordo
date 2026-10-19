@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 authors = ["Ordo Team"]
 license = "MIT"
@@ -75,8 +75,8 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["trace", "cors", "limit", "timeout"] }
 
 # gRPC
-tonic = { version = "0.10", features = ["tls"] }
-prost = "0.12"
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
 
 # 监控
 prometheus = { version = "0.13", default-features = false }
@@ -106,7 +106,7 @@ clap = { version = "4", features = ["derive"] }
 colored = "2"
 
 # Internal crates
-ordo-derive = { version = "0.9.0", path = "crates/ordo-derive" }
+ordo-derive = { version = "0.9.1", path = "crates/ordo-derive" }
 
 # 数据库
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "migrate", "chrono", "json", "uuid"] }

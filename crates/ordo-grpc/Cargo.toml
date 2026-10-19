@@ -1,14 +1,14 @@
 [package]
 name = "ordo-grpc"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 description = "Protobuf definitions for Ordo rule engine"
 license = "MIT"
 publish = false
 
 [dependencies]
-prost = "0.12"
-tonic = "0.10"
+prost = "0.13"
+tonic = "0.12"
 
 [build-dependencies]
-tonic-build = "0.10"
+tonic-build = "0.12"

@@ -36,7 +36,6 @@ yanked = "warn"
 #   RUSTSEC-2026-0104 — reachable panic parsing a malformed CRL
 #
 # The two "unsound" advisories below are not reachable in Ordo's usage:
-#   RUSTSEC-2026-0002 — IterMut stacked-borrows unsoundness (no untrusted trigger path)
 #   RUSTSEC-2026-0097 — rand is unsound only with a custom logger calling rand::rng();
 #                       Ordo uses the default logger and does not hit this path.
 #
